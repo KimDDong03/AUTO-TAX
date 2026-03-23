@@ -1,0 +1,93 @@
+{
+  "name": "auto-tax",
+  "version": "0.1.0",
+  "description": "KEPCO solar tax invoice automation desktop app",
+  "author": "AUTO-TAX",
+  "private": true,
+  "main": "desktop/main.mjs",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm:dev:server\" \"npm:dev:web\"",
+    "desktop:dev": "concurrently \"npm:dev:server\" \"npm:dev:web\" \"npm:dev:electron\"",
+    "dev:server": "tsx watch server/src/main.ts",
+    "dev:web": "wait-on tcp:127.0.0.1:4300 && vite --config web/vite.config.ts",
+    "dev:electron": "wait-on tcp:127.0.0.1:4300 tcp:127.0.0.1:5173 && electron .",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p server/tsconfig.json",
+    "build:web": "vite build --config web/vite.config.ts",
+    "start": "node dist/server/main.js",
+    "check": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "rebuild:node": "npm rebuild better-sqlite3 && node scripts/fix-popbill-package.mjs",
+    "rebuild:electron": "electron-builder install-app-deps && node scripts/fix-popbill-package.mjs",
+    "desktop:pack": "node scripts/desktop-build.mjs pack",
+    "desktop:installer": "node scripts/desktop-build.mjs installer",
+    "postinstall": "node scripts/fix-popbill-package.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "imapflow": "^1.2.16",
+    "mailparser": "^3.9.0",
+    "nodemailer": "^7.0.7",
+    "popbill": "^1.63.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@electron/packager": "^19.1.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^24.7.2",
+    "@types/nodemailer": "^7.0.3",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.1.0",
+    "concurrently": "^9.2.1",
+    "electron": "^41.0.3",
+    "electron-builder": "^26.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.1",
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.autotax.desktop",
+    "productName": "AUTO-TAX",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "dist/**/*",
+      "package.json",
+      "node_modules/**/*",
+      "!data{,/**/*}",
+      "!.env",
+      "!release{,/**/*}"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "AUTO-TAX-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
+  }
+}
