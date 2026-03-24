@@ -27,6 +27,7 @@ export interface AppSettings {
   popbillLinkId: string;
   popbillSecretKey: string;
   popbillIsTest: boolean;
+  popbillPartnerCorpNum: string;
   popbillUserIdPrefix: string;
   popbillSharedPassword: string;
   operatorContactName: string;

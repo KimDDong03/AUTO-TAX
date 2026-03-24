@@ -1,9 +1,10 @@
 import type React from "react";
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import type { AppSettings, Customer, DashboardPayload } from "./types";
+import type { AppSettings, Customer, DashboardPayload, PartnerPointsPayload } from "./types";
 
-type TabId = "overview" | "customers" | "review" | "settings";
+type TabId = "work" | "customers" | "settings";
+type SettingsSectionId = "gmail" | "popbill" | "operator" | "backup" | "logs";
 
 type CustomerFormState = {
   id: number | null;
@@ -43,6 +44,7 @@ type SettingsFormState = {
   popbillLinkId: string;
   popbillSecretKey: string;
   popbillIsTest: boolean;
+  popbillPartnerCorpNum: string;
   popbillUserIdPrefix: string;
   popbillSharedPassword: string;
   operatorContactName: string;
@@ -68,8 +70,8 @@ const baseCustomerForm: CustomerFormState = {
   corpName: "",
   ceoName: "",
   addr: "",
-  bizType: "",
-  bizClass: "",
+  bizType: "전기업",
+  bizClass: "태양광발전(자가용PPA)",
   popbillUserId: "",
   popbillPassword: "",
   memo: "",
@@ -111,7 +113,7 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
     popbillUserId: customer.popbillUserId,
     popbillPassword: customer.popbillPassword,
     memo: customer.memo,
-    plantNamesText: customer.plantNames.join("\n")
+    plantNamesText: customer.plantNames[0] ?? ""
   };
 }
 
@@ -139,6 +141,7 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
     popbillLinkId: settings.popbillLinkId,
     popbillSecretKey: settings.popbillSecretKey,
     popbillIsTest: settings.popbillIsTest,
+    popbillPartnerCorpNum: settings.popbillPartnerCorpNum,
     popbillUserIdPrefix: settings.popbillUserIdPrefix,
     popbillSharedPassword: settings.popbillSharedPassword,
     operatorContactName: settings.operatorContactName,
@@ -216,19 +219,6 @@ function getParseStatusLabel(status: string): string {
   }
 }
 
-function getPopbillStateLabel(state: string): string {
-  switch (state) {
-    case "joined":
-      return "팝빌 가입 완료";
-    case "pending":
-      return "가입 전";
-    case "failed":
-      return "연동 실패";
-    default:
-      return state;
-  }
-}
-
 function Panel(props: { title: string; subtitle?: string; children: React.ReactNode; actions?: React.ReactNode; className?: string }) {
   return (
     <section className={props.className ? `panel ${props.className}` : "panel"}>
@@ -238,6 +228,35 @@ function Panel(props: { title: string; subtitle?: string; children: React.ReactN
           {props.subtitle ? <p>{props.subtitle}</p> : null}
         </div>
         {props.actions ? <div className="panel-actions">{props.actions}</div> : null}
+      </header>
+      {props.children}
+    </section>
+  );
+}
+
+function SetupPanel(props: {
+  step: number;
+  title: string;
+  done: boolean;
+  children: React.ReactNode;
+  actions?: React.ReactNode;
+  className?: string;
+  note?: string;
+}) {
+  return (
+    <section className={props.className ? `panel setup-panel ${props.className}` : "panel setup-panel"}>
+      <header className="panel-header setup-panel-header">
+        <div className="setup-panel-title">
+          <span className="setup-order">{props.step}</span>
+          <div>
+            <h2>{props.title}</h2>
+            {props.note ? <p>{props.note}</p> : null}
+          </div>
+        </div>
+        <div className="panel-actions">
+          <span className={`chip ${props.done ? "chip-success" : "chip-danger"}`}>{props.done ? "완료" : "설정 필요"}</span>
+          {props.actions}
+        </div>
       </header>
       {props.children}
     </section>
@@ -358,6 +377,35 @@ function getDaysUntilDate(value: string | null): number | null {
   return Math.floor((end.getTime() - start.getTime()) / 86_400_000);
 }
 
+function getCustomerPopbillSummary(customer: Customer): string {
+  if (customer.popbillState === "joined") {
+    return `팝빌 연결됨${customer.popbillUserId ? ` · ${customer.popbillUserId}` : ""}`;
+  }
+
+  if (customer.popbillState === "failed") {
+    return "팝빌 연결 실패";
+  }
+
+  return "팝빌 가입 필요";
+}
+
+function getCustomerCertificateSummary(customer: Customer): string {
+  if (!customer.popbillCertRegistered) {
+    return "인증서 미등록";
+  }
+
+  const days = getDaysUntilDate(customer.popbillCertExpireDate);
+  if (days !== null && days < 0) {
+    return "인증서 만료";
+  }
+
+  if (days !== null && days <= 30) {
+    return `인증서 ${days}일 남음`;
+  }
+
+  return `인증서 ${formatCertificateExpireDate(customer.popbillCertExpireDate)}`;
+}
+
 function summarizePopbillInfo(payload: Record<string, unknown>): string {
   const lines = [
     `상태코드: ${payload.stateCode ?? "-"}`,
@@ -406,23 +454,28 @@ function withGmailSettings(form: SettingsFormState) {
 export function App() {
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
+  const [partnerPoints, setPartnerPoints] = useState<PartnerPointsPayload | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const hash = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
-    return hash === "customers" || hash === "review" || hash === "settings" || hash === "overview" ? hash : "overview";
+    return hash === "customers" || hash === "settings" || hash === "work" ? hash : "work";
   });
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [settingsForm, setSettingsForm] = useState<SettingsFormState | null>(null);
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
   const [error, setError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const load = async () => {
-    const [payload, nextStorageInfo] = await Promise.all([
+    const [payload, nextStorageInfo, nextPartnerPoints] = await Promise.all([
       api<DashboardPayload>("/api/bootstrap"),
-      api<StorageInfo>("/api/system/storage")
+      api<StorageInfo>("/api/system/storage"),
+      api<PartnerPointsPayload>("/api/popbill/partner-points")
     ]);
     const nextSettingsForm = settingsToForm(payload.settings);
     setData(payload);
     setStorageInfo(nextStorageInfo);
+    setPartnerPoints(nextPartnerPoints);
     setSettingsForm(nextSettingsForm);
     setCustomerForm((prev) => {
       if (prev.id) {
@@ -459,7 +512,7 @@ export function App() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace("#", "");
-      if (hash === "customers" || hash === "review" || hash === "settings" || hash === "overview") {
+      if (hash === "customers" || hash === "settings" || hash === "work") {
         setActiveTab(hash);
       }
     };
@@ -473,6 +526,14 @@ export function App() {
       window.history.replaceState(null, "", `#${activeTab}`);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!data || activeTab !== "customers" || creatingCustomer) return;
+    if (customerForm.id !== null) return;
+    if (!isPristineCustomerForm(customerForm)) return;
+    if (data.customers.length === 0) return;
+    setCustomerForm(customerToForm(data.customers[0]));
+  }, [activeTab, creatingCustomer, customerForm, data]);
 
   const runAction = async (key: string, action: () => Promise<void>) => {
     try {
@@ -488,6 +549,8 @@ export function App() {
   };
 
   const saveCustomer = async () => {
+    const isEditing = customerForm.id !== null;
+    const normalizedPlantName = customerForm.plantNamesText.trim();
     const payload = {
       customerName: customerForm.customerName,
       businessNumber: customerForm.businessNumber,
@@ -497,10 +560,7 @@ export function App() {
       bizType: customerForm.bizType,
       bizClass: customerForm.bizClass,
       memo: customerForm.memo,
-      plantNames: customerForm.plantNamesText
-        .split("\n")
-        .map((item) => item.trim())
-        .filter(Boolean),
+      plantNames: normalizedPlantName ? [normalizedPlantName] : [],
       matchAddresses: customerForm.addr.trim() ? [customerForm.addr.trim()] : []
     };
 
@@ -516,6 +576,12 @@ export function App() {
       });
     }
 
+    if (isEditing) {
+      setCreatingCustomer(false);
+      return;
+    }
+
+    setCreatingCustomer(true);
     setCustomerForm(createCustomerFormDefaults());
   };
 
@@ -550,6 +616,7 @@ export function App() {
         popbillLinkId: normalized.popbillLinkId,
         popbillSecretKey: normalized.popbillSecretKey,
         popbillIsTest: normalized.popbillIsTest,
+        popbillPartnerCorpNum: normalized.popbillPartnerCorpNum,
         popbillUserIdPrefix: normalized.popbillUserIdPrefix,
         popbillSharedPassword: normalized.popbillSharedPassword,
         operatorContactName: normalized.operatorContactName,
@@ -595,6 +662,11 @@ export function App() {
     window.alert(
       `Gmail 연결 테스트 결과\nIMAP: ${result.imapOk ? "성공" : "실패"}\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${result.smtpMessage}\n\n테스트 메일 발송: ${result.testMailSent ? "예" : "아니오"}`
     );
+  };
+
+  const openPartnerChargeUrl = async () => {
+    const result = await api<{ url: string }>("/api/popbill/partner-charge-url");
+    window.open(result.url, "_blank", "noopener,noreferrer");
   };
 
   const createDatabaseBackup = async () => {
@@ -749,8 +821,6 @@ export function App() {
     const days = getDaysUntilDate(customer.popbillCertExpireDate);
     return days !== null && days < 0;
   });
-  const issueReadyCustomers = data.customers.filter((customer) => getCustomerIssueReadiness(customer).canIssueNow);
-  const issueBlockedCustomers = data.customers.filter((customer) => !getCustomerIssueReadiness(customer).canIssueNow);
   const expiringSoonCustomers = data.customers.filter((customer) => {
     const days = getDaysUntilDate(customer.popbillCertExpireDate);
     return days !== null && days >= 0 && days <= 30;
@@ -760,38 +830,79 @@ export function App() {
     popbillReady: Boolean(data.settings.popbillLinkId && data.settings.popbillSecretKey),
     operatorReady: Boolean(data.settings.operatorContactName && data.settings.operatorContactEmail && data.settings.operatorContactTel)
   };
-  const navItems: Array<{ id: TabId; label: string; meta: string; icon: string }> = [
-    { id: "overview", label: "대시보드", meta: "전체 현황", icon: "dashboard" },
-    { id: "customers", label: "고객관리", meta: `${data.counts.customers}곳`, icon: "group" },
-    { id: "review", label: "검수/발행", meta: `${data.counts.actionableDrafts}건 대기`, icon: "review" },
-    { id: "settings", label: "시스템설정", meta: `${storageInfo?.backups.length ?? 0}개 백업`, icon: "settings" }
+  const unmatchedMessages = data.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed");
+  const recentInboxMessages = [...data.inbox]
+    .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime())
+    .slice(0, 6);
+  const recentIssuedDrafts = issuedDrafts.slice(0, 8);
+  const recentLogs = data.logs.slice(0, 8);
+  const readyNowCustomers = data.customers.filter((customer) => getCustomerIssueReadiness(customer).canIssueNow);
+  const blockedIssueCustomers = data.customers.filter((customer) => !getCustomerIssueReadiness(customer).canIssueNow);
+  const workLayoutClassName = "work-layout";
+  const selectedCustomer = customerForm.id ? data.customers.find((customer) => customer.id === customerForm.id) ?? null : null;
+  const selectedCustomerReadiness = selectedCustomer ? getCustomerIssueReadiness(selectedCustomer) : null;
+  const customerRegistrationReady = data.customers.length > 0;
+  const readyCustomerCount = data.customers.filter((customer) => getCustomerIssueReadiness(customer).canIssueNow).length;
+  const blockedCustomerCount = data.customers.length - readyCustomerCount;
+  const setupChecklist = [
+    { key: "gmail", label: "Gmail 계정 연결", done: settingsHealth.gmailReady },
+    { key: "popbill", label: "팝빌 키 입력", done: settingsHealth.popbillReady },
+    { key: "operator", label: "운영 담당자 입력", done: settingsHealth.operatorReady },
+    { key: "customer", label: "고객 1명 이상 등록", done: customerRegistrationReady }
   ];
-  const tabCopy: Record<TabId, { kicker: string; title: string; description: string; notes: string[] }> = {
-    overview: {
-      kicker: "Situation Room",
-      title: "오늘의 운영 흐름",
-      description: "발행 대기, 미매칭 메일, 인증서 주의를 한 번에 보고 우선순위를 잡습니다.",
-      notes: [`발행 대상 ${data.counts.actionableDrafts}건`, `미매칭 ${data.counts.unmatchedMessages}건`]
+  const setupPendingCount = setupChecklist.filter((step) => !step.done).length;
+  const certAttentionCount = expiredCertCustomers.length + expiringSoonCustomers.length;
+  const recommendedSettingsSection: SettingsSectionId = !settingsHealth.gmailReady
+    ? "gmail"
+    : !settingsHealth.popbillReady
+      ? "popbill"
+      : !settingsHealth.operatorReady
+        ? "operator"
+        : "backup";
+  const settingsSections: Array<{
+    id: SettingsSectionId;
+    step: number;
+    title: string;
+    done: boolean;
+    summary: string;
+  }> = [
+    {
+      id: "gmail",
+      step: 1,
+      title: "메일 연결",
+      done: settingsHealth.gmailReady,
+      summary: settingsHealth.gmailReady ? data.settings.imapUser || "Gmail 연결 완료" : "Gmail 계정과 앱 비밀번호 입력"
     },
-    customers: {
-      kicker: "Customer Registry",
-      title: "고객 정보와 인증서 상태",
-      description: "고객 기본정보, 발전소명, 팝빌 연결 상태를 관리합니다.",
-      notes: [`고객 ${data.counts.customers}곳`, `만료 주의 ${expiredCertCustomers.length + expiringSoonCustomers.length}건`]
+    {
+      id: "popbill",
+      step: 2,
+      title: "팝빌 연결",
+      done: settingsHealth.popbillReady,
+      summary: settingsHealth.popbillReady
+        ? `${data.settings.popbillIsTest ? "테스트" : "운영"} · ${partnerPoints?.referenceCorpNum || "사업자번호 확인"}`
+        : "LinkID, SecretKey, 파트너 사업자번호 입력"
     },
-    review: {
-      kicker: "Billing Desk",
-      title: "검수와 발행 처리",
-      description: "발행 대기건 확인, 일괄 발행, 발행 완료 문서 확인을 한 화면에서 처리합니다.",
-      notes: [`대기/실패 ${reviewDrafts.length}건`, `발행 완료 ${issuedDrafts.length}건`]
+    {
+      id: "operator",
+      step: 3,
+      title: "운영 담당자",
+      done: settingsHealth.operatorReady,
+      summary: settingsHealth.operatorReady ? `${data.settings.operatorContactName} · ${data.settings.operatorContactEmail}` : "담당자명, 이메일, 연락처 입력"
     },
-    settings: {
-      kicker: "System Control",
-      title: "연동 설정과 데이터 관리",
-      description: "Gmail, 팝빌, 백업/복원, 운영자 연락처를 정리합니다.",
-      notes: [`백업 ${storageInfo?.backups.length ?? 0}개`, `알림 메일 ${data.settings.notificationEmails.length}개`]
+    {
+      id: "backup",
+      step: 4,
+      title: "데이터 백업",
+      done: Boolean(storageInfo),
+      summary: storageInfo ? `${storageInfo.backups.length}개 백업 파일` : "백업 폴더 확인"
     }
-  };
+  ];
+  const navItems: Array<{ id: TabId; label: string; icon: string }> = [
+    { id: "work", label: "오늘 작업", icon: "dashboard" },
+    { id: "customers", label: "고객관리", icon: "group" },
+    { id: "settings", label: "시스템설정", icon: "settings" }
+  ];
+  const activeNavLabel = navItems.find((item) => item.id === activeTab)?.label ?? "AUTO-TAX";
 
   return (
     <div className="app-shell">
@@ -809,35 +920,35 @@ export function App() {
             <button
               key={item.id}
               className={activeTab === item.id ? "nav-button active" : "nav-button"}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => {
+                setActiveTab(item.id);
+                if (item.id === "settings") {
+                  setActiveSettingsSection(recommendedSettingsSection);
+                }
+              }}
             >
               <Icon name={item.icon} className="nav-icon" />
               <div className="nav-copy">
                 <span className="nav-title">{item.label}</span>
-                <span className="nav-meta">{item.meta}</span>
               </div>
             </button>
           ))}
         </nav>
 
         <div className="sidebar-meta">
-          <span>{data.settings.popbillIsTest ? "팝빌 테스트" : "팝빌 운영"}</span>
-          <span>수동 발행 모드</span>
+          <span>{data.settings.popbillIsTest ? "테스트 환경" : "운영 환경"}</span>
         </div>
       </aside>
 
       <main className="content">
         <header className="hero">
-          <div>
-            <span className="eyebrow">Solar Billing Automation</span>
-            <h2>메일 수집, 고객 매칭, 검수, 발행을 한 화면에서 관리합니다.</h2>
+          <div className="hero-main">
+            <h2>{activeNavLabel}</h2>
             <div className="hero-summary">
               <span className="hero-pill">{data.settings.popbillIsTest ? "팝빌 테스트" : "팝빌 운영"}</span>
-              <span className="hero-pill">발행 대상 {data.counts.actionableDrafts}건</span>
-              <span className="hero-pill">미매칭 메일 {data.counts.unmatchedMessages}건</span>
-              <span className={`hero-pill ${expiredCertCustomers.length > 0 ? "hero-pill-danger" : expiringSoonCustomers.length > 0 ? "hero-pill-warn" : ""}`}>
-                인증서 주의 {expiredCertCustomers.length + expiringSoonCustomers.length}건
-              </span>
+              <span className="hero-pill">파트너 {partnerPoints?.available && partnerPoints.partnerRemainPoint !== null ? `${formatMoney(partnerPoints.partnerRemainPoint)}P` : "-"}</span>
+              {activeTab !== "settings" ? <span className="hero-pill">발행 대상 {data.counts.actionableDrafts}건</span> : null}
+              {certAttentionCount > 0 ? <span className="hero-pill hero-pill-warn">인증서 주의 {certAttentionCount}건</span> : null}
             </div>
           </div>
           <div className="hero-actions">
@@ -845,10 +956,12 @@ export function App() {
               <Icon name="refresh" className="button-icon" />
               새로고침
             </button>
-            <button onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
-              <Icon name="sync" className="button-icon" />
-              메일 즉시 동기화
-            </button>
+            {activeTab === "work" ? (
+              <button onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
+                <Icon name="sync" className="button-icon" />
+                메일 즉시 동기화
+              </button>
+            ) : null}
           </div>
         </header>
 
@@ -866,127 +979,227 @@ export function App() {
           </div>
         ) : null}
 
-        <section className="stats-grid">
-          <StatCard label="고객 수" value={data.counts.customers} />
-          <StatCard label="발행 대상" value={data.counts.actionableDrafts} tone="warn" />
-          <StatCard label="발행 완료" value={issuedDrafts.length} />
-          <StatCard label="실패 건" value={data.counts.failedDrafts} tone="error" />
-          <StatCard label="고객 미매칭" value={data.counts.unmatchedMessages} tone="warn" />
-        </section>
+        {activeTab === "work" ? (
+          <div className={workLayoutClassName}>
+            <section className="stats-grid stats-grid-compact">
+              <StatCard label="발행 대상" value={reviewDrafts.length} tone={reviewDrafts.length > 0 ? "warn" : "default"} />
+              <StatCard label="미매칭 메일" value={unmatchedMessages.length} tone={unmatchedMessages.length > 0 ? "warn" : "default"} />
+              <StatCard label="인증서 주의" value={certAttentionCount} tone={certAttentionCount > 0 ? "error" : "default"} />
+            </section>
 
-        <section className="workspace-bar">
-          <div>
-            <span className="workspace-kicker">{tabCopy[activeTab].kicker}</span>
-            <h3>{tabCopy[activeTab].title}</h3>
-            <p>{tabCopy[activeTab].description}</p>
-          </div>
-          <div className="workspace-notes">
-            {tabCopy[activeTab].notes.map((note) => (
-              <span key={note} className="workspace-note">
-                {note}
-              </span>
-            ))}
-          </div>
-        </section>
+            {setupPendingCount > 0 ? (
+              <Panel
+                className="panel-setup"
+                title="처음 설정"
+                actions={<button onClick={() => setActiveTab("settings")}>설정으로 이동</button>}
+              >
+                <div className="setup-list">
+                  {setupChecklist.map((step, index) => (
+                    <div key={step.key} className={step.done ? "setup-step done" : "setup-step"}>
+                      <span className="setup-order">{index + 1}</span>
+                      <div className="setup-copy">
+                        <strong>{step.label}</strong>
+                        <span>{step.done ? "완료됨" : "아직 설정되지 않았습니다."}</span>
+                      </div>
+                      <span className={`chip ${step.done ? "chip-success" : "chip-danger"}`}>{step.done ? "완료" : "필요"}</span>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            ) : null}
 
-        {activeTab === "overview" ? (
-          <div className="overview-layout">
             <Panel
-              className="panel-priority"
-              title="지금 처리할 일"
-              subtitle="운영자가 바로 손대야 하는 건만 먼저 모았습니다."
-              actions={<button className="btn-secondary" onClick={() => setActiveTab("review")}>검수 화면으로</button>}
+              className="panel-work-queue"
+              title="발행할 건"
+              actions={
+                <>
+                  <button className="btn-secondary" onClick={() => void runAction("sync-work", async () => void (await api("/api/mail/sync", { method: "POST" })))}>
+                    메일 동기화
+                  </button>
+                  <button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>전체 발행</button>
+                </>
+              }
             >
-              <div className="list">
-                {reviewDrafts.slice(0, 6).map((draft) => (
-                  <article key={draft.id} className="list-item">
-                    <div>
-                      <strong>{draft.customerName}</strong>
-                      <p>{draft.itemName}</p>
-                    </div>
-                    <div className="list-meta">
-                      <span>{formatMoney(draft.supplyCost)}원</span>
-                      <em className={`status status-${draft.status}`}>{getDraftStatusLabel(draft.status)}</em>
-                    </div>
-                  </article>
-                ))}
-                {reviewDrafts.length === 0 ? <div className="empty">발행 대상 건이 없습니다.</div> : null}
-              </div>
-            </Panel>
-
-            <Panel className="panel-mail" title="최근 메일" subtitle="메일 수집 결과에서 예외 건을 먼저 확인하세요.">
-              <div className="list">
-                {data.inbox.slice(0, 6).map((message) => (
-                  <article key={message.id} className="list-item">
-                    <div>
-                      <strong>{message.subject}</strong>
-                      <p>{message.parsedData?.plantName ?? message.fromAddress}</p>
-                    </div>
-                    <div className="list-meta">
-                      <span>{formatDateTime(message.receivedAt)}</span>
-                      <em className={`status status-${message.parseStatus}`}>{getParseStatusLabel(message.parseStatus)}</em>
-                    </div>
-                  </article>
-                ))}
+              <div className="table-wrap">
+                <table className="responsive-table">
+                  <thead>
+                    <tr>
+                      <th>고객</th>
+                      <th>품목</th>
+                      <th>공급가액</th>
+                      <th>상태</th>
+                      <th>액션</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reviewDrafts.map((draft) => (
+                      <tr key={draft.id}>
+                        <td data-label="고객">{draft.customerName}</td>
+                        <td data-label="품목">{draft.itemName}</td>
+                        <td data-label="공급가액">{formatMoney(draft.supplyCost)}원</td>
+                        <td data-label="상태">
+                          <span className={`status status-${draft.status}`}>{getDraftStatusLabel(draft.status)}</span>
+                          {draft.issueError ? <p className="cell-error">{draft.issueError}</p> : null}
+                        </td>
+                        <td data-label="액션">
+                          {draft.status === "issuing" ? (
+                            <span className="status status-pending">발행 중</span>
+                          ) : (
+                            <button disabled={busyKey !== null} onClick={() => void runAction(`issue-${draft.id}`, async () => void (await api(`/api/drafts/${draft.id}/issue`, { method: "POST" })))}>
+                              지금 발행
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {reviewDrafts.length === 0 ? <div className="empty">지금 발행할 건이 없습니다.</div> : null}
               </div>
             </Panel>
 
             <Panel
-              className="panel-cert"
-              title="인증서 상태"
-              subtitle="만료일을 갱신하고 운영자 알림 메일을 보낼 수 있습니다."
-              actions={<button onClick={() => void runAction("cert-refresh-all", refreshAllCertificateStatuses)}>인증서 일괄 점검</button>}
+              className="panel-work-status"
+              title="작업 상태"
+              actions={
+                <>
+                  <button className="btn-secondary" onClick={() => void runAction("partner-points-refresh-work", load)}>포인트 조회</button>
+                  <button onClick={() => void runAction("cert-refresh-all", refreshAllCertificateStatuses)}>인증서 점검</button>
+                </>
+              }
             >
               <div className="info-grid">
                 <div>
-                  <span>최근 점검 시각</span>
+                  <span>Gmail</span>
+                  <strong>{settingsHealth.gmailReady ? "준비됨" : "설정 필요"}</strong>
+                </div>
+                <div>
+                  <span>팝빌</span>
+                  <strong>{settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</strong>
+                </div>
+                <div>
+                  <span>운영자</span>
+                  <strong>{settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</strong>
+                </div>
+                <div>
+                  <span>파트너 포인트</span>
+                  <strong>{partnerPoints?.available && partnerPoints.partnerRemainPoint !== null ? `${formatMoney(partnerPoints.partnerRemainPoint)}P` : "-"}</strong>
+                </div>
+                <div>
+                  <span>인증서 주의</span>
+                  <strong>{certAttentionCount}건</strong>
+                </div>
+                <div>
+                  <span>최근 점검</span>
                   <strong>{formatDateTime(data.settings.certLastCheckedAt)}</strong>
                 </div>
-                <div>
-                  <span>최근 알림 발송</span>
-                  <strong>{formatDateTime(data.settings.certAlertLastSentAt)}</strong>
-                </div>
-                <div>
-                  <span>만료 고객</span>
-                  <strong>{expiredCertCustomers.length}건</strong>
-                </div>
-                <div>
-                  <span>30일 이내 만료 예정</span>
-                  <strong>{expiringSoonCustomers.length}건</strong>
-                </div>
+              </div>
+              <div className="helper-box">
+                <strong>{partnerPoints?.isTest ? "테스트" : "운영"}</strong>
+                <span>{partnerPoints?.message ?? "포인트 조회 전입니다."}</span>
               </div>
             </Panel>
 
-            <Panel className="panel-readiness" title="운영 준비 상태" subtitle="실제 작업 전에 꼭 필요한 설정이 갖춰졌는지 빠르게 확인합니다.">
-              <div className="info-grid">
-                <div>
-                  <span>Gmail 연결 정보</span>
-                  <strong>{settingsHealth.gmailReady ? "입력 완료" : "미입력"}</strong>
-                </div>
-                <div>
-                  <span>팝빌 연동 키</span>
-                  <strong>{settingsHealth.popbillReady ? "입력 완료" : "미입력"}</strong>
-                </div>
-                <div>
-                  <span>운영자 연락처</span>
-                  <strong>{settingsHealth.operatorReady ? "입력 완료" : "미입력"}</strong>
-                </div>
-                <div>
-                  <span>알림 메일</span>
-                  <strong>{data.settings.notificationEmails.length}개</strong>
-                </div>
+            <Panel
+              className="panel-work-readiness"
+              title="고객 준비 상태"
+              actions={<button className="btn-secondary" onClick={() => setActiveTab("customers")}>고객관리 열기</button>}
+            >
+              <div className="customer-list-summary">
+                <span className="chip chip-success">즉시 발행 가능 {readyNowCustomers.length}명</span>
+                <span className="chip chip-danger">준비 필요 {blockedIssueCustomers.length}명</span>
+              </div>
+              <div className="list">
+                {blockedIssueCustomers.slice(0, 4).map((customer) => {
+                  const readiness = getCustomerIssueReadiness(customer);
+                  return (
+                    <div key={customer.id} className="list-item">
+                      <div>
+                        <strong>{customer.customerName}</strong>
+                        <p>{customer.addr}</p>
+                      </div>
+                      <div className="list-meta">
+                        <span className={`chip ${readiness.tone === "success" ? "chip-success" : readiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>{readiness.reason}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {blockedIssueCustomers.length === 0 ? (
+                  <div className="empty">모든 고객이 발행 가능한 상태입니다.</div>
+                ) : null}
               </div>
             </Panel>
 
-            <Panel className="panel-logs" title="최근 로그" subtitle="메일, 팝빌, 시스템 이벤트 최근 6건입니다.">
-              <div className="log-list">
-                {data.logs.slice(0, 6).map((log) => (
-                  <div key={log.id} className={`log-row log-${log.level}`}>
-                    <strong>{log.scope}</strong>
-                    <span>{log.message}</span>
-                    <time>{formatDateTime(log.createdAt)}</time>
-                  </div>
-                ))}
+            <Panel
+              className="panel-work-inbox"
+              title="최근 수신 메일"
+              actions={unmatchedMessages.length > 0 ? <button onClick={() => void runAction("reprocess-all-unmatched", reprocessAllUnmatchedMessages)}>미매칭 전체 재처리</button> : undefined}
+            >
+              <div className="table-wrap">
+                <table className="responsive-table">
+                  <thead>
+                    <tr>
+                      <th>수신시각</th>
+                      <th>발전소명</th>
+                      <th>주소</th>
+                      <th>상태</th>
+                      <th>액션</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentInboxMessages.map((message) => (
+                      <tr key={message.id}>
+                        <td data-label="수신시각">{formatDateTime(message.receivedAt)}</td>
+                        <td data-label="발전소명">{message.parsedData?.plantName ?? "-"}</td>
+                        <td data-label="주소">{message.parsedData?.plantAddress ?? "-"}</td>
+                        <td data-label="상태">
+                          <span className={`status status-${message.parseStatus}`}>{getParseStatusLabel(message.parseStatus)}</span>
+                          {message.parseError ? <p className="cell-error">{message.parseError}</p> : null}
+                        </td>
+                        <td data-label="액션">
+                          {message.parseStatus === "unmatched" || message.parseStatus === "failed" ? (
+                            <button onClick={() => void runAction(`reprocess-${message.id}`, async () => void (await reprocessInboxMessage(message.id)))}>재처리</button>
+                          ) : (
+                            <span className="status status-parsed">확인 완료</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {recentInboxMessages.length === 0 ? <div className="empty">최근 수신 메일이 없습니다.</div> : null}
+              </div>
+            </Panel>
+
+            <Panel className="panel-work-issued" title="최근 발행 완료">
+              <div className="table-wrap">
+                <table className="responsive-table">
+                  <thead>
+                    <tr>
+                      <th>고객</th>
+                      <th>발행시각</th>
+                      <th>합계금액</th>
+                      <th>확인</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentIssuedDrafts.map((draft) => (
+                      <tr key={draft.id}>
+                        <td data-label="고객">{draft.customerName}</td>
+                        <td data-label="발행시각">{formatDateTime(draft.issuedAt)}</td>
+                        <td data-label="합계금액">{formatMoney(draft.totalAmount)}원</td>
+                        <td data-label="확인">
+                          <div className="button-row">
+                            <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-info-${draft.id}`, async () => void (await showDraftPopbillInfo(draft.id)))}>상태</button>
+                            <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-view-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}>보기</button>
+                            <button className="btn-danger" disabled={busyKey !== null} onClick={() => void runAction(`draft-cancel-${draft.id}`, async () => void (await cancelIssuedDraft(draft.id)))}>취소</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {recentIssuedDrafts.length === 0 ? <div className="empty">최근 발행 완료 이력이 없습니다.</div> : null}
               </div>
             </Panel>
           </div>
@@ -997,87 +1210,143 @@ export function App() {
             <Panel
               className="panel-customer-list"
               title="고객 목록"
-              subtitle="발전소명으로 고객을 매칭하고 인증서 상태를 관리합니다."
-              actions={<button onClick={() => void runAction("customers-cert-refresh-all", refreshAllCertificateStatuses)}>인증서 일괄 점검</button>}
+              actions={
+                <>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => {
+                      setCreatingCustomer(true);
+                      setCustomerForm(createCustomerFormDefaults());
+                    }}
+                  >
+                    새 고객
+                  </button>
+                  <button onClick={() => void runAction("customers-cert-refresh-all", refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
+                </>
+              }
             >
-              <div className="helper-box">
-                <strong>발행 가능 고객 {issueReadyCustomers.length}곳</strong>
-                <span>발행 준비 필요 고객 {issueBlockedCustomers.length}곳</span>
+              <div className="customer-list-summary">
+                <span className="chip chip-success">즉시 발행 가능 {readyCustomerCount}명</span>
+                <span className="chip chip-danger">준비 필요 {blockedCustomerCount}명</span>
               </div>
               <div className="list">
-                {data.customers.map((customer) => (
-                  <article key={customer.id} className={`customer-card ${getCustomerIssueReadiness(customer).canIssueNow ? "customer-card-ready" : "customer-card-blocked"}`}>
-                    <div className="customer-card-header">
-                      <div>
-                        <strong>{customer.customerName}</strong>
-                        <p>{customer.plantNames.join(", ")}</p>
+                {data.customers.map((customer) => {
+                  const readiness = getCustomerIssueReadiness(customer);
+                  const isSelected = customerForm.id === customer.id;
+
+                  return (
+                    <button
+                      key={customer.id}
+                      type="button"
+                      className={`customer-summary ${isSelected ? "selected" : ""} ${readiness.canIssueNow ? "customer-summary-ready" : "customer-summary-blocked"}`}
+                      onClick={() => {
+                        setCreatingCustomer(false);
+                        setCustomerForm(customerToForm(customer));
+                      }}
+                    >
+                      <div className="customer-summary-head">
+                        <div>
+                          <strong>{customer.customerName}</strong>
+                          <p>{customer.plantNames.join(", ")}</p>
+                        </div>
+                        <span className={`chip ${readiness.tone === "success" ? "chip-success" : readiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>{readiness.label}</span>
                       </div>
-                      <div className="chip-row">
-                        {(() => {
-                          const readiness = getCustomerIssueReadiness(customer);
-                          return <span className={`chip ${readiness.tone === "success" ? "chip-success" : readiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>{readiness.label}</span>;
-                        })()}
-                        <span className="chip">수동발행</span>
-                        <span className="chip">{getPopbillStateLabel(customer.popbillState)}</span>
-                        <span className="chip">{customer.popbillCertRegistered ? "인증완료" : "인증전"}</span>
-                        {(() => {
-                          const days = getDaysUntilDate(customer.popbillCertExpireDate);
-                          if (days === null) return null;
-                          if (days < 0) return <span className="chip chip-danger">인증서 만료</span>;
-                          if (days <= 30) return <span className="chip chip-warn">만료 {days}일 전</span>;
-                          return null;
-                        })()}
+                      <div className="customer-summary-meta">
+                        <span>{customer.addr}</span>
+                        <span>{getCustomerCertificateSummary(customer)}</span>
                       </div>
-                    </div>
-                    <div className="customer-card-meta">
-                      <p><strong>주소</strong> {customer.addr}</p>
-                      <p><strong>팝빌 ID</strong> {customer.popbillUserId || "미생성"}</p>
-                      <p><strong>인증서 만료일</strong> {formatCertificateExpireDate(customer.popbillCertExpireDate)}</p>
-                      <p><strong>발행 상태</strong> {getCustomerIssueReadiness(customer).reason}</p>
-                    </div>
-                    <div className="button-row">
-                      <button onClick={() => setCustomerForm(customerToForm(customer))}>수정</button>
-                      <button
-                        className="btn-secondary"
-                        disabled={customer.popbillState === "joined"}
-                        onClick={() => void runAction(`join-${customer.id}`, async () => void (await api(`/api/customers/${customer.id}/popbill/join`, { method: "POST" })))}
-                      >
-                        {customer.popbillState === "joined" ? "가입 완료" : "팝빌 가입"}
-                      </button>
-                      <button className="btn-secondary" onClick={() => void runAction(`reset-popbill-${customer.id}`, async () => void (await resetPopbillLink(customer)))}>연결 해제</button>
-                      <button
-                        className="btn-secondary"
-                        disabled={!data.settings.popbillIsTest}
-                        onClick={() => void runAction(`quit-popbill-${customer.id}`, async () => void (await quitPopbillMember(customer)))}
-                      >
-                        팝빌 탈퇴
-                      </button>
-                      <button
-                        onClick={() =>
-                          void runAction(`cert-url-${customer.id}`, async () => {
-                            const result = await api<{ url: string }>(`/api/customers/${customer.id}/popbill/cert-url`, {
-                              method: "POST"
-                            });
-                            window.open(result.url, "_blank", "noopener,noreferrer");
-                          })
-                        }
-                      >
-                        {customer.popbillCertRegistered ? "인증서 재등록" : "인증서 등록"}
-                      </button>
-                      <button className="btn-secondary" onClick={() => void runAction(`cert-status-${customer.id}`, async () => void (await api(`/api/customers/${customer.id}/popbill/cert-status`, { method: "POST" })))}>만료일 확인</button>
-                      <button className="btn-danger" onClick={() => void runAction(`delete-customer-${customer.id}`, async () => void (await deleteCustomer(customer)))}>고객 삭제</button>
-                    </div>
-                  </article>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             </Panel>
 
             <Panel
               className="panel-customer-editor"
-              title={customerForm.id ? "고객 수정" : "고객 등록"}
-              subtitle="사업자 정보와 발전소명 별칭을 관리하면 팝빌 계정은 규칙에 맞춰 자동으로 붙습니다."
-              actions={customerForm.id ? <button onClick={() => setCustomerForm(createCustomerFormDefaults())}>새 고객</button> : null}
+              title={selectedCustomer ? `${selectedCustomer.customerName}` : "새 고객 등록"}
+              actions={selectedCustomer ? (
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setCreatingCustomer(true);
+                    setCustomerForm(createCustomerFormDefaults());
+                  }}
+                >
+                  새 고객 등록
+                </button>
+              ) : null}
             >
+              {selectedCustomer && selectedCustomerReadiness ? (
+                <div className="customer-detail-top">
+                  <div className="customer-detail-copy">
+                    <strong>{selectedCustomer.customerName}</strong>
+                    <span>{selectedCustomer.addr}</span>
+                    <span>{getCustomerPopbillSummary(selectedCustomer)} · {getCustomerCertificateSummary(selectedCustomer)}</span>
+                  </div>
+                  <div className="customer-detail-stats">
+                    <div>
+                      <span>발전소명</span>
+                      <strong>{selectedCustomer.plantNames.join(", ") || "-"}</strong>
+                    </div>
+                    <div>
+                      <span>팝빌 상태</span>
+                      <strong>{getCustomerPopbillSummary(selectedCustomer)}</strong>
+                    </div>
+                    <div>
+                      <span>인증서 상태</span>
+                      <strong>{getCustomerCertificateSummary(selectedCustomer)}</strong>
+                    </div>
+                  </div>
+                  <div className="customer-detail-actions">
+                    <span className={`chip ${selectedCustomerReadiness.tone === "success" ? "chip-success" : selectedCustomerReadiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>
+                      {selectedCustomerReadiness.label}
+                    </span>
+                    {selectedCustomer.popbillState === "joined" ? (
+                      <button className="btn-secondary" onClick={() => void runAction(`reset-popbill-${selectedCustomer.id}`, async () => void (await resetPopbillLink(selectedCustomer)))}>
+                        연결 해제
+                      </button>
+                    ) : (
+                      <button
+                        className="btn-secondary"
+                        onClick={() => void runAction(`join-${selectedCustomer.id}`, async () => void (await api(`/api/customers/${selectedCustomer.id}/popbill/join`, { method: "POST" })))}
+                      >
+                        팝빌 가입
+                      </button>
+                    )}
+                    <button
+                      onClick={() =>
+                        void runAction(`cert-url-${selectedCustomer.id}`, async () => {
+                          const result = await api<{ url: string }>(`/api/customers/${selectedCustomer.id}/popbill/cert-url`, {
+                            method: "POST"
+                          });
+                          window.open(result.url, "_blank", "noopener,noreferrer");
+                        })
+                      }
+                    >
+                      {selectedCustomer.popbillCertRegistered ? "인증서 재등록" : "인증서 등록"}
+                    </button>
+                    <button className="btn-secondary" onClick={() => void runAction(`cert-status-${selectedCustomer.id}`, async () => void (await api(`/api/customers/${selectedCustomer.id}/popbill/cert-status`, { method: "POST" })))}>만료일 확인</button>
+                  </div>
+                  <div className="customer-detail-secondary">
+                    <button className="btn-ghost btn-danger" onClick={() => void runAction(`delete-customer-${selectedCustomer.id}`, async () => void (await deleteCustomer(selectedCustomer)))}>
+                      고객 삭제
+                    </button>
+                    {data.settings.popbillIsTest && selectedCustomer.popbillState === "joined" ? (
+                      <button
+                        className="btn-ghost"
+                        onClick={() => void runAction(`quit-popbill-${selectedCustomer.id}`, async () => void (await quitPopbillMember(selectedCustomer)))}
+                      >
+                        테스트 팝빌 탈퇴
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div className="customer-empty-state">
+                  <strong>새 고객을 등록합니다.</strong>
+                  <span>기존 고객을 수정하려면 왼쪽 목록에서 고객을 선택하세요.</span>
+                </div>
+              )}
               <div className="form-grid">
                 <label>
                   고객명
@@ -1107,24 +1376,12 @@ export function App() {
                   업종
                   <input value={customerForm.bizClass} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizClass: event.target.value }))} />
                 </label>
-                <div className="helper-box full">
-                  <strong>팝빌 계정은 자동 생성됩니다.</strong>
-                  <span>신규 고객 저장 시 ID는 `{settingsForm.popbillUserIdPrefix || "HAE_"} + 고객번호` 형식으로 생성됩니다.</span>
-                  <span>비밀번호는 시스템설정의 `팝빌 공통 비밀번호`를 사용합니다.</span>
-                  <span>이미 생성된 고객 계정의 ID/비밀번호는 유지됩니다.</span>
-                  <span>현재 고객 팝빌 ID: {customerForm.id ? customerForm.popbillUserId || "저장 후 생성" : "저장 후 자동 생성"}</span>
-                </div>
-                <div className="helper-box">
-                  <strong>발행 방식은 검수 후 수동 발행으로 고정됩니다.</strong>
-                  <span>메일을 불러온 뒤 검수 화면에서 개별 발행 또는 전체 발행을 실행합니다.</span>
-                </div>
                 <label className="full">
                   발전소명
-                  <textarea
-                    rows={4}
+                  <input
                     value={customerForm.plantNamesText}
                     onChange={(event) => setCustomerForm((prev) => ({ ...prev, plantNamesText: event.target.value }))}
-                    placeholder={"한 줄에 하나씩 입력\n예: 이상택태양광"}
+                    placeholder="예: 이상택태양광"
                   />
                 </label>
                 <label className="full">
@@ -1139,340 +1396,290 @@ export function App() {
           </div>
         ) : null}
 
-        {activeTab === "review" ? (
-          <div className="review-layout">
-            <Panel
-              className="panel-review-queue"
-              title="검수 대기/실패 건"
-              subtitle="운영자가 직접 발행하거나 실패 원인을 확인합니다."
-              actions={<button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>표시 건 전체 발행</button>}
-            >
-              <div className="table-wrap">
-                <table className="responsive-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>고객</th>
-                      <th>품목</th>
-                      <th>공급가액</th>
-                      <th>상태</th>
-                      <th>액션</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reviewDrafts.map((draft) => (
-                      <tr key={draft.id}>
-                        <td data-label="ID">{draft.id}</td>
-                        <td data-label="고객">{draft.customerName}</td>
-                        <td data-label="품목">{draft.itemName}</td>
-                        <td data-label="공급가액">{formatMoney(draft.supplyCost)}원</td>
-                        <td data-label="상태">
-                          <span className={`status status-${draft.status}`}>{getDraftStatusLabel(draft.status)}</span>
-                          {draft.issueError ? <p className="cell-error">{draft.issueError}</p> : null}
-                        </td>
-                        <td data-label="액션">
-                          {draft.status === "issuing" ? (
-                            <span className="status status-pending">발행 중</span>
-                          ) : (
-                            <button
-                              disabled={busyKey !== null}
-                              onClick={() => void runAction(`issue-${draft.id}`, async () => void (await api(`/api/drafts/${draft.id}/issue`, { method: "POST" })))}
-                            >
-                              지금 발행
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {reviewDrafts.length === 0 ? <div className="empty">검수 또는 실패 건이 없습니다.</div> : null}
-              </div>
-            </Panel>
-
-            <Panel className="panel-review-issued" title="발행 완료 건" subtitle="발행 결과와 팝빌 확인 링크를 봅니다.">
-              <div className="table-wrap">
-                <table className="responsive-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>고객</th>
-                      <th>발행시각</th>
-                      <th>합계금액</th>
-                      <th>상태</th>
-                      <th>확인</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {issuedDrafts.map((draft) => (
-                      <tr key={draft.id}>
-                        <td data-label="ID">{draft.id}</td>
-                        <td data-label="고객">{draft.customerName}</td>
-                        <td data-label="발행시각">{formatDateTime(draft.issuedAt)}</td>
-                        <td data-label="합계금액">{formatMoney(draft.totalAmount)}원</td>
-                        <td data-label="상태">
-                          <span className={`status status-${draft.status}`}>{getDraftStatusLabel(draft.status)}</span>
-                        </td>
-                        <td data-label="확인">
-                          {draft.status === "issued" ? (
-                            <div className="button-row">
-                              <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-info-${draft.id}`, async () => void (await showDraftPopbillInfo(draft.id)))}>상태조회</button>
-                              <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-view-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}>보기</button>
-                              <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-print-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "print-url")))}>인쇄</button>
-                              <button className="btn-danger" disabled={busyKey !== null} onClick={() => void runAction(`draft-cancel-${draft.id}`, async () => void (await cancelIssuedDraft(draft.id)))}>발행 취소</button>
-                            </div>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {issuedDrafts.length === 0 ? <div className="empty">발행 완료 건이 없습니다.</div> : null}
-              </div>
-            </Panel>
-
-            <Panel
-              className="panel-review-mail"
-              title="최근 수신 메일"
-              subtitle="발전소명, 정산월, 공급가액 파싱 결과를 확인합니다."
-              actions={<button onClick={() => void runAction("reprocess-all-unmatched", reprocessAllUnmatchedMessages)}>미매칭 메일 재처리</button>}
-            >
-              <div className="table-wrap">
-                <table className="responsive-table">
-                  <thead>
-                    <tr>
-                      <th>수신시각</th>
-                      <th>제목</th>
-                      <th>발전소명</th>
-                      <th>주소</th>
-                      <th>정산월</th>
-                      <th>공급가액</th>
-                      <th>상태</th>
-                      <th>액션</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.inbox.map((message) => (
-                      <tr key={message.id}>
-                        <td data-label="수신시각">{formatDateTime(message.receivedAt)}</td>
-                        <td data-label="제목">{message.subject}</td>
-                        <td data-label="발전소명">{message.parsedData?.plantName ?? "-"}</td>
-                        <td data-label="주소">{message.parsedData?.plantAddress ?? "-"}</td>
-                        <td data-label="정산월">{message.parsedData?.billingMonth ?? "-"}</td>
-                        <td data-label="공급가액">{message.parsedData ? `${formatMoney(message.parsedData.supplyCost)}원` : "-"}</td>
-                        <td data-label="상태">
-                          <span className={`status status-${message.parseStatus}`}>{getParseStatusLabel(message.parseStatus)}</span>
-                          {message.parseError ? <p className="cell-error">{message.parseError}</p> : null}
-                        </td>
-                        <td data-label="액션">
-                          {message.parseStatus === "unmatched" || message.parseStatus === "failed" ? (
-                            <button onClick={() => void runAction(`reprocess-${message.id}`, async () => void (await reprocessInboxMessage(message.id)))}>
-                              재처리
-                            </button>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
-
-            <Panel className="panel-review-logs" title="이벤트 로그" subtitle="서버, 메일 수집, 팝빌 처리 로그를 추적합니다.">
-              <div className="log-list">
-                {data.logs.map((log) => (
-                  <div key={log.id} className={`log-row log-${log.level}`}>
-                    <div>
-                      <strong>{log.scope}</strong>
-                      <span>{log.message}</span>
-                    </div>
-                    <time>{formatDateTime(log.createdAt)}</time>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          </div>
-        ) : null}
-
         {activeTab === "settings" ? (
           <div className="settings-layout">
-            <Panel
-              className="panel-settings-mail"
-              title="메일/알림 설정"
-              subtitle="Gmail 기준으로 IMAP 수집과 SMTP 알림을 구성합니다."
-              actions={
-                <>
-                  <button className="btn-secondary" onClick={() => applyGmailDefaults(setSettingsForm)}>Gmail 기본값 넣기</button>
-                  <button onClick={() => void runAction("mail-test", testMailSettings)}>Gmail 연결 테스트</button>
-                </>
-              }
-            >
-              <div className="helper-box">
-                <strong>Gmail 전용 기본값이 자동 적용됩니다.</strong>
-                <span>IMAP `imap.gmail.com:993`, SMTP `smtp.gmail.com:465`, SSL 켬 상태로 저장됩니다.</span>
-                <span>사용자는 Gmail 계정과 앱 비밀번호만 입력하면 됩니다.</span>
-                <span>비밀번호는 Gmail 로그인 비밀번호가 아니라 2단계 인증 후 만든 앱 비밀번호를 넣는 것을 권장합니다.</span>
-              </div>
-              <div className="form-grid">
-                <label>
-                  IMAP 계정
-                  <input
-                    placeholder="example@gmail.com"
-                    value={settingsForm.imapUser}
-                    onChange={(event) => setSettingsForm((prev) => prev && { ...prev, imapUser: event.target.value })}
-                  />
-                </label>
-                <label>
-                  IMAP 비밀번호 / 앱 비밀번호
-                  <input type="password" value={settingsForm.imapPass} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, imapPass: event.target.value })} />
-                </label>
-                <label>
-                  메일함
-                  <input
-                    placeholder="INBOX"
-                    value={settingsForm.imapMailbox}
-                    onChange={(event) => setSettingsForm((prev) => prev && { ...prev, imapMailbox: event.target.value })}
-                  />
-                </label>
-                <label>
-                  SMTP 계정
-                  <input
-                    placeholder="example@gmail.com"
-                    value={settingsForm.smtpUser}
-                    onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpUser: event.target.value })}
-                  />
-                </label>
-                <label>
-                  SMTP 비밀번호 / 앱 비밀번호
-                  <input type="password" value={settingsForm.smtpPass} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpPass: event.target.value })} />
-                </label>
-                <label>
-                  발신자 이름
-                  <input value={settingsForm.smtpFromName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpFromName: event.target.value })} />
-                </label>
-                <label>
-                  발신 메일
-                  <input
-                    placeholder="example@gmail.com"
-                    value={settingsForm.smtpFromEmail}
-                    onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpFromEmail: event.target.value })}
-                  />
-                </label>
-                <label className="full">
-                  알림 수신 메일
-                  <textarea rows={4} value={settingsForm.notificationEmailsText} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, notificationEmailsText: event.target.value })} />
-                </label>
-              </div>
-            </Panel>
-
-            <Panel className="panel-settings-operator" title="운영 담당자" subtitle="고객별이 아니라 시스템 공통으로 쓰는 팝빌 가입용 연락처입니다.">
-              <div className="form-grid">
-                <label>
-                  운영 담당자명
-                  <input value={settingsForm.operatorContactName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })} />
-                </label>
-                <label>
-                  운영 담당자 이메일
-                  <input value={settingsForm.operatorContactEmail} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })} />
-                </label>
-                <label>
-                  운영 담당자 연락처
-                  <input value={settingsForm.operatorContactTel} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })} />
-                </label>
-              </div>
-            </Panel>
-
-            <Panel className="panel-settings-popbill" title="팝빌 설정" subtitle="팝빌 테스트/운영 전환과 계정 규칙을 관리합니다.">
-              <div className="form-grid">
-                <label>
-                  팝빌 LinkID
-                  <input value={settingsForm.popbillLinkId} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillLinkId: event.target.value })} />
-                </label>
-                <label>
-                  팝빌 ID 접두어
-                  <input value={settingsForm.popbillUserIdPrefix} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} />
-                </label>
-                <label className="full">
-                  팝빌 SecretKey
-                  <input type="password" value={settingsForm.popbillSecretKey} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSecretKey: event.target.value })} />
-                </label>
-                <label className="full">
-                  팝빌 공통 비밀번호
-                  <input
-                    type="password"
-                    value={settingsForm.popbillSharedPassword}
-                    onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
-                    placeholder="신규 고객 팝빌 계정에 공통으로 사용할 비밀번호"
-                  />
-                </label>
-                <label className="checkbox">
-                  <input type="checkbox" checked={settingsForm.popbillIsTest} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillIsTest: event.target.checked })} />
-                  팝빌 테스트 모드
-                </label>
-                <div className="helper-box full">
-                  <strong>팝빌 계정 규칙</strong>
-                  <span>신규 고객을 저장하면 팝빌 ID는 접두어 + 고객번호 형식으로 자동 생성됩니다.</span>
-                  <span>공통 비밀번호는 신규 고객 또는 아직 팝빌 비밀번호가 비어 있는 고객에만 적용됩니다.</span>
+            <aside className="settings-sidebar-stack">
+              <section className="panel settings-sidebar-panel">
+                <header className="panel-header settings-sidebar-header">
+                  <div>
+                    <h2>처음 설정 순서</h2>
+                  </div>
+                  <span className={`chip ${setupPendingCount === 0 ? "chip-success" : "chip-warn"}`}>
+                    {setupPendingCount === 0 ? "준비 완료" : `${setupPendingCount}개 남음`}
+                  </span>
+                </header>
+                <div className="settings-step-list">
+                  {settingsSections.map((section) => (
+                    <button
+                      key={section.id}
+                      className={activeSettingsSection === section.id ? "settings-step-card active" : "settings-step-card"}
+                      onClick={() => setActiveSettingsSection(section.id)}
+                    >
+                      <div className="settings-step-head">
+                        <span className="setup-order">{section.step}</span>
+                        <div className="settings-step-copy">
+                          <strong>{section.title}</strong>
+                          <span>{section.summary}</span>
+                        </div>
+                      </div>
+                      <span className={`chip ${section.done ? "chip-success" : "chip-danger"}`}>{section.done ? "완료" : "입력 필요"}</span>
+                    </button>
+                  ))}
                 </div>
-              </div>
-              <div className="button-row">
-                <button onClick={() => void runAction("save-settings", saveSettings)}>설정 저장</button>
-              </div>
-            </Panel>
+                <div className="settings-sidebar-actions">
+                  <button onClick={() => void runAction("save-settings", saveSettings)}>설정 저장</button>
+                  <button className="btn-secondary" onClick={() => setActiveSettingsSection("logs")}>최근 로그 보기</button>
+                </div>
+              </section>
 
-            <Panel
-              className="panel-settings-backup"
-              title="데이터 백업/복원"
-              subtitle="설치본 기준 로컬 SQLite 데이터를 백업하고 필요 시 복원합니다."
-              actions={<button className="btn-secondary" onClick={() => void runAction("db-backup", createDatabaseBackup)}>백업 생성</button>}
-            >
-              <div className="info-grid">
-                <div className="full-width">
-                  <span>현재 DB 경로</span>
-                  <strong>{storageInfo?.databaseFile ?? "-"}</strong>
+              <section className="panel settings-sidebar-panel">
+                <header className="panel-header settings-sidebar-header">
+                  <div>
+                    <h2>다음 단계</h2>
+                  </div>
+                </header>
+                <div className="settings-inline-note">
+                  <strong>{customerRegistrationReady ? `고객 ${data.customers.length}명 등록됨` : "고객 등록이 필요합니다."}</strong>
+                  <span>메일 매칭과 발행 테스트를 하려면 고객관리에서 고객을 먼저 등록하면 됩니다.</span>
                 </div>
-                <div className="full-width">
-                  <span>백업 폴더</span>
-                  <strong>{storageInfo?.backupDir ?? "-"}</strong>
+                <div className="settings-sidebar-actions">
+                  <button className="btn-secondary" onClick={() => setActiveTab("customers")}>고객관리로 이동</button>
+                  <button className="btn-secondary" onClick={() => void runAction("refresh-certificates", refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
                 </div>
-              </div>
-              <div className="helper-box">
-                <strong>복원 전 주의</strong>
-                <span>백업 복원 시 현재 로컬 데이터는 덮어써집니다.</span>
-                <span>중요한 변경 후에는 먼저 새 백업을 만든 뒤 복원 작업을 진행하는 것이 안전합니다.</span>
-              </div>
-              <div className="table-wrap">
-                <table className="responsive-table">
-                  <thead>
-                    <tr>
-                      <th>파일명</th>
-                      <th>크기</th>
-                      <th>수정시각</th>
-                      <th>액션</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(storageInfo?.backups ?? []).map((backup) => (
-                      <tr key={backup.fileName}>
-                        <td data-label="파일명">{backup.fileName}</td>
-                        <td data-label="크기">{formatBytes(backup.sizeBytes)}</td>
-                        <td data-label="수정시각">{formatDateTime(backup.modifiedAt)}</td>
-                        <td data-label="액션">
-                          <button className="btn-secondary" onClick={() => void runAction(`restore-backup-${backup.fileName}`, async () => void (await restoreDatabaseBackup(backup.fileName)))}>
-                            이 백업으로 복원
-                          </button>
-                        </td>
-                      </tr>
+              </section>
+            </aside>
+
+            <div className="settings-detail">
+              {activeSettingsSection === "gmail" ? (
+                <SetupPanel
+                  step={1}
+                  className="panel-settings-mail"
+                  title="메일 연결"
+                  done={settingsHealth.gmailReady}
+                  note="한전 메일을 읽고 알림을 보내는 Gmail 계정을 연결합니다."
+                  actions={
+                    <>
+                      <button className="btn-secondary" onClick={() => applyGmailDefaults(setSettingsForm)}>Gmail 기본값 넣기</button>
+                      <button onClick={() => void runAction("mail-test", testMailSettings)}>Gmail 연결 테스트</button>
+                    </>
+                  }
+                >
+                  <div className="form-grid">
+                    <label>
+                      IMAP 계정
+                      <input
+                        placeholder="example@gmail.com"
+                        value={settingsForm.imapUser}
+                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, imapUser: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      IMAP 비밀번호 / 앱 비밀번호
+                      <input type="password" value={settingsForm.imapPass} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, imapPass: event.target.value })} />
+                    </label>
+                    <label>
+                      메일함
+                      <input
+                        placeholder="INBOX"
+                        value={settingsForm.imapMailbox}
+                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, imapMailbox: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      SMTP 계정
+                      <input
+                        placeholder="example@gmail.com"
+                        value={settingsForm.smtpUser}
+                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpUser: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      SMTP 비밀번호 / 앱 비밀번호
+                      <input type="password" value={settingsForm.smtpPass} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpPass: event.target.value })} />
+                    </label>
+                    <label>
+                      발신자 이름
+                      <input value={settingsForm.smtpFromName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpFromName: event.target.value })} />
+                    </label>
+                    <label>
+                      발신 메일
+                      <input
+                        placeholder="example@gmail.com"
+                        value={settingsForm.smtpFromEmail}
+                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpFromEmail: event.target.value })}
+                      />
+                    </label>
+                    <label className="full">
+                      알림 수신 메일
+                      <textarea rows={4} value={settingsForm.notificationEmailsText} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, notificationEmailsText: event.target.value })} />
+                    </label>
+                  </div>
+                </SetupPanel>
+              ) : null}
+
+              {activeSettingsSection === "popbill" ? (
+                <SetupPanel
+                  step={2}
+                  className="panel-settings-popbill"
+                  title="팝빌 연결"
+                  done={settingsHealth.popbillReady}
+                  note="팝빌 키와 파트너 사업자번호를 입력하고 포인트를 확인합니다."
+                  actions={
+                    <>
+                      <button className="btn-secondary" onClick={() => void runAction("partner-points-refresh-settings", load)}>포인트 조회</button>
+                      <button
+                        disabled={busyKey !== null || !partnerPoints?.referenceCorpNum}
+                        onClick={() => void runAction("partner-charge-settings", openPartnerChargeUrl)}
+                      >
+                        포인트 충전
+                      </button>
+                    </>
+                  }
+                >
+                  <div className="info-grid">
+                    <div>
+                      <span>파트너 잔여포인트</span>
+                      <strong>{partnerPoints?.available && partnerPoints.partnerRemainPoint !== null ? `${formatMoney(partnerPoints.partnerRemainPoint)}P` : "-"}</strong>
+                    </div>
+                    <div className="full-width">
+                      <span>조회 기준</span>
+                      <strong>{partnerPoints?.referenceCorpNum ?? "팝빌 파트너 사업자번호를 입력하세요."}</strong>
+                    </div>
+                  </div>
+                  <div className="form-grid">
+                    <label>
+                      팝빌 LinkID
+                      <input value={settingsForm.popbillLinkId} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillLinkId: event.target.value })} />
+                    </label>
+                    <label>
+                      팝빌 ID 접두어
+                      <input value={settingsForm.popbillUserIdPrefix} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} />
+                    </label>
+                    <label>
+                      팝빌 파트너 사업자번호
+                      <input
+                        placeholder="예: 290-42-01164"
+                        value={settingsForm.popbillPartnerCorpNum}
+                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillPartnerCorpNum: event.target.value })}
+                      />
+                    </label>
+                    <label className="full">
+                      팝빌 SecretKey
+                      <input type="password" value={settingsForm.popbillSecretKey} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSecretKey: event.target.value })} />
+                    </label>
+                    <label className="full">
+                      팝빌 공통 비밀번호
+                      <input
+                        type="password"
+                        value={settingsForm.popbillSharedPassword}
+                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
+                        placeholder="신규 고객 공통 비밀번호"
+                      />
+                    </label>
+                    <label className="checkbox">
+                      <input type="checkbox" checked={settingsForm.popbillIsTest} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillIsTest: event.target.checked })} />
+                      팝빌 테스트 모드
+                    </label>
+                    <div className="helper-box full">
+                      <strong>자동 규칙</strong>
+                      <span>고객 저장 시 팝빌 ID는 접두어 + 고객번호 형식으로 생성됩니다.</span>
+                      <span>공통 비밀번호는 신규 고객 또는 비어 있는 고객에만 적용됩니다.</span>
+                      <span>{partnerPoints?.message ?? "포인트 조회 전입니다."}</span>
+                    </div>
+                  </div>
+                </SetupPanel>
+              ) : null}
+
+              {activeSettingsSection === "operator" ? (
+                <SetupPanel
+                  step={3}
+                  done={settingsHealth.operatorReady}
+                  note="팝빌 가입과 발행에 공통으로 사용하는 운영 담당자 정보입니다."
+                  className="panel-settings-operator"
+                  title="운영 담당자"
+                >
+                  <div className="form-grid">
+                    <label>
+                      운영 담당자명
+                      <input value={settingsForm.operatorContactName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })} />
+                    </label>
+                    <label>
+                      운영 담당자 이메일
+                      <input value={settingsForm.operatorContactEmail} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })} />
+                    </label>
+                    <label>
+                      운영 담당자 연락처
+                      <input value={settingsForm.operatorContactTel} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })} />
+                    </label>
+                  </div>
+                </SetupPanel>
+              ) : null}
+
+              {activeSettingsSection === "backup" ? (
+                <SetupPanel
+                  step={4}
+                  className="panel-settings-backup"
+                  title="데이터 백업"
+                  done={Boolean(storageInfo)}
+                  note="설치본 기준 로컬 데이터를 백업하고 필요하면 복원합니다."
+                  actions={<button className="btn-secondary" onClick={() => void runAction("db-backup", createDatabaseBackup)}>백업 생성</button>}
+                >
+                  <div className="info-grid">
+                    <div className="full-width">
+                      <span>현재 DB 경로</span>
+                      <strong>{storageInfo?.databaseFile ?? "-"}</strong>
+                    </div>
+                    <div className="full-width">
+                      <span>백업 폴더</span>
+                      <strong>{storageInfo?.backupDir ?? "-"}</strong>
+                    </div>
+                  </div>
+                  <div className="table-wrap">
+                    <table className="responsive-table">
+                      <thead>
+                        <tr>
+                          <th>파일명</th>
+                          <th>크기</th>
+                          <th>수정시각</th>
+                          <th>액션</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(storageInfo?.backups ?? []).map((backup) => (
+                          <tr key={backup.fileName}>
+                            <td data-label="파일명">{backup.fileName}</td>
+                            <td data-label="크기">{formatBytes(backup.sizeBytes)}</td>
+                            <td data-label="수정시각">{formatDateTime(backup.modifiedAt)}</td>
+                            <td data-label="액션">
+                              <button className="btn-secondary" onClick={() => void runAction(`restore-backup-${backup.fileName}`, async () => void (await restoreDatabaseBackup(backup.fileName)))}>
+                                이 백업으로 복원
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {(storageInfo?.backups.length ?? 0) === 0 ? <div className="empty">생성된 백업 파일이 없습니다.</div> : null}
+                  </div>
+                </SetupPanel>
+              ) : null}
+
+              {activeSettingsSection === "logs" ? (
+                <Panel className="panel-settings-logs" title="최근 로그">
+                  <div className="log-list">
+                    {recentLogs.map((log) => (
+                      <div key={log.id} className={`log-row log-${log.level}`}>
+                        <div>
+                          <strong>{log.scope}</strong>
+                          <span>{log.message}</span>
+                        </div>
+                        <time>{formatDateTime(log.createdAt)}</time>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-                {(storageInfo?.backups.length ?? 0) === 0 ? <div className="empty">생성된 백업 파일이 없습니다.</div> : null}
-              </div>
-            </Panel>
+                  </div>
+                </Panel>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </main>

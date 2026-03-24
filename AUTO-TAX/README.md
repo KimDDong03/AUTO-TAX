@@ -64,6 +64,40 @@ npm run desktop:installer
 - 이 폴더 안의 `AUTO-TAX.exe`를 바로 실행할 수 있습니다.
 - 설치파일은 `release/AUTO-TAX-Setup-0.1.0.exe`로 생성됩니다.
 
+## 목업 프리뷰
+
+화면 밀도나 UI를 확인하려면 목업 데이터를 따로 넣은 프리뷰 DB를 사용할 수 있습니다.
+
+목업 데이터 생성:
+
+```bash
+npm run mock:seed
+```
+
+목업 데이터 삭제:
+
+```bash
+npm run mock:clear
+```
+
+목업 DB로 서버 프리뷰 실행:
+
+```bash
+npm run mock:preview
+```
+
+- 프리뷰 주소: `http://127.0.0.1:4302`
+- 사용 DB: `data/mock-preview.db`
+
+목업 DB로 Electron 프리뷰 실행:
+
+```bash
+npm run mock:desktop
+```
+
+- Electron이 `data/mock-preview.db`를 사용해 실행됩니다.
+- 실제 운영용 로컬 DB와 분리해서 화면만 확인할 수 있습니다.
+
 ## 설정 순서
 
 1. 시스템 설정에서 Gmail 계정/앱 비밀번호와 팝빌 키 입력
@@ -96,6 +130,7 @@ npm run desktop:installer
 - `AUTO_TAX_NOTIFICATION_EMAILS`
 - `AUTO_TAX_POPBILL_LINK_ID`
 - `AUTO_TAX_POPBILL_SECRET_KEY`
+- `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`
 - `AUTO_TAX_POPBILL_USER_ID_PREFIX`
 - `AUTO_TAX_POPBILL_SHARED_PASSWORD`
 - `AUTO_TAX_OPERATOR_CONTACT_NAME`
@@ -110,6 +145,7 @@ npm run desktop:installer
 - `AUTO_TAX_SMTP_PASS` = Gmail 앱 비밀번호
 - `AUTO_TAX_SMTP_FROM_EMAIL` = Gmail 주소
 - `AUTO_TAX_POPBILL_USER_ID_PREFIX` = 예: `HAE_`
+- `AUTO_TAX_POPBILL_PARTNER_CORP_NUM` = 파트너 포인트 조회/충전에 사용할 본인 사업자번호
 - `AUTO_TAX_POPBILL_SHARED_PASSWORD` = 신규 고객에 공통으로 쓸 팝빌 비밀번호
 - `AUTO_TAX_OPERATOR_CONTACT_NAME` = 팝빌 가입에 쓸 운영자명
 - `AUTO_TAX_OPERATOR_CONTACT_EMAIL` = 팝빌 가입에 쓸 운영자 이메일
