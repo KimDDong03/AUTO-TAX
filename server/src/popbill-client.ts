@@ -50,6 +50,15 @@ function assertOperatorContact(settings: AppSettings): void {
   }
 }
 
+function parsePointValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  const parsed = Number(String(value ?? "0").replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export async function joinMember(settings: AppSettings, customer: Customer): Promise<unknown> {
   assertCustomerPopbillIdentity(customer);
   assertOperatorContact(settings);
@@ -114,6 +123,43 @@ export async function getTaxCertURL(settings: AppSettings, customer: Customer): 
     service.getTaxCertURL(
       digitsOnly(customer.businessNumber),
       customer.popbillUserId || "",
+      (response: string) => done({ response }),
+      (error: CallbackResult<never>["error"]) => done({ error })
+    );
+  });
+}
+
+export async function getPartnerBalance(settings: AppSettings, businessNumber: string): Promise<{ remainPoint: number; defUsedPoint: number }> {
+  const service = getService(settings);
+  return promisify<unknown>((done) => {
+    service.getPartnerBalance(
+      digitsOnly(businessNumber),
+      (response: unknown) => done({ response }),
+      (error: CallbackResult<never>["error"]) => done({ error })
+    );
+  }).then((response) => ({
+    remainPoint: parsePointValue(response),
+    defUsedPoint: 0
+  }));
+}
+
+export async function getBalance(settings: AppSettings, businessNumber: string): Promise<number> {
+  const service = getService(settings);
+  return promisify<unknown>((done) => {
+    service.getBalance(
+      digitsOnly(businessNumber),
+      (response: unknown) => done({ response }),
+      (error: CallbackResult<never>["error"]) => done({ error })
+    );
+  }).then((response) => parsePointValue(response));
+}
+
+export async function getPartnerChargeURL(settings: AppSettings, businessNumber: string): Promise<string> {
+  const service = getService(settings);
+  return promisify((done) => {
+    service.getPartnerURL(
+      digitsOnly(businessNumber),
+      "CHRG",
       (response: string) => done({ response }),
       (error: CallbackResult<never>["error"]) => done({ error })
     );

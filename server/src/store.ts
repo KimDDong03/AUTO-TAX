@@ -54,6 +54,7 @@ function mapSettings(row: DbRow): AppSettings {
     popbillLinkId: String(row.popbill_link_id ?? ""),
     popbillSecretKey: String(row.popbill_secret_key ?? ""),
     popbillIsTest: Number(row.popbill_is_test ?? 1) === 1,
+    popbillPartnerCorpNum: String(row.popbill_partner_corp_num ?? ""),
     popbillUserIdPrefix: String(row.popbill_user_id_prefix ?? "HAE_"),
     popbillSharedPassword: String(row.popbill_shared_password ?? ""),
     operatorContactName: String(row.operator_contact_name ?? ""),
@@ -201,6 +202,7 @@ export class Store {
         popbill_link_id TEXT NOT NULL DEFAULT '',
         popbill_secret_key TEXT NOT NULL DEFAULT '',
         popbill_is_test INTEGER NOT NULL DEFAULT 1,
+        popbill_partner_corp_num TEXT NOT NULL DEFAULT '',
         popbill_user_id_prefix TEXT NOT NULL DEFAULT 'HAE_',
         popbill_shared_password TEXT NOT NULL DEFAULT '',
         operator_contact_name TEXT NOT NULL DEFAULT '',
@@ -321,6 +323,7 @@ export class Store {
 
     this.ensureColumn("app_settings", "popbill_user_id_prefix", "TEXT NOT NULL DEFAULT 'HAE_'");
     this.ensureColumn("app_settings", "popbill_shared_password", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("app_settings", "popbill_partner_corp_num", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("app_settings", "operator_contact_name", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("app_settings", "operator_contact_email", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("app_settings", "operator_contact_tel", "TEXT NOT NULL DEFAULT ''");
@@ -446,6 +449,7 @@ export class Store {
         popbill_link_id = @popbillLinkId,
         popbill_secret_key = @popbillSecretKey,
         popbill_is_test = @popbillIsTest,
+        popbill_partner_corp_num = @popbillPartnerCorpNum,
         popbill_user_id_prefix = @popbillUserIdPrefix,
         popbill_shared_password = @popbillSharedPassword,
         operator_contact_name = @operatorContactName,

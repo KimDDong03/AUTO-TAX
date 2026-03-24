@@ -25,6 +25,7 @@ export interface AppSettings {
   popbillLinkId: string;
   popbillSecretKey: string;
   popbillIsTest: boolean;
+  popbillPartnerCorpNum: string;
   popbillUserIdPrefix: string;
   popbillSharedPassword: string;
   operatorContactName: string;
@@ -118,4 +119,12 @@ export interface DashboardPayload {
     failedDrafts: number;
     unmatchedMessages: number;
   };
+}
+
+export interface PartnerPointsPayload {
+  available: boolean;
+  isTest: boolean;
+  referenceCorpNum: string | null;
+  partnerRemainPoint: number | null;
+  message: string;
 }

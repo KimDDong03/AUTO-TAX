@@ -16,6 +16,8 @@ import {
   cancelTaxInvoice,
   checkIsMember,
   getCertificateExpireDate,
+  getPartnerBalance,
+  getPartnerChargeURL,
   getTaxCertURL,
   getTaxInvoiceInfo,
   getTaxInvoicePrintURL,
@@ -93,6 +95,7 @@ function applyEnvSettings(store: Store): void {
     popbillLinkId: envString("AUTO_TAX_POPBILL_LINK_ID"),
     popbillSecretKey: envString("AUTO_TAX_POPBILL_SECRET_KEY"),
     popbillIsTest: envBool("AUTO_TAX_POPBILL_IS_TEST"),
+    popbillPartnerCorpNum: envString("AUTO_TAX_POPBILL_PARTNER_CORP_NUM"),
     popbillUserIdPrefix: envString("AUTO_TAX_POPBILL_USER_ID_PREFIX"),
     popbillSharedPassword: envString("AUTO_TAX_POPBILL_SHARED_PASSWORD"),
     operatorContactName: envString("AUTO_TAX_OPERATOR_CONTACT_NAME"),
@@ -133,6 +136,7 @@ const settingsSchema = z.object({
   popbillLinkId: z.string(),
   popbillSecretKey: z.string(),
   popbillIsTest: z.boolean(),
+  popbillPartnerCorpNum: z.string(),
   popbillUserIdPrefix: z.string().min(1),
   popbillSharedPassword: z.string(),
   operatorContactName: z.string(),
@@ -190,6 +194,76 @@ export function createApp(store: Store, webDist: string) {
 
   app.get("/api/settings", (_req, res) => {
     res.json(store.getSettings());
+  });
+
+  app.get("/api/popbill/partner-points", async (_req, res) => {
+    const settings = store.getSettings();
+    const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
+
+    if (!settings.popbillLinkId || !settings.popbillSecretKey) {
+      res.json({
+        available: false,
+        isTest: settings.popbillIsTest,
+        referenceCorpNum: null,
+        partnerRemainPoint: null,
+        message: "팝빌 LinkID와 SecretKey를 먼저 입력하세요."
+      });
+      return;
+    }
+
+    if (!referenceCorpNum) {
+      res.json({
+        available: false,
+        isTest: settings.popbillIsTest,
+        referenceCorpNum: null,
+        partnerRemainPoint: null,
+        message: "시스템설정에 팝빌 파트너 사업자번호를 입력해야 파트너 포인트를 조회할 수 있습니다."
+      });
+      return;
+    }
+
+    try {
+      const partnerBalance = await getPartnerBalance(settings, referenceCorpNum);
+
+      res.json({
+        available: true,
+        isTest: settings.popbillIsTest,
+        referenceCorpNum,
+        partnerRemainPoint: partnerBalance.remainPoint,
+        message: settings.popbillIsTest ? "팝빌 테스트 환경 파트너 포인트입니다." : "팝빌 운영 환경 파트너 포인트입니다."
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "팝빌 파트너 포인트 조회에 실패했습니다.";
+      res.json({
+        available: false,
+        isTest: settings.popbillIsTest,
+        referenceCorpNum,
+        partnerRemainPoint: null,
+        message
+      });
+    }
+  });
+
+  app.get("/api/popbill/partner-charge-url", async (_req, res) => {
+    const settings = store.getSettings();
+    const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
+
+    if (!settings.popbillLinkId || !settings.popbillSecretKey) {
+      res.status(400).json({ error: "팝빌 LinkID와 SecretKey를 먼저 입력하세요." });
+      return;
+    }
+
+    if (!referenceCorpNum) {
+      res.status(400).json({ error: "시스템설정에 팝빌 파트너 사업자번호를 먼저 입력하세요." });
+      return;
+    }
+
+    const url = await getPartnerChargeURL(settings, referenceCorpNum);
+    store.createLog("info", "popbill", "파트너 포인트 충전 URL을 발급했습니다.", {
+      referenceCorpNum,
+      isTest: settings.popbillIsTest
+    });
+    res.json({ url });
   });
 
   app.put("/api/settings", (req, res) => {

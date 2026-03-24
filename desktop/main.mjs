@@ -2,12 +2,22 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, shell } from "electron";
 
-const apiServerUrl = "http://127.0.0.1:4300";
-const devServerUrl = "http://127.0.0.1:5173";
+const embeddedPort = Number(process.env.AUTO_TAX_PORT ?? 4300);
+const apiServerUrl = `http://127.0.0.1:${embeddedPort}`;
+const devServerUrl = process.env.AUTO_TAX_DEV_SERVER_URL ?? "http://127.0.0.1:5173";
 const useEmbeddedServer = app.isPackaged || process.env.AUTO_TAX_ELECTRON_USE_DIST === "1";
 
 let mainWindow = null;
 let embeddedServer = null;
+
+function resolveDatabaseFile(appRoot) {
+  const envDatabaseFile = process.env.AUTO_TAX_DB;
+  if (envDatabaseFile && envDatabaseFile.trim()) {
+    return path.isAbsolute(envDatabaseFile) ? envDatabaseFile : path.resolve(appRoot, envDatabaseFile);
+  }
+
+  return path.join(app.getPath("userData"), "auto-tax.db");
+}
 
 async function waitForServerReady(url, retries = 50) {
   for (let attempt = 0; attempt < retries; attempt += 1) {
@@ -30,14 +40,14 @@ async function startEmbeddedServer() {
   if (embeddedServer) return embeddedServer;
 
   const appRoot = app.getAppPath();
-  const databaseFile = path.join(app.getPath("userData"), "auto-tax.db");
+  const databaseFile = resolveDatabaseFile(appRoot);
   const serverModuleUrl = pathToFileURL(path.join(appRoot, "dist", "server", "main.js")).href;
   const { startServer } = await import(serverModuleUrl);
 
   embeddedServer = startServer({
     rootDir: appRoot,
     databaseFile,
-    port: 4300
+    port: embeddedPort
   });
 
   await waitForServerReady(apiServerUrl);
