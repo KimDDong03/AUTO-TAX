@@ -92,6 +92,13 @@ npm run build:vercel
 - `AUTO_TAX_OPERATOR_CONTACT_EMAIL`
 - `AUTO_TAX_OPERATOR_CONTACT_TEL`
 
+팝빌 관련 값은 모두 서버 전용입니다.
+
+- `AUTO_TAX_POPBILL_*`
+- `AUTO_TAX_OPERATOR_CONTACT_*`
+
+이 값들은 Vercel 서버 환경변수에만 두고, 브라우저로 내려가면 안 됩니다.
+
 같은 Gmail 계정을 쓸 거라면 보통 아래처럼 맞추면 됩니다.
 
 - `AUTO_TAX_IMAP_USER` = Gmail 주소

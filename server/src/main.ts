@@ -43,6 +43,39 @@ type RequestLocals = {
   requestStore?: AppStore;
 };
 
+type ClientAppSettings = Pick<
+  AppSettings,
+  | "id"
+  | "imapHost"
+  | "imapPort"
+  | "imapSecure"
+  | "imapUser"
+  | "imapPass"
+  | "imapMailbox"
+  | "smtpHost"
+  | "smtpPort"
+  | "smtpSecure"
+  | "smtpUser"
+  | "smtpPass"
+  | "smtpFromName"
+  | "smtpFromEmail"
+  | "notificationEmails"
+  | "defaultIssueDay"
+  | "defaultIssueHour"
+  | "defaultIssueMinute"
+  | "mailPollMinutes"
+  | "mailSyncStartAt"
+  | "timezone"
+  | "schedulerEnabled"
+  | "certLastCheckedAt"
+  | "certAlertLastSentAt"
+  | "createdAt"
+  | "updatedAt"
+> & {
+  popbillConfigured: boolean;
+  operatorConfigured: boolean;
+};
+
 function envString(name: string): string | undefined {
   const value = process.env[name];
   if (value === undefined) return undefined;
@@ -128,6 +161,46 @@ async function enforceProductionMode(store: AppStore): Promise<void> {
   }
 }
 
+function toClientSettings(settings: AppSettings): ClientAppSettings {
+  return {
+    id: settings.id,
+    imapHost: settings.imapHost,
+    imapPort: settings.imapPort,
+    imapSecure: settings.imapSecure,
+    imapUser: settings.imapUser,
+    imapPass: settings.imapPass,
+    imapMailbox: settings.imapMailbox,
+    smtpHost: settings.smtpHost,
+    smtpPort: settings.smtpPort,
+    smtpSecure: settings.smtpSecure,
+    smtpUser: settings.smtpUser,
+    smtpPass: settings.smtpPass,
+    smtpFromName: settings.smtpFromName,
+    smtpFromEmail: settings.smtpFromEmail,
+    notificationEmails: settings.notificationEmails,
+    defaultIssueDay: settings.defaultIssueDay,
+    defaultIssueHour: settings.defaultIssueHour,
+    defaultIssueMinute: settings.defaultIssueMinute,
+    mailPollMinutes: settings.mailPollMinutes,
+    mailSyncStartAt: settings.mailSyncStartAt,
+    timezone: settings.timezone,
+    schedulerEnabled: settings.schedulerEnabled,
+    certLastCheckedAt: settings.certLastCheckedAt,
+    certAlertLastSentAt: settings.certAlertLastSentAt,
+    createdAt: settings.createdAt,
+    updatedAt: settings.updatedAt,
+    popbillConfigured: Boolean(settings.popbillLinkId && settings.popbillSecretKey),
+    operatorConfigured: Boolean(settings.operatorContactName && settings.operatorContactEmail && settings.operatorContactTel)
+  };
+}
+
+function maskBusinessNumber(value: string): string | null {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.length <= 4) return digits;
+  return `${"*".repeat(Math.max(0, digits.length - 4))}${digits.slice(-4)}`;
+}
+
 const settingsSchema = z.object({
   imapHost: z.string(),
   imapPort: z.number().int().min(1),
@@ -149,15 +222,6 @@ const settingsSchema = z.object({
   mailPollMinutes: z.number().int().min(1).max(1440),
   mailSyncStartAt: z.string().nullable(),
   timezone: z.string(),
-  popbillLinkId: z.string(),
-  popbillSecretKey: z.string(),
-  popbillIsTest: z.boolean(),
-  popbillPartnerCorpNum: z.string(),
-  popbillUserIdPrefix: z.string().min(1),
-  popbillSharedPassword: z.string(),
-  operatorContactName: z.string(),
-  operatorContactEmail: z.string(),
-  operatorContactTel: z.string(),
   schedulerEnabled: z.boolean()
 });
 
@@ -422,8 +486,10 @@ export async function createApp(store: AppStore, webDist: string) {
   app.get("/api/bootstrap", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
     const authContext = requireAuthContext(res);
+    const dashboard = await requestStore.getDashboard();
     res.json({
-      ...(await requestStore.getDashboard()),
+      ...dashboard,
+      settings: toClientSettings(dashboard.settings),
       renewalAutomation: renewalAutomation.getSnapshot(),
       auth: authContext
     });
@@ -590,7 +656,7 @@ export async function createApp(store: AppStore, webDist: string) {
 
   app.get("/api/settings", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
-    res.json(await requestStore.getSettings());
+    res.json(toClientSettings(await requestStore.getSettings()));
   });
 
   app.get("/api/popbill/partner-points", async (_req, res) => {
@@ -604,7 +670,7 @@ export async function createApp(store: AppStore, webDist: string) {
         isTest: settings.popbillIsTest,
         referenceCorpNum: null,
         partnerRemainPoint: null,
-        message: "팝빌 LinkID와 SecretKey를 먼저 입력하세요."
+        message: "팝빌 연결이 아직 준비되지 않았습니다."
       });
       return;
     }
@@ -615,7 +681,7 @@ export async function createApp(store: AppStore, webDist: string) {
         isTest: settings.popbillIsTest,
         referenceCorpNum: null,
         partnerRemainPoint: null,
-        message: "시스템설정에 팝빌 파트너 사업자번호를 입력해야 파트너 포인트를 조회할 수 있습니다."
+        message: "팝빌 파트너 결제 정보가 아직 준비되지 않았습니다."
       });
       return;
     }
@@ -626,7 +692,7 @@ export async function createApp(store: AppStore, webDist: string) {
       res.json({
         available: true,
         isTest: settings.popbillIsTest,
-        referenceCorpNum,
+        referenceCorpNum: maskBusinessNumber(referenceCorpNum),
         partnerRemainPoint: partnerBalance.remainPoint,
         message: settings.popbillIsTest ? "팝빌 테스트 환경 파트너 포인트입니다." : "팝빌 운영 환경 파트너 포인트입니다."
       });
@@ -648,12 +714,12 @@ export async function createApp(store: AppStore, webDist: string) {
     const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
 
     if (!settings.popbillLinkId || !settings.popbillSecretKey) {
-      res.status(400).json({ error: "팝빌 LinkID와 SecretKey를 먼저 입력하세요." });
+      res.status(400).json({ error: "팝빌 연결이 아직 준비되지 않았습니다." });
       return;
     }
 
     if (!referenceCorpNum) {
-      res.status(400).json({ error: "시스템설정에 팝빌 파트너 사업자번호를 먼저 입력하세요." });
+      res.status(400).json({ error: "팝빌 파트너 결제 정보가 아직 준비되지 않았습니다." });
       return;
     }
 
@@ -668,10 +734,9 @@ export async function createApp(store: AppStore, webDist: string) {
   app.put("/api/settings", async (req, res) => {
     const requestStore = getRequestStore(res, store);
     const payload = settingsSchema.parse(req.body) satisfies Partial<AppSettings>;
-    payload.popbillIsTest = false;
     const settings = await requestStore.updateSettings(payload);
     await requestStore.createLog("info", "settings", "시스템 설정을 저장했습니다.");
-    res.json(settings);
+    res.json(toClientSettings(settings));
   });
 
   app.post("/api/system/mail-test", async (req, res) => {

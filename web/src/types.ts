@@ -25,15 +25,8 @@ export interface AppSettings {
   mailPollMinutes: number;
   mailSyncStartAt: string | null;
   timezone: string;
-  popbillLinkId: string;
-  popbillSecretKey: string;
-  popbillIsTest: boolean;
-  popbillPartnerCorpNum: string;
-  popbillUserIdPrefix: string;
-  popbillSharedPassword: string;
-  operatorContactName: string;
-  operatorContactEmail: string;
-  operatorContactTel: string;
+  popbillConfigured: boolean;
+  operatorConfigured: boolean;
   schedulerEnabled: boolean;
   certLastCheckedAt: string | null;
   certAlertLastSentAt: string | null;

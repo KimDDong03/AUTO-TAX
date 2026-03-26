@@ -50,15 +50,6 @@ type SettingsFormState = {
   mailPollMinutes: string;
   mailSyncStartAt: string;
   timezone: string;
-  popbillLinkId: string;
-  popbillSecretKey: string;
-  popbillIsTest: boolean;
-  popbillPartnerCorpNum: string;
-  popbillUserIdPrefix: string;
-  popbillSharedPassword: string;
-  operatorContactName: string;
-  operatorContactEmail: string;
-  operatorContactTel: string;
   schedulerEnabled: boolean;
 };
 
@@ -184,15 +175,6 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
     mailPollMinutes: String(settings.mailPollMinutes),
     mailSyncStartAt: settings.mailSyncStartAt ?? "",
     timezone: settings.timezone,
-    popbillLinkId: settings.popbillLinkId,
-    popbillSecretKey: settings.popbillSecretKey,
-    popbillIsTest: settings.popbillIsTest,
-    popbillPartnerCorpNum: settings.popbillPartnerCorpNum,
-    popbillUserIdPrefix: settings.popbillUserIdPrefix,
-    popbillSharedPassword: settings.popbillSharedPassword,
-    operatorContactName: settings.operatorContactName,
-    operatorContactEmail: settings.operatorContactEmail,
-    operatorContactTel: settings.operatorContactTel,
     schedulerEnabled: settings.schedulerEnabled
   };
 }
@@ -1114,15 +1096,6 @@ export function App() {
         mailPollMinutes: Number(normalized.mailPollMinutes),
         mailSyncStartAt: normalized.mailSyncStartAt.trim() ? normalized.mailSyncStartAt : null,
         timezone: normalized.timezone,
-        popbillLinkId: normalized.popbillLinkId,
-        popbillSecretKey: normalized.popbillSecretKey,
-        popbillIsTest: false,
-        popbillPartnerCorpNum: normalized.popbillPartnerCorpNum,
-        popbillUserIdPrefix: normalized.popbillUserIdPrefix,
-        popbillSharedPassword: normalized.popbillSharedPassword,
-        operatorContactName: normalized.operatorContactName,
-        operatorContactEmail: normalized.operatorContactEmail,
-        operatorContactTel: normalized.operatorContactTel,
         schedulerEnabled: normalized.schedulerEnabled
       })
     });
@@ -1406,8 +1379,8 @@ export function App() {
   });
   const settingsHealth = {
     mailReady: Boolean(data.settings.imapUser && data.settings.imapPass && data.settings.smtpUser && data.settings.smtpPass),
-    popbillReady: Boolean(data.settings.popbillLinkId && data.settings.popbillSecretKey),
-    operatorReady: Boolean(data.settings.operatorContactName && data.settings.operatorContactEmail && data.settings.operatorContactTel)
+    popbillReady: data.settings.popbillConfigured,
+    operatorReady: data.settings.operatorConfigured
   };
   const unmatchedMessages = data.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed");
   const duplicateMessages = data.inbox.filter((message) => message.parseStatus === "duplicate");
@@ -1444,8 +1417,8 @@ export function App() {
   const blockedCustomerCount = data.customers.filter((customer) => !getCustomerIssueReadiness(customer).canIssueNow).length;
   const setupChecklist = [
     { key: "gmail", label: "메일 계정 연결", done: settingsHealth.mailReady },
-    { key: "popbill", label: "팝빌 키 입력", done: settingsHealth.popbillReady },
-    { key: "operator", label: "운영 담당자 입력", done: settingsHealth.operatorReady },
+    { key: "popbill", label: "팝빌 연결 준비", done: settingsHealth.popbillReady },
+    { key: "operator", label: "운영 정보 준비", done: settingsHealth.operatorReady },
     { key: "customer", label: "고객 1명 이상 등록", done: customerRegistrationReady }
   ];
   const setupPendingCount = setupChecklist.filter((step) => !step.done).length;
@@ -1480,9 +1453,9 @@ export function App() {
       step: 2,
       title: "팝빌 / 운영자",
       done: settingsHealth.popbillReady && settingsHealth.operatorReady,
-      summary: settingsHealth.popbillReady
-        ? `${data.settings.operatorContactName || "담당자 미입력"} · 운영`
-        : "팝빌 키와 운영 담당자 정보 입력"
+      summary: settingsHealth.popbillReady && settingsHealth.operatorReady
+        ? "서버에서 안전하게 관리 중"
+        : "서버 팝빌 연결 정보 확인 필요"
     }
   ];
   const navItems: Array<{ id: TabId; label: string; icon: string }> = [
@@ -2213,7 +2186,7 @@ export function App() {
                     <>
                       <button className="btn-secondary" onClick={() => void runAction("partner-points-refresh-settings", load)}>포인트 조회</button>
                       <button
-                        disabled={busyKey !== null || !partnerPoints?.referenceCorpNum}
+                        disabled={busyKey !== null || !partnerPoints?.available}
                         onClick={() => void runAction("partner-charge-settings", openPartnerChargeUrl)}
                       >
                         포인트 충전
@@ -2228,106 +2201,45 @@ export function App() {
                     </div>
                     <div className="full-width">
                       <span>조회 기준</span>
-                      <strong>{partnerPoints?.referenceCorpNum ?? "팝빌 파트너 사업자번호를 입력하세요."}</strong>
+                      <strong>{partnerPoints?.referenceCorpNum ?? "서버에서 관리 중"}</strong>
                     </div>
                   </div>
                   <div className="settings-field-stack">
                     <section className="settings-field-group">
                       <div className="settings-field-group-head">
-                        <strong>팝빌 연결</strong>
-                        <span>API 연결과 포인트 조회에 필요한 기본 정보를 입력합니다.</span>
+                        <strong>팝빌 연결 정보</strong>
+                        <span>LinkID, SecretKey, 파트너 결제 정보는 서비스 운영자가 서버 환경변수로만 관리합니다.</span>
                       </div>
-                      <div className="form-grid">
-                        <label>
-                          팝빌 LinkID
-                          <input value={settingsForm.popbillLinkId} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillLinkId: event.target.value })} />
-                        </label>
-                        <label>
-                          팝빌 파트너 사업자번호
-                          <input
-                            placeholder="사업자번호 입력"
-                            value={settingsForm.popbillPartnerCorpNum}
-                            onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillPartnerCorpNum: event.target.value })}
-                          />
-                        </label>
-                        <label className="full">
-                          팝빌 SecretKey
-                          <div className="password-field">
-                            <input
-                              type={revealedFields.popbillSecretKey ? "text" : "password"}
-                              value={settingsForm.popbillSecretKey}
-                              onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSecretKey: event.target.value })}
-                            />
-                            <button
-                              type="button"
-                              className="password-toggle"
-                              aria-label={revealedFields.popbillSecretKey ? "팝빌 SecretKey 숨기기" : "팝빌 SecretKey 보기"}
-                              onClick={() => toggleRevealField("popbillSecretKey")}
-                            >
-                              <RevealIcon open={Boolean(revealedFields.popbillSecretKey)} />
-                            </button>
-                          </div>
-                        </label>
+                      <div className="helper-box full">
+                        <strong>사용자 비공개 항목</strong>
+                        <span>팝빌 LinkID, SecretKey, 파트너 사업자번호, 공통 비밀번호, 운영 담당자 정보는 브라우저로 내려가지 않습니다.</span>
+                        <span>전자세금계산서 발행 비용은 운영자 파트너 계정에서 처리되고, 사용자는 이 값을 볼 수도 수정할 수도 없습니다.</span>
+                        <span>{partnerPoints?.message ?? "팝빌 연결 상태를 확인 중입니다."}</span>
                       </div>
                     </section>
 
                     <section className="settings-field-group">
                       <div className="settings-field-group-head">
-                        <strong>고객 계정 자동 생성</strong>
-                        <span>신규 고객 등록 시 자동으로 붙는 팝빌 계정 규칙입니다.</span>
+                        <strong>발행 비용 처리</strong>
+                        <span>포인트 충전과 파트너 결제는 운영자 계정 기준으로 처리합니다.</span>
                       </div>
-                      <div className="form-grid">
-                        <label>
-                          팝빌 ID 접두어
-                          <input value={settingsForm.popbillUserIdPrefix} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} />
-                          <span className="field-hint">신규 고객 팝빌 ID를 만들 때 앞에 붙는 값입니다. 예: <strong>HAE_</strong> 입력 시 <strong>HAE_001</strong>처럼 생성됩니다.</span>
-                        </label>
-                        <label>
-                          팝빌 공통 비밀번호
-                          <div className="password-field">
-                            <input
-                              type={revealedFields.popbillSharedPassword ? "text" : "password"}
-                              value={settingsForm.popbillSharedPassword}
-                              onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
-                              placeholder="신규 고객 공통 비밀번호"
-                            />
-                            <button
-                              type="button"
-                              className="password-toggle"
-                              aria-label={revealedFields.popbillSharedPassword ? "팝빌 공통 비밀번호 숨기기" : "팝빌 공통 비밀번호 보기"}
-                              onClick={() => toggleRevealField("popbillSharedPassword")}
-                            >
-                              <RevealIcon open={Boolean(revealedFields.popbillSharedPassword)} />
-                            </button>
-                          </div>
-                        </label>
-                        <div className="helper-box full">
-                          <strong>자동 규칙</strong>
-                          <span>고객 저장 시 팝빌 ID는 접두어 + 고객번호 형식으로 생성됩니다.</span>
-                          <span>공통 비밀번호는 신규 고객 또는 비어 있는 고객에만 적용됩니다.</span>
-                          <span>{formatPartnerPointsMessage(partnerPoints)}</span>
-                        </div>
+                      <div className="helper-box full">
+                        <strong>운영 방식</strong>
+                        <span>사용자는 발행 요청과 결과만 사용하고, 팝빌 과금과 파트너 포인트는 운영자가 별도로 관리합니다.</span>
+                        <span>포인트 조회와 충전 URL 발급은 서버가 대신 처리합니다.</span>
+                        <span>{formatPartnerPointsMessage(partnerPoints)}</span>
                       </div>
                     </section>
 
                     <section className="settings-field-group">
                       <div className="settings-field-group-head">
-                        <strong>운영 담당자</strong>
-                        <span>팝빌 가입과 발행에 쓰는 운영 담당자 정보를 입력합니다.</span>
+                        <strong>서버 관리 정책</strong>
+                        <span>고객사 사용자는 메일 설정과 발행 업무만 다루고, 팝빌 운영 정보는 서버에서만 유지합니다.</span>
                       </div>
-                      <div className="form-grid">
-                        <label>
-                          운영 담당자명
-                          <input value={settingsForm.operatorContactName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })} />
-                        </label>
-                        <label>
-                          운영 담당자 연락처
-                          <input value={settingsForm.operatorContactTel} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })} />
-                        </label>
-                        <label className="full">
-                          운영 담당자 이메일
-                          <input value={settingsForm.operatorContactEmail} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })} />
-                        </label>
+                      <div className="helper-box full">
+                        <strong>현재 상태</strong>
+                        <span>팝빌 연결: {settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</span>
+                        <span>운영 정보: {settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</span>
                       </div>
                     </section>
 
