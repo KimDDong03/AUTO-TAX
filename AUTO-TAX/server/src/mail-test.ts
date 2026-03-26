@@ -80,8 +80,8 @@ export async function testMailConnections(input: MailTestInput): Promise<MailTes
           ? `"${input.smtpFromName}" <${input.smtpFromEmail}>`
           : input.smtpFromEmail,
         to: input.notificationEmails.join(", "),
-        subject: "[AUTO-TAX] Gmail 연결 테스트",
-        text: "AUTO-TAX Gmail 연결 테스트 메일입니다.\nIMAP/SMTP 인증이 정상 동작합니다."
+        subject: "[AUTO-TAX] 메일 연결 테스트",
+        text: "AUTO-TAX 메일 연결 테스트 메일입니다.\nIMAP/SMTP 인증이 정상 동작합니다."
       });
       testMailSent = true;
       smtpMessage = `SMTP 연결 성공, 테스트 메일 ${input.notificationEmails.length}곳 발송`;

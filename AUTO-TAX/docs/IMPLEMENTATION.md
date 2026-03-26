@@ -17,7 +17,7 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 
 - Backend: Node.js + TypeScript + Express
 - Frontend: React + Vite
-- Database: SQLite (`better-sqlite3`)
+- Database: Supabase PostgreSQL
 - Mail read: IMAP (`imapflow`)
 - Mail parse: `mailparser` + 규칙 기반 파서
 - Tax invoice: Popbill Node SDK
@@ -30,7 +30,7 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 - 메일 동기화: `server/src/mail-sync.ts`
 - 발행 스케줄: `server/src/scheduler.ts`
 - 팝빌 연동: `server/src/popbill-client.ts`
-- 데이터 저장: `server/src/store.ts`
+- 데이터 저장: `server/src/supabase-store.ts`
 - 관리 화면: `web/src/App.tsx`
 
 ## 업무 플로우
@@ -64,7 +64,7 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 ### 3. 고객 매칭
 
 1. 파싱된 `발전소명`을 정규화한다.
-2. `customer_plants.normalized_plant_name`과 비교한다.
+2. `managed_customer_plants.normalized_plant_name`과 비교한다.
 3. 일치하는 고객이 있으면 초안을 생성한다.
 4. 없으면 `unmatched`로 저장하고 운영자 알림을 보낸다.
 
@@ -110,7 +110,7 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 
 ## 데이터 모델
 
-### app_settings
+### organization_settings / organization_integrations
 
 - IMAP/SMTP 설정
 - 운영자 알림 메일 목록
@@ -122,7 +122,7 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 - 팝빌 공통 비밀번호
 - 스케줄러 활성화 여부
 
-### customers
+### managed_customers
 
 - 고객 기본 사업자 정보
 - 자동 생성된 팝빌 사용자 ID / 비밀번호
@@ -131,7 +131,7 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 - 고객별 발행 모드
 - 고객별 발행일 / 시 / 분
 
-### customer_plants
+### managed_customer_plants
 
 - 발전소명
 - 정규화된 발전소명
@@ -156,7 +156,7 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 - 한전 정보
 - 팝빌 결과
 
-### logs
+### app_logs
 
 - 레벨
 - 범위
@@ -165,7 +165,7 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 
 ## 환경 설정
 
-환경값은 `.env`에서 넣고, 서버 시작 시 DB 설정에 반영한다.
+환경값은 `.env`에서 넣고, 서버 시작 시 Supabase 조직 설정에 반영한다.
 
 중요 키:
 

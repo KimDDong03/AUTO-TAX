@@ -25,15 +25,22 @@ import {
   joinMember,
   quitMember
 } from "./popbill-client.js";
+import { RenewalAutomationManager } from "./renewal-automation.js";
 import { Scheduler } from "./scheduler.js";
-import { Store } from "./store.js";
+import type { AppStore } from "./store-contract.js";
+import { resolveAuthenticatedAppSession, type AuthenticatedAppSession } from "./supabase.js";
+import { SupabaseStore } from "./supabase-store.js";
 
 export type StartServerOptions = {
   port?: number;
   rootDir?: string;
-  databaseFile?: string;
   webDist?: string;
   startScheduler?: boolean;
+};
+
+type RequestLocals = {
+  authContext?: AuthenticatedAppSession;
+  requestStore?: AppStore;
 };
 
 function envString(name: string): string | undefined {
@@ -71,7 +78,7 @@ function resolvePathFromRoot(rootDir: string, value: string): string {
   return path.isAbsolute(value) ? value : path.resolve(rootDir, value);
 }
 
-function applyEnvSettings(store: Store): void {
+async function applyEnvSettings(store: AppStore): Promise<void> {
   const payload: Partial<AppSettings> = {
     imapHost: envString("AUTO_TAX_IMAP_HOST"),
     imapPort: envInt("AUTO_TAX_IMAP_PORT"),
@@ -91,6 +98,7 @@ function applyEnvSettings(store: Store): void {
     defaultIssueHour: envInt("AUTO_TAX_DEFAULT_ISSUE_HOUR"),
     defaultIssueMinute: envInt("AUTO_TAX_DEFAULT_ISSUE_MINUTE"),
     mailPollMinutes: envInt("AUTO_TAX_MAIL_POLL_MINUTES"),
+    mailSyncStartAt: envString("AUTO_TAX_MAIL_SYNC_START_AT"),
     timezone: envString("AUTO_TAX_TIMEZONE"),
     popbillLinkId: envString("AUTO_TAX_POPBILL_LINK_ID"),
     popbillSecretKey: envString("AUTO_TAX_POPBILL_SECRET_KEY"),
@@ -109,7 +117,14 @@ function applyEnvSettings(store: Store): void {
   ) as Partial<AppSettings>;
 
   if (Object.keys(filtered).length > 0) {
-    store.updateSettings(filtered);
+    await store.updateSettings(filtered);
+  }
+}
+
+async function enforceProductionMode(store: AppStore): Promise<void> {
+  const settings = await store.getSettings();
+  if (settings.popbillIsTest) {
+    await store.updateSettings({ popbillIsTest: false });
   }
 }
 
@@ -132,6 +147,7 @@ const settingsSchema = z.object({
   defaultIssueHour: z.number().int().min(0).max(23),
   defaultIssueMinute: z.number().int().min(0).max(59),
   mailPollMinutes: z.number().int().min(1).max(1440),
+  mailSyncStartAt: z.string().nullable(),
   timezone: z.string(),
   popbillLinkId: z.string(),
   popbillSecretKey: z.string(),
@@ -179,25 +195,407 @@ const customerSchema = z.object({
   matchAddresses: z.array(z.string().min(1)).default([])
 });
 
-export function createApp(store: Store, webDist: string) {
+const renewalAgentProcessSchema = z.object({
+  detected: z.boolean(),
+  names: z.array(z.string()),
+  detail: z.string().nullable()
+});
+
+const renewalAgentPortSchema = z.object({
+  port: z.number().int().positive(),
+  protocol: z.union([z.literal("https"), z.literal("http")]),
+  reachable: z.boolean(),
+  latencyMs: z.number().finite().nullable(),
+  error: z.string().nullable()
+});
+
+const renewalAgentBridgeSchema = z.object({
+  summary: z.union([z.literal("ok"), z.literal("partial"), z.literal("down"), z.literal("unknown")]),
+  ports: z.array(renewalAgentPortSchema),
+  versionProbe: z.object({
+    ok: z.boolean(),
+    sourcePort: z.number().int().positive().nullable(),
+    values: z.object({
+      kpmcnt: z.string().nullable(),
+      kpmsvc: z.string().nullable(),
+      secukitNX: z.string().nullable()
+    }),
+    error: z.string().nullable()
+  }),
+  licenseProbe: z.object({
+    ok: z.boolean(),
+    sourcePort: z.number().int().positive().nullable(),
+    error: z.string().nullable()
+  }),
+  storageProbe: z.object({
+    ok: z.boolean(),
+    sourcePort: z.number().int().positive().nullable(),
+    mediaType: z.literal("HDD"),
+    certificateCount: z.number().int().min(0),
+    certificates: z.array(
+      z.object({
+        index: z.string(),
+        cn: z.string(),
+        issuerToName: z.string(),
+        usageToName: z.string(),
+        todate: z.string().nullable(),
+        oid: z.string().nullable(),
+        serial: z.string().nullable(),
+        userDN: z.string().nullable(),
+        validateFrom: z.string().nullable(),
+        detailValidateTo: z.string().nullable(),
+        certDirPath: z.string().nullable()
+      })
+    ),
+    error: z.string().nullable()
+  }),
+  selectionProbe: z.object({
+    ok: z.boolean(),
+    sourcePort: z.number().int().positive().nullable(),
+    certificateIndex: z.string().nullable(),
+    certificateCn: z.string().nullable(),
+    certID: z.string().nullable(),
+    error: z.string().nullable()
+  }),
+  preflightProbe: z.object({
+    ok: z.boolean(),
+    sourcePort: z.number().int().positive().nullable(),
+    certificateIndex: z.string().nullable(),
+    certificateCn: z.string().nullable(),
+    certID: z.string().nullable(),
+    branch: z.union([
+      z.literal("change-company"),
+      z.literal("renew-info"),
+      z.literal("renew-payment"),
+      z.literal("password-confirm"),
+      z.literal("unsupported"),
+      z.literal("unknown")
+    ]),
+    branchPageUrl: z.string().nullable(),
+    issueCompany: z.string().nullable(),
+    companyChkYn: z.string().nullable(),
+    policy: z.string().nullable(),
+    orderNo: z.string().nullable(),
+    orderSeq: z.string().nullable(),
+    orderStatus: z.string().nullable(),
+    orderApplySeCd: z.string().nullable(),
+    payYn: z.string().nullable(),
+    nextUrl: z.string().nullable(),
+    actionImageUrl: z.string().nullable(),
+    actionImageAlt: z.string().nullable(),
+    externalFlowKind: z.union([z.literal("apply-form"), z.literal("unknown")]).nullable(),
+    externalFlowProductName: z.string().nullable(),
+    externalFlowProductId: z.string().nullable(),
+    externalFlowSubmitUrl: z.string().nullable(),
+    externalFlowSubmitPathKind: z.union([z.literal("apply"), z.literal("renew"), z.literal("unknown")]).nullable(),
+    rawCode: z.string().nullable(),
+    message: z.string().nullable(),
+    error: z.string().nullable()
+  })
+});
+
+const renewalAgentHeartbeatSchema = z.object({
+  agentId: z.string().min(1),
+  hostname: z.string().min(1),
+  version: z.string().min(1),
+  os: z.string().min(1),
+  process: renewalAgentProcessSchema,
+  bridge: renewalAgentBridgeSchema,
+  notes: z.array(z.string()).default([])
+});
+
+const renewalAgentClaimSchema = z.object({
+  agentId: z.string().min(1)
+});
+
+const renewalBridgeProbeRequestSchema = z.object({
+  customerId: z.number().int().positive().nullable().optional()
+});
+
+const renewalCertIdProbeRequestSchema = z.object({
+  customerId: z.number().int().positive().nullable().optional(),
+  certificateIndex: z.number().int().positive(),
+  certificateCn: z.string().nullable().optional()
+});
+
+const renewalPreflightRequestSchema = z.object({
+  customerId: z.number().int().positive().nullable().optional(),
+  certificateIndex: z.number().int().positive(),
+  certificateCn: z.string().nullable().optional()
+});
+
+const renewalAgentCompleteSchema = z.object({
+  agentId: z.string().min(1),
+  result: z.object({
+    process: renewalAgentProcessSchema,
+    bridge: renewalAgentBridgeSchema,
+    notes: z.array(z.string()).default([])
+  })
+});
+
+const renewalAgentFailSchema = z.object({
+  agentId: z.string().min(1),
+  error: z.string().min(1)
+});
+
+function readAccessToken(req: express.Request): string | null {
+  const authorization = req.header("authorization")?.trim();
+  if (!authorization) {
+    return null;
+  }
+
+  const [scheme, token] = authorization.split(/\s+/, 2);
+  if (scheme?.toLowerCase() !== "bearer" || !token) {
+    return null;
+  }
+
+  return token;
+}
+
+function isAnonymousApiPath(req: express.Request): boolean {
+  return (
+    req.method === "OPTIONS" ||
+    req.path === "/health" ||
+    req.path === "/automation/renewal-agent/heartbeat" ||
+    req.path === "/automation/renewal-agent/jobs/claim" ||
+    /^\/automation\/renewal-agent\/jobs\/\d+\/(complete|fail)$/.test(req.path)
+  );
+}
+
+function setRequestLocals(res: express.Response, authContext: AuthenticatedAppSession, requestStore: AppStore) {
+  const locals = res.locals as RequestLocals;
+  locals.authContext = authContext;
+  locals.requestStore = requestStore;
+}
+
+function getRequestStore(res: express.Response, fallbackStore: AppStore): AppStore {
+  const locals = res.locals as RequestLocals;
+  return locals.requestStore ?? fallbackStore;
+}
+
+function requireAuthContext(res: express.Response): AuthenticatedAppSession {
+  const locals = res.locals as RequestLocals;
+  if (!locals.authContext) {
+    throw new Error("로그인 정보가 없습니다.");
+  }
+  return locals.authContext;
+}
+
+export async function createApp(store: AppStore, webDist: string) {
   const app = express();
+  const renewalAutomation = new RenewalAutomationManager();
   app.use(cors());
   app.use(express.json({ limit: "2mb" }));
+
+  app.use("/api", async (req, res, next) => {
+    if (isAnonymousApiPath(req)) {
+      next();
+      return;
+    }
+
+    const accessToken = readAccessToken(req);
+    if (!accessToken) {
+      res.status(401).json({ error: "로그인이 필요합니다." });
+      return;
+    }
+
+    try {
+      const authContext = await resolveAuthenticatedAppSession(accessToken, req.header("x-organization-id"));
+      const requestStore = new SupabaseStore({
+        organizationId: authContext.activeOrganizationId,
+        actorUserId: authContext.userId,
+        bootstrapOrganization: false
+      });
+      await requestStore.initialize();
+      setRequestLocals(res, authContext, requestStore);
+      next();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "로그인 확인에 실패했습니다.";
+      res.status(401).json({ error: message });
+    }
+  });
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
   });
 
-  app.get("/api/bootstrap", (_req, res) => {
-    res.json(store.getDashboard());
+  app.get("/api/bootstrap", async (_req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const authContext = requireAuthContext(res);
+    res.json({
+      ...(await requestStore.getDashboard()),
+      renewalAutomation: renewalAutomation.getSnapshot(),
+      auth: authContext
+    });
   });
 
-  app.get("/api/settings", (_req, res) => {
-    res.json(store.getSettings());
+  app.get("/api/automation/renewal-agent/snapshot", (_req, res) => {
+    res.json(renewalAutomation.getSnapshot());
+  });
+
+  app.post("/api/automation/renewal-jobs/bridge-probe", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const payload = renewalBridgeProbeRequestSchema.parse(req.body ?? {});
+    let customerName: string | null = null;
+
+    if (payload.customerId !== undefined && payload.customerId !== null) {
+      const customer = await requestStore.getCustomer(payload.customerId);
+      if (!customer) {
+        res.status(404).json({ error: "고객을 찾지 못했습니다." });
+        return;
+      }
+      customerName = customer.customerName;
+    }
+
+    const job = renewalAutomation.queueBridgeProbe({
+      customerId: payload.customerId ?? null,
+      customerName,
+      requestedBy: requireAuthContext(res).email ?? "web-ui"
+    });
+
+    await requestStore.createLog("info", "renewal-agent", "로컬 인증서 목록 진단 작업을 큐에 추가했습니다.", {
+      jobId: job.id,
+      customerId: job.customerId,
+      customerName: job.customerName
+    });
+
+    res.status(201).json(job);
+  });
+
+  app.post("/api/automation/renewal-jobs/certid-probe", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const payload = renewalCertIdProbeRequestSchema.parse(req.body ?? {});
+    let customerName: string | null = null;
+
+    if (payload.customerId !== undefined && payload.customerId !== null) {
+      const customer = await requestStore.getCustomer(payload.customerId);
+      if (!customer) {
+        res.status(404).json({ error: "고객을 찾지 못했습니다." });
+        return;
+      }
+      customerName = customer.customerName;
+    }
+
+    const job = renewalAutomation.queueCertIdProbe({
+      customerId: payload.customerId ?? null,
+      customerName,
+      certificateIndex: payload.certificateIndex,
+      certificateCn: payload.certificateCn ?? null,
+      requestedBy: requireAuthContext(res).email ?? "web-ui"
+    });
+
+    await requestStore.createLog("info", "renewal-agent", "로컬 인증서 certID 조회 작업을 큐에 추가했습니다.", {
+      jobId: job.id,
+      customerId: job.customerId,
+      customerName: job.customerName,
+      certificateIndex: job.certificateIndex,
+      certificateCn: job.certificateCn
+    });
+
+    res.status(201).json(job);
+  });
+
+  app.post("/api/automation/renewal-jobs/preflight", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const payload = renewalPreflightRequestSchema.parse(req.body ?? {});
+    let customerName: string | null = null;
+
+    if (payload.customerId !== undefined && payload.customerId !== null) {
+      const customer = await requestStore.getCustomer(payload.customerId);
+      if (!customer) {
+        res.status(404).json({ error: "고객을 찾지 못했습니다." });
+        return;
+      }
+      customerName = customer.customerName;
+    }
+
+    const job = renewalAutomation.queueRenewalPreflight({
+      customerId: payload.customerId ?? null,
+      customerName,
+      certificateIndex: payload.certificateIndex,
+      certificateCn: payload.certificateCn ?? null,
+      requestedBy: requireAuthContext(res).email ?? "web-ui"
+    });
+
+    await requestStore.createLog("info", "renewal-agent", "로컬 인증서 갱신 경로 분석 작업을 큐에 추가했습니다.", {
+      jobId: job.id,
+      customerId: job.customerId,
+      customerName: job.customerName,
+      certificateIndex: job.certificateIndex,
+      certificateCn: job.certificateCn
+    });
+
+    res.status(201).json(job);
+  });
+
+  app.post("/api/automation/renewal-agent/heartbeat", (req, res) => {
+    const payload = renewalAgentHeartbeatSchema.parse(req.body);
+    const agent = renewalAutomation.recordHeartbeat(payload);
+    res.json({ ok: true, agent });
+  });
+
+  app.post("/api/automation/renewal-agent/jobs/claim", (req, res) => {
+    const payload = renewalAgentClaimSchema.parse(req.body);
+    const job = renewalAutomation.claimNextJob(payload.agentId);
+    res.json({ job });
+  });
+
+  app.post("/api/automation/renewal-agent/jobs/:id/complete", async (req, res) => {
+    const params = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
+    const payload = renewalAgentCompleteSchema.parse(req.body);
+    const job = renewalAutomation.completeJob(params.id, payload.agentId, payload.result);
+
+    await store.createLog(
+      "info",
+      "renewal-agent",
+      job.type === "certid-probe"
+        ? "로컬 인증서 certID 조회 작업이 완료되었습니다."
+        : job.type === "renewal-preflight"
+          ? "로컬 인증서 갱신 경로 분석 작업이 완료되었습니다."
+          : "로컬 인증서 목록 진단 작업이 완료되었습니다.",
+      {
+      jobId: job.id,
+      type: job.type,
+      claimedBy: job.claimedBy,
+      summary: job.summary
+      }
+    );
+
+    res.json(job);
+  });
+
+  app.post("/api/automation/renewal-agent/jobs/:id/fail", async (req, res) => {
+    const params = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
+    const payload = renewalAgentFailSchema.parse(req.body);
+    const job = renewalAutomation.failJob(params.id, payload.agentId, payload.error);
+
+    await store.createLog(
+      "warn",
+      "renewal-agent",
+      job.type === "certid-probe"
+        ? "로컬 인증서 certID 조회 작업이 실패했습니다."
+        : job.type === "renewal-preflight"
+          ? "로컬 인증서 갱신 경로 분석 작업이 실패했습니다."
+          : "로컬 인증서 목록 진단 작업이 실패했습니다.",
+      {
+      jobId: job.id,
+      type: job.type,
+      claimedBy: job.claimedBy,
+      error: job.error
+      }
+    );
+
+    res.json(job);
+  });
+
+  app.get("/api/settings", async (_req, res) => {
+    const requestStore = getRequestStore(res, store);
+    res.json(await requestStore.getSettings());
   });
 
   app.get("/api/popbill/partner-points", async (_req, res) => {
-    const settings = store.getSettings();
+    const requestStore = getRequestStore(res, store);
+    const settings = await requestStore.getSettings();
     const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
 
     if (!settings.popbillLinkId || !settings.popbillSecretKey) {
@@ -245,7 +643,8 @@ export function createApp(store: Store, webDist: string) {
   });
 
   app.get("/api/popbill/partner-charge-url", async (_req, res) => {
-    const settings = store.getSettings();
+    const requestStore = getRequestStore(res, store);
+    const settings = await requestStore.getSettings();
     const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
 
     if (!settings.popbillLinkId || !settings.popbillSecretKey) {
@@ -259,78 +658,20 @@ export function createApp(store: Store, webDist: string) {
     }
 
     const url = await getPartnerChargeURL(settings, referenceCorpNum);
-    store.createLog("info", "popbill", "파트너 포인트 충전 URL을 발급했습니다.", {
+    await requestStore.createLog("info", "popbill", "파트너 포인트 충전 URL을 발급했습니다.", {
       referenceCorpNum,
       isTest: settings.popbillIsTest
     });
     res.json({ url });
   });
 
-  app.put("/api/settings", (req, res) => {
+  app.put("/api/settings", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const payload = settingsSchema.parse(req.body) satisfies Partial<AppSettings>;
-    const settings = store.updateSettings(payload);
-    store.createLog("info", "settings", "시스템 설정을 저장했습니다.");
+    payload.popbillIsTest = false;
+    const settings = await requestStore.updateSettings(payload);
+    await requestStore.createLog("info", "settings", "시스템 설정을 저장했습니다.");
     res.json(settings);
-  });
-
-  app.get("/api/system/storage", (_req, res) => {
-    const databaseFile = store.getDatabaseFile();
-    const backupDir = path.join(path.dirname(databaseFile), "backups");
-    const backups = fs.existsSync(backupDir)
-      ? fs
-          .readdirSync(backupDir, { withFileTypes: true })
-          .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".db"))
-          .map((entry) => {
-            const fullPath = path.join(backupDir, entry.name);
-            const stat = fs.statSync(fullPath);
-            return {
-              fileName: entry.name,
-              sizeBytes: stat.size,
-              modifiedAt: stat.mtime.toISOString()
-            };
-          })
-          .sort((left, right) => right.modifiedAt.localeCompare(left.modifiedAt))
-      : [];
-
-    res.json({
-      databaseFile,
-      backupDir,
-      backups
-    });
-  });
-
-  app.post("/api/system/database/backup", async (_req, res) => {
-    const databaseFile = store.getDatabaseFile();
-    const backupDir = path.join(path.dirname(databaseFile), "backups");
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[-:]/g, "")
-      .replace(/\..+$/, "")
-      .replace("T", "-");
-    const fileName = `auto-tax-backup-${timestamp}.db`;
-    const destinationFile = path.join(backupDir, fileName);
-
-    await store.createDatabaseBackup(destinationFile);
-    store.createLog("info", "system", "데이터베이스 백업을 생성했습니다.", { fileName });
-    res.json({ ok: true, fileName, destinationFile });
-  });
-
-  app.post("/api/system/database/restore", (req, res) => {
-    const body = z.object({ fileName: z.string().min(1) }).parse(req.body);
-    const fileName = path.basename(body.fileName);
-    const databaseFile = store.getDatabaseFile();
-    const backupDir = path.join(path.dirname(databaseFile), "backups");
-    const sourceFile = path.join(backupDir, fileName);
-
-    if (!fs.existsSync(sourceFile)) {
-      res.status(404).json({ error: "복원할 백업 파일을 찾지 못했습니다." });
-      return;
-    }
-
-    store.restoreDatabaseBackup(sourceFile);
-    applyEnvSettings(store);
-    store.createLog("warn", "system", "데이터베이스를 백업 파일로 복원했습니다.", { fileName });
-    res.json({ ok: true, fileName });
   });
 
   app.post("/api/system/mail-test", async (req, res) => {
@@ -339,35 +680,39 @@ export function createApp(store: Store, webDist: string) {
     res.json(result);
   });
 
-  app.get("/api/customers", (_req, res) => {
-    res.json(store.listCustomers());
+  app.get("/api/customers", async (_req, res) => {
+    const requestStore = getRequestStore(res, store);
+    res.json(await requestStore.listCustomers());
   });
 
-  app.post("/api/customers", (req, res) => {
+  app.post("/api/customers", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const payload = customerSchema.parse(req.body) satisfies CustomerInput;
-    const customer = store.saveCustomer(payload);
-    store.createLog("info", "customers", "고객을 등록했습니다.", { customerId: customer.id });
+    const customer = await requestStore.saveCustomer(payload);
+    await requestStore.createLog("info", "customers", "고객을 등록했습니다.", { customerId: customer.id });
     res.status(201).json(customer);
   });
 
-  app.put("/api/customers/:id", (req, res) => {
+  app.put("/api/customers/:id", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
     const payload = customerSchema.parse(req.body) satisfies CustomerInput;
-    const customer = store.saveCustomer(payload, customerId);
-    store.createLog("info", "customers", "고객 정보를 수정했습니다.", { customerId });
+    const customer = await requestStore.saveCustomer(payload, customerId);
+    await requestStore.createLog("info", "customers", "고객 정보를 수정했습니다.", { customerId });
     res.json(customer);
   });
 
-  app.delete("/api/customers/:id", (req, res) => {
+  app.delete("/api/customers/:id", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
-    const customer = store.getCustomer(customerId);
+    const customer = await requestStore.getCustomer(customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    store.deleteCustomer(customerId);
-    store.createLog("warn", "customers", "고객과 관련 로컬 데이터를 삭제했습니다.", {
+    await requestStore.deleteCustomer(customerId);
+    await requestStore.createLog("warn", "customers", "고객과 관련 로컬 데이터를 삭제했습니다.", {
       customerId,
       customerName: customer.customerName
     });
@@ -375,39 +720,40 @@ export function createApp(store: Store, webDist: string) {
   });
 
   app.post("/api/customers/:id/popbill/join", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
-    const customer = store.getCustomer(customerId);
+    const customer = await requestStore.getCustomer(customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    const settings = store.getSettings();
+    const settings = await requestStore.getSettings();
 
     if (customer.popbillState === "joined") {
-      store.createLog("info", "popbill", "이미 가입된 고객이라 팝빌 가입을 건너뛰었습니다.", { customerId });
+      await requestStore.createLog("info", "popbill", "이미 가입된 고객이라 팝빌 가입을 건너뛰었습니다.", { customerId });
       res.json({ ok: true, status: "already-joined" });
       return;
     }
 
     const isExistingMember = await checkIsMember(settings, customer.businessNumber);
     if (isExistingMember) {
-      store.updateCustomerPopbillState(customerId, "joined");
-      store.createLog("info", "popbill", "기존 팝빌 연동회원으로 확인되어 로컬 상태를 joined로 연결했습니다.", { customerId });
+      await requestStore.updateCustomerPopbillState(customerId, "joined");
+      await requestStore.createLog("info", "popbill", "기존 팝빌 연동회원으로 확인되어 로컬 상태를 joined로 연결했습니다.", { customerId });
       res.json({ ok: true, status: "linked-existing-member" });
       return;
     }
 
     try {
       const response = await joinMember(settings, customer);
-      store.updateCustomerPopbillState(customerId, "joined");
-      store.createLog("info", "popbill", "팝빌 연동회원 가입을 완료했습니다.", { customerId });
+      await requestStore.updateCustomerPopbillState(customerId, "joined");
+      await requestStore.createLog("info", "popbill", "팝빌 연동회원 가입을 완료했습니다.", { customerId });
       res.json({ ok: true, status: "joined", response });
     } catch (error) {
       const fallbackMemberState = await checkIsMember(settings, customer.businessNumber).catch(() => false);
       if (fallbackMemberState) {
-        store.updateCustomerPopbillState(customerId, "joined");
-        store.createLog("warn", "popbill", "가입 중 중복/기존 회원으로 확인되어 로컬 상태를 joined로 보정했습니다.", {
+        await requestStore.updateCustomerPopbillState(customerId, "joined");
+        await requestStore.createLog("warn", "popbill", "가입 중 중복/기존 회원으로 확인되어 로컬 상태를 joined로 보정했습니다.", {
           customerId,
           error: error instanceof Error ? error.message : String(error)
         });
@@ -418,16 +764,17 @@ export function createApp(store: Store, webDist: string) {
     }
   });
 
-  app.post("/api/customers/:id/popbill/reset", (req, res) => {
+  app.post("/api/customers/:id/popbill/reset", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
-    const customer = store.getCustomer(customerId);
+    const customer = await requestStore.getCustomer(customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    const updated = store.resetCustomerPopbill(customerId);
-    store.createLog("warn", "popbill", "고객의 팝빌 로컬 연결 상태를 초기화했습니다.", {
+    const updated = await requestStore.resetCustomerPopbill(customerId);
+    await requestStore.createLog("warn", "popbill", "고객의 팝빌 로컬 연결 상태를 초기화했습니다.", {
       customerId,
       customerName: customer.customerName
     });
@@ -435,22 +782,23 @@ export function createApp(store: Store, webDist: string) {
   });
 
   app.post("/api/customers/:id/popbill/quit", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
-    const customer = store.getCustomer(customerId);
+    const customer = await requestStore.getCustomer(customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    const settings = store.getSettings();
+    const settings = await requestStore.getSettings();
     if (!settings.popbillIsTest) {
       res.status(400).json({ error: "팝빌 탈퇴는 테스트 환경에서만 허용됩니다." });
       return;
     }
 
     const response = await quitMember(settings, customer, "AUTO-TAX 테스트 정리");
-    const updated = store.resetCustomerPopbill(customerId);
-    store.createLog("warn", "popbill", "팝빌 테스트 연동회원을 탈퇴 처리했습니다.", {
+    const updated = await requestStore.resetCustomerPopbill(customerId);
+    await requestStore.createLog("warn", "popbill", "팝빌 테스트 연동회원을 탈퇴 처리했습니다.", {
       customerId,
       customerName: customer.customerName
     });
@@ -458,122 +806,131 @@ export function createApp(store: Store, webDist: string) {
   });
 
   app.post("/api/customers/:id/popbill/cert-url", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
-    const customer = store.getCustomer(customerId);
+    const customer = await requestStore.getCustomer(customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    const url = await getTaxCertURL(store.getSettings(), customer);
-    store.createLog("info", "popbill", "인증서 등록 URL을 발급했습니다.", { customerId });
+    const url = await getTaxCertURL(await requestStore.getSettings(), customer);
+    await requestStore.createLog("info", "popbill", "인증서 등록 URL을 발급했습니다.", { customerId });
     res.json({ url });
   });
 
   app.post("/api/customers/:id/popbill/cert-status", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
-    const customer = store.getCustomer(customerId);
+    const customer = await requestStore.getCustomer(customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    const expireDate = await getCertificateExpireDate(store.getSettings(), customer);
-    const updated = store.updateCustomerPopbillState(customerId, customer.popbillState, true, expireDate);
-    store.createLog("info", "popbill", "인증서 만료일을 갱신했습니다.", { customerId, expireDate });
+    const expireDate = await getCertificateExpireDate(await requestStore.getSettings(), customer);
+    const updated = await requestStore.updateCustomerPopbillState(customerId, customer.popbillState, true, expireDate);
+    await requestStore.createLog("info", "popbill", "인증서 만료일을 갱신했습니다.", { customerId, expireDate });
     res.json(updated);
   });
 
   app.post("/api/popbill/cert-status/refresh-all", async (_req, res) => {
-    const result = await refreshAllCertificateStatuses(store);
+    const requestStore = getRequestStore(res, store);
+    const result = await refreshAllCertificateStatuses(requestStore);
     res.json(result);
   });
 
-  app.get("/api/inbox", (_req, res) => {
-    res.json(store.listInbox());
+  app.get("/api/inbox", async (_req, res) => {
+    const requestStore = getRequestStore(res, store);
+    res.json(await requestStore.listInbox());
   });
 
   app.post("/api/inbox/:id/reprocess", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const messageId = Number(req.params.id);
-    const message = store.getInboxMessage(messageId);
+    const message = await requestStore.getInboxMessage(messageId);
     if (!message) {
       res.status(404).json({ error: "메일을 찾지 못했습니다." });
       return;
     }
 
-    const result = await reprocessInboxMessage(store, messageId);
+    const result = await reprocessInboxMessage(requestStore, messageId);
     res.json({ ok: true, ...result });
   });
 
   app.post("/api/mail/sync", async (_req, res) => {
-    const result = await syncMailbox(store);
+    const requestStore = getRequestStore(res, store);
+    const result = await syncMailbox(requestStore);
     res.json(result);
   });
 
-  app.get("/api/drafts", (_req, res) => {
-    res.json(store.listDrafts());
+  app.get("/api/drafts", async (_req, res) => {
+    const requestStore = getRequestStore(res, store);
+    res.json(await requestStore.listDrafts());
   });
 
   app.post("/api/drafts/:id/issue", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const draftId = Number(req.params.id);
-    const draft = store.getDraft(draftId);
+    const draft = await requestStore.getDraft(draftId);
     if (!draft) {
       res.status(404).json({ error: "발행 대기건을 찾지 못했습니다." });
       return;
     }
 
-    const claimedDraft = store.claimDraftForIssue(draftId);
+    const claimedDraft = await requestStore.claimDraftForIssue(draftId);
     if (!claimedDraft) {
       res.status(409).json({ error: "이미 발행 중이거나 발행 가능한 상태가 아닙니다." });
       return;
     }
 
-    const customer = store.getCustomer(draft.customerId);
+    const customer = await requestStore.getCustomer(draft.customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
     try {
-      const issued = await issueDraftNow(store, store.getSettings(), customer, claimedDraft);
-      store.createLog("info", "drafts", "수동 발행을 완료했습니다.", { draftId, customerId: customer.id });
+      const issued = await issueDraftNow(requestStore, await requestStore.getSettings(), customer, claimedDraft);
+      await requestStore.createLog("info", "drafts", "수동 발행을 완료했습니다.", { draftId, customerId: customer.id });
       res.json(issued);
     } catch (error) {
       const message = error instanceof Error ? error.message : "수동 발행 실패";
-      const failed = store.updateDraftStatus(draftId, "failed", message);
+      const failed = await requestStore.updateDraftStatus(draftId, "failed", message);
       res.status(500).json(failed);
     }
   });
 
   app.post("/api/drafts/issue-all", async (_req, res) => {
-    const drafts = store.listDrafts().filter((draft) => draft.status === "review" || draft.status === "failed");
+    const requestStore = getRequestStore(res, store);
+    const drafts = (await requestStore.listDrafts()).filter((draft) => draft.status === "review" || draft.status === "failed");
     const results: Array<{ draftId: number; customerId: number; status: "issued" | "failed"; error?: string }> = [];
 
     for (const draft of drafts) {
-      const claimedDraft = store.claimDraftForIssue(draft.id);
+      const claimedDraft = await requestStore.claimDraftForIssue(draft.id);
       if (!claimedDraft) {
         results.push({ draftId: draft.id, customerId: draft.customerId, status: "failed", error: "이미 발행 중이거나 발행 가능한 상태가 아닙니다." });
         continue;
       }
 
-      const customer = store.getCustomer(draft.customerId);
+      const customer = await requestStore.getCustomer(draft.customerId);
       if (!customer) {
-        store.updateDraftStatus(draft.id, "failed", "고객 정보를 찾지 못했습니다.");
+        await requestStore.updateDraftStatus(draft.id, "failed", "고객 정보를 찾지 못했습니다.");
         results.push({ draftId: draft.id, customerId: draft.customerId, status: "failed", error: "고객 정보를 찾지 못했습니다." });
         continue;
       }
 
       try {
-        await issueDraftNow(store, store.getSettings(), customer, claimedDraft);
+        await issueDraftNow(requestStore, await requestStore.getSettings(), customer, claimedDraft);
         results.push({ draftId: draft.id, customerId: customer.id, status: "issued" });
       } catch (error) {
         const message = error instanceof Error ? error.message : "일괄 발행 실패";
-        store.updateDraftStatus(draft.id, "failed", message);
+        await requestStore.updateDraftStatus(draft.id, "failed", message);
         results.push({ draftId: draft.id, customerId: customer.id, status: "failed", error: message });
       }
     }
 
-    store.createLog("info", "drafts", "검수 대기/실패 건 전체 발행을 실행했습니다.", {
+    await requestStore.createLog("info", "drafts", "검수 대기/실패 건 전체 발행을 실행했습니다.", {
       total: drafts.length,
       issued: results.filter((item) => item.status === "issued").length,
       failed: results.filter((item) => item.status === "failed").length
@@ -589,8 +946,9 @@ export function createApp(store: Store, webDist: string) {
   });
 
   app.post("/api/drafts/:id/cancel", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const draftId = Number(req.params.id);
-    const draft = store.getDraft(draftId);
+    const draft = await requestStore.getDraft(draftId);
     if (!draft) {
       res.status(404).json({ error: "발행 건을 찾지 못했습니다." });
       return;
@@ -601,15 +959,15 @@ export function createApp(store: Store, webDist: string) {
       return;
     }
 
-    const customer = store.getCustomer(draft.customerId);
+    const customer = await requestStore.getCustomer(draft.customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    const response = await cancelTaxInvoice(store.getSettings(), customer, draft, "AUTO-TAX 재발행 테스트 취소");
-    const reopened = store.reopenIssuedDraftForReissue(draftId);
-    store.createLog("warn", "drafts", "발행 완료 건을 취소하고 검수 대기로 되돌렸습니다.", {
+    const response = await cancelTaxInvoice(await requestStore.getSettings(), customer, draft, "AUTO-TAX 재발행 테스트 취소");
+    const reopened = await requestStore.reopenIssuedDraftForReissue(draftId);
+    await requestStore.createLog("warn", "drafts", "발행 완료 건을 취소하고 검수 대기로 되돌렸습니다.", {
       draftId,
       customerId: customer.id,
       previousMgtKey: draft.popbillMgtKey,
@@ -619,66 +977,71 @@ export function createApp(store: Store, webDist: string) {
   });
 
   app.get("/api/drafts/:id/popbill/info", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const draftId = Number(req.params.id);
-    const draft = store.getDraft(draftId);
+    const draft = await requestStore.getDraft(draftId);
     if (!draft) {
       res.status(404).json({ error: "발행 건을 찾지 못했습니다." });
       return;
     }
 
-    const customer = store.getCustomer(draft.customerId);
+    const customer = await requestStore.getCustomer(draft.customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    const info = await getTaxInvoiceInfo(store.getSettings(), customer, draft);
+    const info = await getTaxInvoiceInfo(await requestStore.getSettings(), customer, draft);
     res.json(info);
   });
 
   app.get("/api/drafts/:id/popbill/view-url", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const draftId = Number(req.params.id);
-    const draft = store.getDraft(draftId);
+    const draft = await requestStore.getDraft(draftId);
     if (!draft) {
       res.status(404).json({ error: "발행 건을 찾지 못했습니다." });
       return;
     }
 
-    const customer = store.getCustomer(draft.customerId);
+    const customer = await requestStore.getCustomer(draft.customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    const url = await getTaxInvoiceViewURL(store.getSettings(), customer, draft);
+    const url = await getTaxInvoiceViewURL(await requestStore.getSettings(), customer, draft);
     res.json({ url });
   });
 
   app.get("/api/drafts/:id/popbill/print-url", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
     const draftId = Number(req.params.id);
-    const draft = store.getDraft(draftId);
+    const draft = await requestStore.getDraft(draftId);
     if (!draft) {
       res.status(404).json({ error: "발행 건을 찾지 못했습니다." });
       return;
     }
 
-    const customer = store.getCustomer(draft.customerId);
+    const customer = await requestStore.getCustomer(draft.customerId);
     if (!customer) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
-    const url = await getTaxInvoicePrintURL(store.getSettings(), customer, draft);
+    const url = await getTaxInvoicePrintURL(await requestStore.getSettings(), customer, draft);
     res.json({ url });
   });
 
-  app.get("/api/logs", (_req, res) => {
-    res.json(store.listLogs());
+  app.get("/api/logs", async (_req, res) => {
+    const requestStore = getRequestStore(res, store);
+    res.json(await requestStore.listLogs());
   });
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const message = error instanceof Error ? error.message : "서버 오류";
-    store.createLog("error", "api", "API 요청 처리에 실패했습니다.", { error: message });
+    const requestStore = getRequestStore(res, store);
+    void requestStore.createLog("error", "api", "API 요청 처리에 실패했습니다.", { error: message });
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: error.flatten() });
       return;
@@ -700,34 +1063,40 @@ export function createApp(store: Store, webDist: string) {
   return app;
 }
 
-export function startServer(options: StartServerOptions = {}) {
+export async function createConfiguredStore(options: { bootstrapOrganization?: boolean } = {}) {
+  const store = new SupabaseStore({
+    bootstrapOrganization: options.bootstrapOrganization ?? true
+  });
+  await store.initialize();
+  await applyEnvSettings(store);
+  await enforceProductionMode(store);
+  return store;
+}
+
+export async function startServer(options: StartServerOptions = {}) {
   const rootDir = options.rootDir ?? path.resolve(process.cwd());
-  const databaseFile = options.databaseFile
-    ? resolvePathFromRoot(rootDir, options.databaseFile)
-    : envString("AUTO_TAX_DB")
-      ? resolvePathFromRoot(rootDir, envString("AUTO_TAX_DB") as string)
-      : path.join(rootDir, "data", "auto-tax.db");
   const webDist = options.webDist
     ? resolvePathFromRoot(rootDir, options.webDist)
     : path.join(rootDir, "dist", "web");
   const port = options.port ?? Number(process.env.PORT ?? 4300);
 
-  const store = new Store(databaseFile);
-  applyEnvSettings(store);
+  const store = await createConfiguredStore();
   const scheduler = new Scheduler(store);
-  const app = createApp(store, webDist);
+  const app = await createApp(store, webDist);
   const server = app.listen(port, () => {
-    store.createLog("info", "server", "AUTO-TAX 서버가 시작되었습니다.", { port });
+    void store.createLog("info", "server", "AUTO-TAX 서버가 시작되었습니다.", { port });
     if (options.startScheduler === true) {
       scheduler.start();
     }
-    const settings = store.getSettings();
-    if (shouldRefreshCertificateStatuses(settings.certLastCheckedAt)) {
+    void store.getSettings().then((settings) => {
+      if (!shouldRefreshCertificateStatuses(settings.certLastCheckedAt)) {
+        return;
+      }
       void refreshAllCertificateStatuses(store).catch((error) => {
         const message = error instanceof Error ? error.message : "인증서 자동 점검 실패";
-        store.createLog("error", "popbill", "앱 시작 시 인증서 자동 점검에 실패했습니다.", { error: message });
+        void store.createLog("error", "popbill", "앱 시작 시 인증서 자동 점검에 실패했습니다.", { error: message });
       });
-    }
+    });
     console.log(`AUTO-TAX server listening on http://localhost:${port}`);
   });
 
@@ -737,7 +1106,6 @@ export function startServer(options: StartServerOptions = {}) {
     scheduler,
     server,
     port,
-    databaseFile,
     webDist,
     close: () =>
       new Promise<void>((resolve, reject) => {
@@ -747,8 +1115,7 @@ export function startServer(options: StartServerOptions = {}) {
             reject(error);
             return;
           }
-          store.close();
-          resolve();
+          void store.close().then(resolve).catch(reject);
         });
       })
   };
@@ -761,5 +1128,5 @@ function isDirectExecution(): boolean {
 }
 
 if (isDirectExecution()) {
-  startServer();
+  void startServer();
 }

@@ -1,6 +1,6 @@
 # AUTO-TAX
 
-한전 신재생에너지 요금안내 메일을 읽어서 고객별 전자세금계산서 초안을 만들고, 검수 후 수동으로 팝빌에 발행하는 관리 프로그램입니다.
+한전 신재생에너지 요금안내 메일을 읽어서 고객별 전자세금계산서 초안을 만들고, 검수 후 수동으로 팝빌에 발행하는 웹 기반 관리 프로그램입니다.
 
 ## 현재 구현 범위
 
@@ -15,10 +15,8 @@
 - 검수 대기건 전체 일괄 발행
 - SMTP 운영자 알림
 - Gmail IMAP/SMTP 연결 테스트
-- 로컬 DB 백업 및 복원
-- SQLite 기반 로컬 저장
+- Supabase 기반 저장
 - 팝빌 ID 자동 생성 / 공통 비밀번호 적용
-- Electron 데스크톱 앱 래퍼 및 Windows 실행 패키징
 - 인증서 만료일 경고 표시
 - 인증서 일괄 점검 시 운영자 알림 메일 발송
 
@@ -39,64 +37,11 @@ npm run build
 npm start
 ```
 
-## 데스크톱 실행
-
-개발 모드 Electron:
+Vercel 배포용 빌드:
 
 ```bash
-npm run desktop:dev
+npm run build:vercel
 ```
-
-Windows 실행 폴더 빌드:
-
-```bash
-npm run desktop:pack
-```
-
-Windows 설치파일 빌드:
-
-```bash
-npm run desktop:installer
-```
-
-- Electron 앱은 패키징 시 `%AppData%/AUTO-TAX/auto-tax.db` 경로에 로컬 DB를 저장합니다.
-- 패키징 결과물은 `release/AUTO-TAX-win32-x64/` 폴더에 생성됩니다.
-- 이 폴더 안의 `AUTO-TAX.exe`를 바로 실행할 수 있습니다.
-- 설치파일은 `release/AUTO-TAX-Setup-0.1.0.exe`로 생성됩니다.
-
-## 목업 프리뷰
-
-화면 밀도나 UI를 확인하려면 목업 데이터를 따로 넣은 프리뷰 DB를 사용할 수 있습니다.
-
-목업 데이터 생성:
-
-```bash
-npm run mock:seed
-```
-
-목업 데이터 삭제:
-
-```bash
-npm run mock:clear
-```
-
-목업 DB로 서버 프리뷰 실행:
-
-```bash
-npm run mock:preview
-```
-
-- 프리뷰 주소: `http://127.0.0.1:4302`
-- 사용 DB: `data/mock-preview.db`
-
-목업 DB로 Electron 프리뷰 실행:
-
-```bash
-npm run mock:desktop
-```
-
-- Electron이 `data/mock-preview.db`를 사용해 실행됩니다.
-- 실제 운영용 로컬 DB와 분리해서 화면만 확인할 수 있습니다.
 
 ## 설정 순서
 
@@ -110,18 +55,28 @@ npm run mock:desktop
 7. 필요 시 `인증서 일괄 점검` 실행
 8. 메일 동기화
 9. 검수 화면에서 개별 발행 또는 전체 발행
-10. 필요 시 설정 화면에서 Gmail 연결 테스트 / DB 백업 실행
+10. 필요 시 설정 화면에서 Gmail 연결 테스트 실행
 
 ## 문서
 
 - [구현 문서](./docs/IMPLEMENTATION.md)
 - [운영 문서](./docs/OPERATIONS.md)
 - [고객 온보딩 문서](./docs/ONBOARDING.md)
+- [SaaS 구조 정리](./docs/SAAS_BUSINESS_MODEL.md)
+- [Vercel + Supabase 전환 구조](./docs/VERCEL_SUPABASE_ARCHITECTURE.md)
+- [Supabase 스키마 설계안](./docs/SUPABASE_SCHEMA_PLAN.md)
+- [Supabase 프로젝트 연결 메모](./docs/SUPABASE_PROJECT_SETUP.md)
+- [공동인증서 갱신 로컬 에이전트 POC](./docs/CERTIFICATE_RENEWAL_POC.md)
 
 ## 지금 바로 채워야 하는 값
 
 `.env` 파일에서 아래 값만 우선 채우면 됩니다.
 
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_ORGANIZATION_ID`
 - `AUTO_TAX_IMAP_USER`
 - `AUTO_TAX_IMAP_PASS`
 - `AUTO_TAX_SMTP_USER`
@@ -150,6 +105,27 @@ npm run mock:desktop
 - `AUTO_TAX_OPERATOR_CONTACT_NAME` = 팝빌 가입에 쓸 운영자명
 - `AUTO_TAX_OPERATOR_CONTACT_EMAIL` = 팝빌 가입에 쓸 운영자 이메일
 - `AUTO_TAX_OPERATOR_CONTACT_TEL` = 팝빌 가입에 쓸 운영자 연락처
+
+## 첫 로그인 준비
+
+웹 화면은 Supabase Auth 로그인 후에만 열립니다.
+
+1. Supabase `Authentication -> Users`에서 운영자 계정을 직접 만들거나
+2. 로그인 화면의 `첫 사용자 등록` 버튼으로 첫 계정을 생성합니다.
+
+첫 사용자가 로그인하면, 아직 `organization_members`가 비어 있는 경우 현재 기본 작업공간에 자동으로 `owner`로 연결됩니다.
+
+## Vercel 배포 메모
+
+- Vercel Express 진입점: `src/server.ts`
+- Vercel 정적 산출물: `public`
+- Vercel 설정 파일: `vercel.json`
+- Vercel 배포 시 웹 화면은 `public` 정적 파일로 서빙되고, API는 Express 함수로 처리됩니다.
+
+주의:
+
+- 현재 `setInterval` 기반 스케줄러는 로컬 서버용입니다.
+- Vercel 배포에서는 항상 켜져 있지 않으므로 `자동 메일 동기화`, `자동 발행`, `인증서 정기 점검`은 별도 Cron/큐/워커 구조로 옮겨야 합니다.
 
 ## Gmail 기준 권장 설정
 

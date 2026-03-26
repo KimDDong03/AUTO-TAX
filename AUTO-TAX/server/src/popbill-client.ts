@@ -23,6 +23,11 @@ function getService(settings: AppSettings): any {
     defaultErrorHandler: () => undefined
   });
 
+  // The Popbill Node SDK caches service singletons on the module export object.
+  // When IsTest flips between test and production, we must clear the cached
+  // service so the next instance picks up the new config.
+  delete popbill._TaxinvoiceService;
+
   return popbill.TaxinvoiceService();
 }
 
