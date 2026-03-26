@@ -1,10 +1,21 @@
 import type React from "react";
 import { useEffect, useState } from "react";
-import { api } from "./api";
-import type { AppSettings, Customer, DashboardPayload, PartnerPointsPayload } from "./types";
+import type { Session } from "@supabase/supabase-js";
+import { ApiError, api, setActiveOrganizationId } from "./api";
+import { supabase } from "./supabase";
+import type {
+  AppSettings,
+  BootstrapPayload,
+  Customer,
+  DashboardPayload,
+  InvoiceDraft,
+  PartnerPointsPayload
+} from "./types";
 
 type TabId = "work" | "customers" | "settings";
-type SettingsSectionId = "gmail" | "popbill" | "operator" | "backup" | "logs";
+type SettingsSectionId = "gmail" | "popbill" | "logs";
+type CustomerDetailTabId = "info" | "history";
+type MailProvider = "gmail" | "naver" | "daum";
 
 type CustomerFormState = {
   id: number | null;
@@ -22,24 +33,22 @@ type CustomerFormState = {
 };
 
 type SettingsFormState = {
+  mailProvider: MailProvider;
   imapHost: string;
   imapPort: string;
   imapSecure: boolean;
-  imapUser: string;
-  imapPass: string;
+  mailAddress: string;
+  mailPassword: string;
   imapMailbox: string;
   smtpHost: string;
   smtpPort: string;
   smtpSecure: boolean;
-  smtpUser: string;
-  smtpPass: string;
-  smtpFromName: string;
-  smtpFromEmail: string;
   notificationEmailsText: string;
   defaultIssueDay: string;
   defaultIssueHour: string;
   defaultIssueMinute: string;
   mailPollMinutes: string;
+  mailSyncStartAt: string;
   timezone: string;
   popbillLinkId: string;
   popbillSecretKey: string;
@@ -53,14 +62,49 @@ type SettingsFormState = {
   schedulerEnabled: boolean;
 };
 
-type StorageInfo = {
-  databaseFile: string;
-  backupDir: string;
-  backups: Array<{
-    fileName: string;
-    sizeBytes: number;
-    modifiedAt: string;
-  }>;
+const MAIL_PROVIDER_CONFIG: Record<
+  MailProvider,
+  {
+    label: string;
+    imapHost: string;
+    imapPort: string;
+    imapSecure: boolean;
+    smtpHost: string;
+    smtpPort: string;
+    smtpSecure: boolean;
+    defaultMailbox: string;
+  }
+> = {
+  gmail: {
+    label: "Gmail",
+    imapHost: "imap.gmail.com",
+    imapPort: "993",
+    imapSecure: true,
+    smtpHost: "smtp.gmail.com",
+    smtpPort: "465",
+    smtpSecure: true,
+    defaultMailbox: "INBOX"
+  },
+  naver: {
+    label: "네이버 메일",
+    imapHost: "imap.naver.com",
+    imapPort: "993",
+    imapSecure: true,
+    smtpHost: "smtp.naver.com",
+    smtpPort: "587",
+    smtpSecure: false,
+    defaultMailbox: "INBOX"
+  },
+  daum: {
+    label: "다음 메일",
+    imapHost: "imap.daum.net",
+    imapPort: "993",
+    imapSecure: true,
+    smtpHost: "smtp.daum.net",
+    smtpPort: "465",
+    smtpSecure: true,
+    defaultMailbox: "INBOX"
+  }
 };
 
 const baseCustomerForm: CustomerFormState = {
@@ -118,25 +162,27 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
 }
 
 function settingsToForm(settings: AppSettings): SettingsFormState {
+  const detectedProvider = inferMailProviderFromAddress(
+    settings.imapUser || settings.smtpUser || settings.smtpFromEmail,
+    inferMailProvider(settings)
+  );
   return {
+    mailProvider: detectedProvider,
     imapHost: settings.imapHost,
     imapPort: String(settings.imapPort),
     imapSecure: settings.imapSecure,
-    imapUser: settings.imapUser,
-    imapPass: settings.imapPass,
+    mailAddress: settings.imapUser || settings.smtpUser || settings.smtpFromEmail,
+    mailPassword: settings.imapPass || settings.smtpPass,
     imapMailbox: settings.imapMailbox,
     smtpHost: settings.smtpHost,
     smtpPort: String(settings.smtpPort),
     smtpSecure: settings.smtpSecure,
-    smtpUser: settings.smtpUser,
-    smtpPass: settings.smtpPass,
-    smtpFromName: settings.smtpFromName,
-    smtpFromEmail: settings.smtpFromEmail,
     notificationEmailsText: settings.notificationEmails.join("\n"),
     defaultIssueDay: String(settings.defaultIssueDay),
     defaultIssueHour: String(settings.defaultIssueHour),
     defaultIssueMinute: String(settings.defaultIssueMinute),
     mailPollMinutes: String(settings.mailPollMinutes),
+    mailSyncStartAt: settings.mailSyncStartAt ?? "",
     timezone: settings.timezone,
     popbillLinkId: settings.popbillLinkId,
     popbillSecretKey: settings.popbillSecretKey,
@@ -166,6 +212,30 @@ function Icon(props: { name: string; className?: string }) {
   };
 
   return <span className={props.className ? `glyph ${props.className}` : "glyph"}>{glyphs[props.name] ?? props.name.slice(0, 2).toUpperCase()}</span>;
+}
+
+function RevealIcon(props: { open: boolean }) {
+  return (
+    <svg className="reveal-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M2 12C3.9 8.8 7.4 6.5 12 6.5C16.6 6.5 20.1 8.8 22 12C20.1 15.2 16.6 17.5 12 17.5C7.4 17.5 3.9 15.2 2 12Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3.1" stroke="currentColor" strokeWidth="1.8" />
+      {props.open ? null : (
+        <path
+          d="M4 4L20 20"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+    </svg>
+  );
 }
 
 function getStatIcon(label: string): string {
@@ -204,6 +274,51 @@ function getDraftStatusLabel(status: string): string {
   }
 }
 
+function getOrganizationRoleLabel(role: BootstrapPayload["auth"]["activeOrganizationRole"]): string {
+  switch (role) {
+    case "owner":
+      return "소유자";
+    case "admin":
+      return "관리자";
+    case "operator":
+      return "운영자";
+    case "viewer":
+      return "조회전용";
+    default:
+      return role;
+  }
+}
+
+function simplifyIssueError(message: string): string {
+  if (!message) return "";
+
+  const normalized = message
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\(-?\d+\)/g, " ")
+    .replace(/-?\d{5,}/g, " ")
+    .replace(/^(목업|수동|일괄)\s*발행\s*실패\s*:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (normalized.includes("연동회원으로 가입된 사업자 번호가 존재하지 않습니다")) {
+    return "팝빌 가입 필요";
+  }
+
+  if (normalized.includes("포인트 부족")) {
+    return "포인트 부족";
+  }
+
+  if (normalized.includes("공동인증서") || normalized.includes("인증서")) {
+    return "인증서 확인 필요";
+  }
+
+  if (normalized.includes("사업자 번호") || normalized.includes("사업자번호")) {
+    return "사업자번호 확인 필요";
+  }
+
+  return "오류 확인 필요";
+}
+
 function getParseStatusLabel(status: string): string {
   switch (status) {
     case "parsed":
@@ -212,6 +327,8 @@ function getParseStatusLabel(status: string): string {
       return "고객 미매칭";
     case "failed":
       return "파싱 실패";
+    case "duplicate":
+      return "중복 의심";
     case "pending":
       return "처리 대기";
     default:
@@ -265,12 +382,6 @@ function SetupPanel(props: {
 
 function formatMoney(value: number): string {
   return new Intl.NumberFormat("ko-KR").format(value);
-}
-
-function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatDateTime(value: string | null): string {
@@ -421,39 +532,284 @@ function summarizePopbillInfo(payload: Record<string, unknown>): string {
   return lines.join("\n");
 }
 
-function applyGmailDefaults(setter: React.Dispatch<React.SetStateAction<SettingsFormState | null>>) {
+function formatPartnerPointsMessage(partnerPoints: PartnerPointsPayload | null): string {
+  if (!partnerPoints?.message) {
+    return "포인트 조회 전입니다.";
+  }
+
+  if (
+    !partnerPoints.available &&
+    !partnerPoints.isTest &&
+    partnerPoints.message.includes("연동회원으로 가입된 사업자 번호가 존재하지 않습니다")
+  ) {
+    return "운영 팝빌 연동 전입니다. 계약/개통 후 조회 가능합니다.";
+  }
+
+  return partnerPoints.message;
+}
+
+function getRenewalAgentStatusMeta(agent: DashboardPayload["renewalAutomation"]["agent"]): {
+  label: string;
+  chipClassName: string;
+} {
+  if (agent.online) {
+    return {
+      label: "에이전트 온라인",
+      chipClassName: "chip-success"
+    };
+  }
+
+  if (agent.lastHeartbeatAt) {
+    return {
+      label: "에이전트 오프라인",
+      chipClassName: "chip-warn"
+    };
+  }
+
+  return {
+    label: "에이전트 미연결",
+    chipClassName: "chip-danger"
+  };
+}
+
+function formatRenewalBridgeSummary(agent: DashboardPayload["renewalAutomation"]["agent"]): string {
+  if (agent.bridge.ports.length === 0) {
+    return "포트 진단 전";
+  }
+
+  return agent.bridge.ports
+    .map((port) => `${port.port}/${port.protocol} ${port.reachable ? "연결됨" : "실패"}`)
+    .join(" · ");
+}
+
+function formatRenewalVersionSummary(agent: DashboardPayload["renewalAutomation"]["agent"]): string {
+  const versionProbe = agent.bridge.versionProbe;
+  if (!versionProbe.ok) {
+    return versionProbe.error ?? "GetVersion 미실행";
+  }
+
+  return [
+    `secukitNX ${versionProbe.values.secukitNX ?? "-"}`,
+    `kpmcnt ${versionProbe.values.kpmcnt ?? "-"}`,
+    `kpmsvc ${versionProbe.values.kpmsvc ?? "-"}`
+  ].join(" · ");
+}
+
+function formatRenewalLicenseSummary(agent: DashboardPayload["renewalAutomation"]["agent"]): string {
+  const licenseProbe = agent.bridge.licenseProbe;
+  if (!licenseProbe.ok) {
+    return licenseProbe.error ?? "라이선스 미검증";
+  }
+
+  return `정상 (${licenseProbe.sourcePort ?? "-"})`;
+}
+
+function formatRenewalStorageSummary(agent: DashboardPayload["renewalAutomation"]["agent"]): string {
+  const storageProbe = agent.bridge.storageProbe;
+  if (!storageProbe.ok) {
+    return storageProbe.error ?? "HDD 인증서 미조회";
+  }
+
+  if (storageProbe.certificateCount === 0) {
+    return "인증서 없음";
+  }
+
+  const preview = storageProbe.certificates
+    .slice(0, 2)
+    .map((certificate) => `${certificate.cn || "이름 없음"} (${certificate.todate ?? "-"})`)
+    .join(" · ");
+  const suffix = storageProbe.certificateCount > 2 ? ` 외 ${storageProbe.certificateCount - 2}건` : "";
+  return `${storageProbe.certificateCount}건 · ${preview}${suffix}`;
+}
+
+function formatRenewalSelectionSummary(agent: DashboardPayload["renewalAutomation"]["agent"]): string {
+  const selectionProbe = agent.bridge.selectionProbe;
+  if (
+    !selectionProbe.ok &&
+    !selectionProbe.error &&
+    !selectionProbe.certificateIndex &&
+    !selectionProbe.certificateCn &&
+    !selectionProbe.certID
+  ) {
+    return "certID 미조회";
+  }
+
+  const label = selectionProbe.certificateCn || (selectionProbe.certificateIndex ? `인증서 #${selectionProbe.certificateIndex}` : "인증서");
+  if (selectionProbe.ok) {
+    return `${label} · ${selectionProbe.certID ?? "-"}`;
+  }
+
+  return `${label} · ${selectionProbe.error ?? "조회 실패"}`;
+}
+
+function formatRenewalPreflightSummary(agent: DashboardPayload["renewalAutomation"]["agent"]): string {
+  const preflightProbe = agent.bridge.preflightProbe;
+  if (
+    !preflightProbe.ok &&
+    !preflightProbe.error &&
+    !preflightProbe.message &&
+    !preflightProbe.certificateIndex &&
+    !preflightProbe.certificateCn
+  ) {
+    return "갱신 경로 미분석";
+  }
+
+  const label = preflightProbe.certificateCn || (preflightProbe.certificateIndex ? `인증서 #${preflightProbe.certificateIndex}` : "인증서");
+  if (preflightProbe.ok) {
+    const branchText =
+      preflightProbe.branch === "change-company" && preflightProbe.externalFlowKind === "apply-form"
+        ? `순정 갱신 아님 (${preflightProbe.issueCompany ?? "-"} -> 외부 신규신청)`
+        : preflightProbe.branch === "change-company"
+          ? `기관변경 필요 (${preflightProbe.issueCompany ?? "-"})`
+          : preflightProbe.branch === "renew-payment"
+            ? "순정 갱신 · 결제 단계"
+            : preflightProbe.branch === "password-confirm"
+              ? "순정 갱신 · 발급 직전 비밀번호 확인"
+            : preflightProbe.branch === "renew-info"
+              ? "순정 갱신 · 신청정보 입력"
+              : preflightProbe.branch;
+    const externalFlowText =
+      preflightProbe.branch === "change-company" && preflightProbe.externalFlowKind === "apply-form"
+        ? `외부 신규신청형${preflightProbe.externalFlowProductName ? ` (${preflightProbe.externalFlowProductName})` : ""}`
+        : null;
+    const urlText = preflightProbe.externalFlowSubmitUrl ?? preflightProbe.nextUrl;
+    return `${label} · ${branchText}${externalFlowText ? ` · ${externalFlowText}` : ""}${urlText ? ` · ${urlText}` : ""}`;
+  }
+
+  return `${label} · ${preflightProbe.error ?? preflightProbe.message ?? "분석 실패"}`;
+}
+
+function formatRenewalPathCell(
+  certificate: DashboardPayload["renewalAutomation"]["agent"]["bridge"]["storageProbe"]["certificates"][number],
+  agent: DashboardPayload["renewalAutomation"]["agent"]
+): string {
+  const preflightProbe = agent.bridge.preflightProbe;
+  if (preflightProbe.certificateIndex !== certificate.index) {
+    return "-";
+  }
+
+  if (!preflightProbe.ok) {
+    return preflightProbe.error ?? preflightProbe.message ?? "분석 실패";
+  }
+
+  if (preflightProbe.branch === "change-company" && preflightProbe.externalFlowKind === "apply-form") {
+    return `순정 갱신 아님 · ${preflightProbe.issueCompany ?? "-"} · ${preflightProbe.externalFlowProductName ?? "외부 신규신청"}`;
+  }
+
+  if (preflightProbe.branch === "renew-payment") {
+    return "순정 갱신 · 결제 단계";
+  }
+
+  if (preflightProbe.branch === "password-confirm") {
+    return "순정 갱신 · 발급 직전";
+  }
+
+  if (preflightProbe.branch === "renew-info") {
+    return "순정 갱신 · 신청정보 입력";
+  }
+
+  return preflightProbe.nextUrl ?? preflightProbe.branch;
+}
+
+function formatRenewalJobStatusLabel(status: DashboardPayload["renewalAutomation"]["jobs"][number]["status"]): string {
+  if (status === "queued") return "대기";
+  if (status === "claimed") return "실행 중";
+  if (status === "completed") return "완료";
+  return "실패";
+}
+
+function formatRenewalJobLabel(job: DashboardPayload["renewalAutomation"]["jobs"][number]): string {
+  if (job.type === "certid-probe") {
+    return job.certificateCn || (job.certificateIndex !== null ? `certID 조회 #${job.certificateIndex}` : "certID 조회");
+  }
+
+  if (job.type === "renewal-preflight") {
+    return job.certificateCn || (job.certificateIndex !== null ? `갱신 경로 분석 #${job.certificateIndex}` : "갱신 경로 분석");
+  }
+
+  return job.customerName ?? "인증서 목록 진단";
+}
+
+function getDraftConfirmNumber(draft: InvoiceDraft): string | null {
+  if (!draft.popbillResultJson) return null;
+
+  try {
+    const parsed = JSON.parse(draft.popbillResultJson) as Record<string, unknown>;
+    const confirmValue = parsed.ntsConfirmNum ?? parsed.NTSConfirmNum ?? parsed.confirmNum ?? parsed.confirmNumber;
+    return typeof confirmValue === "string" && confirmValue.trim() !== "" ? confirmValue.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function inferMailProvider(settings: Pick<AppSettings, "imapHost" | "smtpHost">): MailProvider {
+  const imapHost = settings.imapHost.trim().toLowerCase();
+  const smtpHost = settings.smtpHost.trim().toLowerCase();
+
+  if (imapHost.includes("naver") || smtpHost.includes("naver")) return "naver";
+  if (imapHost.includes("daum") || smtpHost.includes("daum")) return "daum";
+  return "gmail";
+}
+
+function inferMailProviderFromAddress(address: string, fallback: MailProvider = "gmail"): MailProvider {
+  const normalized = address.trim().toLowerCase();
+
+  if (!normalized.includes("@")) {
+    return fallback;
+  }
+
+  if (normalized.endsWith("@naver.com")) return "naver";
+  if (normalized.endsWith("@daum.net") || normalized.endsWith("@hanmail.net")) return "daum";
+  if (normalized.endsWith("@gmail.com")) return "gmail";
+
+  return fallback;
+}
+
+function applyMailProviderDefaults(
+  setter: React.Dispatch<React.SetStateAction<SettingsFormState | null>>,
+  provider: MailProvider
+) {
+  const config = MAIL_PROVIDER_CONFIG[provider];
   setter((prev) =>
     prev
       ? {
           ...prev,
-          imapHost: "imap.gmail.com",
-          imapPort: "993",
-          imapSecure: true,
-          imapMailbox: "INBOX",
-          smtpHost: "smtp.gmail.com",
-          smtpPort: "465",
-          smtpSecure: true
+          mailProvider: provider,
+          imapHost: config.imapHost,
+          imapPort: config.imapPort,
+          imapSecure: config.imapSecure,
+          imapMailbox: prev.imapMailbox || config.defaultMailbox,
+          smtpHost: config.smtpHost,
+          smtpPort: config.smtpPort,
+          smtpSecure: config.smtpSecure
         }
       : prev
   );
 }
 
-function withGmailSettings(form: SettingsFormState) {
+function withSelectedMailProviderSettings(form: SettingsFormState) {
+  const detectedProvider = inferMailProviderFromAddress(form.mailAddress, form.mailProvider);
+  const config = MAIL_PROVIDER_CONFIG[detectedProvider];
   return {
     ...form,
-    imapHost: "imap.gmail.com",
-    imapPort: "993",
-    imapSecure: true,
-    imapMailbox: form.imapMailbox || "INBOX",
-    smtpHost: "smtp.gmail.com",
-    smtpPort: "465",
-    smtpSecure: true
+    mailProvider: detectedProvider,
+    imapHost: config.imapHost,
+    imapPort: config.imapPort,
+    imapSecure: config.imapSecure,
+    imapMailbox: config.defaultMailbox,
+    smtpHost: config.smtpHost,
+    smtpPort: config.smtpPort,
+    smtpSecure: config.smtpSecure
   };
 }
 
 export function App() {
-  const [data, setData] = useState<DashboardPayload | null>(null);
-  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authSession, setAuthSession] = useState<Session | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [signInEmail, setSignInEmail] = useState("");
+  const [signInPassword, setSignInPassword] = useState("");
+  const [data, setData] = useState<BootstrapPayload | null>(null);
   const [partnerPoints, setPartnerPoints] = useState<PartnerPointsPayload | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const hash = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
@@ -461,20 +817,25 @@ export function App() {
   });
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
   const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [customerListFilter, setCustomerListFilter] = useState<"all" | "blocked">("all");
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [customerDetailTab, setCustomerDetailTab] = useState<CustomerDetailTabId>("info");
+  const [workFeedTab, setWorkFeedTab] = useState<"inbox" | "issued">("inbox");
   const [settingsForm, setSettingsForm] = useState<SettingsFormState | null>(null);
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
   const [error, setError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>({});
 
   const load = async () => {
-    const [payload, nextStorageInfo, nextPartnerPoints] = await Promise.all([
-      api<DashboardPayload>("/api/bootstrap"),
-      api<StorageInfo>("/api/system/storage"),
+    const [payload, nextPartnerPoints] = await Promise.all([
+      api<BootstrapPayload>("/api/bootstrap"),
       api<PartnerPointsPayload>("/api/popbill/partner-points")
     ]);
+    setError("");
+    setActiveOrganizationId(payload.auth.activeOrganizationId);
     const nextSettingsForm = settingsToForm(payload.settings);
     setData(payload);
-    setStorageInfo(nextStorageInfo);
     setPartnerPoints(nextPartnerPoints);
     setSettingsForm(nextSettingsForm);
     setCustomerForm((prev) => {
@@ -499,6 +860,9 @@ export function App() {
         return;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error("초기 데이터를 불러오지 못했습니다.");
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
@@ -506,8 +870,39 @@ export function App() {
   };
 
   useEffect(() => {
-    void loadWithRetry().catch((loadError: Error) => setError(loadError.message));
+    let mounted = true;
+
+    void supabase.auth.getSession().then(({ data: next }) => {
+      if (!mounted) return;
+      setAuthSession(next.session);
+      setAuthReady(true);
+    });
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
+      setAuthSession(nextSession);
+      setError("");
+      if (!nextSession) {
+        setData(null);
+        setPartnerPoints(null);
+        setSettingsForm(null);
+        setActiveOrganizationId(null);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
+
+  useEffect(() => {
+    if (!authReady || !authSession) return;
+
+    void loadWithRetry().catch((loadError: Error) => setError(loadError.message));
+  }, [authReady, authSession]);
 
   useEffect(() => {
     const onHashChange = () => {
@@ -529,23 +924,128 @@ export function App() {
 
   useEffect(() => {
     if (!data || activeTab !== "customers" || creatingCustomer) return;
-    if (customerForm.id !== null) return;
-    if (!isPristineCustomerForm(customerForm)) return;
-    if (data.customers.length === 0) return;
-    setCustomerForm(customerToForm(data.customers[0]));
-  }, [activeTab, creatingCustomer, customerForm, data]);
+    const normalizedSearch = customerSearchQuery.trim().toLocaleLowerCase("ko-KR");
+    const visibleCustomers = data.customers.filter((customer) => {
+      const matchesFilter = customerListFilter === "blocked" ? !getCustomerIssueReadiness(customer).canIssueNow : true;
+      const matchesSearch =
+        normalizedSearch === "" || customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedSearch);
+      return matchesFilter && matchesSearch;
+    });
 
-  const runAction = async (key: string, action: () => Promise<void>) => {
+    if (visibleCustomers.length === 0) {
+      if (customerForm.id !== null) {
+        setCustomerForm(createCustomerFormDefaults());
+      }
+      return;
+    }
+
+    if (customerForm.id === null) {
+      if (!isPristineCustomerForm(customerForm)) return;
+      setCustomerForm(customerToForm(visibleCustomers[0]));
+      return;
+    }
+
+    if (!visibleCustomers.some((customer) => customer.id === customerForm.id)) {
+      setCustomerForm(customerToForm(visibleCustomers[0]));
+    }
+  }, [activeTab, creatingCustomer, customerForm, customerListFilter, customerSearchQuery, data]);
+
+  useEffect(() => {
+    if (creatingCustomer || customerForm.id === null) {
+      setCustomerDetailTab("info");
+    }
+  }, [creatingCustomer, customerForm.id]);
+
+  const runAction = async (
+    key: string,
+    action: () => Promise<void>,
+    options?: {
+      reload?: boolean;
+    }
+  ) => {
     try {
       setError("");
       setBusyKey(key);
       await action();
-      await load();
+      if (options?.reload !== false) {
+        await load();
+      }
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "작업에 실패했습니다.");
     } finally {
       setBusyKey(null);
     }
+  };
+
+  const signIn = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try {
+      setError("");
+      setAuthBusy(true);
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: signInEmail.trim(),
+        password: signInPassword
+      });
+      if (signInError) {
+        throw signInError;
+      }
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : "로그인에 실패했습니다.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const signUp = async () => {
+    try {
+      setError("");
+      setAuthBusy(true);
+      const { data: signUpResult, error: signUpError } = await supabase.auth.signUp({
+        email: signInEmail.trim(),
+        password: signInPassword
+      });
+
+      if (signUpError) {
+        throw signUpError;
+      }
+
+      if (!signUpResult.session) {
+        window.alert("사용자 등록은 완료됐습니다. Supabase 이메일 확인 설정이 켜져 있으면 메일 인증 후 로그인하세요.");
+      }
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : "사용자 등록에 실패했습니다.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const signOut = async () => {
+    setBusyKey(null);
+    setError("");
+    setData(null);
+    setPartnerPoints(null);
+    setSettingsForm(null);
+    setActiveOrganizationId(null);
+    await supabase.auth.signOut();
+  };
+
+  const changeOrganization = async (organizationId: string) => {
+    setActiveOrganizationId(organizationId);
+    setError("");
+    await runAction(
+      "workspace-change",
+      async () => {
+        await load();
+      },
+      { reload: false }
+    );
+  };
+
+  const toggleRevealField = (fieldKey: string) => {
+    setRevealedFields((prev) => ({
+      ...prev,
+      [fieldKey]: !prev[fieldKey]
+    }));
   };
 
   const saveCustomer = async () => {
@@ -587,23 +1087,23 @@ export function App() {
 
   const saveSettings = async () => {
     if (!settingsForm) return;
-    const normalized = withGmailSettings(settingsForm);
+    const normalized = withSelectedMailProviderSettings(settingsForm);
     await api("/api/settings", {
       method: "PUT",
       body: JSON.stringify({
         imapHost: normalized.imapHost,
         imapPort: Number(normalized.imapPort),
         imapSecure: normalized.imapSecure,
-        imapUser: normalized.imapUser,
-        imapPass: normalized.imapPass,
+        imapUser: normalized.mailAddress,
+        imapPass: normalized.mailPassword,
         imapMailbox: normalized.imapMailbox,
         smtpHost: normalized.smtpHost,
         smtpPort: Number(normalized.smtpPort),
         smtpSecure: normalized.smtpSecure,
-        smtpUser: normalized.smtpUser,
-        smtpPass: normalized.smtpPass,
-        smtpFromName: normalized.smtpFromName,
-        smtpFromEmail: normalized.smtpFromEmail,
+        smtpUser: normalized.mailAddress,
+        smtpPass: normalized.mailPassword,
+        smtpFromName: "AUTO-TAX",
+        smtpFromEmail: normalized.mailAddress,
         notificationEmails: normalized.notificationEmailsText
           .split(/[\n,]/)
           .map((item) => item.trim())
@@ -612,10 +1112,11 @@ export function App() {
         defaultIssueHour: Number(normalized.defaultIssueHour),
         defaultIssueMinute: Number(normalized.defaultIssueMinute),
         mailPollMinutes: Number(normalized.mailPollMinutes),
+        mailSyncStartAt: normalized.mailSyncStartAt.trim() ? normalized.mailSyncStartAt : null,
         timezone: normalized.timezone,
         popbillLinkId: normalized.popbillLinkId,
         popbillSecretKey: normalized.popbillSecretKey,
-        popbillIsTest: normalized.popbillIsTest,
+        popbillIsTest: false,
         popbillPartnerCorpNum: normalized.popbillPartnerCorpNum,
         popbillUserIdPrefix: normalized.popbillUserIdPrefix,
         popbillSharedPassword: normalized.popbillSharedPassword,
@@ -629,7 +1130,7 @@ export function App() {
 
   const testMailSettings = async () => {
     if (!settingsForm) return;
-    const normalized = withGmailSettings(settingsForm);
+    const normalized = withSelectedMailProviderSettings(settingsForm);
     const result = await api<{
       imapOk: boolean;
       imapMessage: string;
@@ -642,16 +1143,16 @@ export function App() {
         imapHost: normalized.imapHost,
         imapPort: Number(normalized.imapPort),
         imapSecure: normalized.imapSecure,
-        imapUser: normalized.imapUser,
-        imapPass: normalized.imapPass,
+        imapUser: normalized.mailAddress,
+        imapPass: normalized.mailPassword,
         imapMailbox: normalized.imapMailbox,
         smtpHost: normalized.smtpHost,
         smtpPort: Number(normalized.smtpPort),
         smtpSecure: normalized.smtpSecure,
-        smtpUser: normalized.smtpUser,
-        smtpPass: normalized.smtpPass,
-        smtpFromName: normalized.smtpFromName,
-        smtpFromEmail: normalized.smtpFromEmail,
+        smtpUser: normalized.mailAddress,
+        smtpPass: normalized.mailPassword,
+        smtpFromName: "AUTO-TAX",
+        smtpFromEmail: normalized.mailAddress,
         notificationEmails: normalized.notificationEmailsText
           .split(/[\n,]/)
           .map((item) => item.trim())
@@ -660,7 +1161,7 @@ export function App() {
     });
 
     window.alert(
-      `Gmail 연결 테스트 결과\nIMAP: ${result.imapOk ? "성공" : "실패"}\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${result.smtpMessage}\n\n테스트 메일 발송: ${result.testMailSent ? "예" : "아니오"}`
+      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\nIMAP: ${result.imapOk ? "성공" : "실패"}\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${result.smtpMessage}\n\n테스트 메일 발송: ${result.testMailSent ? "예" : "아니오"}`
     );
   };
 
@@ -669,23 +1170,47 @@ export function App() {
     window.open(result.url, "_blank", "noopener,noreferrer");
   };
 
-  const createDatabaseBackup = async () => {
-    const result = await api<{ fileName: string; destinationFile: string }>("/api/system/database/backup", {
-      method: "POST"
+  const requestRenewalBridgeProbe = async (customerId?: number | null) => {
+    const result = await api<{ id: number }>("/api/automation/renewal-jobs/bridge-probe", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId: customerId ?? null
+      })
     });
-    window.alert(`백업을 생성했습니다.\n파일: ${result.fileName}\n경로: ${result.destinationFile}`);
+
+    window.alert(`로컬 인증서 목록 진단 작업을 큐에 추가했습니다.\n작업번호: ${result.id}`);
   };
 
-  const restoreDatabaseBackup = async (fileName: string) => {
-    const confirmed = window.confirm(`백업 파일 ${fileName}으로 현재 데이터를 복원합니다.\n현재 데이터는 덮어써집니다.\n계속할까요?`);
-    if (!confirmed) return;
-
-    await api("/api/system/database/restore", {
+  const requestRenewalCertIdProbe = async (
+    certificate: DashboardPayload["renewalAutomation"]["agent"]["bridge"]["storageProbe"]["certificates"][number]
+  ) => {
+    const result = await api<{ id: number }>("/api/automation/renewal-jobs/certid-probe", {
       method: "POST",
-      body: JSON.stringify({ fileName })
+      body: JSON.stringify({
+        certificateIndex: Number(certificate.index),
+        certificateCn: certificate.cn || null
+      })
     });
 
-    window.alert(`백업 복원이 완료되었습니다.\n복원 파일: ${fileName}`);
+    window.alert(
+      `certID 조회 작업을 큐에 추가했습니다.\n작업번호: ${result.id}\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 조회됩니다.`
+    );
+  };
+
+  const requestRenewalPreflight = async (
+    certificate: DashboardPayload["renewalAutomation"]["agent"]["bridge"]["storageProbe"]["certificates"][number]
+  ) => {
+    const result = await api<{ id: number }>("/api/automation/renewal-jobs/preflight", {
+      method: "POST",
+      body: JSON.stringify({
+        certificateIndex: Number(certificate.index),
+        certificateCn: certificate.cn || null
+      })
+    });
+
+    window.alert(
+      `갱신 경로 분석 작업을 큐에 추가했습니다.\n작업번호: ${result.id}\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 분석됩니다.`
+    );
   };
 
   const resetPopbillLink = async (customer: Customer) => {
@@ -785,13 +1310,13 @@ export function App() {
   };
 
   const reprocessAllUnmatchedMessages = async () => {
-    const targets = data?.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed") ?? [];
+    const targets = data?.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed" || message.parseStatus === "duplicate") ?? [];
     if (targets.length === 0) {
-      window.alert("재처리할 미매칭/실패 메일이 없습니다.");
+      window.alert("재처리할 확인 메일이 없습니다.");
       return;
     }
 
-    const confirmed = window.confirm(`미매칭/실패 메일 ${targets.length}건을 다시 처리합니다.\n계속할까요?`);
+    const confirmed = window.confirm(`확인 메일 ${targets.length}건을 다시 처리합니다.\n계속할까요?`);
     if (!confirmed) return;
 
     let success = 0;
@@ -808,13 +1333,67 @@ export function App() {
       }
     }
 
-    window.alert(`메일 재처리 완료\n성공: ${success}건\n미매칭/실패 유지: ${stillPending}건`);
+    window.alert(`메일 재처리 완료\n성공: ${success}건\n확인 필요 유지: ${stillPending}건`);
   };
+
+  if (!authReady) {
+    return <div className="loading-shell">로그인 상태를 확인하는 중입니다.</div>;
+  }
+
+  if (!authSession) {
+    return (
+      <div className="auth-shell">
+        <section className="auth-card">
+          <div className="auth-copy">
+            <span className="auth-badge">AUTO-TAX</span>
+            <h1>작업공간 로그인</h1>
+            <p>Supabase에 등록된 이메일 계정으로 로그인한 뒤 태양광 회사 작업공간을 선택해 사용합니다.</p>
+          </div>
+          <form className="auth-form" onSubmit={(event) => void signIn(event)}>
+            <label>
+              <span>이메일</span>
+              <input
+                type="email"
+                value={signInEmail}
+                onChange={(event) => setSignInEmail(event.target.value)}
+                placeholder="operator@company.com"
+                autoComplete="email"
+                required
+              />
+            </label>
+            <label>
+              <span>비밀번호</span>
+              <input
+                type="password"
+                value={signInPassword}
+                onChange={(event) => setSignInPassword(event.target.value)}
+                placeholder="비밀번호 입력"
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            {error ? <div className="alert error">{error}</div> : null}
+            <div className="auth-actions">
+              <button type="submit" disabled={authBusy}>
+                {authBusy ? "로그인 중..." : "로그인"}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => void signUp()} disabled={authBusy}>
+                첫 사용자 등록
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    );
+  }
 
   if (!data || !settingsForm) {
     return <div className="loading-shell">AUTO-TAX 초기 데이터를 불러오는 중입니다.</div>;
   }
 
+  const currentMembership =
+    data.auth.organizations.find((organization) => organization.organizationId === data.auth.activeOrganizationId) ??
+    data.auth.organizations[0];
   const reviewDrafts = data.drafts.filter((draft) => draft.status === "review" || draft.status === "failed" || draft.status === "issuing");
   const issuedDrafts = data.drafts.filter((draft) => draft.status === "issued");
   const expiredCertCustomers = data.customers.filter((customer) => {
@@ -826,39 +1405,62 @@ export function App() {
     return days !== null && days >= 0 && days <= 30;
   });
   const settingsHealth = {
-    gmailReady: Boolean(data.settings.imapUser && data.settings.imapPass && data.settings.smtpUser && data.settings.smtpPass),
+    mailReady: Boolean(data.settings.imapUser && data.settings.imapPass && data.settings.smtpUser && data.settings.smtpPass),
     popbillReady: Boolean(data.settings.popbillLinkId && data.settings.popbillSecretKey),
     operatorReady: Boolean(data.settings.operatorContactName && data.settings.operatorContactEmail && data.settings.operatorContactTel)
   };
   const unmatchedMessages = data.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed");
+  const duplicateMessages = data.inbox.filter((message) => message.parseStatus === "duplicate");
+  const reprocessableMessages = data.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed" || message.parseStatus === "duplicate");
   const recentInboxMessages = [...data.inbox]
     .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime())
     .slice(0, 6);
   const recentIssuedDrafts = issuedDrafts.slice(0, 8);
+  const recentInboxPreview = recentInboxMessages.slice(0, 4);
+  const recentIssuedPreview = recentIssuedDrafts.slice(0, 4);
   const recentLogs = data.logs.slice(0, 8);
+  const renewalAgent = data.renewalAutomation.agent;
+  const renewalJobs = data.renewalAutomation.jobs.slice(0, 6);
+  const renewalAgentMeta = getRenewalAgentStatusMeta(renewalAgent);
   const readyNowCustomers = data.customers.filter((customer) => getCustomerIssueReadiness(customer).canIssueNow);
   const blockedIssueCustomers = data.customers.filter((customer) => !getCustomerIssueReadiness(customer).canIssueNow);
+  const normalizedCustomerSearch = customerSearchQuery.trim().toLocaleLowerCase("ko-KR");
+  const filteredCustomers = (customerListFilter === "blocked" ? blockedIssueCustomers : data.customers).filter((customer) =>
+    normalizedCustomerSearch === "" || customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch)
+  );
   const workLayoutClassName = "work-layout";
   const selectedCustomer = customerForm.id ? data.customers.find((customer) => customer.id === customerForm.id) ?? null : null;
   const selectedCustomerReadiness = selectedCustomer ? getCustomerIssueReadiness(selectedCustomer) : null;
+  const selectedCustomerIssuedDrafts = selectedCustomer
+    ? data.drafts
+      .filter((draft) => draft.customerId === selectedCustomer.id && draft.status === "issued")
+      .sort((left, right) => {
+        const rightTime = right.issuedAt ? new Date(right.issuedAt).getTime() : 0;
+        const leftTime = left.issuedAt ? new Date(left.issuedAt).getTime() : 0;
+        return rightTime - leftTime || right.id - left.id;
+      })
+    : [];
   const customerRegistrationReady = data.customers.length > 0;
-  const readyCustomerCount = data.customers.filter((customer) => getCustomerIssueReadiness(customer).canIssueNow).length;
-  const blockedCustomerCount = data.customers.length - readyCustomerCount;
+  const blockedCustomerCount = data.customers.filter((customer) => !getCustomerIssueReadiness(customer).canIssueNow).length;
   const setupChecklist = [
-    { key: "gmail", label: "Gmail 계정 연결", done: settingsHealth.gmailReady },
+    { key: "gmail", label: "메일 계정 연결", done: settingsHealth.mailReady },
     { key: "popbill", label: "팝빌 키 입력", done: settingsHealth.popbillReady },
     { key: "operator", label: "운영 담당자 입력", done: settingsHealth.operatorReady },
     { key: "customer", label: "고객 1명 이상 등록", done: customerRegistrationReady }
   ];
   const setupPendingCount = setupChecklist.filter((step) => !step.done).length;
   const certAttentionCount = expiredCertCustomers.length + expiringSoonCustomers.length;
-  const recommendedSettingsSection: SettingsSectionId = !settingsHealth.gmailReady
+  const workNoticeTokens = [
+    ...(setupPendingCount > 0 ? [`설정 ${setupPendingCount}개 필요`] : []),
+    ...(expiredCertCustomers.length > 0 ? [`만료 ${expiredCertCustomers.length}건`] : []),
+    ...(expiringSoonCustomers.length > 0 ? [`30일 이내 ${expiringSoonCustomers.length}건`] : []),
+    ...(duplicateMessages.length > 0 ? [`중복 의심 ${duplicateMessages.length}건`] : [])
+  ];
+  const recommendedSettingsSection: SettingsSectionId = !settingsHealth.mailReady
     ? "gmail"
-    : !settingsHealth.popbillReady
+    : !settingsHealth.popbillReady || !settingsHealth.operatorReady
       ? "popbill"
-      : !settingsHealth.operatorReady
-        ? "operator"
-        : "backup";
+      : "logs";
   const settingsSections: Array<{
     id: SettingsSectionId;
     step: number;
@@ -870,31 +1472,17 @@ export function App() {
       id: "gmail",
       step: 1,
       title: "메일 연결",
-      done: settingsHealth.gmailReady,
-      summary: settingsHealth.gmailReady ? data.settings.imapUser || "Gmail 연결 완료" : "Gmail 계정과 앱 비밀번호 입력"
+      done: settingsHealth.mailReady,
+      summary: settingsHealth.mailReady ? data.settings.imapUser || "메일 연결 완료" : "메일 계정과 앱 비밀번호 입력"
     },
     {
       id: "popbill",
       step: 2,
-      title: "팝빌 연결",
-      done: settingsHealth.popbillReady,
+      title: "팝빌 / 운영자",
+      done: settingsHealth.popbillReady && settingsHealth.operatorReady,
       summary: settingsHealth.popbillReady
-        ? `${data.settings.popbillIsTest ? "테스트" : "운영"} · ${partnerPoints?.referenceCorpNum || "사업자번호 확인"}`
-        : "LinkID, SecretKey, 파트너 사업자번호 입력"
-    },
-    {
-      id: "operator",
-      step: 3,
-      title: "운영 담당자",
-      done: settingsHealth.operatorReady,
-      summary: settingsHealth.operatorReady ? `${data.settings.operatorContactName} · ${data.settings.operatorContactEmail}` : "담당자명, 이메일, 연락처 입력"
-    },
-    {
-      id: "backup",
-      step: 4,
-      title: "데이터 백업",
-      done: Boolean(storageInfo),
-      summary: storageInfo ? `${storageInfo.backups.length}개 백업 파일` : "백업 폴더 확인"
+        ? `${data.settings.operatorContactName || "담당자 미입력"} · 운영`
+        : "팝빌 키와 운영 담당자 정보 입력"
     }
   ];
   const navItems: Array<{ id: TabId; label: string; icon: string }> = [
@@ -936,19 +1524,51 @@ export function App() {
         </nav>
 
         <div className="sidebar-meta">
-          <span>{data.settings.popbillIsTest ? "테스트 환경" : "운영 환경"}</span>
+          <span>작업공간</span>
+          {data.auth.organizations.length > 1 ? (
+            <select
+              className="workspace-select"
+              value={data.auth.activeOrganizationId}
+              onChange={(event) => void changeOrganization(event.target.value)}
+              disabled={busyKey !== null}
+            >
+              {data.auth.organizations.map((organization) => (
+                <option key={organization.organizationId} value={organization.organizationId}>
+                  {organization.organizationName}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <strong>{data.auth.activeOrganizationName}</strong>
+          )}
+          <p>{currentMembership?.displayName || data.auth.email || "로그인 사용자"}</p>
+          <p>{getOrganizationRoleLabel(data.auth.activeOrganizationRole)}</p>
+          <button className="btn-secondary sidebar-logout" onClick={() => void signOut()} disabled={busyKey !== null}>
+            로그아웃
+          </button>
         </div>
       </aside>
 
-      <main className="content">
+      <main
+        className={
+          activeTab === "work"
+            ? "content content-work"
+            : activeTab === "customers"
+              ? "content content-customers"
+              : activeTab === "settings"
+                ? "content content-settings"
+                : "content"
+        }
+      >
         <header className="hero">
           <div className="hero-main">
             <h2>{activeNavLabel}</h2>
             <div className="hero-summary">
-              <span className="hero-pill">{data.settings.popbillIsTest ? "팝빌 테스트" : "팝빌 운영"}</span>
+              <span className="hero-pill">{data.auth.activeOrganizationName}</span>
+              <span className="hero-pill">팝빌 운영</span>
               <span className="hero-pill">파트너 {partnerPoints?.available && partnerPoints.partnerRemainPoint !== null ? `${formatMoney(partnerPoints.partnerRemainPoint)}P` : "-"}</span>
-              {activeTab !== "settings" ? <span className="hero-pill">발행 대상 {data.counts.actionableDrafts}건</span> : null}
-              {certAttentionCount > 0 ? <span className="hero-pill hero-pill-warn">인증서 주의 {certAttentionCount}건</span> : null}
+              <span className="hero-pill">발행 대상 {data.counts.actionableDrafts}건</span>
+              <span className={certAttentionCount > 0 ? "hero-pill hero-pill-warn" : "hero-pill"}>인증서 주의 {certAttentionCount}건</span>
             </div>
           </div>
           <div className="hero-actions">
@@ -956,443 +1576,487 @@ export function App() {
               <Icon name="refresh" className="button-icon" />
               새로고침
             </button>
-            {activeTab === "work" ? (
-              <button onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
-                <Icon name="sync" className="button-icon" />
-                메일 즉시 동기화
-              </button>
-            ) : null}
+            <button onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
+              <Icon name="sync" className="button-icon" />
+              메일 즉시 동기화
+            </button>
           </div>
         </header>
 
         {error ? <div className="alert error">{error}</div> : null}
-        {expiredCertCustomers.length > 0 ? (
-          <div className="alert error">
-            인증서 만료 고객 {expiredCertCustomers.length}건: {expiredCertCustomers.map((customer) => customer.customerName).join(", ")}
-          </div>
-        ) : null}
-        {expiringSoonCustomers.length > 0 ? (
-          <div className="alert warn">
-            인증서 만료 예정 30일 이내 {expiringSoonCustomers.length}건: {expiringSoonCustomers
-              .map((customer) => `${customer.customerName}(${formatCertificateExpireDate(customer.popbillCertExpireDate)})`)
-              .join(", ")}
-          </div>
-        ) : null}
 
         {activeTab === "work" ? (
-          <div className={workLayoutClassName}>
-            <section className="stats-grid stats-grid-compact">
+          <div className="work-screen">
+            {workNoticeTokens.length > 0 ? (
+              <section className="work-inline-bar">
+                <div className="work-inline-copy">
+                  <strong>확인 필요</strong>
+                  <div className="work-inline-chips">
+                    {workNoticeTokens.map((item) => (
+                      <span key={item} className="chip chip-warn">{item}</span>
+                    ))}
+                  </div>
+                </div>
+                {setupPendingCount > 0 ? (
+                  <button className="btn-secondary" onClick={() => setActiveTab("settings")}>설정 열기</button>
+                ) : null}
+              </section>
+            ) : null}
+
+            <section className="stats-grid stats-grid-compact work-stats">
               <StatCard label="발행 대상" value={reviewDrafts.length} tone={reviewDrafts.length > 0 ? "warn" : "default"} />
               <StatCard label="미매칭 메일" value={unmatchedMessages.length} tone={unmatchedMessages.length > 0 ? "warn" : "default"} />
               <StatCard label="인증서 주의" value={certAttentionCount} tone={certAttentionCount > 0 ? "error" : "default"} />
             </section>
 
-            {setupPendingCount > 0 ? (
+            <div className={workLayoutClassName}>
               <Panel
-                className="panel-setup"
-                title="처음 설정"
-                actions={<button onClick={() => setActiveTab("settings")}>설정으로 이동</button>}
+                className="panel-work-queue"
+                title="발행할 건"
+                actions={
+                  <>
+                    <button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>전체 발행</button>
+                  </>
+                }
               >
-                <div className="setup-list">
-                  {setupChecklist.map((step, index) => (
-                    <div key={step.key} className={step.done ? "setup-step done" : "setup-step"}>
-                      <span className="setup-order">{index + 1}</span>
-                      <div className="setup-copy">
-                        <strong>{step.label}</strong>
-                        <span>{step.done ? "완료됨" : "아직 설정되지 않았습니다."}</span>
-                      </div>
-                      <span className={`chip ${step.done ? "chip-success" : "chip-danger"}`}>{step.done ? "완료" : "필요"}</span>
-                    </div>
-                  ))}
+                <div className="table-wrap">
+                  <table className="responsive-table queue-table">
+                    <thead>
+                      <tr>
+                        <th>고객</th>
+                        <th>품목</th>
+                        <th>공급가액</th>
+                        <th>상태</th>
+                        <th>액션</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reviewDrafts.map((draft) => (
+                        <tr key={draft.id}>
+                          <td data-label="고객">{draft.customerName}</td>
+                          <td data-label="품목">{draft.itemName}</td>
+                          <td data-label="공급가액">{formatMoney(draft.supplyCost)}원</td>
+                          <td data-label="상태">
+                            <span className={`status status-${draft.status}`}>{getDraftStatusLabel(draft.status)}</span>
+                            {draft.issueError ? <p className="cell-error" title={draft.issueError}>{simplifyIssueError(draft.issueError)}</p> : null}
+                          </td>
+                          <td data-label="액션">
+                            {draft.status === "issuing" ? (
+                              <span className="status status-pending">발행 중</span>
+                            ) : (
+                              <button disabled={busyKey !== null} onClick={() => void runAction(`issue-${draft.id}`, async () => void (await api(`/api/drafts/${draft.id}/issue`, { method: "POST" })))}>
+                                지금 발행
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {reviewDrafts.length === 0 ? <div className="empty">지금 발행할 건이 없습니다.</div> : null}
                 </div>
               </Panel>
-            ) : null}
 
-            <Panel
-              className="panel-work-queue"
-              title="발행할 건"
-              actions={
-                <>
-                  <button className="btn-secondary" onClick={() => void runAction("sync-work", async () => void (await api("/api/mail/sync", { method: "POST" })))}>
-                    메일 동기화
-                  </button>
-                  <button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>전체 발행</button>
-                </>
-              }
-            >
-              <div className="table-wrap">
-                <table className="responsive-table">
-                  <thead>
-                    <tr>
-                      <th>고객</th>
-                      <th>품목</th>
-                      <th>공급가액</th>
-                      <th>상태</th>
-                      <th>액션</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reviewDrafts.map((draft) => (
-                      <tr key={draft.id}>
-                        <td data-label="고객">{draft.customerName}</td>
-                        <td data-label="품목">{draft.itemName}</td>
-                        <td data-label="공급가액">{formatMoney(draft.supplyCost)}원</td>
-                        <td data-label="상태">
-                          <span className={`status status-${draft.status}`}>{getDraftStatusLabel(draft.status)}</span>
-                          {draft.issueError ? <p className="cell-error">{draft.issueError}</p> : null}
-                        </td>
-                        <td data-label="액션">
-                          {draft.status === "issuing" ? (
-                            <span className="status status-pending">발행 중</span>
-                          ) : (
-                            <button disabled={busyKey !== null} onClick={() => void runAction(`issue-${draft.id}`, async () => void (await api(`/api/drafts/${draft.id}/issue`, { method: "POST" })))}>
-                              지금 발행
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {reviewDrafts.length === 0 ? <div className="empty">지금 발행할 건이 없습니다.</div> : null}
-              </div>
-            </Panel>
-
-            <Panel
-              className="panel-work-status"
-              title="작업 상태"
-              actions={
-                <>
-                  <button className="btn-secondary" onClick={() => void runAction("partner-points-refresh-work", load)}>포인트 조회</button>
-                  <button onClick={() => void runAction("cert-refresh-all", refreshAllCertificateStatuses)}>인증서 점검</button>
-                </>
-              }
-            >
-              <div className="info-grid">
-                <div>
-                  <span>Gmail</span>
-                  <strong>{settingsHealth.gmailReady ? "준비됨" : "설정 필요"}</strong>
-                </div>
-                <div>
-                  <span>팝빌</span>
-                  <strong>{settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</strong>
-                </div>
-                <div>
-                  <span>운영자</span>
-                  <strong>{settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</strong>
-                </div>
-                <div>
-                  <span>파트너 포인트</span>
-                  <strong>{partnerPoints?.available && partnerPoints.partnerRemainPoint !== null ? `${formatMoney(partnerPoints.partnerRemainPoint)}P` : "-"}</strong>
-                </div>
-                <div>
-                  <span>인증서 주의</span>
-                  <strong>{certAttentionCount}건</strong>
-                </div>
-                <div>
-                  <span>최근 점검</span>
-                  <strong>{formatDateTime(data.settings.certLastCheckedAt)}</strong>
-                </div>
-              </div>
-              <div className="helper-box">
-                <strong>{partnerPoints?.isTest ? "테스트" : "운영"}</strong>
-                <span>{partnerPoints?.message ?? "포인트 조회 전입니다."}</span>
-              </div>
-            </Panel>
-
-            <Panel
-              className="panel-work-readiness"
-              title="고객 준비 상태"
-              actions={<button className="btn-secondary" onClick={() => setActiveTab("customers")}>고객관리 열기</button>}
-            >
-              <div className="customer-list-summary">
-                <span className="chip chip-success">즉시 발행 가능 {readyNowCustomers.length}명</span>
-                <span className="chip chip-danger">준비 필요 {blockedIssueCustomers.length}명</span>
-              </div>
-              <div className="list">
-                {blockedIssueCustomers.slice(0, 4).map((customer) => {
-                  const readiness = getCustomerIssueReadiness(customer);
-                  return (
-                    <div key={customer.id} className="list-item">
-                      <div>
-                        <strong>{customer.customerName}</strong>
-                        <p>{customer.addr}</p>
-                      </div>
-                      <div className="list-meta">
-                        <span className={`chip ${readiness.tone === "success" ? "chip-success" : readiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>{readiness.reason}</span>
-                      </div>
+              <div className="work-side-column">
+                <Panel
+                  className="panel-work-status"
+                  title="운영 체크"
+                  actions={
+                    <>
+                      <button className="btn-secondary" onClick={() => void runAction("partner-points-refresh-work", load)}>포인트 조회</button>
+                      <button onClick={() => void runAction("cert-refresh-all", refreshAllCertificateStatuses)}>인증서 점검</button>
+                    </>
+                  }
+                >
+                  <div className="info-grid">
+                    <div>
+                      <span>메일</span>
+                      <strong>{settingsHealth.mailReady ? "준비됨" : "설정 필요"}</strong>
                     </div>
-                  );
-                })}
-                {blockedIssueCustomers.length === 0 ? (
-                  <div className="empty">모든 고객이 발행 가능한 상태입니다.</div>
-                ) : null}
-              </div>
-            </Panel>
-
-            <Panel
-              className="panel-work-inbox"
-              title="최근 수신 메일"
-              actions={unmatchedMessages.length > 0 ? <button onClick={() => void runAction("reprocess-all-unmatched", reprocessAllUnmatchedMessages)}>미매칭 전체 재처리</button> : undefined}
-            >
-              <div className="table-wrap">
-                <table className="responsive-table">
-                  <thead>
-                    <tr>
-                      <th>수신시각</th>
-                      <th>발전소명</th>
-                      <th>주소</th>
-                      <th>상태</th>
-                      <th>액션</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentInboxMessages.map((message) => (
-                      <tr key={message.id}>
-                        <td data-label="수신시각">{formatDateTime(message.receivedAt)}</td>
-                        <td data-label="발전소명">{message.parsedData?.plantName ?? "-"}</td>
-                        <td data-label="주소">{message.parsedData?.plantAddress ?? "-"}</td>
-                        <td data-label="상태">
-                          <span className={`status status-${message.parseStatus}`}>{getParseStatusLabel(message.parseStatus)}</span>
-                          {message.parseError ? <p className="cell-error">{message.parseError}</p> : null}
-                        </td>
-                        <td data-label="액션">
-                          {message.parseStatus === "unmatched" || message.parseStatus === "failed" ? (
-                            <button onClick={() => void runAction(`reprocess-${message.id}`, async () => void (await reprocessInboxMessage(message.id)))}>재처리</button>
-                          ) : (
-                            <span className="status status-parsed">확인 완료</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {recentInboxMessages.length === 0 ? <div className="empty">최근 수신 메일이 없습니다.</div> : null}
-              </div>
-            </Panel>
-
-            <Panel className="panel-work-issued" title="최근 발행 완료">
-              <div className="table-wrap">
-                <table className="responsive-table">
-                  <thead>
-                    <tr>
-                      <th>고객</th>
-                      <th>발행시각</th>
-                      <th>합계금액</th>
-                      <th>확인</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentIssuedDrafts.map((draft) => (
-                      <tr key={draft.id}>
-                        <td data-label="고객">{draft.customerName}</td>
-                        <td data-label="발행시각">{formatDateTime(draft.issuedAt)}</td>
-                        <td data-label="합계금액">{formatMoney(draft.totalAmount)}원</td>
-                        <td data-label="확인">
-                          <div className="button-row">
-                            <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-info-${draft.id}`, async () => void (await showDraftPopbillInfo(draft.id)))}>상태</button>
-                            <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-view-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}>보기</button>
-                            <button className="btn-danger" disabled={busyKey !== null} onClick={() => void runAction(`draft-cancel-${draft.id}`, async () => void (await cancelIssuedDraft(draft.id)))}>취소</button>
+                    <div>
+                      <span>팝빌</span>
+                      <strong>{settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</strong>
+                    </div>
+                    <div>
+                      <span>파트너 포인트</span>
+                      <strong>{partnerPoints?.available && partnerPoints.partnerRemainPoint !== null ? `${formatMoney(partnerPoints.partnerRemainPoint)}P` : "-"}</strong>
+                    </div>
+                    <div>
+                      <span>인증서 주의</span>
+                      <strong>{certAttentionCount}건</strong>
+                    </div>
+                  </div>
+                  <div className="compact-status-stack">
+                    <div className="history-split">
+                      <section className="history-block">
+                        <header className="history-block-head">
+                          <div className="history-title-row">
+                            <strong>최근 처리</strong>
+                            <div className="history-tabs">
+                              <button
+                                type="button"
+                                className={workFeedTab === "inbox" ? "btn-secondary active-filter" : "btn-secondary"}
+                                onClick={() => setWorkFeedTab("inbox")}
+                              >
+                                최근 수신 메일
+                              </button>
+                              <button
+                                type="button"
+                                className={workFeedTab === "issued" ? "btn-secondary active-filter" : "btn-secondary"}
+                                onClick={() => setWorkFeedTab("issued")}
+                              >
+                                최근 발행 완료
+                              </button>
+                            </div>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {recentIssuedDrafts.length === 0 ? <div className="empty">최근 발행 완료 이력이 없습니다.</div> : null}
+                          <div className="history-head-action">
+                            {workFeedTab === "inbox" && reprocessableMessages.length > 0 ? (
+                              <button className="btn-secondary" onClick={() => void runAction("reprocess-all-unmatched", reprocessAllUnmatchedMessages)}>재처리</button>
+                            ) : (
+                              <span className="history-head-spacer" />
+                            )}
+                          </div>
+                        </header>
+                        <div className="history-list">
+                          {workFeedTab === "inbox"
+                            ? recentInboxPreview.map((message) => (
+                                <div key={message.id} className="history-row">
+                                  <div>
+                                    <strong>{message.parsedData?.plantName ?? "미확인 메일"}</strong>
+                                    <span>{formatDateTime(message.receivedAt)}</span>
+                                  </div>
+                                  <div className="history-actions">
+                                    <span className={`status status-${message.parseStatus}`}>{getParseStatusLabel(message.parseStatus)}</span>
+                                    {message.parseStatus === "unmatched" || message.parseStatus === "failed" || message.parseStatus === "duplicate" ? (
+                                      <button className="btn-secondary" onClick={() => void runAction(`reprocess-${message.id}`, async () => void (await reprocessInboxMessage(message.id)))}>재처리</button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ))
+                            : recentIssuedPreview.map((draft) => (
+                                <div key={draft.id} className="history-row">
+                                  <div>
+                                    <strong>{draft.customerName}</strong>
+                                    <span>{formatMoney(draft.totalAmount)}원 · {formatDateTime(draft.issuedAt)}</span>
+                                  </div>
+                                  <div className="history-actions">
+                                    <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-view-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}>보기</button>
+                                    <button className="btn-danger" disabled={busyKey !== null} onClick={() => void runAction(`draft-cancel-${draft.id}`, async () => void (await cancelIssuedDraft(draft.id)))}>취소</button>
+                                  </div>
+                                </div>
+                              ))}
+                          {workFeedTab === "inbox" && recentInboxPreview.length === 0 ? <div className="empty">최근 수신 메일이 없습니다.</div> : null}
+                          {workFeedTab === "issued" && recentIssuedPreview.length === 0 ? <div className="empty">최근 발행 완료 이력이 없습니다.</div> : null}
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                </Panel>
               </div>
-            </Panel>
+            </div>
           </div>
         ) : null}
 
         {activeTab === "customers" ? (
-          <div className="customers-layout">
-            <Panel
-              className="panel-customer-list"
-              title="고객 목록"
-              actions={
-                <>
-                  <button
-                    className="btn-secondary"
-                    onClick={() => {
-                      setCreatingCustomer(true);
-                      setCustomerForm(createCustomerFormDefaults());
-                    }}
-                  >
-                    새 고객
-                  </button>
-                  <button onClick={() => void runAction("customers-cert-refresh-all", refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
-                </>
-              }
-            >
-              <div className="customer-list-summary">
-                <span className="chip chip-success">즉시 발행 가능 {readyCustomerCount}명</span>
-                <span className="chip chip-danger">준비 필요 {blockedCustomerCount}명</span>
+          <div className="customers-screen">
+            {expiredCertCustomers.length > 0 ? (
+              <div className="alert error">
+                인증서 만료 고객 {expiredCertCustomers.length}건: {expiredCertCustomers.map((customer) => customer.customerName).join(", ")}
               </div>
-              <div className="list">
-                {data.customers.map((customer) => {
-                  const readiness = getCustomerIssueReadiness(customer);
-                  const isSelected = customerForm.id === customer.id;
-
-                  return (
+            ) : null}
+            {expiringSoonCustomers.length > 0 ? (
+              <div className="alert warn">
+                인증서 만료 예정 30일 이내 {expiringSoonCustomers.length}건: {expiringSoonCustomers
+                  .map((customer) => `${customer.customerName}(${formatCertificateExpireDate(customer.popbillCertExpireDate)})`)
+                  .join(", ")}
+              </div>
+            ) : null}
+            <div className="customers-layout">
+              <Panel
+                className="panel-customer-list"
+                title="고객 목록"
+                actions={
+                  <>
                     <button
-                      key={customer.id}
-                      type="button"
-                      className={`customer-summary ${isSelected ? "selected" : ""} ${readiness.canIssueNow ? "customer-summary-ready" : "customer-summary-blocked"}`}
+                      className="btn-secondary"
                       onClick={() => {
-                        setCreatingCustomer(false);
-                        setCustomerForm(customerToForm(customer));
+                        setCreatingCustomer(true);
+                        setCustomerForm(createCustomerFormDefaults());
                       }}
                     >
-                      <div className="customer-summary-head">
-                        <div>
-                          <strong>{customer.customerName}</strong>
-                          <p>{customer.plantNames.join(", ")}</p>
-                        </div>
-                        <span className={`chip ${readiness.tone === "success" ? "chip-success" : readiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>{readiness.label}</span>
-                      </div>
-                      <div className="customer-summary-meta">
-                        <span>{customer.addr}</span>
-                        <span>{getCustomerCertificateSummary(customer)}</span>
-                      </div>
+                      새 고객
                     </button>
-                  );
-                })}
-              </div>
-            </Panel>
-
-            <Panel
-              className="panel-customer-editor"
-              title={selectedCustomer ? `${selectedCustomer.customerName}` : "새 고객 등록"}
-              actions={selectedCustomer ? (
-                <button
-                  className="btn-secondary"
-                  onClick={() => {
-                    setCreatingCustomer(true);
-                    setCustomerForm(createCustomerFormDefaults());
-                  }}
-                >
-                  새 고객 등록
-                </button>
-              ) : null}
-            >
-              {selectedCustomer && selectedCustomerReadiness ? (
-                <div className="customer-detail-top">
-                  <div className="customer-detail-copy">
-                    <strong>{selectedCustomer.customerName}</strong>
-                    <span>{selectedCustomer.addr}</span>
-                    <span>{getCustomerPopbillSummary(selectedCustomer)} · {getCustomerCertificateSummary(selectedCustomer)}</span>
+                    <button onClick={() => void runAction("customers-cert-refresh-all", refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
+                  </>
+                }
+              >
+                <div className="customer-list-toolbar">
+                  <div className="customer-list-search">
+                    <input
+                      placeholder="고객명 검색"
+                      value={customerSearchQuery}
+                      onChange={(event) => setCustomerSearchQuery(event.target.value)}
+                    />
                   </div>
-                  <div className="customer-detail-stats">
-                    <div>
-                      <span>발전소명</span>
-                      <strong>{selectedCustomer.plantNames.join(", ") || "-"}</strong>
-                    </div>
-                    <div>
-                      <span>팝빌 상태</span>
-                      <strong>{getCustomerPopbillSummary(selectedCustomer)}</strong>
-                    </div>
-                    <div>
-                      <span>인증서 상태</span>
-                      <strong>{getCustomerCertificateSummary(selectedCustomer)}</strong>
-                    </div>
-                  </div>
-                  <div className="customer-detail-actions">
-                    <span className={`chip ${selectedCustomerReadiness.tone === "success" ? "chip-success" : selectedCustomerReadiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>
-                      {selectedCustomerReadiness.label}
-                    </span>
-                    {selectedCustomer.popbillState === "joined" ? (
-                      <button className="btn-secondary" onClick={() => void runAction(`reset-popbill-${selectedCustomer.id}`, async () => void (await resetPopbillLink(selectedCustomer)))}>
-                        연결 해제
-                      </button>
-                    ) : (
-                      <button
-                        className="btn-secondary"
-                        onClick={() => void runAction(`join-${selectedCustomer.id}`, async () => void (await api(`/api/customers/${selectedCustomer.id}/popbill/join`, { method: "POST" })))}
-                      >
-                        팝빌 가입
-                      </button>
-                    )}
+                  <div className="customer-list-filters">
                     <button
-                      onClick={() =>
-                        void runAction(`cert-url-${selectedCustomer.id}`, async () => {
-                          const result = await api<{ url: string }>(`/api/customers/${selectedCustomer.id}/popbill/cert-url`, {
-                            method: "POST"
-                          });
-                          window.open(result.url, "_blank", "noopener,noreferrer");
-                        })
-                      }
+                      type="button"
+                      className={customerListFilter === "all" ? "btn-secondary active-filter" : "btn-secondary"}
+                      onClick={() => setCustomerListFilter("all")}
                     >
-                      {selectedCustomer.popbillCertRegistered ? "인증서 재등록" : "인증서 등록"}
+                      전체 {data.customers.length}명
                     </button>
-                    <button className="btn-secondary" onClick={() => void runAction(`cert-status-${selectedCustomer.id}`, async () => void (await api(`/api/customers/${selectedCustomer.id}/popbill/cert-status`, { method: "POST" })))}>만료일 확인</button>
+                    <button
+                      type="button"
+                      className={customerListFilter === "blocked" ? "btn-secondary active-filter" : "btn-secondary"}
+                      onClick={() => setCustomerListFilter("blocked")}
+                    >
+                      준비 필요만 {blockedCustomerCount}명
+                    </button>
                   </div>
-                  <div className="customer-detail-secondary">
-                    <button className="btn-ghost btn-danger" onClick={() => void runAction(`delete-customer-${selectedCustomer.id}`, async () => void (await deleteCustomer(selectedCustomer)))}>
-                      고객 삭제
-                    </button>
-                    {data.settings.popbillIsTest && selectedCustomer.popbillState === "joined" ? (
+                </div>
+                <div className="list">
+                  {filteredCustomers.map((customer) => {
+                    const readiness = getCustomerIssueReadiness(customer);
+                    const isSelected = customerForm.id === customer.id;
+
+                    return (
                       <button
-                        className="btn-ghost"
-                        onClick={() => void runAction(`quit-popbill-${selectedCustomer.id}`, async () => void (await quitPopbillMember(selectedCustomer)))}
+                        key={customer.id}
+                        type="button"
+                        className={`customer-summary ${isSelected ? "selected" : ""} ${readiness.canIssueNow ? "customer-summary-ready" : "customer-summary-blocked"}`}
+                        onClick={() => {
+                          setCreatingCustomer(false);
+                          setCustomerDetailTab("info");
+                          setCustomerForm(customerToForm(customer));
+                        }}
                       >
-                        테스트 팝빌 탈퇴
+                        <div className="customer-summary-head">
+                          <div>
+                            <strong>{customer.customerName}</strong>
+                            <p>{customer.plantNames.join(", ")}</p>
+                          </div>
+                          <span className={`chip ${readiness.tone === "success" ? "chip-success" : readiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>{readiness.label}</span>
+                        </div>
+                        <div className="customer-summary-meta">
+                          <span>{customer.addr}</span>
+                          <span>{getCustomerCertificateSummary(customer)}</span>
+                        </div>
                       </button>
-                    ) : null}
+                    );
+                  })}
+                  {filteredCustomers.length === 0 ? (
+                    <div className="empty">
+                      {customerSearchQuery.trim() !== ""
+                        ? "검색 결과가 없습니다."
+                        : customerListFilter === "blocked"
+                          ? "준비 필요 고객이 없습니다."
+                          : "등록된 고객이 없습니다."}
+                    </div>
+                  ) : null}
+                </div>
+              </Panel>
+
+              <Panel
+                className="panel-customer-editor"
+                title={selectedCustomer ? `${selectedCustomer.customerName}` : "새 고객 등록"}
+                actions={selectedCustomer && customerDetailTab === "info" ? (
+                  <button
+                    onClick={() => void runAction("save-customer-top", saveCustomer)}
+                  >
+                    고객 저장
+                  </button>
+                ) : null}
+              >
+                {selectedCustomer && selectedCustomerReadiness ? (
+                  <div className="customer-detail-top">
+                    <div className="customer-detail-copy">
+                      <strong>{selectedCustomer.customerName}</strong>
+                      <span>{selectedCustomer.addr}</span>
+                      <span>{getCustomerPopbillSummary(selectedCustomer)} · {getCustomerCertificateSummary(selectedCustomer)}</span>
+                    </div>
+                    <div className="customer-detail-stats">
+                      <div>
+                        <span>발전소명</span>
+                        <strong>{selectedCustomer.plantNames.join(", ") || "-"}</strong>
+                      </div>
+                      <div>
+                        <span>팝빌 상태</span>
+                        <strong>{getCustomerPopbillSummary(selectedCustomer)}</strong>
+                      </div>
+                      <div>
+                        <span>인증서 상태</span>
+                        <strong>{getCustomerCertificateSummary(selectedCustomer)}</strong>
+                      </div>
+                    </div>
+                    <div className="customer-detail-actions">
+                      <span className={`chip ${selectedCustomerReadiness.tone === "success" ? "chip-success" : selectedCustomerReadiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>
+                        {selectedCustomerReadiness.label}
+                      </span>
+                      {selectedCustomer.popbillState !== "joined" && (
+                        <button
+                          className="btn-secondary"
+                          onClick={() => void runAction(`join-${selectedCustomer.id}`, async () => void (await api(`/api/customers/${selectedCustomer.id}/popbill/join`, { method: "POST" })))}
+                        >
+                          팝빌 가입
+                        </button>
+                      )}
+                      <button
+                        onClick={() =>
+                          void runAction(`cert-url-${selectedCustomer.id}`, async () => {
+                            const result = await api<{ url: string }>(`/api/customers/${selectedCustomer.id}/popbill/cert-url`, {
+                              method: "POST"
+                            });
+                            window.open(result.url, "_blank", "noopener,noreferrer");
+                          })
+                        }
+                      >
+                        {selectedCustomer.popbillCertRegistered ? "인증서 재등록" : "인증서 등록"}
+                      </button>
+                      <button className="btn-secondary" onClick={() => void runAction(`cert-status-${selectedCustomer.id}`, async () => void (await api(`/api/customers/${selectedCustomer.id}/popbill/cert-status`, { method: "POST" })))}>만료일 확인</button>
+                    </div>
+                    <details className="customer-detail-secondary">
+                      <summary>더보기</summary>
+                      <div className="customer-detail-secondary-actions">
+                        {selectedCustomer.popbillState === "joined" ? (
+                          <button className="btn-ghost" onClick={() => void runAction(`reset-popbill-${selectedCustomer.id}`, async () => void (await resetPopbillLink(selectedCustomer)))}>
+                            연결 해제
+                          </button>
+                        ) : null}
+                        <button className="btn-ghost btn-danger" onClick={() => void runAction(`delete-customer-${selectedCustomer.id}`, async () => void (await deleteCustomer(selectedCustomer)))}>
+                          고객 삭제
+                        </button>
+                      </div>
+                    </details>
                   </div>
-                </div>
-              ) : (
-                <div className="customer-empty-state">
-                  <strong>새 고객을 등록합니다.</strong>
-                  <span>기존 고객을 수정하려면 왼쪽 목록에서 고객을 선택하세요.</span>
-                </div>
-              )}
-              <div className="form-grid">
-                <label>
-                  고객명
-                  <input value={customerForm.customerName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, customerName: event.target.value }))} />
-                </label>
-                <label>
-                  사업자번호
-                  <input value={customerForm.businessNumber} onChange={(event) => setCustomerForm((prev) => ({ ...prev, businessNumber: event.target.value }))} />
-                </label>
-                <label>
-                  상호
-                  <input value={customerForm.corpName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, corpName: event.target.value }))} />
-                </label>
-                <label>
-                  대표자
-                  <input value={customerForm.ceoName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, ceoName: event.target.value }))} />
-                </label>
-                <label className="full">
-                  주소
-                  <input value={customerForm.addr} onChange={(event) => setCustomerForm((prev) => ({ ...prev, addr: event.target.value }))} />
-                </label>
-                <label>
-                  업태
-                  <input value={customerForm.bizType} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizType: event.target.value }))} />
-                </label>
-                <label>
-                  업종
-                  <input value={customerForm.bizClass} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizClass: event.target.value }))} />
-                </label>
-                <label className="full">
-                  발전소명
-                  <input
-                    value={customerForm.plantNamesText}
-                    onChange={(event) => setCustomerForm((prev) => ({ ...prev, plantNamesText: event.target.value }))}
-                    placeholder="예: 이상택태양광"
-                  />
-                </label>
-                <label className="full">
-                  메모
-                  <textarea rows={3} value={customerForm.memo} onChange={(event) => setCustomerForm((prev) => ({ ...prev, memo: event.target.value }))} />
-                </label>
-              </div>
-              <div className="button-row">
-                <button onClick={() => void runAction("save-customer", saveCustomer)}>{customerForm.id ? "고객 저장" : "고객 등록"}</button>
-              </div>
-            </Panel>
+                ) : (
+                  <div className="customer-empty-state">
+                    <strong>새 고객을 등록합니다.</strong>
+                    <span>기존 고객을 수정하려면 왼쪽 목록에서 고객을 선택하세요.</span>
+                  </div>
+                )}
+                {selectedCustomer ? (
+                  <div className="customer-detail-tabs">
+                    <button
+                      type="button"
+                      className={customerDetailTab === "info" ? "btn-secondary active-filter" : "btn-secondary"}
+                      onClick={() => setCustomerDetailTab("info")}
+                    >
+                      기본 정보
+                    </button>
+                    <button
+                      type="button"
+                      className={customerDetailTab === "history" ? "btn-secondary active-filter" : "btn-secondary"}
+                      onClick={() => setCustomerDetailTab("history")}
+                    >
+                      발행 이력 {selectedCustomerIssuedDrafts.length}건
+                    </button>
+                  </div>
+                ) : null}
+
+                {selectedCustomer && customerDetailTab === "history" ? (
+                  <div className="customer-history-list">
+                    {selectedCustomerIssuedDrafts.length > 0 ? (
+                      selectedCustomerIssuedDrafts.map((draft) => {
+                        const confirmNumber = getDraftConfirmNumber(draft);
+                        return (
+                          <article key={draft.id} className="customer-history-card">
+                            <div className="customer-history-head">
+                              <div>
+                                <strong>{draft.itemName}</strong>
+                                <span>{formatDateTime(draft.issuedAt)}</span>
+                              </div>
+                              <span className="chip chip-success">발행 완료</span>
+                            </div>
+                            <div className="customer-history-meta">
+                              <span>공급가액 {formatMoney(draft.supplyCost)}원</span>
+                              <span>합계 {formatMoney(draft.totalAmount)}원</span>
+                              <span>관리번호 {draft.popbillMgtKey || "-"}</span>
+                              <span>승인번호 {confirmNumber ?? "-"}</span>
+                            </div>
+                            <div className="customer-history-actions">
+                              <button
+                                className="btn-secondary"
+                                disabled={busyKey !== null}
+                                onClick={() => void runAction(`draft-info-${draft.id}`, async () => void (await showDraftPopbillInfo(draft.id)))}
+                              >
+                                상태조회
+                              </button>
+                              <button
+                                className="btn-secondary"
+                                disabled={busyKey !== null}
+                                onClick={() => void runAction(`draft-view-customer-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}
+                              >
+                                보기
+                              </button>
+                              <button
+                                className="btn-secondary"
+                                disabled={busyKey !== null}
+                                onClick={() => void runAction(`draft-print-customer-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "print-url")))}
+                              >
+                                인쇄
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })
+                    ) : (
+                      <div className="empty">이 고객의 발행 이력이 없습니다.</div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="form-grid">
+                      <label>
+                        고객명
+                        <input value={customerForm.customerName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, customerName: event.target.value }))} />
+                      </label>
+                      <label>
+                        사업자번호
+                        <input value={customerForm.businessNumber} onChange={(event) => setCustomerForm((prev) => ({ ...prev, businessNumber: event.target.value }))} />
+                      </label>
+                      <label>
+                        상호
+                        <input value={customerForm.corpName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, corpName: event.target.value }))} />
+                      </label>
+                      <label>
+                        대표자
+                        <input value={customerForm.ceoName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, ceoName: event.target.value }))} />
+                      </label>
+                      <label className="full">
+                        주소
+                        <input value={customerForm.addr} onChange={(event) => setCustomerForm((prev) => ({ ...prev, addr: event.target.value }))} />
+                      </label>
+                      <label>
+                        업태
+                        <input value={customerForm.bizType} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizType: event.target.value }))} />
+                      </label>
+                      <label>
+                        업종
+                        <input value={customerForm.bizClass} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizClass: event.target.value }))} />
+                      </label>
+                      <label className="full">
+                        발전소명
+                        <input
+                          value={customerForm.plantNamesText}
+                          onChange={(event) => setCustomerForm((prev) => ({ ...prev, plantNamesText: event.target.value }))}
+                          placeholder="예: 이상택태양광"
+                        />
+                      </label>
+                      <label className="full">
+                        메모
+                        <textarea rows={3} value={customerForm.memo} onChange={(event) => setCustomerForm((prev) => ({ ...prev, memo: event.target.value }))} />
+                      </label>
+                    </div>
+                    {!selectedCustomer ? (
+                      <div className="button-row">
+                        <button onClick={() => void runAction("save-customer", saveCustomer)}>고객 등록</button>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </Panel>
+            </div>
           </div>
         ) : null}
 
@@ -1430,20 +2094,9 @@ export function App() {
                   <button onClick={() => void runAction("save-settings", saveSettings)}>설정 저장</button>
                   <button className="btn-secondary" onClick={() => setActiveSettingsSection("logs")}>최근 로그 보기</button>
                 </div>
-              </section>
-
-              <section className="panel settings-sidebar-panel">
-                <header className="panel-header settings-sidebar-header">
-                  <div>
-                    <h2>다음 단계</h2>
-                  </div>
-                </header>
                 <div className="settings-inline-note">
                   <strong>{customerRegistrationReady ? `고객 ${data.customers.length}명 등록됨` : "고객 등록이 필요합니다."}</strong>
-                  <span>메일 매칭과 발행 테스트를 하려면 고객관리에서 고객을 먼저 등록하면 됩니다.</span>
-                </div>
-                <div className="settings-sidebar-actions">
-                  <button className="btn-secondary" onClick={() => setActiveTab("customers")}>고객관리로 이동</button>
+                  <span>설정을 마치면 고객관리에서 고객을 등록하고 메일 동기화 테스트를 진행하면 됩니다.</span>
                   <button className="btn-secondary" onClick={() => void runAction("refresh-certificates", refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
                 </div>
               </section>
@@ -1455,63 +2108,95 @@ export function App() {
                   step={1}
                   className="panel-settings-mail"
                   title="메일 연결"
-                  done={settingsHealth.gmailReady}
-                  note="한전 메일을 읽고 알림을 보내는 Gmail 계정을 연결합니다."
+                  done={settingsHealth.mailReady}
+                  note="한전 메일을 읽고 알림을 보내는 메일 계정을 연결합니다."
                   actions={
                     <>
-                      <button className="btn-secondary" onClick={() => applyGmailDefaults(setSettingsForm)}>Gmail 기본값 넣기</button>
-                      <button onClick={() => void runAction("mail-test", testMailSettings)}>Gmail 연결 테스트</button>
+                      <button onClick={() => void runAction("mail-test", testMailSettings, { reload: false })}>메일 연결 테스트</button>
                     </>
                   }
                 >
                   <div className="form-grid">
+                    <div className="settings-detected-provider full">
+                      <span>메일 수집 시작 기준</span>
+                      <strong>{settingsForm.mailSyncStartAt ? formatDateTime(settingsForm.mailSyncStartAt) : "설정 안 됨"}</strong>
+                      <div className="button-row">
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() =>
+                            setSettingsForm((prev) =>
+                              prev ? { ...prev, mailSyncStartAt: new Date().toISOString() } : prev
+                            )
+                          }
+                        >
+                          지금부터 시작
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() =>
+                            setSettingsForm((prev) => (prev ? { ...prev, mailSyncStartAt: "" } : prev))
+                          }
+                        >
+                          기준 해제
+                        </button>
+                      </div>
+                    </div>
+                    <div className="settings-detected-provider full">
+                      <span>감지된 메일 서비스</span>
+                      <strong>{MAIL_PROVIDER_CONFIG[inferMailProviderFromAddress(settingsForm.mailAddress, settingsForm.mailProvider)].label}</strong>
+                    </div>
                     <label>
-                      IMAP 계정
+                      메일 주소
                       <input
-                        placeholder="example@gmail.com"
-                        value={settingsForm.imapUser}
-                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, imapUser: event.target.value })}
+                        placeholder="example@mail.com"
+                        value={settingsForm.mailAddress}
+                        onChange={(event) =>
+                          setSettingsForm((prev) => {
+                            if (!prev) return prev;
+                            const nextAddress = event.target.value;
+                            const nextProvider = inferMailProviderFromAddress(nextAddress, prev.mailProvider);
+                            const config = MAIL_PROVIDER_CONFIG[nextProvider];
+                            return {
+                              ...prev,
+                              mailAddress: nextAddress,
+                              mailProvider: nextProvider,
+                              imapHost: config.imapHost,
+                              imapPort: config.imapPort,
+                              imapSecure: config.imapSecure,
+                              smtpHost: config.smtpHost,
+                              smtpPort: config.smtpPort,
+                              smtpSecure: config.smtpSecure
+                            };
+                          })
+                        }
                       />
+                      <span className="field-hint">한전 메일을 읽고 알림 메일을 보낼 때 함께 사용하는 주소입니다. 도메인을 보고 서비스가 자동 감지됩니다.</span>
                     </label>
                     <label>
-                      IMAP 비밀번호 / 앱 비밀번호
-                      <input type="password" value={settingsForm.imapPass} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, imapPass: event.target.value })} />
-                    </label>
-                    <label>
-                      메일함
-                      <input
-                        placeholder="INBOX"
-                        value={settingsForm.imapMailbox}
-                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, imapMailbox: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      SMTP 계정
-                      <input
-                        placeholder="example@gmail.com"
-                        value={settingsForm.smtpUser}
-                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpUser: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      SMTP 비밀번호 / 앱 비밀번호
-                      <input type="password" value={settingsForm.smtpPass} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpPass: event.target.value })} />
-                    </label>
-                    <label>
-                      발신자 이름
-                      <input value={settingsForm.smtpFromName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpFromName: event.target.value })} />
-                    </label>
-                    <label>
-                      발신 메일
-                      <input
-                        placeholder="example@gmail.com"
-                        value={settingsForm.smtpFromEmail}
-                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, smtpFromEmail: event.target.value })}
-                      />
+                      앱 비밀번호
+                      <div className="password-field">
+                        <input
+                          type={revealedFields.mailPassword ? "text" : "password"}
+                          value={settingsForm.mailPassword}
+                          onChange={(event) => setSettingsForm((prev) => prev && { ...prev, mailPassword: event.target.value })}
+                        />
+                        <button
+                          type="button"
+                          className="password-toggle"
+                          aria-label={revealedFields.mailPassword ? "앱 비밀번호 숨기기" : "앱 비밀번호 보기"}
+                          onClick={() => toggleRevealField("mailPassword")}
+                        >
+                          <RevealIcon open={Boolean(revealedFields.mailPassword)} />
+                        </button>
+                      </div>
+                      <span className="field-hint">위 메일 주소로 로그인할 때 쓰는 비밀번호입니다. 수신/발신 모두 이 값을 사용합니다.</span>
                     </label>
                     <label className="full">
                       알림 수신 메일
                       <textarea rows={4} value={settingsForm.notificationEmailsText} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, notificationEmailsText: event.target.value })} />
+                      <span className="field-hint">파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나 쉼표로 구분합니다.</span>
                     </label>
                   </div>
                 </SetupPanel>
@@ -1521,9 +2206,9 @@ export function App() {
                 <SetupPanel
                   step={2}
                   className="panel-settings-popbill"
-                  title="팝빌 연결"
-                  done={settingsHealth.popbillReady}
-                  note="팝빌 키와 파트너 사업자번호를 입력하고 포인트를 확인합니다."
+                  title="팝빌 / 운영 담당자"
+                  done={settingsHealth.popbillReady && settingsHealth.operatorReady}
+                  note="팝빌 키와 운영 담당자 정보를 한 번에 설정합니다."
                   actions={
                     <>
                       <button className="btn-secondary" onClick={() => void runAction("partner-points-refresh-settings", load)}>포인트 조회</button>
@@ -1546,120 +2231,273 @@ export function App() {
                       <strong>{partnerPoints?.referenceCorpNum ?? "팝빌 파트너 사업자번호를 입력하세요."}</strong>
                     </div>
                   </div>
-                  <div className="form-grid">
-                    <label>
-                      팝빌 LinkID
-                      <input value={settingsForm.popbillLinkId} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillLinkId: event.target.value })} />
-                    </label>
-                    <label>
-                      팝빌 ID 접두어
-                      <input value={settingsForm.popbillUserIdPrefix} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} />
-                    </label>
-                    <label>
-                      팝빌 파트너 사업자번호
-                      <input
-                        placeholder="예: 290-42-01164"
-                        value={settingsForm.popbillPartnerCorpNum}
-                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillPartnerCorpNum: event.target.value })}
-                      />
-                    </label>
-                    <label className="full">
-                      팝빌 SecretKey
-                      <input type="password" value={settingsForm.popbillSecretKey} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSecretKey: event.target.value })} />
-                    </label>
-                    <label className="full">
-                      팝빌 공통 비밀번호
-                      <input
-                        type="password"
-                        value={settingsForm.popbillSharedPassword}
-                        onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
-                        placeholder="신규 고객 공통 비밀번호"
-                      />
-                    </label>
-                    <label className="checkbox">
-                      <input type="checkbox" checked={settingsForm.popbillIsTest} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillIsTest: event.target.checked })} />
-                      팝빌 테스트 모드
-                    </label>
-                    <div className="helper-box full">
-                      <strong>자동 규칙</strong>
-                      <span>고객 저장 시 팝빌 ID는 접두어 + 고객번호 형식으로 생성됩니다.</span>
-                      <span>공통 비밀번호는 신규 고객 또는 비어 있는 고객에만 적용됩니다.</span>
-                      <span>{partnerPoints?.message ?? "포인트 조회 전입니다."}</span>
-                    </div>
-                  </div>
-                </SetupPanel>
-              ) : null}
+                  <div className="settings-field-stack">
+                    <section className="settings-field-group">
+                      <div className="settings-field-group-head">
+                        <strong>팝빌 연결</strong>
+                        <span>API 연결과 포인트 조회에 필요한 기본 정보를 입력합니다.</span>
+                      </div>
+                      <div className="form-grid">
+                        <label>
+                          팝빌 LinkID
+                          <input value={settingsForm.popbillLinkId} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillLinkId: event.target.value })} />
+                        </label>
+                        <label>
+                          팝빌 파트너 사업자번호
+                          <input
+                            placeholder="사업자번호 입력"
+                            value={settingsForm.popbillPartnerCorpNum}
+                            onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillPartnerCorpNum: event.target.value })}
+                          />
+                        </label>
+                        <label className="full">
+                          팝빌 SecretKey
+                          <div className="password-field">
+                            <input
+                              type={revealedFields.popbillSecretKey ? "text" : "password"}
+                              value={settingsForm.popbillSecretKey}
+                              onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSecretKey: event.target.value })}
+                            />
+                            <button
+                              type="button"
+                              className="password-toggle"
+                              aria-label={revealedFields.popbillSecretKey ? "팝빌 SecretKey 숨기기" : "팝빌 SecretKey 보기"}
+                              onClick={() => toggleRevealField("popbillSecretKey")}
+                            >
+                              <RevealIcon open={Boolean(revealedFields.popbillSecretKey)} />
+                            </button>
+                          </div>
+                        </label>
+                      </div>
+                    </section>
 
-              {activeSettingsSection === "operator" ? (
-                <SetupPanel
-                  step={3}
-                  done={settingsHealth.operatorReady}
-                  note="팝빌 가입과 발행에 공통으로 사용하는 운영 담당자 정보입니다."
-                  className="panel-settings-operator"
-                  title="운영 담당자"
-                >
-                  <div className="form-grid">
-                    <label>
-                      운영 담당자명
-                      <input value={settingsForm.operatorContactName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })} />
-                    </label>
-                    <label>
-                      운영 담당자 이메일
-                      <input value={settingsForm.operatorContactEmail} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })} />
-                    </label>
-                    <label>
-                      운영 담당자 연락처
-                      <input value={settingsForm.operatorContactTel} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })} />
-                    </label>
-                  </div>
-                </SetupPanel>
-              ) : null}
+                    <section className="settings-field-group">
+                      <div className="settings-field-group-head">
+                        <strong>고객 계정 자동 생성</strong>
+                        <span>신규 고객 등록 시 자동으로 붙는 팝빌 계정 규칙입니다.</span>
+                      </div>
+                      <div className="form-grid">
+                        <label>
+                          팝빌 ID 접두어
+                          <input value={settingsForm.popbillUserIdPrefix} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} />
+                          <span className="field-hint">신규 고객 팝빌 ID를 만들 때 앞에 붙는 값입니다. 예: <strong>HAE_</strong> 입력 시 <strong>HAE_001</strong>처럼 생성됩니다.</span>
+                        </label>
+                        <label>
+                          팝빌 공통 비밀번호
+                          <div className="password-field">
+                            <input
+                              type={revealedFields.popbillSharedPassword ? "text" : "password"}
+                              value={settingsForm.popbillSharedPassword}
+                              onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
+                              placeholder="신규 고객 공통 비밀번호"
+                            />
+                            <button
+                              type="button"
+                              className="password-toggle"
+                              aria-label={revealedFields.popbillSharedPassword ? "팝빌 공통 비밀번호 숨기기" : "팝빌 공통 비밀번호 보기"}
+                              onClick={() => toggleRevealField("popbillSharedPassword")}
+                            >
+                              <RevealIcon open={Boolean(revealedFields.popbillSharedPassword)} />
+                            </button>
+                          </div>
+                        </label>
+                        <div className="helper-box full">
+                          <strong>자동 규칙</strong>
+                          <span>고객 저장 시 팝빌 ID는 접두어 + 고객번호 형식으로 생성됩니다.</span>
+                          <span>공통 비밀번호는 신규 고객 또는 비어 있는 고객에만 적용됩니다.</span>
+                          <span>{formatPartnerPointsMessage(partnerPoints)}</span>
+                        </div>
+                      </div>
+                    </section>
 
-              {activeSettingsSection === "backup" ? (
-                <SetupPanel
-                  step={4}
-                  className="panel-settings-backup"
-                  title="데이터 백업"
-                  done={Boolean(storageInfo)}
-                  note="설치본 기준 로컬 데이터를 백업하고 필요하면 복원합니다."
-                  actions={<button className="btn-secondary" onClick={() => void runAction("db-backup", createDatabaseBackup)}>백업 생성</button>}
-                >
-                  <div className="info-grid">
-                    <div className="full-width">
-                      <span>현재 DB 경로</span>
-                      <strong>{storageInfo?.databaseFile ?? "-"}</strong>
-                    </div>
-                    <div className="full-width">
-                      <span>백업 폴더</span>
-                      <strong>{storageInfo?.backupDir ?? "-"}</strong>
-                    </div>
-                  </div>
-                  <div className="table-wrap">
-                    <table className="responsive-table">
-                      <thead>
-                        <tr>
-                          <th>파일명</th>
-                          <th>크기</th>
-                          <th>수정시각</th>
-                          <th>액션</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(storageInfo?.backups ?? []).map((backup) => (
-                          <tr key={backup.fileName}>
-                            <td data-label="파일명">{backup.fileName}</td>
-                            <td data-label="크기">{formatBytes(backup.sizeBytes)}</td>
-                            <td data-label="수정시각">{formatDateTime(backup.modifiedAt)}</td>
-                            <td data-label="액션">
-                              <button className="btn-secondary" onClick={() => void runAction(`restore-backup-${backup.fileName}`, async () => void (await restoreDatabaseBackup(backup.fileName)))}>
-                                이 백업으로 복원
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {(storageInfo?.backups.length ?? 0) === 0 ? <div className="empty">생성된 백업 파일이 없습니다.</div> : null}
+                    <section className="settings-field-group">
+                      <div className="settings-field-group-head">
+                        <strong>운영 담당자</strong>
+                        <span>팝빌 가입과 발행에 쓰는 운영 담당자 정보를 입력합니다.</span>
+                      </div>
+                      <div className="form-grid">
+                        <label>
+                          운영 담당자명
+                          <input value={settingsForm.operatorContactName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })} />
+                        </label>
+                        <label>
+                          운영 담당자 연락처
+                          <input value={settingsForm.operatorContactTel} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })} />
+                        </label>
+                        <label className="full">
+                          운영 담당자 이메일
+                          <input value={settingsForm.operatorContactEmail} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })} />
+                        </label>
+                      </div>
+                    </section>
+
+                    <section className="settings-field-group">
+                      <div className="settings-field-group-head">
+                        <strong>로컬 갱신 에이전트 POC</strong>
+                        <span>기본 하트비트는 브리지 상태만 읽고, 요청 시 SignGate 라이선스 검증과 HDD 인증서 목록, 선택 인증서의 certID 조회까지 진행합니다.</span>
+                      </div>
+                      <div className="info-grid">
+                        <div>
+                          <span>에이전트 상태</span>
+                          <strong>{renewalAgentMeta.label}</strong>
+                        </div>
+                        <div>
+                          <span>브리지 포트</span>
+                          <strong>{formatRenewalBridgeSummary(renewalAgent)}</strong>
+                        </div>
+                        <div>
+                          <span>GetVersion</span>
+                          <strong>{formatRenewalVersionSummary(renewalAgent)}</strong>
+                        </div>
+                        <div>
+                          <span>라이선스 검증</span>
+                          <strong>{formatRenewalLicenseSummary(renewalAgent)}</strong>
+                        </div>
+                        <div className="full-width">
+                          <span>HDD 인증서</span>
+                          <strong>{formatRenewalStorageSummary(renewalAgent)}</strong>
+                        </div>
+                        <div className="full-width">
+                          <span>최근 certID 조회</span>
+                          <strong>{formatRenewalSelectionSummary(renewalAgent)}</strong>
+                        </div>
+                        <div className="full-width">
+                          <span>최근 갱신 경로 분석</span>
+                          <strong>{formatRenewalPreflightSummary(renewalAgent)}</strong>
+                        </div>
+                        <div>
+                          <span>호스트</span>
+                          <strong>{renewalAgent.hostname ?? "-"}</strong>
+                        </div>
+                        <div>
+                          <span>마지막 하트비트</span>
+                          <strong>{renewalAgent.lastHeartbeatAt ? formatDateTime(renewalAgent.lastHeartbeatAt) : "-"}</strong>
+                        </div>
+                        <div className="full-width">
+                          <span>프로세스 감지</span>
+                          <strong>
+                            {renewalAgent.process.detected
+                              ? renewalAgent.process.names.join(", ") || "SecuKit 프로세스 감지"
+                              : renewalAgent.process.detail ?? "미감지"}
+                          </strong>
+                        </div>
+                      </div>
+                      <div className="button-row">
+                        <button
+                          className="btn-secondary"
+                          onClick={() => void runAction("renewal-bridge-probe", async () => void (await requestRenewalBridgeProbe()))}
+                        >
+                          로컬 인증서 목록 진단 요청
+                        </button>
+                        <span className={`chip ${renewalAgentMeta.chipClassName}`}>{renewalAgentMeta.label}</span>
+                      </div>
+                      <div className="helper-box full">
+                        <strong>certID 조회 조건</strong>
+                        <span>행별 `certID 조회` 버튼은 로컬 에이전트가 `selectCertificateIssue` 를 호출하는 반자동 POC입니다.</span>
+                        <span>비밀번호는 서버로 전송하지 않고, 전용 PC의 `AUTO_TAX_RENEWAL_AGENT_CERT_PASSWORD` 또는 `AUTO_TAX_RENEWAL_AGENT_CERT_PASSWORD_FILE` 에서만 읽습니다.</span>
+                        <span>`갱신 경로 분석` 버튼은 `showCert` 와 SignGate AJAX 를 재현해서 기관변경/결제/비밀번호확인 단계 중 어디로 가는지 판별합니다.</span>
+                        <span>`순정 갱신 아님`으로 표시되면 SignGate 내부 갱신이 아니라 타 기관/외부 신규신청 분기로 빠진 것입니다.</span>
+                      </div>
+                      {renewalAgent.bridge.storageProbe.ok ? (
+                        <div className="table-wrap">
+                          <table className="responsive-table">
+                            <thead>
+                              <tr>
+                                <th>CN</th>
+                                <th>용도</th>
+                                <th>발급기관</th>
+                                <th>만료일</th>
+                                <th>Serial</th>
+                                <th>certID 상태</th>
+                                <th>갱신 경로</th>
+                                <th>액션</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {renewalAgent.bridge.storageProbe.certificates.map((certificate) => (
+                                <tr key={`${certificate.index}-${certificate.cn}`}>
+                                  <td data-label="CN">{certificate.cn || "-"}</td>
+                                  <td data-label="용도">{certificate.usageToName || "-"}</td>
+                                  <td data-label="발급기관">{certificate.issuerToName || "-"}</td>
+                                  <td data-label="만료일">{certificate.todate ?? "-"}</td>
+                                  <td data-label="Serial">{certificate.serial ?? "-"}</td>
+                                  <td data-label="certID 상태">
+                                    {renewalAgent.bridge.selectionProbe.certificateIndex === certificate.index
+                                      ? renewalAgent.bridge.selectionProbe.ok
+                                        ? renewalAgent.bridge.selectionProbe.certID ?? "-"
+                                        : renewalAgent.bridge.selectionProbe.error ?? "조회 실패"
+                                      : "-"}
+                                  </td>
+                                  <td data-label="갱신 경로">
+                                    {formatRenewalPathCell(certificate, renewalAgent)}
+                                  </td>
+                                  <td data-label="액션">
+                                    <div className="button-row">
+                                      <button
+                                        className="btn-secondary"
+                                        onClick={() =>
+                                          void runAction(
+                                            `renewal-certid-probe-${certificate.index}`,
+                                            async () => void (await requestRenewalCertIdProbe(certificate))
+                                          )
+                                        }
+                                      >
+                                        certID 조회
+                                      </button>
+                                      <button
+                                        className="btn-secondary"
+                                        onClick={() =>
+                                          void runAction(
+                                            `renewal-preflight-${certificate.index}`,
+                                            async () => void (await requestRenewalPreflight(certificate))
+                                          )
+                                        }
+                                      >
+                                        갱신 경로 분석
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {renewalAgent.bridge.storageProbe.certificates.length === 0 ? (
+                            <div className="empty">조회된 HDD 인증서가 없습니다.</div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      <div className="table-wrap">
+                        <table className="responsive-table">
+                          <thead>
+                            <tr>
+                              <th>작업</th>
+                              <th>상태</th>
+                              <th>요약</th>
+                              <th>요청시각</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {renewalJobs.map((job) => (
+                              <tr key={job.id}>
+                                <td data-label="작업">#{job.id} {formatRenewalJobLabel(job)}</td>
+                                <td data-label="상태">{formatRenewalJobStatusLabel(job.status)}</td>
+                                <td data-label="요약">{job.error ?? job.summary}</td>
+                                <td data-label="요청시각">{formatDateTime(job.requestedAt)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {renewalJobs.length === 0 ? <div className="empty">아직 인증서 목록 진단 작업 이력이 없습니다.</div> : null}
+                      </div>
+                      {renewalAgent.notes.length > 0 ? (
+                        <div className="helper-box full">
+                          <strong>최근 에이전트 메모</strong>
+                          {renewalAgent.notes.map((note) => (
+                            <span key={note}>{note}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </section>
                   </div>
                 </SetupPanel>
               ) : null}

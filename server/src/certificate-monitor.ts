@@ -1,7 +1,7 @@
 import type { Customer } from "./domain.js";
 import { sendNotification } from "./notifier.js";
 import { getCertificateExpireDate } from "./popbill-client.js";
-import { Store } from "./store.js";
+import type { AppStore } from "./store-contract.js";
 import { nowIso } from "./utils.js";
 
 type NotificationStatus = "not-needed" | "sent" | "skipped-already-sent-today" | "skipped-no-target";
@@ -94,16 +94,16 @@ function buildNotificationBody(expiredCustomers: Customer[], expiringSoonCustome
   return lines.join("\n");
 }
 
-export async function refreshAllCertificateStatuses(store: Store): Promise<CertificateRefreshResult> {
+export async function refreshAllCertificateStatuses(store: AppStore): Promise<CertificateRefreshResult> {
   const checkedAt = nowIso();
-  const settings = store.getSettings();
-  const joinedCustomers = store.listCustomers().filter((customer) => customer.popbillState === "joined");
+  const settings = await store.getSettings();
+  const joinedCustomers = (await store.listCustomers()).filter((customer) => customer.popbillState === "joined");
   const results: CertificateRefreshItem[] = [];
 
   for (const customer of joinedCustomers) {
     try {
       const expireDate = await getCertificateExpireDate(settings, customer);
-      const updated = store.updateCustomerPopbillState(customer.id, customer.popbillState, true, expireDate);
+      const updated = await store.updateCustomerPopbillState(customer.id, customer.popbillState, true, expireDate);
       results.push({
         customerId: updated.id,
         customerName: updated.customerName,
@@ -121,7 +121,7 @@ export async function refreshAllCertificateStatuses(store: Store): Promise<Certi
         ok: false,
         error: message
       });
-      store.createLog("error", "popbill", "인증서 일괄 점검 중 고객 만료일 조회에 실패했습니다.", {
+      await store.createLog("error", "popbill", "인증서 일괄 점검 중 고객 만료일 조회에 실패했습니다.", {
         customerId: customer.id,
         customerName: customer.customerName,
         error: message
@@ -129,7 +129,7 @@ export async function refreshAllCertificateStatuses(store: Store): Promise<Certi
     }
   }
 
-  const latestCustomers = store.listCustomers().filter((customer) => customer.popbillState === "joined");
+  const latestCustomers = (await store.listCustomers()).filter((customer) => customer.popbillState === "joined");
   const expiredCustomers = latestCustomers.filter((customer) => {
     const daysUntil = getDaysUntilDate(customer.popbillCertExpireDate);
     return daysUntil !== null && daysUntil < 0;
@@ -139,7 +139,7 @@ export async function refreshAllCertificateStatuses(store: Store): Promise<Certi
     return daysUntil !== null && daysUntil >= 0 && daysUntil <= 30;
   });
 
-  const nextSettings: Parameters<Store["updateSettings"]>[0] = {
+  const nextSettings: Parameters<AppStore["updateSettings"]>[0] = {
     certLastCheckedAt: checkedAt
   };
 
@@ -168,8 +168,8 @@ export async function refreshAllCertificateStatuses(store: Store): Promise<Certi
     }
   }
 
-  store.updateSettings(nextSettings);
-  store.createLog("info", "popbill", "인증서 일괄 점검을 완료했습니다.", {
+  await store.updateSettings(nextSettings);
+  await store.createLog("info", "popbill", "인증서 일괄 점검을 완료했습니다.", {
     checked: joinedCustomers.length,
     updated: results.filter((item) => item.ok).length,
     failed: results.filter((item) => !item.ok).length,

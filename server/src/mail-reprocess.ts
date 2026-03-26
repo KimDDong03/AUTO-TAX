@@ -1,35 +1,37 @@
 import type { InvoiceDraft, MailParseStatus } from "./domain.js";
 import { parseKepcoMail } from "./parser.js";
-import { Store } from "./store.js";
+import type { AppStore } from "./store-contract.js";
 
 export async function reprocessInboxMessage(
-  store: Store,
+  store: AppStore,
   messageId: number
 ): Promise<{ status: MailParseStatus; draft?: InvoiceDraft | null }> {
-  const message = store.getInboxMessage(messageId);
+  const message = await store.getInboxMessage(messageId);
   if (!message) {
     throw new Error("메일을 찾지 못했습니다.");
   }
 
   if (message.draftId) {
-    const existingDraft = store.getDraft(message.draftId);
-    store.updateInboxMatchResult({
-      messageId,
-      parseStatus: "parsed",
-      parseError: "",
-      parsedMail: message.parsedData,
-      customerId: existingDraft?.customerId ?? message.customerId,
-      draftId: message.draftId
-    });
-    return { status: "parsed", draft: existingDraft };
+    const existingDraft = await store.getDraft(message.draftId);
+    if (existingDraft) {
+      await store.updateInboxMatchResult({
+        messageId,
+        parseStatus: "parsed",
+        parseError: "",
+        parsedMail: message.parsedData,
+        customerId: existingDraft.customerId,
+        draftId: message.draftId
+      });
+      return { status: "parsed", draft: existingDraft };
+    }
   }
 
   try {
     const parsedMail = parseKepcoMail(message.textBody || message.rawSource);
-    const customer = store.findCustomerByPlantAndAddress(parsedMail.plantName, parsedMail.plantAddress);
+    const customer = await store.findCustomerByPlantAndAddress(parsedMail.plantName, parsedMail.plantAddress);
 
     if (!customer) {
-      store.updateInboxMatchResult({
+      await store.updateInboxMatchResult({
         messageId,
         parseStatus: "unmatched",
         parseError: "",
@@ -40,7 +42,26 @@ export async function reprocessInboxMessage(
       return { status: "unmatched" };
     }
 
-    store.updateInboxMatchResult({
+    const existingDraft = await store.findDraftByCustomerAndBillingMonth(customer.id, parsedMail.billingMonth);
+    if (existingDraft) {
+      await store.updateInboxMatchResult({
+        messageId,
+        parseStatus: "duplicate",
+        parseError: `이미 ${parsedMail.billingMonth} 건이 있습니다. 기존 상태: ${existingDraft.status}`,
+        parsedMail,
+        customerId: customer.id,
+        draftId: existingDraft.id
+      });
+      await store.createLog("warn", "mail-reprocess", "재처리 중 같은 고객/정산월 건이 확인되어 중복 의심으로 유지했습니다.", {
+        messageId,
+        customerId: customer.id,
+        existingDraftId: existingDraft.id,
+        billingMonth: parsedMail.billingMonth
+      });
+      return { status: "duplicate", draft: existingDraft };
+    }
+
+    await store.updateInboxMatchResult({
       messageId,
       parseStatus: "parsed",
       parseError: "",
@@ -49,7 +70,7 @@ export async function reprocessInboxMessage(
       draftId: null
     });
 
-    const draft = store.createDraft({
+    const draft = await store.createDraft({
       customer,
       sourceMessageId: messageId,
       status: "review",
@@ -57,7 +78,7 @@ export async function reprocessInboxMessage(
       parsedMail
     });
 
-    store.createLog("info", "mail-reprocess", "미매칭 메일 재처리에 성공했습니다.", {
+    await store.createLog("info", "mail-reprocess", "미매칭 메일 재처리에 성공했습니다.", {
       messageId,
       customerId: customer.id,
       draftId: draft.id
@@ -66,7 +87,7 @@ export async function reprocessInboxMessage(
     return { status: "parsed", draft };
   } catch (error) {
     const messageText = error instanceof Error ? error.message : "메일 재처리 실패";
-    store.updateInboxMatchResult({
+    await store.updateInboxMatchResult({
       messageId,
       parseStatus: "failed",
       parseError: messageText,
@@ -74,7 +95,7 @@ export async function reprocessInboxMessage(
       customerId: null,
       draftId: null
     });
-    store.createLog("error", "mail-reprocess", "미매칭 메일 재처리에 실패했습니다.", {
+    await store.createLog("error", "mail-reprocess", "미매칭 메일 재처리에 실패했습니다.", {
       messageId,
       error: messageText
     });

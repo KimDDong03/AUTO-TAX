@@ -7,23 +7,6 @@
 3. `npm run dev`
 4. 브라우저에서 `http://localhost:5173` 접속
 
-데스크톱 앱으로 확인할 때:
-
-1. `npm run desktop:dev`
-2. Electron 창에서 기능 확인
-
-Windows 실행 폴더 생성:
-
-1. `npm run desktop:pack`
-2. `release/AUTO-TAX-win32-x64/` 폴더 확인
-3. `AUTO-TAX.exe` 실행
-
-Windows 설치파일 생성:
-
-1. `npm run desktop:installer`
-2. `release/AUTO-TAX-Setup-0.1.0.exe` 확인
-3. 설치 후 프로그램 실행
-
 ## 2. 시스템 설정 확인
 
 설정 화면에서 아래를 확인한다.
@@ -141,16 +124,16 @@ Windows 설치파일 생성:
 - 발행 실패건이 남아 있지 않은지 확인
 - 운영자 로그 확인
 
-## 6. 백업
+## 6. 데이터 보관
 
-중요 파일:
+중요 항목:
 
-- `data/auto-tax.db`
+- Supabase 프로젝트 데이터
 - `.env`
 
 권장:
 
-- DB 파일 일일 백업
+- Supabase 대시보드의 백업 정책 확인
 - `.env`는 암호화 보관
 
 ## 7. 보안 주의사항

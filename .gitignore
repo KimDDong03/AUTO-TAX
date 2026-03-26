@@ -1,6 +1,8 @@
 node_modules
 dist
+public
 .env
 data
 *.log
 release
+.tmp-*.cjs

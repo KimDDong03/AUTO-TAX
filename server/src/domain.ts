@@ -1,6 +1,6 @@
 export type IssueMode = "review" | "auto";
 export type PopbillState = "pending" | "joined" | "failed";
-export type MailParseStatus = "pending" | "parsed" | "failed" | "unmatched";
+export type MailParseStatus = "pending" | "parsed" | "failed" | "unmatched" | "duplicate";
 export type DraftStatus = "review" | "scheduled" | "issuing" | "issued" | "failed";
 
 export interface AppSettings {
@@ -23,6 +23,7 @@ export interface AppSettings {
   defaultIssueHour: number;
   defaultIssueMinute: number;
   mailPollMinutes: number;
+  mailSyncStartAt: string | null;
   timezone: string;
   popbillLinkId: string;
   popbillSecretKey: string;
@@ -160,12 +161,171 @@ export interface LogEntry {
   createdAt: string;
 }
 
+export type RenewalAutomationJobType = "bridge-probe" | "certid-probe" | "renewal-preflight";
+export type RenewalAutomationJobStatus = "queued" | "claimed" | "completed" | "failed";
+export type RenewalBridgeSummary = "ok" | "partial" | "down" | "unknown";
+
+export interface RenewalAgentPortStatus {
+  port: number;
+  protocol: "https" | "http";
+  reachable: boolean;
+  latencyMs: number | null;
+  error: string | null;
+}
+
+export interface RenewalAgentProcessStatus {
+  detected: boolean;
+  names: string[];
+  detail: string | null;
+}
+
+export interface RenewalAgentBridgeStatus {
+  summary: RenewalBridgeSummary;
+  ports: RenewalAgentPortStatus[];
+  versionProbe: RenewalBridgeVersionProbe;
+  licenseProbe: RenewalBridgeLicenseProbe;
+  storageProbe: RenewalBridgeStorageProbe;
+  selectionProbe: RenewalBridgeSelectionProbe;
+  preflightProbe: RenewalBridgePreflightProbe;
+}
+
+export interface RenewalBridgeVersionProbe {
+  ok: boolean;
+  sourcePort: number | null;
+  values: {
+    kpmcnt: string | null;
+    kpmsvc: string | null;
+    secukitNX: string | null;
+  };
+  error: string | null;
+}
+
+export interface RenewalBridgeLicenseProbe {
+  ok: boolean;
+  sourcePort: number | null;
+  error: string | null;
+}
+
+export interface RenewalBridgeCertificateSummary {
+  index: string;
+  cn: string;
+  issuerToName: string;
+  usageToName: string;
+  todate: string | null;
+  oid: string | null;
+  serial: string | null;
+  userDN: string | null;
+  validateFrom: string | null;
+  detailValidateTo: string | null;
+  certDirPath: string | null;
+}
+
+export interface RenewalBridgeStorageProbe {
+  ok: boolean;
+  sourcePort: number | null;
+  mediaType: "HDD";
+  certificateCount: number;
+  certificates: RenewalBridgeCertificateSummary[];
+  error: string | null;
+}
+
+export interface RenewalBridgeSelectionProbe {
+  ok: boolean;
+  sourcePort: number | null;
+  certificateIndex: string | null;
+  certificateCn: string | null;
+  certID: string | null;
+  error: string | null;
+}
+
+export interface RenewalBridgePreflightProbe {
+  ok: boolean;
+  sourcePort: number | null;
+  certificateIndex: string | null;
+  certificateCn: string | null;
+  certID: string | null;
+  branch: "change-company" | "renew-info" | "renew-payment" | "password-confirm" | "unsupported" | "unknown";
+  branchPageUrl: string | null;
+  issueCompany: string | null;
+  companyChkYn: string | null;
+  policy: string | null;
+  orderNo: string | null;
+  orderSeq: string | null;
+  orderStatus: string | null;
+  orderApplySeCd: string | null;
+  payYn: string | null;
+  nextUrl: string | null;
+  actionImageUrl: string | null;
+  actionImageAlt: string | null;
+  externalFlowKind: "apply-form" | "unknown" | null;
+  externalFlowProductName: string | null;
+  externalFlowProductId: string | null;
+  externalFlowSubmitUrl: string | null;
+  externalFlowSubmitPathKind: "apply" | "renew" | "unknown" | null;
+  rawCode: string | null;
+  message: string | null;
+  error: string | null;
+}
+
+export interface RenewalBridgeProbeResult {
+  process: RenewalAgentProcessStatus;
+  bridge: RenewalAgentBridgeStatus;
+  notes: string[];
+}
+
+export interface RenewalAgentHeartbeat {
+  agentId: string;
+  hostname: string;
+  version: string;
+  os: string;
+  process: RenewalAgentProcessStatus;
+  bridge: RenewalAgentBridgeStatus;
+  notes: string[];
+}
+
+export interface RenewalAgentStatus {
+  online: boolean;
+  staleAfterSeconds: number;
+  agentId: string | null;
+  hostname: string | null;
+  version: string | null;
+  os: string | null;
+  lastHeartbeatAt: string | null;
+  process: RenewalAgentProcessStatus;
+  bridge: RenewalAgentBridgeStatus;
+  notes: string[];
+}
+
+export interface RenewalAutomationJob {
+  id: number;
+  type: RenewalAutomationJobType;
+  status: RenewalAutomationJobStatus;
+  customerId: number | null;
+  customerName: string | null;
+  certificateIndex: number | null;
+  certificateCn: string | null;
+  requestedAt: string;
+  claimedAt: string | null;
+  finishedAt: string | null;
+  requestedBy: string;
+  claimedBy: string | null;
+  summary: string;
+  error: string | null;
+  result: RenewalBridgeProbeResult | null;
+}
+
+export interface RenewalAutomationPayload {
+  agent: RenewalAgentStatus;
+  jobs: RenewalAutomationJob[];
+}
+
 export interface DashboardPayload {
   settings: AppSettings;
   customers: Customer[];
   drafts: InvoiceDraft[];
   inbox: InboxMessage[];
   logs: LogEntry[];
+  renewalAutomation: RenewalAutomationPayload;
   counts: {
     actionableDrafts: number;
     customers: number;

@@ -3,7 +3,7 @@ import { simpleParser } from "mailparser";
 import type { AppSettings, InvoiceDraft } from "./domain.js";
 import { sendNotification } from "./notifier.js";
 import { parseKepcoMail } from "./parser.js";
-import { Store } from "./store.js";
+import type { AppStore } from "./store-contract.js";
 
 export interface MailSyncResult {
   scanned: number;
@@ -22,8 +22,8 @@ function toIso(value: Date | string | undefined): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-export async function syncMailbox(store: Store): Promise<MailSyncResult> {
-  const settings = store.getSettings();
+export async function syncMailbox(store: AppStore): Promise<MailSyncResult> {
+  const settings = await store.getSettings();
   if (!settings.imapHost || !settings.imapUser || !settings.imapPass) {
     throw new Error("IMAP 설정이 완성되지 않았습니다.");
   }
@@ -51,6 +51,7 @@ export async function syncMailbox(store: Store): Promise<MailSyncResult> {
   try {
     const mailbox = await client.mailboxOpen(settings.imapMailbox || "INBOX");
     const fromSeq = Math.max(1, mailbox.exists - 99);
+    const syncStartAt = settings.mailSyncStartAt ? Date.parse(settings.mailSyncStartAt) : null;
     for await (const message of client.fetch(`${fromSeq}:*`, {
       uid: true,
       envelope: true,
@@ -64,11 +65,16 @@ export async function syncMailbox(store: Store): Promise<MailSyncResult> {
       }
 
       const messageUid = `${settings.imapMailbox}:${message.uid}`;
-      if (store.getMessageByUid(messageUid)) {
+      if (await store.getMessageByUid(messageUid)) {
         continue;
       }
 
       if (!message.source) {
+        continue;
+      }
+
+       const receivedAtIso = toIso(message.internalDate);
+       if (syncStartAt !== null && Number.isFinite(syncStartAt) && Date.parse(receivedAtIso) <= syncStartAt) {
         continue;
       }
 
@@ -78,20 +84,20 @@ export async function syncMailbox(store: Store): Promise<MailSyncResult> {
 
       try {
         const parsedMail = parseKepcoMail(bodyText);
-        const customer = store.findCustomerByPlantAndAddress(parsedMail.plantName, parsedMail.plantAddress);
+        const customer = await store.findCustomerByPlantAndAddress(parsedMail.plantName, parsedMail.plantAddress);
         if (!customer) {
-          store.saveInboxMessage({
+          await store.saveInboxMessage({
             messageUid,
             mailbox: settings.imapMailbox,
             fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
             subject,
-            receivedAt: toIso(message.internalDate),
+            receivedAt: receivedAtIso,
             rawSource: sourceText,
             textBody: bodyText,
             parseStatus: "unmatched",
             parsedData: parsedMail
           });
-          store.createLog("warn", "mail-sync", "발전소명과 고객을 매칭하지 못했습니다.", {
+          await store.createLog("warn", "mail-sync", "발전소명과 고객을 매칭하지 못했습니다.", {
             subject,
             plantName: parsedMail.plantName,
             plantAddress: parsedMail.plantAddress
@@ -105,12 +111,38 @@ export async function syncMailbox(store: Store): Promise<MailSyncResult> {
           continue;
         }
 
-        const inbox = store.saveInboxMessage({
+        const existingDraft = await store.findDraftByCustomerAndBillingMonth(customer.id, parsedMail.billingMonth);
+        if (existingDraft) {
+          await store.saveInboxMessage({
+            messageUid,
+            mailbox: settings.imapMailbox,
+            fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
+            subject,
+            receivedAt: receivedAtIso,
+            rawSource: sourceText,
+            textBody: bodyText,
+            parseStatus: "duplicate",
+            parseError: `이미 ${parsedMail.billingMonth} 건이 있습니다. 기존 상태: ${existingDraft.status}`,
+            parsedData: parsedMail,
+            customerId: customer.id,
+            draftId: existingDraft.id
+          });
+          await store.createLog("warn", "mail-sync", "같은 고객/정산월 메일이 다시 들어와 중복 의심으로 보관했습니다.", {
+            subject,
+            customerId: customer.id,
+            billingMonth: parsedMail.billingMonth,
+            existingDraftId: existingDraft.id,
+            existingDraftStatus: existingDraft.status
+          });
+          continue;
+        }
+
+        const inbox = await store.saveInboxMessage({
           messageUid,
           mailbox: settings.imapMailbox,
           fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
           subject,
-          receivedAt: toIso(message.internalDate),
+          receivedAt: receivedAtIso,
           rawSource: sourceText,
           textBody: bodyText,
           parseStatus: "parsed",
@@ -119,7 +151,7 @@ export async function syncMailbox(store: Store): Promise<MailSyncResult> {
         });
 
         const status: InvoiceDraft["status"] = "review";
-        store.createDraft({
+        await store.createDraft({
           customer,
           sourceMessageId: inbox.id,
           status,
@@ -130,18 +162,18 @@ export async function syncMailbox(store: Store): Promise<MailSyncResult> {
         result.imported += 1;
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "파싱 실패";
-        store.saveInboxMessage({
+        await store.saveInboxMessage({
           messageUid,
           mailbox: settings.imapMailbox,
           fromAddress: parsedMime.from?.text || "",
           subject,
-          receivedAt: toIso(message.internalDate),
+          receivedAt: receivedAtIso,
           rawSource: sourceText,
           textBody: bodyText,
           parseStatus: "failed",
           parseError: messageText
         });
-        store.createLog("error", "mail-sync", "메일 파싱에 실패했습니다.", { subject, error: messageText });
+        await store.createLog("error", "mail-sync", "메일 파싱에 실패했습니다.", { subject, error: messageText });
         await sendNotification(
           settings,
           "[AUTO-TAX] 메일 파싱 실패",
@@ -154,6 +186,6 @@ export async function syncMailbox(store: Store): Promise<MailSyncResult> {
     await client.logout();
   }
 
-  store.createLog("info", "mail-sync", "메일 동기화를 완료했습니다.", result);
+  await store.createLog("info", "mail-sync", "메일 동기화를 완료했습니다.", result);
   return result;
 }

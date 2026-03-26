@@ -1,0 +1,74 @@
+import type {
+  AppSettings,
+  Customer,
+  CustomerInput,
+  DashboardPayload,
+  DraftStatus,
+  InboxMessage,
+  InvoiceDraft,
+  LogEntry,
+  MailParseStatus,
+  ParsedMail,
+  PopbillState
+} from "./domain.js";
+
+export interface AppStore {
+  initialize(): Promise<void>;
+  getSettings(): Promise<AppSettings>;
+  listCustomers(): Promise<Customer[]>;
+  getCustomer(customerId: number): Promise<Customer | null>;
+  findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null>;
+  findCustomerByMatchAddress(matchAddress: string): Promise<Customer | null>;
+  saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer>;
+  updateCustomerPopbillState(customerId: number, state: PopbillState, certRegistered?: boolean, certExpireDate?: string | null): Promise<Customer>;
+  resetCustomerPopbill(customerId: number): Promise<Customer>;
+  deleteCustomer(customerId: number): Promise<void>;
+  findCustomerByPlantAndAddress(plantName: string, plantAddress?: string | null): Promise<Customer | null>;
+  getMessageByUid(messageUid: string): Promise<InboxMessage | null>;
+  getInboxMessage(messageId: number): Promise<InboxMessage | null>;
+  saveInboxMessage(args: {
+    messageUid: string;
+    mailbox: string;
+    fromAddress: string;
+    subject: string;
+    receivedAt: string;
+    rawSource: string;
+    textBody: string;
+    parseStatus: MailParseStatus;
+    parseError?: string;
+    parsedData?: ParsedMail | null;
+    customerId?: number | null;
+    draftId?: number | null;
+  }): Promise<InboxMessage>;
+  createDraft(args: {
+    customer: Customer;
+    sourceMessageId: number;
+    status: DraftStatus;
+    scheduledFor: string | null;
+    parsedMail: ParsedMail;
+  }): Promise<InvoiceDraft>;
+  findDraftByCustomerAndBillingMonth(customerId: number, billingMonth: string): Promise<InvoiceDraft | null>;
+  refreshDraftFromParsedMail(draftId: number, parsedMail: ParsedMail): Promise<InvoiceDraft>;
+  updateInboxParsedData(messageId: number, parsedMail: ParsedMail): Promise<InboxMessage>;
+  updateInboxMatchResult(args: {
+    messageId: number;
+    parseStatus: MailParseStatus;
+    parseError?: string;
+    parsedMail?: ParsedMail | null;
+    customerId?: number | null;
+    draftId?: number | null;
+  }): Promise<InboxMessage>;
+  getDraft(draftId: number): Promise<InvoiceDraft | null>;
+  listDrafts(): Promise<InvoiceDraft[]>;
+  listInbox(): Promise<InboxMessage[]>;
+  listLogs(): Promise<LogEntry[]>;
+  updateDraftStatus(draftId: number, status: DraftStatus, issueError?: string, writeDate?: string | null, popbillResult?: unknown): Promise<InvoiceDraft>;
+  claimDraftForIssue(draftId: number): Promise<InvoiceDraft | null>;
+  reopenIssuedDraftForReissue(draftId: number): Promise<InvoiceDraft>;
+  markDraftRequested(draftId: number): Promise<void>;
+  getDueAutoDrafts(now: Date): Promise<InvoiceDraft[]>;
+  createLog(level: LogEntry["level"], scope: string, message: string, context?: unknown): Promise<void>;
+  getDashboard(): Promise<Omit<DashboardPayload, "renewalAutomation">>;
+  updateSettings(input: Partial<AppSettings>): Promise<AppSettings>;
+  close(): Promise<void>;
+}
