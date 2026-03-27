@@ -1378,7 +1378,7 @@ export function App() {
       addr: customerForm.addr,
       bizType: customerForm.bizType,
       bizClass: customerForm.bizClass,
-      issueMode: customerForm.issueMode,
+      issueMode: isEditing ? customerForm.issueMode : "review",
       issueDay: null,
       issueHour: null,
       issueMinute: null,
@@ -2765,14 +2765,20 @@ export function App() {
                           onChange={(event) =>
                             setCustomerForm((prev) => ({
                               ...prev,
-                              issueMode: event.target.value === "auto" ? "auto" : "review"
+                              issueMode:
+                                prev.id === null ? "review" : event.target.value === "auto" ? "auto" : "review"
                             }))
                           }
+                          disabled={customerForm.id === null}
                         >
                           <option value="review">검수 후 발행</option>
-                          <option value="auto">월 자동 발행</option>
+                          <option value="auto" disabled={customerForm.id === null}>월 자동 발행</option>
                         </select>
-                        <span className="field-hint">자동 발행 고객은 작업공간 설정의 월 자동 실행일/시각에 메일 동기화 후 바로 발행되고, 검수 고객은 초안만 만들어집니다.</span>
+                        <span className="field-hint">
+                          {customerForm.id === null
+                            ? "처음 등록하는 고객은 먼저 검수 후 발행으로 저장됩니다. 저장 후 수정 화면에서 월 자동 발행으로 바꿀 수 있습니다."
+                            : "자동 발행 고객은 작업공간 설정의 월 자동 실행일/시각에 메일 동기화 후 바로 발행되고, 검수 고객은 초안만 만들어집니다."}
+                        </span>
                       </label>
                       <label className="full">
                         발전소명

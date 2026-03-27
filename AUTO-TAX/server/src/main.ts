@@ -1599,7 +1599,13 @@ export async function createApp(store: AppStore | null, webDist: string) {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const payload = customerSchema.parse(req.body) satisfies CustomerInput;
-    const customer = await requestStore.saveCustomer(payload);
+    const customer = await requestStore.saveCustomer({
+      ...payload,
+      issueMode: "review",
+      issueDay: null,
+      issueHour: null,
+      issueMinute: null
+    });
     await requestStore.createLog("info", "customers", "고객을 등록했습니다.", { customerId: customer.id });
     res.status(201).json(customer);
   });
