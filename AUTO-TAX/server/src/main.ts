@@ -1552,8 +1552,8 @@ export async function createApp(store: AppStore | null, webDist: string) {
 
   app.get("/api/popbill/partner-charge-url", async (_req, res) => {
     requirePlatformAdmin(res);
-    const requestStore = getRequestStore(res, store);
-    const settings = await getServerManagedSettings(requestStore);
+    const requestStore = store ? getRequestStore(res, store) : null;
+    const settings = store ? await getServerManagedSettings(store) : applyServerManagedSettings(createEmptySettings());
     const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
 
     if (!settings.popbillLinkId || !settings.popbillSecretKey) {
@@ -1567,7 +1567,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
     }
 
     const url = await getPartnerChargeURL(settings, referenceCorpNum);
-    await requestStore.createLog("info", "popbill", "파트너 포인트 충전 URL을 발급했습니다.", {
+    await requestStore?.createLog("info", "popbill", "파트너 포인트 충전 URL을 발급했습니다.", {
       referenceCorpNum,
       isTest: settings.popbillIsTest
     });
