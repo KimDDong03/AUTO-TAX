@@ -148,6 +148,17 @@ export async function getPartnerBalance(settings: AppSettings, businessNumber: s
   }));
 }
 
+export async function getTaxInvoiceUnitCost(settings: AppSettings, businessNumber: string): Promise<number> {
+  const service = getService(settings);
+  return promisify<unknown>((done) => {
+    service.getUnitCost(
+      digitsOnly(businessNumber),
+      (response: unknown) => done({ response }),
+      (error: CallbackResult<never>["error"]) => done({ error })
+    );
+  }).then((response) => parsePointValue(response));
+}
+
 export async function getBalance(settings: AppSettings, businessNumber: string): Promise<number> {
   const service = getService(settings);
   return promisify<unknown>((done) => {

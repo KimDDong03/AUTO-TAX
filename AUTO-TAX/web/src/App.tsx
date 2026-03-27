@@ -738,6 +738,22 @@ function formatPartnerPointsMessage(partnerPoints: PartnerPointsPayload | null):
   return partnerPoints.message;
 }
 
+function getWorkspaceEstimatedPointUsage(workspace: OpsWorkspaceSummary, unitCost: number | null): number | null {
+  if (unitCost === null) {
+    return null;
+  }
+
+  return workspace.issuedDraftCount * unitCost;
+}
+
+function getWorkspaceCurrentMonthEstimatedPointUsage(workspace: OpsWorkspaceSummary, unitCost: number | null): number | null {
+  if (unitCost === null) {
+    return null;
+  }
+
+  return workspace.currentMonthIssuedDraftCount * unitCost;
+}
+
 function getRenewalAgentStatusMeta(agent: RenewalAgentSnapshot): {
   label: string;
   chipClassName: string;
@@ -2139,6 +2155,16 @@ export function App() {
   const opsJobs = opsConsole?.renewalAutomation.jobs ?? [];
   const opsLogs = opsConsole?.logs ?? [];
   const opsWorkspaces = opsConsole?.workspaces ?? [];
+  const partnerTaxInvoiceUnitCost = opsConsole?.partnerPoints.taxInvoiceUnitCost ?? null;
+  const totalWorkspaceIssuedDraftCount = opsWorkspaces.reduce((sum, workspace) => sum + workspace.issuedDraftCount, 0);
+  const totalWorkspaceCurrentMonthIssuedDraftCount = opsWorkspaces.reduce(
+    (sum, workspace) => sum + workspace.currentMonthIssuedDraftCount,
+    0
+  );
+  const totalWorkspaceEstimatedPointUsage =
+    partnerTaxInvoiceUnitCost === null ? null : totalWorkspaceIssuedDraftCount * partnerTaxInvoiceUnitCost;
+  const totalWorkspaceCurrentMonthEstimatedPointUsage =
+    partnerTaxInvoiceUnitCost === null ? null : totalWorkspaceCurrentMonthIssuedDraftCount * partnerTaxInvoiceUnitCost;
   const opsAgentStatusMeta = opsAgent ? getRenewalAgentStatusMeta(opsAgent) : null;
   const opsCertificates = opsAgent?.bridge.storageProbe.certificates ?? [];
   const canManageOrganizationMembers = data.auth.activeOrganizationRole === "owner";
@@ -3446,17 +3472,38 @@ export function App() {
                     value={opsConsole.partnerPoints.available && opsConsole.partnerPoints.partnerRemainPoint !== null ? opsConsole.partnerPoints.partnerRemainPoint : 0}
                     tone={opsConsole.partnerPoints.available ? "default" : "warn"}
                   />
+                  <StatCard
+                    label="이번 달 발행"
+                    value={totalWorkspaceCurrentMonthIssuedDraftCount}
+                    tone={totalWorkspaceCurrentMonthIssuedDraftCount > 0 ? "default" : "warn"}
+                  />
+                  <StatCard
+                    label={partnerTaxInvoiceUnitCost === null ? "누적 발행" : "누적 추정 사용"}
+                    value={partnerTaxInvoiceUnitCost === null ? totalWorkspaceIssuedDraftCount : totalWorkspaceEstimatedPointUsage ?? 0}
+                    tone="default"
+                  />
                   <StatCard label="운영 로그" value={opsLogs.length} tone={opsLogs.some((log) => log.level === "error") ? "error" : "default"} />
                   <StatCard label="진단 작업" value={opsJobs.length} tone={opsJobs.some((job) => job.status === "failed") ? "warn" : "default"} />
                 </section>
 
                 <Panel className="panel-ops-workspaces" title="개통된 고객사 작업공간">
+                  <p className="ops-helper-text">
+                    고객사별 발행 완료 건수를 기준으로 사용량을 집계합니다.
+                    {partnerTaxInvoiceUnitCost !== null
+                      ? ` 현재 팝빌 전자세금계산서 단가 ${formatMoney(partnerTaxInvoiceUnitCost)}P 기준 추정 사용 포인트도 함께 표시합니다.`
+                      : " 팝빌 전자세금계산서 단가를 읽지 못해 추정 포인트는 아직 계산하지 못했습니다."}
+                  </p>
                   <div className="ops-list">
                     {opsWorkspaces.length > 0 ? (
                       opsWorkspaces.map((workspace) => {
                         const isOwnerResetTarget =
                           passwordResetTarget?.kind === "owner" &&
                           passwordResetTarget.organizationId === workspace.organizationId;
+                        const workspaceEstimatedPointUsage = getWorkspaceEstimatedPointUsage(workspace, partnerTaxInvoiceUnitCost);
+                        const workspaceCurrentMonthEstimatedPointUsage = getWorkspaceCurrentMonthEstimatedPointUsage(
+                          workspace,
+                          partnerTaxInvoiceUnitCost
+                        );
 
                         return (
                           <article key={workspace.organizationId} className="ops-card">
@@ -3473,6 +3520,15 @@ export function App() {
                               <span>owner: {workspace.ownerDisplayName ? `${workspace.ownerDisplayName} · ` : ""}{workspace.ownerLoginId ?? "-"}</span>
                               <span>멤버 {workspace.memberCount}명</span>
                               <span>플랜 {workspace.organizationPlanCode}</span>
+                              <span>누적 발행 {formatMoney(workspace.issuedDraftCount)}건</span>
+                              <span>이번 달 발행 {formatMoney(workspace.currentMonthIssuedDraftCount)}건</span>
+                              <span>
+                                누적 추정 사용 {workspaceEstimatedPointUsage !== null ? `${formatMoney(workspaceEstimatedPointUsage)}P` : "-"}
+                              </span>
+                              <span>
+                                이번 달 추정 사용 {workspaceCurrentMonthEstimatedPointUsage !== null ? `${formatMoney(workspaceCurrentMonthEstimatedPointUsage)}P` : "-"}
+                              </span>
+                              <span>최근 발행 {formatDateTime(workspace.lastIssuedAt)}</span>
                               <span>생성 {formatDateTime(workspace.createdAt)}</span>
                             </div>
                             <div className="ops-card-actions">
@@ -3630,6 +3686,22 @@ export function App() {
                       <div>
                         <span>조회 기준</span>
                         <strong>{opsConsole.partnerPoints.referenceCorpNum ?? "-"}</strong>
+                      </div>
+                      <div>
+                        <span>전자세금계산서 단가</span>
+                        <strong>
+                          {opsConsole.partnerPoints.taxInvoiceUnitCost !== null
+                            ? `${formatMoney(opsConsole.partnerPoints.taxInvoiceUnitCost)}P`
+                            : "-"}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>이번 달 추정 사용</span>
+                        <strong>
+                          {totalWorkspaceCurrentMonthEstimatedPointUsage !== null
+                            ? `${formatMoney(totalWorkspaceCurrentMonthEstimatedPointUsage)}P`
+                            : "-"}
+                        </strong>
                       </div>
                     </div>
                     <p className="ops-helper-text">{formatPartnerPointsMessage(opsConsole.partnerPoints)}</p>

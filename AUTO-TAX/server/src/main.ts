@@ -18,6 +18,7 @@ import {
   getCertificateExpireDate,
   getPartnerBalance,
   getPartnerChargeURL,
+  getTaxInvoiceUnitCost,
   getTaxCertURL,
   getTaxInvoiceInfo,
   getTaxInvoicePrintURL,
@@ -67,6 +68,9 @@ type OpsWorkspaceSummary = {
   ownerLoginId: string | null;
   ownerDisplayName: string | null;
   memberCount: number;
+  issuedDraftCount: number;
+  currentMonthIssuedDraftCount: number;
+  lastIssuedAt: string | null;
   createdAt: string;
 };
 
@@ -246,6 +250,15 @@ function maskBusinessNumber(value: string): string | null {
   if (!digits) return null;
   if (digits.length <= 4) return digits;
   return `${"*".repeat(Math.max(0, digits.length - 4))}${digits.slice(-4)}`;
+}
+
+function formatYearMonthInSeoul(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit"
+  }).format(date);
 }
 
 const settingsSchema = z.object({
@@ -708,30 +721,75 @@ async function listOpsWorkspaces(): Promise<OpsWorkspaceSummary[]> {
   }
 
   const organizationIds = organizationRows.map((organization) => String(organization.id));
-  const { data: members, error: membersError } = await adminClient
-    .from("organization_members")
-    .select("organization_id, user_id, role, display_name, created_at")
-    .in("organization_id", organizationIds)
-    .order("created_at", { ascending: true });
+  const [members, issuedDrafts, authUsers] = await Promise.all([
+    adminClient
+      .from("organization_members")
+      .select("organization_id, user_id, role, display_name, created_at")
+      .in("organization_id", organizationIds)
+      .order("created_at", { ascending: true }),
+    adminClient
+      .from("invoice_drafts")
+      .select("organization_id, issued_at")
+      .in("organization_id", organizationIds)
+      .eq("status", "issued"),
+    listAllAuthUsers(adminClient)
+  ]);
 
-  if (membersError) {
-    throw new Error(`작업공간 멤버 조회에 실패했습니다: ${membersError.message}`);
+  if (members.error) {
+    throw new Error(`작업공간 멤버 조회에 실패했습니다: ${members.error.message}`);
   }
 
-  const authUsers = await listAllAuthUsers(adminClient);
+  if (issuedDrafts.error) {
+    throw new Error(`작업공간 발행 이력 조회에 실패했습니다: ${issuedDrafts.error.message}`);
+  }
+
   const accountByUserId = new Map(authUsers.map((user) => [user.id, user.loginId ?? user.email]));
   const membersByOrganizationId = new Map<string, Array<Record<string, unknown>>>();
+  const issuedStatsByOrganizationId = new Map<
+    string,
+    {
+      issuedDraftCount: number;
+      currentMonthIssuedDraftCount: number;
+      lastIssuedAt: string | null;
+    }
+  >();
+  const currentMonthKey = formatYearMonthInSeoul(new Date());
 
-  for (const member of members ?? []) {
+  for (const member of members.data ?? []) {
     const organizationId = String(member.organization_id);
     const list = membersByOrganizationId.get(organizationId) ?? [];
     list.push(member as Record<string, unknown>);
     membersByOrganizationId.set(organizationId, list);
   }
 
+  for (const issuedDraft of issuedDrafts.data ?? []) {
+    const organizationId = String(issuedDraft.organization_id);
+    const current = issuedStatsByOrganizationId.get(organizationId) ?? {
+      issuedDraftCount: 0,
+      currentMonthIssuedDraftCount: 0,
+      lastIssuedAt: null
+    };
+    current.issuedDraftCount += 1;
+
+    const issuedAt = issuedDraft.issued_at ? String(issuedDraft.issued_at) : null;
+    if (issuedAt && formatYearMonthInSeoul(issuedAt) === currentMonthKey) {
+      current.currentMonthIssuedDraftCount += 1;
+    }
+    if (issuedAt && (!current.lastIssuedAt || new Date(issuedAt).getTime() > new Date(current.lastIssuedAt).getTime())) {
+      current.lastIssuedAt = issuedAt;
+    }
+
+    issuedStatsByOrganizationId.set(organizationId, current);
+  }
+
   return organizationRows.map((organization) => {
     const organizationId = String(organization.id);
     const organizationMembers = membersByOrganizationId.get(organizationId) ?? [];
+    const issuedStats = issuedStatsByOrganizationId.get(organizationId) ?? {
+      issuedDraftCount: 0,
+      currentMonthIssuedDraftCount: 0,
+      lastIssuedAt: null
+    };
     const owner = organizationMembers.find((member) => String(member.role) === "owner") ?? null;
     const ownerUserId = owner ? String(owner.user_id) : null;
 
@@ -744,6 +802,9 @@ async function listOpsWorkspaces(): Promise<OpsWorkspaceSummary[]> {
       ownerLoginId: ownerUserId ? accountByUserId.get(ownerUserId) ?? null : null,
       ownerDisplayName: owner?.display_name ? String(owner.display_name) : null,
       memberCount: organizationMembers.length,
+      issuedDraftCount: issuedStats.issuedDraftCount,
+      currentMonthIssuedDraftCount: issuedStats.currentMonthIssuedDraftCount,
+      lastIssuedAt: issuedStats.lastIssuedAt,
       createdAt: String(organization.created_at)
     };
   });
@@ -1248,6 +1309,9 @@ export async function createApp(store: AppStore | null, webDist: string) {
         ownerLoginId: ownerUser.loginId ?? normalizedOwnerLoginId,
         ownerDisplayName: payload.ownerDisplayName || null,
         memberCount: 1,
+        issuedDraftCount: 0,
+        currentMonthIssuedDraftCount: 0,
+        lastIssuedAt: null,
         createdAt: String(organization.created_at)
       };
 
@@ -1512,6 +1576,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
         isTest: settings.popbillIsTest,
         referenceCorpNum: null,
         partnerRemainPoint: null,
+        taxInvoiceUnitCost: null,
         message: "팝빌 연결이 아직 준비되지 않았습니다."
       });
       return;
@@ -1523,19 +1588,24 @@ export async function createApp(store: AppStore | null, webDist: string) {
         isTest: settings.popbillIsTest,
         referenceCorpNum: null,
         partnerRemainPoint: null,
+        taxInvoiceUnitCost: null,
         message: "팝빌 파트너 결제 정보가 아직 준비되지 않았습니다."
       });
       return;
     }
 
     try {
-      const partnerBalance = await getPartnerBalance(settings, referenceCorpNum);
+      const [partnerBalance, taxInvoiceUnitCost] = await Promise.all([
+        getPartnerBalance(settings, referenceCorpNum),
+        getTaxInvoiceUnitCost(settings, referenceCorpNum)
+      ]);
 
       res.json({
         available: true,
         isTest: settings.popbillIsTest,
         referenceCorpNum: maskBusinessNumber(referenceCorpNum),
         partnerRemainPoint: partnerBalance.remainPoint,
+        taxInvoiceUnitCost,
         message: settings.popbillIsTest ? "팝빌 테스트 환경 파트너 포인트입니다." : "팝빌 운영 환경 파트너 포인트입니다."
       });
     } catch (error) {
@@ -1545,6 +1615,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
         isTest: settings.popbillIsTest,
         referenceCorpNum,
         partnerRemainPoint: null,
+        taxInvoiceUnitCost: null,
         message
       });
     }
