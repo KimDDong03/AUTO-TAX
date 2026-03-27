@@ -60,9 +60,9 @@ export interface AuthenticatedAppSession {
   email: string | null;
   isPlatformAdmin: boolean;
   organizations: AuthenticatedOrganizationMembership[];
-  activeOrganizationId: string;
-  activeOrganizationName: string;
-  activeOrganizationRole: OrganizationMemberRole;
+  activeOrganizationId: string | null;
+  activeOrganizationName: string | null;
+  activeOrganizationRole: OrganizationMemberRole | null;
   activeDisplayName: string | null;
 }
 
@@ -147,63 +147,6 @@ async function listOrganizationMemberships(
   });
 }
 
-async function ensureBootstrapOwnerMembership(client: SupabaseClient, userId: string): Promise<void> {
-  const { count, error } = await client.from("organization_members").select("*", { count: "exact", head: true });
-  if (error) {
-    throw new Error(`초기 조직 멤버 확인에 실패했습니다: ${error.message}`);
-  }
-
-  if ((count ?? 0) > 0) {
-    return;
-  }
-
-  const preferredOrganizationId = envString("SUPABASE_ORGANIZATION_ID");
-  let organizationId = preferredOrganizationId ?? null;
-
-  if (!organizationId) {
-    const { data: existingOrganizations, error: organizationsError } = await client
-      .from("organizations")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1);
-
-    if (organizationsError) {
-      throw new Error(`초기 조직 조회에 실패했습니다: ${organizationsError.message}`);
-    }
-
-    organizationId = existingOrganizations?.[0]?.id ?? null;
-  }
-
-  if (!organizationId) {
-    const { data: createdOrganization, error: createOrganizationError } = await client
-      .from("organizations")
-      .insert({
-        name: envString("AUTO_TAX_ORGANIZATION_NAME") ?? "AUTO-TAX Default Workspace",
-        business_number: envString("AUTO_TAX_ORGANIZATION_BUSINESS_NUMBER") ?? null,
-        plan_code: "starter",
-        status: "trial"
-      })
-      .select("id")
-      .single();
-
-    if (createOrganizationError) {
-      throw new Error(`초기 조직 생성에 실패했습니다: ${createOrganizationError.message}`);
-    }
-
-    organizationId = createdOrganization.id;
-  }
-
-  const { error: membershipError } = await client.from("organization_members").insert({
-    organization_id: organizationId,
-    user_id: userId,
-    role: "owner"
-  });
-
-  if (membershipError) {
-    throw new Error(`초기 owner 연결에 실패했습니다: ${membershipError.message}`);
-  }
-}
-
 export async function resolveAuthenticatedAppSession(
   accessToken: string,
   preferredOrganizationId?: string | null
@@ -218,30 +161,26 @@ export async function resolveAuthenticatedAppSession(
     throw new Error("로그인 정보를 확인하지 못했습니다.");
   }
 
-  let organizations = await listOrganizationMemberships(client, user.id);
+  const opsAdminEmails = parseOpsAdminEmails();
+  const normalizedEmail = user.email?.trim().toLowerCase() ?? null;
+  const isPlatformAdmin = normalizedEmail !== null && opsAdminEmails.has(normalizedEmail);
+  const organizations = await listOrganizationMemberships(client, user.id);
 
-  if (organizations.length === 0) {
-    await ensureBootstrapOwnerMembership(client, user.id);
-    organizations = await listOrganizationMemberships(client, user.id);
-  }
-
-  if (organizations.length === 0) {
+  if (organizations.length === 0 && !isPlatformAdmin) {
     throw new Error("접속 가능한 작업공간이 없습니다.");
   }
 
   const activeOrganization =
-    organizations.find((item) => item.organizationId === preferredOrganizationId) ?? organizations[0];
-  const opsAdminEmails = parseOpsAdminEmails();
-  const normalizedEmail = user.email?.trim().toLowerCase() ?? null;
+    organizations.find((item) => item.organizationId === preferredOrganizationId) ?? organizations[0] ?? null;
 
   return {
     userId: user.id,
     email: user.email ?? null,
-    isPlatformAdmin: normalizedEmail !== null && opsAdminEmails.has(normalizedEmail),
+    isPlatformAdmin,
     organizations,
-    activeOrganizationId: activeOrganization.organizationId,
-    activeOrganizationName: activeOrganization.organizationName,
-    activeOrganizationRole: activeOrganization.role,
-    activeDisplayName: activeOrganization.displayName
+    activeOrganizationId: activeOrganization?.organizationId ?? null,
+    activeOrganizationName: activeOrganization?.organizationName ?? null,
+    activeOrganizationRole: activeOrganization?.role ?? null,
+    activeDisplayName: activeOrganization?.displayName ?? null
   };
 }

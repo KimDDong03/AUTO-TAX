@@ -453,8 +453,10 @@ function getOrganizationRoleLabel(role: BootstrapPayload["auth"]["activeOrganiza
       return "멤버";
     case "viewer":
       return "조회전용";
+    case null:
+      return "플랫폼 관리자";
     default:
-      return role;
+      return role ?? "플랫폼 관리자";
   }
 }
 
@@ -1208,6 +1210,12 @@ export function App() {
   useEffect(() => {
     if (data && !data.auth.isPlatformAdmin && activeTab === "ops") {
       setActiveTab("work");
+    }
+  }, [activeTab, data]);
+
+  useEffect(() => {
+    if (data?.auth.isPlatformAdmin && data.auth.organizations.length === 0 && activeTab !== "ops") {
+      setActiveTab("ops");
     }
   }, [activeTab, data]);
 
@@ -2067,9 +2075,14 @@ export function App() {
   }
 
   const isPlatformAdmin = data.auth.isPlatformAdmin;
+  const hasActiveWorkspace = Boolean(data.auth.activeOrganizationId);
   const currentMembership =
-    data.auth.organizations.find((organization) => organization.organizationId === data.auth.activeOrganizationId) ??
-    data.auth.organizations[0];
+    (data.auth.activeOrganizationId
+      ? data.auth.organizations.find((organization) => organization.organizationId === data.auth.activeOrganizationId) ?? null
+      : null) ?? null;
+  const activeWorkspaceName = data.auth.activeOrganizationName ?? (isPlatformAdmin ? "플랫폼 관리자" : "작업공간 없음");
+  const activeRoleLabel =
+    !hasActiveWorkspace && isPlatformAdmin ? "플랫폼 관리자" : getOrganizationRoleLabel(data.auth.activeOrganizationRole);
   const reviewDrafts = data.drafts.filter((draft) => draft.status === "review" || draft.status === "failed" || draft.status === "issuing");
   const issuedDrafts = data.drafts.filter((draft) => draft.status === "issued");
   const expiredCertCustomers = data.customers.filter((customer) => {
@@ -2170,9 +2183,13 @@ export function App() {
     }
   ];
   const navItems: Array<{ id: TabId; label: string; icon: string }> = [
-    { id: "work", label: "오늘 작업", icon: "dashboard" },
-    { id: "customers", label: "고객관리", icon: "group" },
-    { id: "settings", label: "시스템설정", icon: "settings" },
+    ...(hasActiveWorkspace
+      ? [
+          { id: "work" as const, label: "오늘 작업", icon: "dashboard" },
+          { id: "customers" as const, label: "고객관리", icon: "group" },
+          { id: "settings" as const, label: "시스템설정", icon: "settings" }
+        ]
+      : []),
     ...(isPlatformAdmin ? [{ id: "ops" as const, label: "운영자", icon: "ops" }] : [])
   ];
   const activeNavLabel = navItems.find((item) => item.id === activeTab)?.label ?? "AUTO-TAX";
@@ -2209,11 +2226,11 @@ export function App() {
         </nav>
 
         <div className="sidebar-meta">
-          <span>작업공간</span>
-          {data.auth.organizations.length > 1 ? (
+          <span>{hasActiveWorkspace ? "작업공간" : "플랫폼"}</span>
+          {hasActiveWorkspace && data.auth.organizations.length > 1 ? (
             <select
               className="workspace-select"
-              value={data.auth.activeOrganizationId}
+              value={data.auth.activeOrganizationId ?? ""}
               onChange={(event) => void changeOrganization(event.target.value)}
               disabled={busyKey !== null}
             >
@@ -2224,10 +2241,10 @@ export function App() {
               ))}
             </select>
           ) : (
-            <strong>{data.auth.activeOrganizationName}</strong>
+            <strong>{activeWorkspaceName}</strong>
           )}
           <p>{currentMembership?.displayName || data.auth.email || "로그인 사용자"}</p>
-          <p>{getOrganizationRoleLabel(data.auth.activeOrganizationRole)}</p>
+          <p>{activeRoleLabel}</p>
           <button className="btn-secondary sidebar-logout" onClick={() => void signOut()} disabled={busyKey !== null}>
             로그아웃
           </button>
@@ -2251,7 +2268,7 @@ export function App() {
           <div className="hero-main">
             <h2>{activeNavLabel}</h2>
             <div className="hero-summary">
-              <span className="hero-pill">{data.auth.activeOrganizationName}</span>
+              <span className="hero-pill">{activeWorkspaceName}</span>
               {activeTab === "ops" ? (
                 <>
                   <span className="hero-pill">운영자 전용</span>
@@ -2277,7 +2294,7 @@ export function App() {
               <Icon name="refresh" className="button-icon" />
               새로고침
             </button>
-            {activeTab !== "ops" ? (
+            {hasActiveWorkspace && activeTab !== "ops" ? (
               <button onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
                 <Icon name="sync" className="button-icon" />
                 메일 즉시 동기화
