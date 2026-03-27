@@ -1424,12 +1424,11 @@ export function App() {
     setCustomerForm(createCustomerFormDefaults());
   };
 
-  const saveSettings = async () => {
-    if (!settingsForm) return;
-    const normalized = withSelectedMailProviderSettings(settingsForm);
-    await api("/api/settings", {
-      method: "PUT",
-      body: JSON.stringify({
+  const buildSettingsPayload = (form: SettingsFormState) => {
+    const normalized = withSelectedMailProviderSettings(form);
+    return {
+      normalized,
+      payload: {
         imapHost: normalized.imapHost,
         imapPort: Number(normalized.imapPort),
         imapSecure: normalized.imapSecure,
@@ -1459,13 +1458,28 @@ export function App() {
         operatorContactEmail: normalized.operatorContactEmail.trim(),
         operatorContactTel: normalized.operatorContactTel.trim(),
         schedulerEnabled: normalized.schedulerEnabled
-      })
+      }
+    };
+  };
+
+  const applySavedSettings = (savedSettings: AppSettings) => {
+    setSettingsForm(settingsToForm(savedSettings));
+    setData((prev) => (prev ? { ...prev, settings: savedSettings } : prev));
+  };
+
+  const saveSettings = async () => {
+    if (!settingsForm) return;
+    const { payload } = buildSettingsPayload(settingsForm);
+    const savedSettings = await api<AppSettings>("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload)
     });
+    applySavedSettings(savedSettings);
   };
 
   const testMailSettings = async () => {
     if (!settingsForm) return;
-    const normalized = withSelectedMailProviderSettings(settingsForm);
+    const { normalized, payload } = buildSettingsPayload(settingsForm);
     const result = await api<{
       imapOk: boolean;
       imapMessage: string;
@@ -1475,28 +1489,34 @@ export function App() {
     }>("/api/system/mail-test", {
       method: "POST",
       body: JSON.stringify({
-        imapHost: normalized.imapHost,
-        imapPort: Number(normalized.imapPort),
-        imapSecure: normalized.imapSecure,
-        imapUser: normalized.mailAddress,
-        imapPass: normalized.mailPassword,
-        imapMailbox: normalized.imapMailbox,
-        smtpHost: normalized.smtpHost,
-        smtpPort: Number(normalized.smtpPort),
-        smtpSecure: normalized.smtpSecure,
-        smtpUser: normalized.mailAddress,
-        smtpPass: normalized.mailPassword,
+        imapHost: payload.imapHost,
+        imapPort: payload.imapPort,
+        imapSecure: payload.imapSecure,
+        imapUser: payload.imapUser,
+        imapPass: payload.imapPass,
+        imapMailbox: payload.imapMailbox,
+        smtpHost: payload.smtpHost,
+        smtpPort: payload.smtpPort,
+        smtpSecure: payload.smtpSecure,
+        smtpUser: payload.smtpUser,
+        smtpPass: payload.smtpPass,
         smtpFromName: "AUTO-TAX",
-        smtpFromEmail: normalized.mailAddress,
-        notificationEmails: normalized.notificationEmailsText
-          .split(/[\n,]/)
-          .map((item) => item.trim())
-          .filter(Boolean)
+        smtpFromEmail: payload.smtpFromEmail,
+        notificationEmails: payload.notificationEmails
       })
     });
 
+    const testSucceeded = result.imapOk && result.smtpOk;
+    if (testSucceeded) {
+      const savedSettings = await api<AppSettings>("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify(payload)
+      });
+      applySavedSettings(savedSettings);
+    }
+
     window.alert(
-      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\nIMAP: ${result.imapOk ? "성공" : "실패"}\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${result.smtpMessage}\n\n테스트 메일 발송: ${result.testMailSent ? "예" : "아니오"}`
+      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\nIMAP: ${result.imapOk ? "성공" : "실패"}\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${result.smtpMessage}\n\n테스트 메일 발송: ${result.testMailSent ? "예" : "아니오"}\n\n설정 저장: ${testSucceeded ? "성공" : "실패로 저장 안 함"}`
     );
   };
 
