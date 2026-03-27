@@ -218,6 +218,33 @@ async function assertNoError<T>(label: string, promise: PromiseLike<{ data: T; e
   return data;
 }
 
+async function assertUniquePopbillUserPrefix(
+  client: SupabaseClient,
+  organizationId: string,
+  prefix: string
+): Promise<void> {
+  const normalizedPrefix = normalizePopbillUserPrefix(prefix);
+  if (!normalizedPrefix) {
+    return;
+  }
+
+  const rows = await assertNoError(
+    "팝빌 사용자 ID 접두어 중복 확인 실패",
+    client
+      .from("organization_integrations")
+      .select("organization_id, popbill_user_id_prefix")
+      .neq("organization_id", organizationId)
+  );
+
+  const duplicated = (rows as Row[]).find(
+    (row) => normalizePopbillUserPrefix(asString(row.popbill_user_id_prefix)) === normalizedPrefix
+  );
+
+  if (duplicated) {
+    throw new Error(`팝빌 사용자 ID 접두어 '${normalizedPrefix}'는 이미 다른 고객사에서 사용 중입니다. 다른 접두어를 입력하세요.`);
+  }
+}
+
 export class SupabaseStore implements AppStore {
   private readonly client: SupabaseClient;
   private readonly requestedOrganizationId: string | null;
@@ -440,13 +467,20 @@ export class SupabaseStore implements AppStore {
 
   async updateSettings(input: Partial<AppSettings>): Promise<AppSettings> {
     const current = await this.getSettings();
+    const nextPopbillUserIdPrefix =
+      input.popbillUserIdPrefix !== undefined
+        ? normalizePopbillUserPrefix(input.popbillUserIdPrefix)
+        : current.popbillUserIdPrefix;
     const next: AppSettings = {
       ...current,
       ...input,
+      popbillUserIdPrefix: nextPopbillUserIdPrefix,
       notificationEmails: input.notificationEmails ?? current.notificationEmails,
       updatedAt: nowIso()
     };
     const organizationId = this.requireOrganizationId();
+
+    await assertUniquePopbillUserPrefix(this.client, organizationId, next.popbillUserIdPrefix);
 
     await assertNoError(
       "조직 설정 저장 실패",
