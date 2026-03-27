@@ -46,7 +46,7 @@ Vercel은 아래 역할을 맡는다.
 
 현재 코드 기준 진입점은 아래와 같다.
 
-- Vercel Express 함수 진입점: `src/server.ts`
+- Vercel Express 함수 진입점: `api/index.ts`
 - 정적 웹 산출물: `public`
 - 배포 설정: `vercel.json`
 
