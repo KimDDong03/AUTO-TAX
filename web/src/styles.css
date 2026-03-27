@@ -558,6 +558,12 @@ textarea {
   color: var(--danger);
 }
 
+.alert.success {
+  background: var(--success-soft);
+  border-color: #cceedd;
+  color: var(--success);
+}
+
 .alert.warn {
   background: var(--warning-soft);
   border-color: #ffe6ae;

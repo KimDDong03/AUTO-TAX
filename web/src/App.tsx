@@ -212,6 +212,65 @@ const MAIL_PROVIDER_CONFIG: Record<
   }
 };
 
+function getTabFromHash(hash: string): TabId | null {
+  const value = hash.replace(/^#/, "");
+  return value === "customers" || value === "settings" || value === "work" || value === "ops" ? value : null;
+}
+
+function getHashParams(hash: string): URLSearchParams {
+  return new URLSearchParams(hash.replace(/^#/, ""));
+}
+
+function hasSupabaseAuthHash(hash: string): boolean {
+  const raw = hash.replace(/^#/, "");
+  if (!raw || getTabFromHash(hash)) return false;
+
+  const params = getHashParams(hash);
+  return (
+    params.has("access_token") ||
+    params.has("refresh_token") ||
+    params.has("error") ||
+    params.has("error_code") ||
+    params.get("type") === "recovery"
+  );
+}
+
+function isSupabaseRecoveryHash(hash: string): boolean {
+  const params = getHashParams(hash);
+  return params.get("type") === "recovery" || (params.has("access_token") && params.has("refresh_token"));
+}
+
+function decodeHashValue(value: string | null): string | null {
+  if (!value) return null;
+
+  try {
+    return decodeURIComponent(value.replace(/\+/g, " "));
+  } catch {
+    return value.replace(/\+/g, " ");
+  }
+}
+
+function getSupabaseAuthHashError(hash: string): string | null {
+  const params = getHashParams(hash);
+  const errorCode = params.get("error_code");
+  const description = decodeHashValue(params.get("error_description"));
+
+  if (!errorCode && !description) {
+    return null;
+  }
+
+  if (errorCode === "otp_expired") {
+    return "비밀번호 재설정 링크가 만료되었습니다. 새 메일을 다시 받아주세요.";
+  }
+
+  return description ?? "비밀번호 재설정 링크를 확인할 수 없습니다.";
+}
+
+function clearSupabaseAuthHash() {
+  if (typeof window === "undefined") return;
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+}
+
 const baseCustomerForm: CustomerFormState = {
   id: null,
   customerName: "",
@@ -936,16 +995,21 @@ export function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
   const [signInAccount, setSignInAccount] = useState("");
   const [signInPassword, setSignInPassword] = useState("");
+  const [recoveryMode, setRecoveryMode] = useState(() =>
+    typeof window !== "undefined" ? isSupabaseRecoveryHash(window.location.hash) : false
+  );
+  const [recoveryPasswordForm, setRecoveryPasswordForm] = useState<PasswordResetFormState>(basePasswordResetForm);
   const [showSupportRequestForm, setShowSupportRequestForm] = useState(false);
   const [supportRequestBusy, setSupportRequestBusy] = useState(false);
   const [supportRequestForm, setSupportRequestForm] = useState<SupportRequestFormState>(baseSupportRequestForm);
   const [data, setData] = useState<BootstrapPayload | null>(null);
   const [opsConsole, setOpsConsole] = useState<OpsConsoleData | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
-    const hash = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
-    return hash === "customers" || hash === "settings" || hash === "work" || hash === "ops" ? hash : "work";
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    return getTabFromHash(hash) ?? "work";
   });
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
   const [creatingCustomer, setCreatingCustomer] = useState(false);
@@ -1035,6 +1099,30 @@ export function App() {
   useEffect(() => {
     let mounted = true;
 
+    const applyAuthHashState = (hash: string) => {
+      const recoveryHash = isSupabaseRecoveryHash(hash);
+      const recoveryError = getSupabaseAuthHashError(hash);
+
+      if (!mounted) return;
+
+      if (recoveryHash) {
+        setRecoveryMode(true);
+        setError("");
+        setAuthNotice("");
+        return;
+      }
+
+      if (recoveryError) {
+        setRecoveryMode(false);
+        setError(recoveryError);
+        clearSupabaseAuthHash();
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      applyAuthHashState(window.location.hash);
+    }
+
     void supabase.auth.getSession().then(({ data: next }) => {
       if (!mounted) return;
       setAuthSession(next.session);
@@ -1043,10 +1131,20 @@ export function App() {
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
       setAuthSession(nextSession);
-      setError("");
+
+      if (event === "PASSWORD_RECOVERY") {
+        setRecoveryMode(true);
+        setError("");
+        setAuthNotice("");
+      } else if (event === "SIGNED_OUT") {
+        setRecoveryMode(false);
+      } else if (nextSession) {
+        setError("");
+      }
+
       if (!nextSession) {
         setData(null);
         setOpsConsole(null);
@@ -1063,16 +1161,33 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!authReady || !authSession) return;
+    if (!authReady || !authSession || recoveryMode) return;
 
     void loadWithRetry().catch((loadError: Error) => setError(loadError.message));
-  }, [authReady, authSession]);
+  }, [authReady, authSession, recoveryMode]);
 
   useEffect(() => {
     const onHashChange = () => {
-      const hash = window.location.hash.replace("#", "");
-      if (hash === "customers" || hash === "settings" || hash === "work" || hash === "ops") {
-        setActiveTab(hash);
+      const hash = window.location.hash;
+      const nextTab = getTabFromHash(hash);
+
+      if (nextTab) {
+        setActiveTab(nextTab);
+        return;
+      }
+
+      if (isSupabaseRecoveryHash(hash)) {
+        setRecoveryMode(true);
+        setError("");
+        setAuthNotice("");
+        return;
+      }
+
+      const recoveryError = getSupabaseAuthHashError(hash);
+      if (recoveryError) {
+        setRecoveryMode(false);
+        setError(recoveryError);
+        clearSupabaseAuthHash();
       }
     };
 
@@ -1081,10 +1196,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (recoveryMode || hasSupabaseAuthHash(window.location.hash)) {
+      return;
+    }
+
     if (window.location.hash !== `#${activeTab}`) {
       window.history.replaceState(null, "", `#${activeTab}`);
     }
-  }, [activeTab]);
+  }, [activeTab, recoveryMode]);
 
   useEffect(() => {
     if (data && !data.auth.isPlatformAdmin && activeTab === "ops") {
@@ -1176,6 +1295,7 @@ export function App() {
     event.preventDefault();
     try {
       setError("");
+      setAuthNotice("");
       setAuthBusy(true);
       const result = await api<{
         session: {
@@ -1204,13 +1324,17 @@ export function App() {
   const signOut = async () => {
     setBusyKey(null);
     setError("");
+    setAuthNotice("");
     setData(null);
     setOpsConsole(null);
     setPasswordResetTarget(null);
     setPasswordResetForm(basePasswordResetForm);
+    setRecoveryMode(false);
+    setRecoveryPasswordForm(basePasswordResetForm);
     setOrganizationMembers([]);
     setSettingsForm(null);
     setActiveOrganizationId(null);
+    clearSupabaseAuthHash();
     await supabase.auth.signOut();
   };
 
@@ -1374,6 +1498,60 @@ export function App() {
 
     setPasswordChangeForm(basePasswordChangeForm);
     window.alert("비밀번호를 변경했습니다.");
+  };
+
+  const returnToLoginFromRecovery = async () => {
+    setRecoveryMode(false);
+    setRecoveryPasswordForm(basePasswordResetForm);
+    clearSupabaseAuthHash();
+    setError("");
+
+    if (authSession) {
+      await supabase.auth.signOut();
+    }
+  };
+
+  const submitRecoveryPassword = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    try {
+      const nextPassword = recoveryPasswordForm.nextPassword.trim();
+      const confirmPassword = recoveryPasswordForm.confirmPassword.trim();
+
+      setError("");
+      setAuthNotice("");
+      setAuthBusy(true);
+
+      if (!authSession) {
+        throw new Error("비밀번호 재설정 링크를 다시 열어주세요.");
+      }
+
+      if (nextPassword.length < 8) {
+        throw new Error("새 비밀번호는 8자 이상으로 입력하세요.");
+      }
+
+      if (nextPassword !== confirmPassword) {
+        throw new Error("새 비밀번호와 확인 값이 일치하지 않습니다.");
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: nextPassword
+      });
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setRecoveryPasswordForm(basePasswordResetForm);
+      setRecoveryMode(false);
+      clearSupabaseAuthHash();
+      await supabase.auth.signOut();
+      setAuthNotice("비밀번호를 변경했습니다. 새 비밀번호로 다시 로그인하세요.");
+    } catch (recoveryError) {
+      setError(recoveryError instanceof Error ? recoveryError.message : "비밀번호 변경에 실패했습니다.");
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
   const openMemberPasswordReset = (member: OrganizationMemberSummary) => {
@@ -1698,7 +1876,85 @@ export function App() {
   };
 
   if (!authReady) {
-    return <div className="loading-shell">로그인 상태를 확인하는 중입니다.</div>;
+    return <div className="loading-shell">{recoveryMode ? "비밀번호 재설정 링크를 확인하는 중입니다." : "로그인 상태를 확인하는 중입니다."}</div>;
+  }
+
+  if (recoveryMode) {
+    return (
+      <div className="auth-shell">
+        <section className="auth-card">
+          <div className="auth-copy">
+            <span className="auth-badge">AUTO-TAX</span>
+            <h1>새 비밀번호 설정</h1>
+            <p>재설정 메일에서 열린 화면입니다. 새 비밀번호를 저장한 뒤 다시 로그인하세요.</p>
+          </div>
+          <form className="auth-form" onSubmit={(event) => void submitRecoveryPassword(event)}>
+            <label>
+              <span>새 비밀번호</span>
+              <div className="password-field">
+                <input
+                  type={revealedFields.recoveryNextPassword ? "text" : "password"}
+                  value={recoveryPasswordForm.nextPassword}
+                  onChange={(event) =>
+                    setRecoveryPasswordForm((prev) => ({
+                      ...prev,
+                      nextPassword: event.target.value
+                    }))
+                  }
+                  placeholder="8자 이상 입력"
+                  autoComplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  aria-label={revealedFields.recoveryNextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
+                  onClick={() => toggleRevealField("recoveryNextPassword")}
+                >
+                  <RevealIcon open={Boolean(revealedFields.recoveryNextPassword)} />
+                </button>
+              </div>
+            </label>
+            <label>
+              <span>새 비밀번호 확인</span>
+              <div className="password-field">
+                <input
+                  type={revealedFields.recoveryConfirmPassword ? "text" : "password"}
+                  value={recoveryPasswordForm.confirmPassword}
+                  onChange={(event) =>
+                    setRecoveryPasswordForm((prev) => ({
+                      ...prev,
+                      confirmPassword: event.target.value
+                    }))
+                  }
+                  placeholder="한 번 더 입력"
+                  autoComplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  aria-label={revealedFields.recoveryConfirmPassword ? "새 비밀번호 확인 숨기기" : "새 비밀번호 확인 보기"}
+                  onClick={() => toggleRevealField("recoveryConfirmPassword")}
+                >
+                  <RevealIcon open={Boolean(revealedFields.recoveryConfirmPassword)} />
+                </button>
+              </div>
+            </label>
+            {error ? <div className="alert error">{error}</div> : null}
+            <div className="auth-actions">
+              <button type="submit" disabled={authBusy}>
+                {authBusy ? "저장 중..." : "새 비밀번호 저장"}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => void returnToLoginFromRecovery()} disabled={authBusy}>
+                로그인으로 돌아가기
+              </button>
+            </div>
+            <p className="field-hint">링크가 만료되었으면 Supabase에서 새 재설정 메일을 다시 보내세요.</p>
+          </form>
+        </section>
+      </div>
+    );
   }
 
   if (!authSession) {
@@ -1732,6 +1988,7 @@ export function App() {
                 required
               />
             </label>
+            {authNotice ? <div className="alert success">{authNotice}</div> : null}
             {error ? <div className="alert error">{error}</div> : null}
             <div className="auth-actions">
               <button type="submit" disabled={authBusy}>
