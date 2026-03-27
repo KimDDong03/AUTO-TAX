@@ -552,7 +552,7 @@ function requireAuthContext(res: express.Response): AuthenticatedAppSession {
 function requirePlatformAdmin(res: express.Response): AuthenticatedAppSession {
   const authContext = requireAuthContext(res);
   if (!authContext.isPlatformAdmin) {
-    throw new HttpError(403, "운영자 전용 페이지입니다.");
+    throw new HttpError(403, "플랫폼 관리자 전용 페이지입니다.");
   }
   return authContext;
 }
@@ -1079,7 +1079,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
     }
 
     if (String(membership.role) === "owner") {
-      throw new HttpError(400, "owner 계정 비밀번호는 운영자에게 요청하세요.");
+      throw new HttpError(400, "owner 계정 비밀번호는 플랫폼 관리자에게 요청하세요.");
     }
 
     const allUsers = await listAllAuthUsers(adminClient);
@@ -1228,7 +1228,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
         actor_user_id: authContext.userId,
         level: "info",
         scope: "ops",
-        message: "운영자가 고객사 작업공간을 개통했습니다.",
+        message: "플랫폼 관리자가 고객사 작업공간을 개통했습니다.",
         context_json: {
           ownerLoginId: ownerUser.loginId ?? normalizedOwnerLoginId,
           ownerAction: createdUserId ? "created-user" : "linked-existing-user"
@@ -1310,7 +1310,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
       actor_user_id: authContext.userId,
       level: "warn",
       scope: "ops",
-      message: "운영자가 owner 임시 비밀번호를 재설정했습니다.",
+      message: "플랫폼 관리자가 owner 임시 비밀번호를 재설정했습니다.",
       context_json: {
         ownerLoginId
       }
