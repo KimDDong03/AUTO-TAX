@@ -2175,6 +2175,7 @@ export function App() {
   const opsJobs = opsConsole?.renewalAutomation.jobs ?? [];
   const opsLogs = opsConsole?.logs ?? [];
   const opsWorkspaces = opsConsole?.workspaces ?? [];
+  const isCreatingWorkspace = busyKey === "ops-create-workspace";
   const partnerTaxInvoiceUnitCost = opsConsole?.partnerPoints.taxInvoiceUnitCost ?? null;
   const totalWorkspaceIssuedDraftCount = opsWorkspaces.reduce((sum, workspace) => sum + workspace.issuedDraftCount, 0);
   const totalWorkspaceCurrentMonthIssuedDraftCount = opsWorkspaces.reduce(
@@ -3423,17 +3424,24 @@ export function App() {
                 <Panel
                   className="panel-ops-workspace-create"
                   title="고객사 작업공간 개통"
-                  subtitle="새 고객사를 만들고 첫 owner 로그인 아이디를 바로 연결합니다."
+                  subtitle={isCreatingWorkspace ? "고객사 작업공간과 첫 owner 계정을 만드는 중입니다. 잠시만 기다려주세요." : "새 고객사를 만들고 첫 owner 로그인 아이디를 바로 연결합니다."}
                   actions={
-                    <button onClick={() => void runAction("ops-create-workspace", createWorkspace)}>
-                      작업공간 개통
+                    <button disabled={busyKey !== null} onClick={() => void runAction("ops-create-workspace", createWorkspace)}>
+                      {isCreatingWorkspace ? "작업공간 개통 중..." : "작업공간 개통"}
                     </button>
                   }
                 >
+                  {isCreatingWorkspace ? (
+                    <div className="helper-box full-width">
+                      <strong>개통 진행 중</strong>
+                      <span>계정 확인, 작업공간 생성, 첫 owner 연결을 순서대로 처리하고 있습니다. 완료될 때까지 창을 닫지 말고 잠시 기다려주세요.</span>
+                    </div>
+                  ) : null}
                   <div className="form-grid">
                     <label>
                       고객사명
                       <input
+                        disabled={busyKey !== null}
                         value={opsWorkspaceForm.organizationName}
                         onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationName: event.target.value }))}
                         placeholder="예: 해성태양광"
@@ -3442,6 +3450,7 @@ export function App() {
                     <label>
                       사업자번호
                       <input
+                        disabled={busyKey !== null}
                         value={opsWorkspaceForm.organizationBusinessNumber}
                         onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationBusinessNumber: event.target.value }))}
                         placeholder="숫자만 입력"
@@ -3450,6 +3459,7 @@ export function App() {
                     <label>
                       첫 owner 로그인 아이디
                       <input
+                        disabled={busyKey !== null}
                         value={opsWorkspaceForm.ownerLoginId}
                         onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerLoginId: event.target.value }))}
                         placeholder="예: admin01"
@@ -3458,6 +3468,7 @@ export function App() {
                     <label>
                       owner 이름
                       <input
+                        disabled={busyKey !== null}
                         value={opsWorkspaceForm.ownerDisplayName}
                         onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerDisplayName: event.target.value }))}
                         placeholder="담당자 이름"
@@ -3467,6 +3478,7 @@ export function App() {
                       임시 비밀번호
                       <div className="password-field">
                         <input
+                          disabled={busyKey !== null}
                           type={revealedFields.opsOwnerPassword ? "text" : "password"}
                           value={opsWorkspaceForm.ownerPassword}
                           onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerPassword: event.target.value }))}
@@ -3475,6 +3487,7 @@ export function App() {
                         <button
                           type="button"
                           className="password-toggle"
+                          disabled={busyKey !== null}
                           aria-label={revealedFields.opsOwnerPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
                           onClick={() => toggleRevealField("opsOwnerPassword")}
                         >
