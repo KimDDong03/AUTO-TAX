@@ -315,6 +315,7 @@ export interface PartnerPointsPayload {
   isTest: boolean;
   referenceCorpNum: string | null;
   partnerRemainPoint: number | null;
+  taxInvoiceUnitCost: number | null;
   message: string;
 }
 
@@ -327,6 +328,9 @@ export interface OpsWorkspaceSummary {
   ownerLoginId: string | null;
   ownerDisplayName: string | null;
   memberCount: number;
+  issuedDraftCount: number;
+  currentMonthIssuedDraftCount: number;
+  lastIssuedAt: string | null;
   createdAt: string;
 }
 
