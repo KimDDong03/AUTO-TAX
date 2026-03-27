@@ -18,6 +18,7 @@ export interface AppSettings {
   smtpPass: string;
   smtpFromName: string;
   smtpFromEmail: string;
+  mailPasswordConfigured: boolean;
   notificationEmails: string[];
   defaultIssueDay: number;
   defaultIssueHour: number;
@@ -31,6 +32,7 @@ export interface AppSettings {
   operatorContactEmail: string;
   operatorContactTel: string;
   popbillConfigured: boolean;
+  popbillSharedPasswordConfigured: boolean;
   operatorConfigured: boolean;
   schedulerEnabled: boolean;
   certLastCheckedAt: string | null;

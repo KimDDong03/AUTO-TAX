@@ -274,6 +274,19 @@ function resolveRunOnce(): boolean {
   return hasFlag("--once") || process.env.AUTO_TAX_RENEWAL_AGENT_ONCE === "1";
 }
 
+function resolveInternalSecret(): string {
+  return (
+    getArgValue("--secret") ??
+    process.env.AUTO_TAX_RENEWAL_AGENT_SECRET ??
+    process.env.AUTO_TAX_JOB_SECRET ??
+    ""
+  ).trim();
+}
+
+function buildInternalAuthHeaders(secret: string): Record<string, string> {
+  return secret ? { "x-auto-tax-job-secret": secret } : {};
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1523,9 +1536,16 @@ export async function requestJson<T>(serverUrl: string, pathname: string, init?:
   return (await response.json()) as T;
 }
 
-export async function sendHeartbeat(serverUrl: string, agentId: string, version: string, probeResult: BridgeProbeResult): Promise<void> {
+export async function sendHeartbeat(
+  serverUrl: string,
+  agentId: string,
+  version: string,
+  probeResult: BridgeProbeResult,
+  secret: string
+): Promise<void> {
   await requestJson(serverUrl, "/api/automation/renewal-agent/heartbeat", {
     method: "POST",
+    headers: buildInternalAuthHeaders(secret),
     body: JSON.stringify({
       agentId,
       hostname: os.hostname(),
@@ -1538,17 +1558,25 @@ export async function sendHeartbeat(serverUrl: string, agentId: string, version:
   });
 }
 
-export async function claimNextJob(serverUrl: string, agentId: string): Promise<ClaimedJob> {
+export async function claimNextJob(serverUrl: string, agentId: string, secret: string): Promise<ClaimedJob> {
   const payload = await requestJson<{ job: ClaimedJob }>(serverUrl, "/api/automation/renewal-agent/jobs/claim", {
     method: "POST",
+    headers: buildInternalAuthHeaders(secret),
     body: JSON.stringify({ agentId })
   });
   return payload.job;
 }
 
-export async function completeJob(serverUrl: string, agentId: string, jobId: number, probeResult: BridgeProbeResult): Promise<void> {
+export async function completeJob(
+  serverUrl: string,
+  agentId: string,
+  jobId: number,
+  probeResult: BridgeProbeResult,
+  secret: string
+): Promise<void> {
   await requestJson(serverUrl, `/api/automation/renewal-agent/jobs/${jobId}/complete`, {
     method: "POST",
+    headers: buildInternalAuthHeaders(secret),
     body: JSON.stringify({
       agentId,
       result: probeResult
@@ -1556,9 +1584,10 @@ export async function completeJob(serverUrl: string, agentId: string, jobId: num
   });
 }
 
-export async function failJob(serverUrl: string, agentId: string, jobId: number, error: string): Promise<void> {
+export async function failJob(serverUrl: string, agentId: string, jobId: number, error: string, secret: string): Promise<void> {
   await requestJson(serverUrl, `/api/automation/renewal-agent/jobs/${jobId}/fail`, {
     method: "POST",
+    headers: buildInternalAuthHeaders(secret),
     body: JSON.stringify({
       agentId,
       error
@@ -1572,6 +1601,11 @@ export async function runRenewalAgentLoop(): Promise<void> {
   const version = readPackageVersion();
   const agentId = resolveAgentId();
   const runOnce = resolveRunOnce();
+  const secret = resolveInternalSecret();
+
+  if (!secret) {
+    throw new Error("AUTO_TAX_JOB_SECRET 또는 AUTO_TAX_RENEWAL_AGENT_SECRET을 먼저 설정하세요.");
+  }
 
   console.log(`[renewal-agent] server=${serverUrl}`);
   console.log(`[renewal-agent] agentId=${agentId}`);
@@ -1584,17 +1618,17 @@ export async function runRenewalAgentLoop(): Promise<void> {
   while (true) {
     try {
       const heartbeatProbe = await collectBridgeProbeResult({ includeDetailedProbe: false });
-      await sendHeartbeat(serverUrl, agentId, version, heartbeatProbe);
+      await sendHeartbeat(serverUrl, agentId, version, heartbeatProbe, secret);
 
-      const job = await claimNextJob(serverUrl, agentId);
+      const job = await claimNextJob(serverUrl, agentId, secret);
       if (job?.type === "bridge-probe") {
         try {
           const result = await collectBridgeProbeResult({ includeDetailedProbe: true });
-          await completeJob(serverUrl, agentId, job.id, result);
+          await completeJob(serverUrl, agentId, job.id, result, secret);
           console.log(`[renewal-agent] job ${job.id} completed: ${result.bridge.summary}`);
         } catch (error) {
           const message = error instanceof Error ? error.message : "브리지 진단 실패";
-          await failJob(serverUrl, agentId, job.id, message);
+          await failJob(serverUrl, agentId, job.id, message, secret);
           console.error(`[renewal-agent] job ${job.id} failed: ${message}`);
         }
       } else if (job?.type === "certid-probe") {
@@ -1606,13 +1640,13 @@ export async function runRenewalAgentLoop(): Promise<void> {
               certificateCn: job.certificateCn
             }
           });
-          await completeJob(serverUrl, agentId, job.id, result);
+          await completeJob(serverUrl, agentId, job.id, result, secret);
           console.log(
             `[renewal-agent] job ${job.id} certID probe: ${result.bridge.selectionProbe.ok ? result.bridge.selectionProbe.certID ?? "ok" : result.bridge.selectionProbe.error ?? "failed"}`
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : "certID 조회 실패";
-          await failJob(serverUrl, agentId, job.id, message);
+          await failJob(serverUrl, agentId, job.id, message, secret);
           console.error(`[renewal-agent] job ${job.id} failed: ${message}`);
         }
       } else if (job?.type === "renewal-preflight") {
@@ -1624,13 +1658,13 @@ export async function runRenewalAgentLoop(): Promise<void> {
               certificateCn: job.certificateCn
             }
           });
-          await completeJob(serverUrl, agentId, job.id, result);
+          await completeJob(serverUrl, agentId, job.id, result, secret);
           console.log(
             `[renewal-agent] job ${job.id} renewal preflight: ${result.bridge.preflightProbe.branch}${result.bridge.preflightProbe.nextUrl ? ` -> ${result.bridge.preflightProbe.nextUrl}` : ""}`
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : "갱신 경로 분석 실패";
-          await failJob(serverUrl, agentId, job.id, message);
+          await failJob(serverUrl, agentId, job.id, message, secret);
           console.error(`[renewal-agent] job ${job.id} failed: ${message}`);
         }
       }

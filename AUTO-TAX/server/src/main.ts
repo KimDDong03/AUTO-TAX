@@ -9,7 +9,7 @@ import express from "express";
 import { z } from "zod";
 import { issueDraftNow } from "./automation.js";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
-import type { AppSettings, CustomerInput, DashboardPayload } from "./domain.js";
+import type { AppSettings, Customer, CustomerInput, DashboardPayload } from "./domain.js";
 import { testMailConnections } from "./mail-test.js";
 import { reprocessInboxMessage } from "./mail-reprocess.js";
 import { syncMailbox } from "./mail-sync.js";
@@ -140,9 +140,26 @@ type ClientAppSettings = Pick<
   | "createdAt"
   | "updatedAt"
 > & {
+  mailPasswordConfigured: boolean;
   popbillConfigured: boolean;
+  popbillSharedPasswordConfigured: boolean;
   operatorConfigured: boolean;
 };
+
+type RateLimitEntry = {
+  count: number;
+  resetAt: number;
+};
+
+type RateLimiterOptions = {
+  keyPrefix: string;
+  windowMs: number;
+  max: number;
+  message: string;
+  keyGenerator?: (req: express.Request) => string;
+};
+
+const rateLimitEntries = new Map<string, RateLimitEntry>();
 
 function envString(name: string): string | undefined {
   const value = process.env[name];
@@ -151,25 +168,87 @@ function envString(name: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+function trimOrNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function resolveRequestIp(req: express.Request): string {
+  const forwarded = req.header("x-forwarded-for");
+  if (forwarded) {
+    const first = forwarded
+      .split(",")
+      .map((item) => item.trim())
+      .find(Boolean);
+    if (first) {
+      return first;
+    }
+  }
+
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+function pruneExpiredRateLimitEntries(now: number): void {
+  for (const [key, entry] of rateLimitEntries) {
+    if (entry.resetAt <= now) {
+      rateLimitEntries.delete(key);
+    }
+  }
+}
+
+function createRateLimiter(options: RateLimiterOptions): express.RequestHandler {
+  return (req, res, next) => {
+    const now = Date.now();
+    if (rateLimitEntries.size > 1024) {
+      pruneExpiredRateLimitEntries(now);
+    }
+
+    const scopedKey = options.keyGenerator?.(req) ?? resolveRequestIp(req);
+    const key = `${options.keyPrefix}:${scopedKey}`;
+    const current = rateLimitEntries.get(key);
+
+    if (!current || current.resetAt <= now) {
+      rateLimitEntries.set(key, {
+        count: 1,
+        resetAt: now + options.windowMs
+      });
+      next();
+      return;
+    }
+
+    if (current.count >= options.max) {
+      res.setHeader("Retry-After", String(Math.max(1, Math.ceil((current.resetAt - now) / 1000))));
+      res.status(429).json({ error: options.message });
+      return;
+    }
+
+    current.count += 1;
+    rateLimitEntries.set(key, current);
+    next();
+  };
+}
+
 function resolvePathFromRoot(rootDir: string, value: string): string {
   return path.isAbsolute(value) ? value : path.resolve(rootDir, value);
 }
 
 function toClientSettings(settings: AppSettings): ClientAppSettings {
   const runtimeSettings = applyServerManagedSettings(settings);
+  const mailPasswordConfigured = Boolean(trimOrNull(settings.imapPass) || trimOrNull(settings.smtpPass));
+  const popbillSharedPasswordConfigured = Boolean(trimOrNull(settings.popbillSharedPassword));
   return {
     id: settings.id,
     imapHost: settings.imapHost,
     imapPort: settings.imapPort,
     imapSecure: settings.imapSecure,
     imapUser: settings.imapUser,
-    imapPass: settings.imapPass,
+    imapPass: "",
     imapMailbox: settings.imapMailbox,
     smtpHost: settings.smtpHost,
     smtpPort: settings.smtpPort,
     smtpSecure: settings.smtpSecure,
     smtpUser: settings.smtpUser,
-    smtpPass: settings.smtpPass,
+    smtpPass: "",
     smtpFromName: settings.smtpFromName,
     smtpFromEmail: settings.smtpFromEmail,
     notificationEmails: settings.notificationEmails,
@@ -180,7 +259,7 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
     mailSyncStartAt: settings.mailSyncStartAt,
     timezone: settings.timezone,
     popbillUserIdPrefix: settings.popbillUserIdPrefix,
-    popbillSharedPassword: settings.popbillSharedPassword,
+    popbillSharedPassword: "",
     operatorContactName: settings.operatorContactName,
     operatorContactEmail: settings.operatorContactEmail,
     operatorContactTel: settings.operatorContactTel,
@@ -189,14 +268,23 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
     certAlertLastSentAt: settings.certAlertLastSentAt,
     createdAt: settings.createdAt,
     updatedAt: settings.updatedAt,
+    mailPasswordConfigured,
     popbillConfigured: Boolean(runtimeSettings.popbillLinkId && runtimeSettings.popbillSecretKey),
+    popbillSharedPasswordConfigured,
     operatorConfigured: Boolean(
       settings.popbillUserIdPrefix &&
-      settings.popbillSharedPassword &&
+      popbillSharedPasswordConfigured &&
       settings.operatorContactName &&
       settings.operatorContactEmail &&
       settings.operatorContactTel
     )
+  };
+}
+
+function toClientCustomer(customer: Customer): Customer {
+  return {
+    ...customer,
+    popbillPassword: ""
   };
 }
 
@@ -568,15 +656,20 @@ function isAnonymousApiPath(req: express.Request): boolean {
     req.method === "OPTIONS" ||
     req.path === "/health" ||
     req.path === "/public/login" ||
-    req.path === "/public/support-request" ||
-    req.path === "/automation/renewal-agent/heartbeat" ||
-    req.path === "/automation/renewal-agent/jobs/claim" ||
-    /^\/automation\/renewal-agent\/jobs\/\d+\/(complete|fail)$/.test(req.path)
+    req.path === "/public/support-request"
   );
 }
 
 function isInternalJobApiPath(req: express.Request): boolean {
   return req.path === "/internal/jobs/dispatch" || req.path === "/internal/jobs/run";
+}
+
+function isRenewalAgentApiPath(req: express.Request): boolean {
+  return (
+    req.path === "/automation/renewal-agent/heartbeat" ||
+    req.path === "/automation/renewal-agent/jobs/claim" ||
+    /^\/automation\/renewal-agent\/jobs\/\d+\/(complete|fail)$/.test(req.path)
+  );
 }
 
 function setRequestLocals(res: express.Response, authContext: AuthenticatedAppSession, requestStore?: AppStore) {
@@ -677,6 +770,24 @@ function hasValidJobSecret(req: express.Request): boolean {
   return readJobSecret(req) === configuredSecret;
 }
 
+function readRenewalAgentSecret(req: express.Request): string | null {
+  const dedicatedHeader = req.header("x-auto-tax-agent-secret")?.trim();
+  if (dedicatedHeader) {
+    return dedicatedHeader;
+  }
+
+  return readJobSecret(req);
+}
+
+function hasValidRenewalAgentSecret(req: express.Request): boolean {
+  const configuredSecret = envString("AUTO_TAX_RENEWAL_AGENT_SECRET") ?? envString("AUTO_TAX_JOB_SECRET");
+  if (!configuredSecret) {
+    return false;
+  }
+
+  return readRenewalAgentSecret(req) === configuredSecret;
+}
+
 function requireInternalJobAccess(req: express.Request, res: express.Response): "secret" | "ops" {
   if (hasValidJobSecret(req)) {
     return "secret";
@@ -685,6 +796,33 @@ function requireInternalJobAccess(req: express.Request, res: express.Response): 
   requirePlatformAdmin(res);
   return "ops";
 }
+
+function requireRenewalAgentAccess(req: express.Request): void {
+  if (!hasValidRenewalAgentSecret(req)) {
+    throw new HttpError(401, "로컬 인증서 에이전트 인증에 실패했습니다.");
+  }
+}
+
+const publicSupportRequestLimiter = createRateLimiter({
+  keyPrefix: "support-request",
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: "문의 요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
+});
+
+const publicLoginLimiter = createRateLimiter({
+  keyPrefix: "public-login",
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  message: "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.",
+  keyGenerator: (req) => {
+    const account =
+      req.body && typeof req.body === "object" && "account" in req.body
+        ? String((req.body as { account?: string }).account ?? "").trim().toLowerCase()
+        : "";
+    return `${resolveRequestIp(req)}:${account}`;
+  }
+});
 
 type AuthUserSummary = {
   id: string;
@@ -919,6 +1057,16 @@ export async function createApp(store: AppStore | null, webDist: string) {
       return;
     }
 
+    if (isRenewalAgentApiPath(req)) {
+      if (hasValidRenewalAgentSecret(req)) {
+        next();
+        return;
+      }
+
+      res.status(401).json({ error: "로컬 인증서 에이전트 인증에 실패했습니다." });
+      return;
+    }
+
     if (isAnonymousApiPath(req)) {
       next();
       return;
@@ -954,7 +1102,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
     res.json({ ok: true });
   });
 
-  app.post("/api/public/support-request", async (req, res) => {
+  app.post("/api/public/support-request", publicSupportRequestLimiter, async (req, res) => {
     const payload = supportRequestSchema.parse(req.body ?? {});
 
     try {
@@ -973,7 +1121,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
     res.status(201).json({ ok: true });
   });
 
-  app.post("/api/public/login", async (req, res) => {
+  app.post("/api/public/login", publicLoginLimiter, async (req, res) => {
     const payload = publicLoginSchema.parse(req.body ?? {});
     const account = payload.account.trim();
     let email = account;
@@ -1024,6 +1172,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
     const { logs: _logs, ...workspaceDashboard } = dashboard;
     res.json({
       ...workspaceDashboard,
+      customers: workspaceDashboard.customers.map(toClientCustomer),
       settings: toClientSettings(dashboard.settings),
       auth: authContext
     });
@@ -1657,18 +1806,21 @@ export async function createApp(store: AppStore | null, webDist: string) {
   });
 
   app.post("/api/automation/renewal-agent/heartbeat", (req, res) => {
+    requireRenewalAgentAccess(req);
     const payload = renewalAgentHeartbeatSchema.parse(req.body);
     const agent = renewalAutomation.recordHeartbeat(payload);
     res.json({ ok: true, agent });
   });
 
   app.post("/api/automation/renewal-agent/jobs/claim", (req, res) => {
+    requireRenewalAgentAccess(req);
     const payload = renewalAgentClaimSchema.parse(req.body);
     const job = renewalAutomation.claimNextJob(payload.agentId);
     res.json({ job });
   });
 
   app.post("/api/automation/renewal-agent/jobs/:id/complete", async (req, res) => {
+    requireRenewalAgentAccess(req);
     const params = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
     const payload = renewalAgentCompleteSchema.parse(req.body);
     const job = renewalAutomation.completeJob(params.id, payload.agentId, payload.result);
@@ -1695,6 +1847,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
   });
 
   app.post("/api/automation/renewal-agent/jobs/:id/fail", async (req, res) => {
+    requireRenewalAgentAccess(req);
     const params = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
     const payload = renewalAgentFailSchema.parse(req.body);
     const job = renewalAutomation.failJob(params.id, payload.agentId, payload.error);
@@ -1816,14 +1969,20 @@ export async function createApp(store: AppStore | null, webDist: string) {
 
   app.post("/api/system/mail-test", async (req, res) => {
     requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
     const payload = mailTestSchema.parse(req.body);
-    const result = await testMailConnections(payload);
+    const currentSettings = await requestStore.getSettings();
+    const result = await testMailConnections({
+      ...payload,
+      imapPass: payload.imapPass || currentSettings.imapPass,
+      smtpPass: payload.smtpPass || currentSettings.smtpPass
+    });
     res.json(result);
   });
 
   app.get("/api/customers", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
-    res.json(await requestStore.listCustomers());
+    res.json((await requestStore.listCustomers()).map(toClientCustomer));
   });
 
   app.post("/api/customers", async (req, res) => {
@@ -1838,7 +1997,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
       issueMinute: null
     });
     await requestStore.createLog("info", "customers", "고객을 등록했습니다.", { customerId: customer.id });
-    res.status(201).json(customer);
+    res.status(201).json(toClientCustomer(customer));
   });
 
   app.put("/api/customers/:id", async (req, res) => {
@@ -1848,7 +2007,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
     const payload = customerSchema.parse(req.body) satisfies CustomerInput;
     const customer = await requestStore.saveCustomer(payload, customerId);
     await requestStore.createLog("info", "customers", "고객 정보를 수정했습니다.", { customerId });
-    res.json(customer);
+    res.json(toClientCustomer(customer));
   });
 
   app.delete("/api/customers/:id", async (req, res) => {
@@ -1930,7 +2089,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
       customerId,
       customerName: customer.customerName
     });
-    res.json(updated);
+    res.json(toClientCustomer(updated));
   });
 
   app.post("/api/customers/:id/popbill/quit", async (req, res) => {
@@ -1955,7 +2114,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
       customerId,
       customerName: customer.customerName
     });
-    res.json({ ok: true, response, customer: updated });
+    res.json({ ok: true, response, customer: toClientCustomer(updated) });
   });
 
   app.post("/api/customers/:id/popbill/cert-url", async (req, res) => {
@@ -1986,7 +2145,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
     const expireDate = await getCertificateExpireDate(await getServerManagedSettings(requestStore), customer);
     const updated = await requestStore.updateCustomerPopbillState(customerId, customer.popbillState, true, expireDate);
     await requestStore.createLog("info", "popbill", "인증서 만료일을 갱신했습니다.", { customerId, expireDate });
-    res.json(updated);
+    res.json(toClientCustomer(updated));
   });
 
   app.post("/api/popbill/cert-status/refresh-all", async (_req, res) => {

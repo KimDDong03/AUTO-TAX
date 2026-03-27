@@ -14,6 +14,7 @@ import type {
 } from "./domain.js";
 import { createSupabaseAdminClient } from "./supabase.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
+import { decryptSecret, encryptSecret } from "./secret-box.js";
 import type { AppStore } from "./store-contract.js";
 import {
   buildDraftMgtKey,
@@ -86,13 +87,13 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     imapPort: asNumber(integrationRow.imap_port, 993),
     imapSecure: asBoolean(integrationRow.imap_secure, true),
     imapUser: asString(integrationRow.imap_user),
-    imapPass: asString(integrationRow.imap_pass_encrypted),
+    imapPass: decryptSecret(asString(integrationRow.imap_pass_encrypted)),
     imapMailbox: asString(integrationRow.imap_mailbox, "INBOX"),
     smtpHost: asString(integrationRow.smtp_host),
     smtpPort: asNumber(integrationRow.smtp_port, 465),
     smtpSecure: asBoolean(integrationRow.smtp_secure, true),
     smtpUser: asString(integrationRow.smtp_user),
-    smtpPass: asString(integrationRow.smtp_pass_encrypted),
+    smtpPass: decryptSecret(asString(integrationRow.smtp_pass_encrypted)),
     smtpFromName: asString(integrationRow.smtp_from_name, "AUTO-TAX"),
     smtpFromEmail: asString(integrationRow.smtp_from_email),
     notificationEmails: asStringArray(settingsRow.notification_emails),
@@ -103,11 +104,11 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     mailSyncStartAt: asNullableString(settingsRow.mail_sync_start_at),
     timezone: asString(settingsRow.timezone, "Asia/Seoul"),
     popbillLinkId: asString(integrationRow.popbill_link_id),
-    popbillSecretKey: asString(integrationRow.popbill_secret_key_encrypted),
+    popbillSecretKey: decryptSecret(asString(integrationRow.popbill_secret_key_encrypted)),
     popbillIsTest: asBoolean(integrationRow.popbill_is_test, false),
     popbillPartnerCorpNum: asString(integrationRow.popbill_partner_corp_num),
     popbillUserIdPrefix: asString(integrationRow.popbill_user_id_prefix, "TEST_"),
-    popbillSharedPassword: asString(integrationRow.popbill_shared_password_encrypted),
+    popbillSharedPassword: decryptSecret(asString(integrationRow.popbill_shared_password_encrypted)),
     operatorContactName: asString(integrationRow.operator_contact_name),
     operatorContactEmail: asString(integrationRow.operator_contact_email),
     operatorContactTel: asString(integrationRow.operator_contact_tel),
@@ -130,7 +131,7 @@ function mapCustomer(row: Row, plantNames: string[], matchAddresses: string[]): 
     bizType: asString(row.biz_type),
     bizClass: asString(row.biz_class),
     popbillUserId: asString(row.popbill_user_id),
-    popbillPassword: asString(row.popbill_password_encrypted),
+    popbillPassword: decryptSecret(asString(row.popbill_password_encrypted)),
     popbillState: asString(row.popbill_state, "pending") as PopbillState,
     popbillCertRegistered: asBoolean(row.popbill_cert_registered, false),
     popbillCertExpireDate: asNullableString(row.popbill_cert_expire_date),
@@ -491,10 +492,19 @@ export class SupabaseStore implements AppStore {
       input.popbillUserIdPrefix !== undefined
         ? normalizePopbillUserPrefix(input.popbillUserIdPrefix)
         : current.popbillUserIdPrefix;
+    const nextImapPass = input.imapPass !== undefined ? (input.imapPass.trim() === "" ? current.imapPass : input.imapPass) : current.imapPass;
+    const nextSmtpPass = input.smtpPass !== undefined ? (input.smtpPass.trim() === "" ? current.smtpPass : input.smtpPass) : current.smtpPass;
+    const nextPopbillSharedPassword =
+      input.popbillSharedPassword !== undefined
+        ? (input.popbillSharedPassword.trim() === "" ? current.popbillSharedPassword : input.popbillSharedPassword)
+        : current.popbillSharedPassword;
     const next: AppSettings = {
       ...current,
       ...input,
+      imapPass: nextImapPass,
+      smtpPass: nextSmtpPass,
       popbillUserIdPrefix: nextPopbillUserIdPrefix,
+      popbillSharedPassword: nextPopbillSharedPassword,
       notificationEmails: input.notificationEmails ?? current.notificationEmails,
       updatedAt: nowIso()
     };
@@ -531,21 +541,21 @@ export class SupabaseStore implements AppStore {
           imap_port: next.imapPort,
           imap_secure: next.imapSecure,
           imap_user: next.imapUser,
-          imap_pass_encrypted: next.imapPass,
+          imap_pass_encrypted: encryptSecret(next.imapPass),
           imap_mailbox: next.imapMailbox,
           smtp_host: next.smtpHost,
           smtp_port: next.smtpPort,
           smtp_secure: next.smtpSecure,
           smtp_user: next.smtpUser,
-          smtp_pass_encrypted: next.smtpPass,
+          smtp_pass_encrypted: encryptSecret(next.smtpPass),
           smtp_from_name: next.smtpFromName,
           smtp_from_email: next.smtpFromEmail,
           popbill_link_id: next.popbillLinkId,
-          popbill_secret_key_encrypted: next.popbillSecretKey,
+          popbill_secret_key_encrypted: encryptSecret(next.popbillSecretKey),
           popbill_is_test: next.popbillIsTest,
           popbill_partner_corp_num: next.popbillPartnerCorpNum,
           popbill_user_id_prefix: next.popbillUserIdPrefix,
-          popbill_shared_password_encrypted: next.popbillSharedPassword,
+          popbill_shared_password_encrypted: encryptSecret(next.popbillSharedPassword),
           operator_contact_name: next.operatorContactName,
           operator_contact_email: next.operatorContactEmail,
           operator_contact_tel: next.operatorContactTel
@@ -679,7 +689,7 @@ export class SupabaseStore implements AppStore {
       }
 
       const popbillUserId = asString(current.popbill_user_id) || buildPopbillUserId(idPrefix, customerId);
-      const popbillPassword = asString(current.popbill_password_encrypted) || sharedPassword;
+      const popbillPassword = decryptSecret(asString(current.popbill_password_encrypted)) || sharedPassword;
 
       persistedRow = await assertNoError(
         "고객 수정 실패",
@@ -694,7 +704,7 @@ export class SupabaseStore implements AppStore {
             biz_type: input.bizType,
             biz_class: input.bizClass,
             popbill_user_id: popbillUserId,
-            popbill_password_encrypted: popbillPassword,
+            popbill_password_encrypted: encryptSecret(popbillPassword),
             issue_mode: input.issueMode,
             issue_day: input.issueDay,
             issue_hour: input.issueHour,
@@ -762,7 +772,7 @@ export class SupabaseStore implements AppStore {
           .from("managed_customers")
           .update({
             popbill_user_id: buildPopbillUserId(idPrefix, legacyId),
-            popbill_password_encrypted: sharedPassword,
+            popbill_password_encrypted: encryptSecret(sharedPassword),
             updated_at: timestamp
           })
           .eq("id", asString(created.id))
