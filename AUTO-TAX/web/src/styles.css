@@ -281,6 +281,11 @@ textarea {
   gap: 0.6rem;
 }
 
+.support-request-box {
+  padding-top: 0.95rem;
+  border-top: 1px solid var(--border);
+}
+
 .auth-form label {
   display: grid;
   gap: 0.1rem;
@@ -577,6 +582,75 @@ textarea {
 .stats-grid-compact {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-column: 1 / -1;
+}
+
+.ops-layout {
+  display: grid;
+  gap: 0.9rem;
+  align-items: start;
+  padding-bottom: 1rem;
+}
+
+.ops-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.ops-helper-text {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.ops-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.ops-card {
+  display: grid;
+  gap: 0.58rem;
+  padding: 0.92rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface-soft);
+}
+
+.ops-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.ops-card-head > div {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.ops-card-head strong {
+  font-size: 0.95rem;
+}
+
+.ops-card-head span {
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.ops-card-meta {
+  display: grid;
+  gap: 0.28rem;
+  color: var(--text-subtle);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.ops-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
 }
 
 .work-screen {
@@ -1361,6 +1435,29 @@ textarea {
   color: var(--primary-strong);
 }
 
+.helper-box .fields {
+  display: grid;
+  gap: 0.65rem;
+  width: 100%;
+}
+
+.helper-box .fields.three-column {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.inline-time-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.inline-time-fields span {
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
 .helper-box-stack {
   display: grid;
   gap: 0.32rem;
@@ -1372,6 +1469,66 @@ textarea {
 
 .helper-box-stack .button-row {
   margin-top: 0.2rem;
+}
+
+.inline-password-reset {
+  margin-top: 0.15rem;
+}
+
+.settings-account-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.workspace-member-list {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.9rem;
+}
+
+.workspace-member-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface-soft);
+}
+
+.workspace-member-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.workspace-member-card-head > div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.workspace-member-card-head strong {
+  font-size: 0.96rem;
+}
+
+.workspace-member-card-head span:not(.chip) {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}
+
+.workspace-member-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.workspace-member-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
 }
 
 .info-grid {
@@ -1851,12 +2008,20 @@ tr + tr td {
   .customer-summary-head,
   .customer-summary-meta,
   .customer-history-head,
-  .customer-history-meta {
+  .customer-history-meta,
+  .workspace-member-card-head,
+  .workspace-member-card-meta,
+  .workspace-member-card-actions {
     flex-direction: column;
     align-items: flex-start;
   }
 
   .customer-detail-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .helper-box .fields.three-column,
+  .inline-time-fields {
     grid-template-columns: 1fr;
   }
 

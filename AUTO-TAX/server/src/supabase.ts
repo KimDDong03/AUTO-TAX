@@ -25,6 +25,23 @@ export function createSupabaseAdminClient() {
   });
 }
 
+export function createSupabasePublicClient() {
+  const supabaseUrl = requireEnv("SUPABASE_URL");
+  const publishableKey =
+    process.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY?.trim() || process.env.VITE_SUPABASE_ANON_KEY?.trim();
+
+  if (!publishableKey) {
+    throw new Error("VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY 또는 VITE_SUPABASE_ANON_KEY 환경변수가 설정되지 않았습니다.");
+  }
+
+  return createClient(supabaseUrl, publishableKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    }
+  });
+}
+
 export type OrganizationMemberRole = "owner" | "admin" | "operator" | "viewer";
 export type OrganizationStatus = "trial" | "active" | "suspended" | "churned";
 
@@ -41,6 +58,7 @@ export interface AuthenticatedOrganizationMembership {
 export interface AuthenticatedAppSession {
   userId: string;
   email: string | null;
+  isPlatformAdmin: boolean;
   organizations: AuthenticatedOrganizationMembership[];
   activeOrganizationId: string;
   activeOrganizationName: string;
@@ -73,6 +91,20 @@ type MembershipRow = {
 function envString(name: string): string | undefined {
   const value = process.env[name]?.trim();
   return value ? value : undefined;
+}
+
+function parseOpsAdminEmails(): Set<string> {
+  const raw = envString("AUTO_TAX_OPS_EMAILS");
+  if (!raw) {
+    return new Set();
+  }
+
+  return new Set(
+    raw
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+  );
 }
 
 async function listOrganizationMemberships(
@@ -199,10 +231,13 @@ export async function resolveAuthenticatedAppSession(
 
   const activeOrganization =
     organizations.find((item) => item.organizationId === preferredOrganizationId) ?? organizations[0];
+  const opsAdminEmails = parseOpsAdminEmails();
+  const normalizedEmail = user.email?.trim().toLowerCase() ?? null;
 
   return {
     userId: user.id,
     email: user.email ?? null,
+    isPlatformAdmin: normalizedEmail !== null && opsAdminEmails.has(normalizedEmail),
     organizations,
     activeOrganizationId: activeOrganization.organizationId,
     activeOrganizationName: activeOrganization.organizationName,

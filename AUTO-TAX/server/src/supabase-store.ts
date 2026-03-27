@@ -13,6 +13,7 @@ import type {
   PopbillState
 } from "./domain.js";
 import { createSupabaseAdminClient } from "./supabase.js";
+import { applyServerManagedSettings } from "./server-managed-settings.js";
 import type { AppStore } from "./store-contract.js";
 import {
   buildDraftMgtKey,
@@ -95,8 +96,8 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     smtpFromName: asString(integrationRow.smtp_from_name, "AUTO-TAX"),
     smtpFromEmail: asString(integrationRow.smtp_from_email),
     notificationEmails: asStringArray(settingsRow.notification_emails),
-    defaultIssueDay: asNumber(settingsRow.default_issue_day, 25),
-    defaultIssueHour: asNumber(settingsRow.default_issue_hour, 14),
+    defaultIssueDay: asNumber(settingsRow.default_issue_day, 26),
+    defaultIssueHour: asNumber(settingsRow.default_issue_hour, 9),
     defaultIssueMinute: asNumber(settingsRow.default_issue_minute, 0),
     mailPollMinutes: asNumber(settingsRow.mail_poll_minutes, 5),
     mailSyncStartAt: asNullableString(settingsRow.mail_sync_start_at),
@@ -570,7 +571,7 @@ export class SupabaseStore implements AppStore {
 
   async saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer> {
     const timestamp = nowIso();
-    const settings = await this.getSettings();
+    const settings = applyServerManagedSettings(await this.getSettings());
     const sharedPassword = settings.popbillSharedPassword;
     const idPrefix = normalizePopbillUserPrefix(settings.popbillUserIdPrefix);
     const normalizedBusinessNumber = digitsOnly(input.businessNumber);
@@ -1188,7 +1189,7 @@ export class SupabaseStore implements AppStore {
           updated_at: timestamp
         })
         .eq("id", asString(draftRow.id))
-        .in("status", ["review", "failed"])
+        .in("status", ["review", "failed", "scheduled"])
         .select("id")
         .maybeSingle()
     );

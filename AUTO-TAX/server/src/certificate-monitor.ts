@@ -1,6 +1,7 @@
 import type { Customer } from "./domain.js";
 import { sendNotification } from "./notifier.js";
 import { getCertificateExpireDate } from "./popbill-client.js";
+import { applyServerManagedSettings } from "./server-managed-settings.js";
 import type { AppStore } from "./store-contract.js";
 import { nowIso } from "./utils.js";
 
@@ -96,7 +97,7 @@ function buildNotificationBody(expiredCustomers: Customer[], expiringSoonCustome
 
 export async function refreshAllCertificateStatuses(store: AppStore): Promise<CertificateRefreshResult> {
   const checkedAt = nowIso();
-  const settings = await store.getSettings();
+  const settings = applyServerManagedSettings(await store.getSettings());
   const joinedCustomers = (await store.listCustomers()).filter((customer) => customer.popbillState === "joined");
   const results: CertificateRefreshItem[] = [];
 
