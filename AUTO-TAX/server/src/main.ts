@@ -4,7 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import cors from "cors";
+import cors, { type CorsOptions } from "cors";
 import express from "express";
 import { z } from "zod";
 import { issueDraftNow } from "./automation.js";
@@ -160,6 +160,10 @@ type RateLimiterOptions = {
 };
 
 const rateLimitEntries = new Map<string, RateLimitEntry>();
+const DEFAULT_ALLOWED_WEB_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173"
+] as const;
 
 function envString(name: string): string | undefined {
   const value = process.env[name];
@@ -168,9 +172,83 @@ function envString(name: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+function normalizeOrigin(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return new URL(trimmed).origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function collectAllowedOrigins(): Set<string> {
+  const allowed = new Set<string>();
+  const configuredOrigins = envString("AUTO_TAX_ALLOWED_ORIGINS");
+  const configuredServerUrl = envString("AUTO_TAX_SERVER_URL");
+
+  for (const origin of DEFAULT_ALLOWED_WEB_ORIGINS) {
+    allowed.add(origin);
+  }
+
+  if (configuredOrigins) {
+    for (const entry of configuredOrigins.split(",")) {
+      const normalized = normalizeOrigin(entry);
+      if (normalized) {
+        allowed.add(normalized);
+      }
+    }
+  }
+
+  const normalizedServerOrigin = normalizeOrigin(configuredServerUrl);
+  if (normalizedServerOrigin) {
+    allowed.add(normalizedServerOrigin);
+  }
+
+  return allowed;
+}
+
+function createCorsOptions(): CorsOptions {
+  const allowedOrigins = collectAllowedOrigins();
+
+  return {
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      const normalized = normalizeOrigin(origin);
+      callback(null, Boolean(normalized && allowedOrigins.has(normalized)));
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Authorization",
+      "Content-Type",
+      "X-Organization-Id",
+      "X-Auto-Tax-Job-Secret",
+      "X-Auto-Tax-Agent-Secret"
+    ],
+    exposedHeaders: ["Retry-After"],
+    maxAge: 60 * 60
+  };
+}
+
 function trimOrNull(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function isSecureRequest(req: express.Request): boolean {
+  if (req.secure) {
+    return true;
+  }
+
+  const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  return forwardedProto === "https";
 }
 
 function resolveRequestIp(req: express.Request): string {
@@ -478,20 +556,20 @@ const organizationMemberCreateSchema = z.object({
 });
 
 const passwordResetSchema = z.object({
-  password: z.string().trim().min(8)
+  password: z.string().trim().min(8).max(128)
 });
 
 const publicLoginSchema = z.object({
-  account: z.string().trim().min(1),
-  password: z.string().min(1)
+  account: z.string().trim().min(1).max(128),
+  password: z.string().min(1).max(256)
 });
 
 const supportRequestSchema = z.object({
-  companyName: z.string().trim().min(1),
-  requesterName: z.string().trim().min(1),
-  requesterEmail: z.string().trim().email(),
-  requesterPhone: z.string().trim().min(1),
-  message: z.string().trim().min(1)
+  companyName: z.string().trim().min(1).max(120),
+  requesterName: z.string().trim().min(1).max(80),
+  requesterEmail: z.string().trim().email().max(255),
+  requesterPhone: z.string().trim().min(1).max(40),
+  message: z.string().trim().min(1).max(2000)
 });
 
 const renewalAgentProcessSchema = z.object({
@@ -676,6 +754,11 @@ function setRequestLocals(res: express.Response, authContext: AuthenticatedAppSe
   const locals = res.locals as RequestLocals;
   locals.authContext = authContext;
   locals.requestStore = requestStore;
+}
+
+function getLoggingStore(res: express.Response, fallbackStore?: AppStore | null): AppStore | null {
+  const locals = res.locals as RequestLocals;
+  return locals.requestStore ?? fallbackStore ?? null;
 }
 
 function getRequestStore(res: express.Response, _fallbackStore?: AppStore | null): AppStore {
@@ -1048,8 +1131,29 @@ async function listOrganizationMembers(organizationId: string): Promise<Organiza
 export async function createApp(store: AppStore | null, webDist: string) {
   const app = express();
   const renewalAutomation = new RenewalAutomationManager();
-  app.use(cors());
+  app.disable("x-powered-by");
+  app.set("trust proxy", 1);
+  app.use(cors(createCorsOptions()));
   app.use(express.json({ limit: "2mb" }));
+  app.use((req, res, next) => {
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    );
+
+    if (req.path.startsWith("/api")) {
+      res.setHeader("Cache-Control", "no-store");
+    }
+
+    if (isSecureRequest(req)) {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+
+    next();
+  });
 
   app.use("/api", async (req, res, next) => {
     if (isInternalJobApiPath(req) && hasValidJobSecret(req)) {
@@ -1093,8 +1197,12 @@ export async function createApp(store: AppStore | null, webDist: string) {
       }
       next();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "로그인 확인에 실패했습니다.";
-      res.status(401).json({ error: message });
+      if (error instanceof HttpError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+
+      res.status(401).json({ error: "로그인 확인에 실패했습니다." });
     }
   });
 
@@ -1111,11 +1219,11 @@ export async function createApp(store: AppStore | null, webDist: string) {
         userAgent: req.header("user-agent") ?? null
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "문의 메일 전송에 실패했습니다.";
-      if (message.includes("문의 메일 발송 설정")) {
-        throw new HttpError(503, message);
-      }
-      throw error;
+      const loggingStore = getLoggingStore(res, store);
+      void loggingStore?.createLog("error", "support-request", "작업공간 개통 문의 메일 전송에 실패했습니다.", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw new HttpError(503, "문의 접수가 일시적으로 불가능합니다. 잠시 후 다시 시도해주세요.");
     }
 
     res.status(201).json({ ok: true });
@@ -1926,7 +2034,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
       res.json({
         available: false,
         isTest: settings.popbillIsTest,
-        referenceCorpNum,
+        referenceCorpNum: maskBusinessNumber(referenceCorpNum),
         partnerRemainPoint: null,
         taxInvoiceUnitCost: null,
         message
@@ -1936,7 +2044,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
 
   app.get("/api/popbill/partner-charge-url", async (_req, res) => {
     requirePlatformAdmin(res);
-    const requestStore = store ? getRequestStore(res, store) : null;
+    const loggingStore = getLoggingStore(res, store);
     const settings = store ? await getServerManagedSettings(store) : applyServerManagedSettings(createEmptySettings());
     const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
 
@@ -1951,7 +2059,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
     }
 
     const url = await getPartnerChargeURL(settings, referenceCorpNum);
-    await requestStore?.createLog("info", "popbill", "파트너 포인트 충전 URL을 발급했습니다.", {
+    await loggingStore?.createLog("info", "popbill", "파트너 포인트 충전 URL을 발급했습니다.", {
       referenceCorpNum,
       isTest: settings.popbillIsTest
     });
@@ -2365,8 +2473,11 @@ export async function createApp(store: AppStore | null, webDist: string) {
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const message = error instanceof Error ? error.message : "서버 오류";
-    const requestStore = getRequestStore(res, store);
-    void requestStore.createLog("error", "api", "API 요청 처리에 실패했습니다.", { error: message });
+    const loggingStore = getLoggingStore(res, store);
+    void loggingStore?.createLog("error", "api", "API 요청 처리에 실패했습니다.", {
+      error: message,
+      stack: error instanceof Error ? error.stack ?? null : null
+    });
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: error.flatten() });
       return;
@@ -2375,7 +2486,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
       res.status(error.status).json({ error: error.message });
       return;
     }
-    res.status(500).json({ error: message });
+    res.status(500).json({ error: "서버 오류가 발생했습니다." });
   });
 
   if (fs.existsSync(webDist)) {
