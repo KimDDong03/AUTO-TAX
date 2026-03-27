@@ -337,6 +337,7 @@ export interface OpsWorkspaceSummary {
 export interface OpsWorkspaceCreateResponse {
   workspace: OpsWorkspaceSummary;
   ownerAction: "linked-existing-user" | "created-user";
+  workspaceAction: "created" | "reused-existing";
 }
 
 export interface OrganizationMemberSummary {

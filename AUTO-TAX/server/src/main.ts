@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -72,6 +73,12 @@ type OpsWorkspaceSummary = {
   currentMonthIssuedDraftCount: number;
   lastIssuedAt: string | null;
   createdAt: string;
+};
+
+type OpsWorkspaceCreateResponse = {
+  workspace: OpsWorkspaceSummary;
+  ownerAction: "linked-existing-user" | "created-user";
+  workspaceAction: "created" | "reused-existing";
 };
 
 type OrganizationMemberSummary = {
@@ -259,6 +266,27 @@ function formatYearMonthInSeoul(value: Date | string): string {
     year: "numeric",
     month: "2-digit"
   }).format(date);
+}
+
+function normalizeWorkspaceName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function createDeterministicUuid(seed: string): string {
+  const hash = createHash("sha256").update(seed).digest();
+  const bytes = Buffer.from(hash.subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+function createWorkspaceSeed(organizationName: string, ownerLoginId: string, businessNumber: string): string {
+  if (businessNumber) {
+    return `workspace:business:${businessNumber}`;
+  }
+
+  return `workspace:name:${normalizeWorkspaceName(organizationName)}|owner:${normalizeLoginId(ownerLoginId)}`;
 }
 
 const settingsSchema = z.object({
@@ -704,12 +732,18 @@ async function findAuthUserByLoginId(adminClient: ReturnType<typeof createSupaba
   return users.find((user) => normalizeLoginId(user.loginId ?? "") === normalizedLoginId) ?? null;
 }
 
-async function listOpsWorkspaces(): Promise<OpsWorkspaceSummary[]> {
+async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsWorkspaceSummary[]> {
   const adminClient = createSupabaseAdminClient();
-  const { data: organizations, error: organizationsError } = await adminClient
+  let organizationsQuery = adminClient
     .from("organizations")
     .select("id, name, business_number, plan_code, status, created_at")
     .order("created_at", { ascending: false });
+
+  if (organizationIdsFilter && organizationIdsFilter.length > 0) {
+    organizationsQuery = organizationsQuery.in("id", organizationIdsFilter);
+  }
+
+  const { data: organizations, error: organizationsError } = await organizationsQuery;
 
   if (organizationsError) {
     throw new Error(`작업공간 목록 조회에 실패했습니다: ${organizationsError.message}`);
@@ -808,6 +842,11 @@ async function listOpsWorkspaces(): Promise<OpsWorkspaceSummary[]> {
       createdAt: String(organization.created_at)
     };
   });
+}
+
+async function getOpsWorkspaceSummaryById(organizationId: string): Promise<OpsWorkspaceSummary | null> {
+  const [workspace] = await listOpsWorkspaces([organizationId]);
+  return workspace ?? null;
 }
 
 async function listOrganizationMembers(organizationId: string): Promise<OrganizationMemberSummary[]> {
@@ -1180,22 +1219,9 @@ export async function createApp(store: AppStore | null, webDist: string) {
     const adminClient = createSupabaseAdminClient();
     const normalizedBusinessNumber = digitsOnly(payload.organizationBusinessNumber);
     const normalizedOwnerLoginId = normalizeLoginId(payload.ownerLoginId);
-
-    if (normalizedBusinessNumber) {
-      const { data: existingOrganization, error: existingOrganizationError } = await adminClient
-        .from("organizations")
-        .select("id")
-        .eq("business_number", normalizedBusinessNumber)
-        .maybeSingle();
-
-      if (existingOrganizationError) {
-        throw new Error(`기존 작업공간 확인에 실패했습니다: ${existingOrganizationError.message}`);
-      }
-
-      if (existingOrganization) {
-        throw new HttpError(409, "같은 사업자번호를 가진 작업공간이 이미 있습니다.");
-      }
-    }
+    const workspaceId = createDeterministicUuid(
+      createWorkspaceSeed(payload.organizationName, normalizedOwnerLoginId, normalizedBusinessNumber)
+    );
 
     let ownerUser = await findAuthUserByLoginId(adminClient, normalizedOwnerLoginId);
     let createdUserId: string | null = null;
@@ -1218,24 +1244,48 @@ export async function createApp(store: AppStore | null, webDist: string) {
       });
 
       if (createUserError || !createdUserResult.user) {
-        throw new Error(`owner 계정 생성에 실패했습니다: ${createUserError?.message ?? "사용자 생성 실패"}`);
+        ownerUser = await findAuthUserByLoginId(adminClient, normalizedOwnerLoginId);
+        if (!ownerUser) {
+          throw new Error(`owner 계정 생성에 실패했습니다: ${createUserError?.message ?? "사용자 생성 실패"}`);
+        }
+      } else {
+        ownerUser = {
+          id: createdUserResult.user.id,
+          email: createdUserResult.user.email ?? createWorkspaceLoginEmail(normalizedOwnerLoginId),
+          loginId: normalizedOwnerLoginId,
+          displayName: payload.ownerDisplayName || null
+        };
+        createdUserId = createdUserResult.user.id;
+      }
+    }
+
+    if (normalizedBusinessNumber) {
+      const { data: existingOrganizations, error: existingOrganizationError } = await adminClient
+        .from("organizations")
+        .select("id")
+        .eq("business_number", normalizedBusinessNumber);
+
+      if (existingOrganizationError) {
+        throw new Error(`기존 작업공간 확인에 실패했습니다: ${existingOrganizationError.message}`);
       }
 
-      ownerUser = {
-        id: createdUserResult.user.id,
-        email: createdUserResult.user.email ?? createWorkspaceLoginEmail(normalizedOwnerLoginId),
-        loginId: normalizedOwnerLoginId,
-        displayName: payload.ownerDisplayName || null
-      };
-      createdUserId = createdUserResult.user.id;
+      const conflictingOrganization = (existingOrganizations ?? []).find(
+        (organization) => String(organization.id) !== workspaceId
+      );
+
+      if (conflictingOrganization) {
+        throw new HttpError(409, "같은 사업자번호를 가진 작업공간이 이미 있습니다.");
+      }
     }
 
     let createdOrganizationId: string | null = null;
+    let workspaceAction: OpsWorkspaceCreateResponse["workspaceAction"] = "created";
 
     try {
       const { data: organization, error: organizationError } = await adminClient
         .from("organizations")
         .insert({
+          id: workspaceId,
           name: payload.organizationName,
           business_number: normalizedBusinessNumber || null,
           plan_code: payload.planCode,
@@ -1244,11 +1294,34 @@ export async function createApp(store: AppStore | null, webDist: string) {
         .select("id, name, business_number, plan_code, status, created_at")
         .single();
 
-      if (organizationError || !organization) {
-        throw new Error(`작업공간 생성에 실패했습니다: ${organizationError?.message ?? "조직 생성 실패"}`);
+      let organizationRow = organization;
+      if (organizationError || !organizationRow) {
+        const errorCode = typeof organizationError === "object" && organizationError && "code" in organizationError ? String(organizationError.code ?? "") : "";
+        const isDuplicate = errorCode === "23505" || (organizationError?.message ?? "").toLowerCase().includes("duplicate");
+        if (!isDuplicate) {
+          throw new Error(`작업공간 생성에 실패했습니다: ${organizationError?.message ?? "조직 생성 실패"}`);
+        }
+
+        const { data: existingOrganizationRow, error: existingOrganizationRowError } = await adminClient
+          .from("organizations")
+          .select("id, name, business_number, plan_code, status, created_at")
+          .eq("id", workspaceId)
+          .maybeSingle();
+
+        if (existingOrganizationRowError) {
+          throw new Error(`기존 작업공간 조회 실패: ${existingOrganizationRowError.message}`);
+        }
+
+        organizationRow = existingOrganizationRow;
+
+        if (!organizationRow) {
+          throw new Error("중복 요청으로 보이지만 기존 작업공간을 다시 찾지 못했습니다.");
+        }
+
+        workspaceAction = "reused-existing";
       }
 
-      createdOrganizationId = String(organization.id);
+      createdOrganizationId = String(organizationRow.id);
 
       const { error: settingsError } = await adminClient.from("organization_settings").upsert(
         {
@@ -1272,55 +1345,66 @@ export async function createApp(store: AppStore | null, webDist: string) {
         throw new Error(`작업공간 연동 설정 생성에 실패했습니다: ${integrationsError.message}`);
       }
 
-      const { error: membershipError } = await adminClient.from("organization_members").insert({
-        organization_id: createdOrganizationId,
-        user_id: ownerUser.id,
-        role: "owner",
-        display_name: payload.ownerDisplayName || null,
-        invited_by: authContext.userId
-      });
+      const { data: existingOwnerMember, error: existingOwnerMemberError } = await adminClient
+        .from("organization_members")
+        .select("user_id")
+        .eq("organization_id", createdOrganizationId)
+        .eq("role", "owner")
+        .maybeSingle();
+
+      if (existingOwnerMemberError) {
+        throw new Error(`기존 owner 확인에 실패했습니다: ${existingOwnerMemberError.message}`);
+      }
+
+      if (existingOwnerMember && String(existingOwnerMember.user_id) !== ownerUser.id) {
+        throw new HttpError(409, "같은 고객사 작업공간이 이미 개통되어 있습니다. 기존 작업공간을 확인하세요.");
+      }
+
+      const { error: membershipError } = await adminClient.from("organization_members").upsert(
+        {
+          organization_id: createdOrganizationId,
+          user_id: ownerUser.id,
+          role: "owner",
+          display_name: payload.ownerDisplayName || null,
+          invited_by: authContext.userId
+        },
+        { onConflict: "organization_id,user_id" }
+      );
 
       if (membershipError) {
         throw new Error(`첫 owner 연결에 실패했습니다: ${membershipError.message}`);
       }
 
-      const { error: logError } = await adminClient.from("app_logs").insert({
-        organization_id: createdOrganizationId,
-        actor_user_id: authContext.userId,
-        level: "info",
-        scope: "ops",
-        message: "플랫폼 관리자가 고객사 작업공간을 개통했습니다.",
-        context_json: {
-          ownerLoginId: ownerUser.loginId ?? normalizedOwnerLoginId,
-          ownerAction: createdUserId ? "created-user" : "linked-existing-user"
-        }
-      });
+      if (workspaceAction === "created") {
+        const { error: logError } = await adminClient.from("app_logs").insert({
+          organization_id: createdOrganizationId,
+          actor_user_id: authContext.userId,
+          level: "info",
+          scope: "ops",
+          message: "플랫폼 관리자가 고객사 작업공간을 개통했습니다.",
+          context_json: {
+            ownerLoginId: ownerUser.loginId ?? normalizedOwnerLoginId,
+            ownerAction: createdUserId ? "created-user" : "linked-existing-user"
+          }
+        });
 
-      if (logError) {
-        throw new Error(`개통 로그 저장에 실패했습니다: ${logError.message}`);
+        if (logError) {
+          throw new Error(`개통 로그 저장에 실패했습니다: ${logError.message}`);
+        }
       }
 
-      const workspace: OpsWorkspaceSummary = {
-        organizationId: createdOrganizationId,
-        organizationName: String(organization.name),
-        organizationBusinessNumber: organization.business_number ? String(organization.business_number) : null,
-        organizationPlanCode: String(organization.plan_code),
-        organizationStatus: String(organization.status) as OpsWorkspaceSummary["organizationStatus"],
-        ownerLoginId: ownerUser.loginId ?? normalizedOwnerLoginId,
-        ownerDisplayName: payload.ownerDisplayName || null,
-        memberCount: 1,
-        issuedDraftCount: 0,
-        currentMonthIssuedDraftCount: 0,
-        lastIssuedAt: null,
-        createdAt: String(organization.created_at)
-      };
+      const workspace = await getOpsWorkspaceSummaryById(createdOrganizationId);
+      if (!workspace) {
+        throw new Error("개통 결과를 다시 읽지 못했습니다.");
+      }
 
-      res.status(201).json({
+      res.status(workspaceAction === "created" ? 201 : 200).json({
         workspace,
-        ownerAction: createdUserId ? "created-user" : "linked-existing-user"
+        ownerAction: createdUserId ? "created-user" : "linked-existing-user",
+        workspaceAction
       });
     } catch (error) {
-      if (createdOrganizationId) {
+      if (createdOrganizationId && workspaceAction === "created") {
         await adminClient.from("organizations").delete().eq("id", createdOrganizationId);
       }
 
