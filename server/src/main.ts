@@ -215,7 +215,7 @@ function createEmptySettings(): AppSettings {
     popbillSecretKey: "",
     popbillIsTest: false,
     popbillPartnerCorpNum: "",
-    popbillUserIdPrefix: "HAE_",
+    popbillUserIdPrefix: "TEST_",
     popbillSharedPassword: "",
     operatorContactName: "",
     operatorContactEmail: "",
