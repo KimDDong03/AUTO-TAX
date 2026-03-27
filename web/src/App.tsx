@@ -342,7 +342,7 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
     imapPort: String(settings.imapPort),
     imapSecure: settings.imapSecure,
     mailAddress: settings.imapUser || settings.smtpUser || settings.smtpFromEmail,
-    mailPassword: settings.imapPass || settings.smtpPass,
+    mailPassword: "",
     imapMailbox: settings.imapMailbox,
     smtpHost: settings.smtpHost,
     smtpPort: String(settings.smtpPort),
@@ -355,7 +355,7 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
     mailSyncStartAt: settings.mailSyncStartAt ?? "",
     timezone: settings.timezone,
     popbillUserIdPrefix: settings.popbillUserIdPrefix,
-    popbillSharedPassword: settings.popbillSharedPassword,
+    popbillSharedPassword: "",
     operatorContactName: settings.operatorContactName,
     operatorContactEmail: settings.operatorContactEmail,
     operatorContactTel: settings.operatorContactTel,
@@ -2187,7 +2187,7 @@ export function App() {
     return days !== null && days >= 0 && days <= 30;
   });
   const settingsHealth = {
-    mailReady: Boolean(data.settings.imapUser && data.settings.imapPass && data.settings.smtpUser && data.settings.smtpPass),
+    mailReady: Boolean(data.settings.imapUser && data.settings.smtpUser && data.settings.mailPasswordConfigured),
     popbillReady: data.settings.popbillConfigured,
     operatorReady: data.settings.operatorConfigured
   };
@@ -3051,6 +3051,7 @@ export function App() {
                           type={revealedFields.mailPassword ? "text" : "password"}
                           value={settingsForm.mailPassword}
                           onChange={(event) => setSettingsForm((prev) => prev && { ...prev, mailPassword: event.target.value })}
+                          placeholder={data.settings.mailPasswordConfigured ? "변경할 때만 다시 입력" : "앱 비밀번호 입력"}
                         />
                         <button
                           type="button"
@@ -3061,7 +3062,11 @@ export function App() {
                           <RevealIcon open={Boolean(revealedFields.mailPassword)} />
                         </button>
                       </div>
-                      <span className="field-hint">위 메일 주소로 로그인할 때 쓰는 비밀번호입니다. 수신/발신 모두 이 값을 사용합니다.</span>
+                      <span className="field-hint">
+                        {data.settings.mailPasswordConfigured
+                          ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 연결 시 빈칸이면 서버에 저장된 값을 사용합니다."
+                          : "위 메일 주소로 로그인할 때 쓰는 비밀번호입니다. 수신/발신 모두 이 값을 사용합니다."}
+                      </span>
                     </label>
                     <label className="full">
                       알림 수신 메일
@@ -3158,7 +3163,7 @@ export function App() {
                               type={revealedFields.popbillSharedPassword ? "text" : "password"}
                               value={settingsForm.popbillSharedPassword}
                               onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
-                              placeholder="신규 고객 공통 비밀번호"
+                              placeholder={data.settings.popbillSharedPasswordConfigured ? "변경할 때만 다시 입력" : "신규 고객 공통 비밀번호"}
                             />
                             <button
                               type="button"
@@ -3169,7 +3174,11 @@ export function App() {
                               <RevealIcon open={Boolean(revealedFields.popbillSharedPassword)} />
                             </button>
                           </div>
-                          <span className="field-hint">신규 고객 팝빌 계정을 만들 때 초기 비밀번호로 사용합니다.</span>
+                          <span className="field-hint">
+                            {data.settings.popbillSharedPasswordConfigured
+                              ? "이미 저장된 기본 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요."
+                              : "신규 고객 팝빌 계정을 만들 때 초기 비밀번호로 사용합니다."}
+                          </span>
                         </label>
                         <label>
                           운영 담당자명
