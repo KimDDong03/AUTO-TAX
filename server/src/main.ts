@@ -8,7 +8,7 @@ import express from "express";
 import { z } from "zod";
 import { issueDraftNow } from "./automation.js";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
-import type { AppSettings, CustomerInput } from "./domain.js";
+import type { AppSettings, CustomerInput, DashboardPayload } from "./domain.js";
 import { testMailConnections } from "./mail-test.js";
 import { reprocessInboxMessage } from "./mail-reprocess.js";
 import { syncMailbox } from "./mail-sync.js";
@@ -38,7 +38,7 @@ import {
   type AuthenticatedAppSession
 } from "./supabase.js";
 import { SupabaseStore } from "./supabase-store.js";
-import { digitsOnly } from "./utils.js";
+import { digitsOnly, nowIso } from "./utils.js";
 
 export type StartServerOptions = {
   port?: number;
@@ -50,6 +50,12 @@ export type StartServerOptions = {
 type RequestLocals = {
   authContext?: AuthenticatedAppSession;
   requestStore?: AppStore;
+};
+
+type ActiveOrganizationSession = AuthenticatedAppSession & {
+  activeOrganizationId: string;
+  activeOrganizationName: string;
+  activeOrganizationRole: NonNullable<AuthenticatedAppSession["activeOrganizationRole"]>;
 };
 
 type OpsWorkspaceSummary = {
@@ -174,6 +180,64 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
       settings.operatorContactEmail &&
       settings.operatorContactTel
     )
+  };
+}
+
+function createEmptySettings(): AppSettings {
+  const timestamp = nowIso();
+  return {
+    id: 1,
+    imapHost: "",
+    imapPort: 993,
+    imapSecure: true,
+    imapUser: "",
+    imapPass: "",
+    imapMailbox: "INBOX",
+    smtpHost: "",
+    smtpPort: 465,
+    smtpSecure: true,
+    smtpUser: "",
+    smtpPass: "",
+    smtpFromName: "AUTO-TAX",
+    smtpFromEmail: "",
+    notificationEmails: [],
+    defaultIssueDay: 26,
+    defaultIssueHour: 9,
+    defaultIssueMinute: 0,
+    mailPollMinutes: 5,
+    mailSyncStartAt: null,
+    timezone: "Asia/Seoul",
+    popbillLinkId: "",
+    popbillSecretKey: "",
+    popbillIsTest: false,
+    popbillPartnerCorpNum: "",
+    popbillUserIdPrefix: "HAE_",
+    popbillSharedPassword: "",
+    operatorContactName: "",
+    operatorContactEmail: "",
+    operatorContactTel: "",
+    schedulerEnabled: true,
+    certLastCheckedAt: null,
+    certAlertLastSentAt: null,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+}
+
+function createEmptyBootstrapWorkspace(): Omit<DashboardPayload, "logs" | "renewalAutomation"> {
+  return {
+    settings: createEmptySettings(),
+    customers: [],
+    drafts: [],
+    inbox: [],
+    counts: {
+      actionableDrafts: 0,
+      customers: 0,
+      reviewDrafts: 0,
+      scheduledDrafts: 0,
+      failedDrafts: 0,
+      unmatchedMessages: 0
+    }
   };
 }
 
@@ -463,15 +527,18 @@ function isInternalJobApiPath(req: express.Request): boolean {
   return req.path === "/internal/jobs/dispatch" || req.path === "/internal/jobs/run";
 }
 
-function setRequestLocals(res: express.Response, authContext: AuthenticatedAppSession, requestStore: AppStore) {
+function setRequestLocals(res: express.Response, authContext: AuthenticatedAppSession, requestStore?: AppStore) {
   const locals = res.locals as RequestLocals;
   locals.authContext = authContext;
   locals.requestStore = requestStore;
 }
 
-function getRequestStore(res: express.Response, fallbackStore: AppStore): AppStore {
+function getRequestStore(res: express.Response, _fallbackStore?: AppStore | null): AppStore {
   const locals = res.locals as RequestLocals;
-  return locals.requestStore ?? fallbackStore;
+  if (!locals.requestStore) {
+    throw new HttpError(403, "선택된 고객사 작업공간이 없습니다.");
+  }
+  return locals.requestStore;
 }
 
 function requireAuthContext(res: express.Response): AuthenticatedAppSession {
@@ -490,16 +557,24 @@ function requirePlatformAdmin(res: express.Response): AuthenticatedAppSession {
   return authContext;
 }
 
-function requireOrganizationOwner(res: express.Response): AuthenticatedAppSession {
+function requireActiveOrganization(res: express.Response): ActiveOrganizationSession {
   const authContext = requireAuthContext(res);
+  if (!authContext.activeOrganizationId || !authContext.activeOrganizationRole) {
+    throw new HttpError(403, "선택된 고객사 작업공간이 없습니다.");
+  }
+  return authContext as ActiveOrganizationSession;
+}
+
+function requireOrganizationOwner(res: express.Response): ActiveOrganizationSession {
+  const authContext = requireActiveOrganization(res);
   if (authContext.activeOrganizationRole !== "owner") {
     throw new HttpError(403, "소유자만 사용자 관리를 할 수 있습니다.");
   }
   return authContext;
 }
 
-function requireWorkspaceEditor(res: express.Response): AuthenticatedAppSession {
-  const authContext = requireAuthContext(res);
+function requireWorkspaceEditor(res: express.Response): ActiveOrganizationSession {
+  const authContext = requireActiveOrganization(res);
   if (authContext.activeOrganizationRole === "viewer") {
     throw new HttpError(403, "이 작업은 작업공간 멤버만 실행할 수 있습니다.");
   }
@@ -699,7 +774,7 @@ async function listOrganizationMembers(organizationId: string): Promise<Organiza
   }));
 }
 
-export async function createApp(store: AppStore, webDist: string) {
+export async function createApp(store: AppStore | null, webDist: string) {
   const app = express();
   const renewalAutomation = new RenewalAutomationManager();
   app.use(cors());
@@ -724,13 +799,17 @@ export async function createApp(store: AppStore, webDist: string) {
 
     try {
       const authContext = await resolveAuthenticatedAppSession(accessToken, req.header("x-organization-id"));
-      const requestStore = new SupabaseStore({
-        organizationId: authContext.activeOrganizationId,
-        actorUserId: authContext.userId,
-        bootstrapOrganization: false
-      });
-      await requestStore.initialize();
-      setRequestLocals(res, authContext, requestStore);
+      if (authContext.activeOrganizationId) {
+        const requestStore = new SupabaseStore({
+          organizationId: authContext.activeOrganizationId,
+          actorUserId: authContext.userId,
+          bootstrapOrganization: false
+        });
+        await requestStore.initialize();
+        setRequestLocals(res, authContext, requestStore);
+      } else {
+        setRequestLocals(res, authContext);
+      }
       next();
     } catch (error) {
       const message = error instanceof Error ? error.message : "로그인 확인에 실패했습니다.";
@@ -793,8 +872,21 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.get("/api/bootstrap", async (_req, res) => {
-    const requestStore = getRequestStore(res, store);
     const authContext = requireAuthContext(res);
+    if (!authContext.activeOrganizationId) {
+      if (!authContext.isPlatformAdmin) {
+        throw new HttpError(403, "접속 가능한 작업공간이 없습니다.");
+      }
+
+      res.json({
+        ...createEmptyBootstrapWorkspace(),
+        settings: toClientSettings(createEmptySettings()),
+        auth: authContext
+      });
+      return;
+    }
+
+    const requestStore = getRequestStore(res, store);
     const dashboard = await requestStore.getDashboard();
     const { logs: _logs, ...workspaceDashboard } = dashboard;
     res.json({
@@ -1241,11 +1333,12 @@ export async function createApp(store: AppStore, webDist: string) {
 
   app.post("/api/automation/renewal-jobs/bridge-probe", async (req, res) => {
     requirePlatformAdmin(res);
-    const requestStore = getRequestStore(res, store);
     const payload = renewalBridgeProbeRequestSchema.parse(req.body ?? {});
     let customerName: string | null = null;
+    let requestStore: AppStore | null = null;
 
     if (payload.customerId !== undefined && payload.customerId !== null) {
+      requestStore = getRequestStore(res, store);
       const customer = await requestStore.getCustomer(payload.customerId);
       if (!customer) {
         res.status(404).json({ error: "고객을 찾지 못했습니다." });
@@ -1260,7 +1353,7 @@ export async function createApp(store: AppStore, webDist: string) {
       requestedBy: requireAuthContext(res).email ?? "web-ui"
     });
 
-    await requestStore.createLog("info", "renewal-agent", "로컬 인증서 목록 진단 작업을 큐에 추가했습니다.", {
+    await requestStore?.createLog("info", "renewal-agent", "로컬 인증서 목록 진단 작업을 큐에 추가했습니다.", {
       jobId: job.id,
       customerId: job.customerId,
       customerName: job.customerName
@@ -1271,11 +1364,12 @@ export async function createApp(store: AppStore, webDist: string) {
 
   app.post("/api/automation/renewal-jobs/certid-probe", async (req, res) => {
     requirePlatformAdmin(res);
-    const requestStore = getRequestStore(res, store);
     const payload = renewalCertIdProbeRequestSchema.parse(req.body ?? {});
     let customerName: string | null = null;
+    let requestStore: AppStore | null = null;
 
     if (payload.customerId !== undefined && payload.customerId !== null) {
+      requestStore = getRequestStore(res, store);
       const customer = await requestStore.getCustomer(payload.customerId);
       if (!customer) {
         res.status(404).json({ error: "고객을 찾지 못했습니다." });
@@ -1292,7 +1386,7 @@ export async function createApp(store: AppStore, webDist: string) {
       requestedBy: requireAuthContext(res).email ?? "web-ui"
     });
 
-    await requestStore.createLog("info", "renewal-agent", "로컬 인증서 certID 조회 작업을 큐에 추가했습니다.", {
+    await requestStore?.createLog("info", "renewal-agent", "로컬 인증서 certID 조회 작업을 큐에 추가했습니다.", {
       jobId: job.id,
       customerId: job.customerId,
       customerName: job.customerName,
@@ -1305,11 +1399,12 @@ export async function createApp(store: AppStore, webDist: string) {
 
   app.post("/api/automation/renewal-jobs/preflight", async (req, res) => {
     requirePlatformAdmin(res);
-    const requestStore = getRequestStore(res, store);
     const payload = renewalPreflightRequestSchema.parse(req.body ?? {});
     let customerName: string | null = null;
+    let requestStore: AppStore | null = null;
 
     if (payload.customerId !== undefined && payload.customerId !== null) {
+      requestStore = getRequestStore(res, store);
       const customer = await requestStore.getCustomer(payload.customerId);
       if (!customer) {
         res.status(404).json({ error: "고객을 찾지 못했습니다." });
@@ -1326,7 +1421,7 @@ export async function createApp(store: AppStore, webDist: string) {
       requestedBy: requireAuthContext(res).email ?? "web-ui"
     });
 
-    await requestStore.createLog("info", "renewal-agent", "로컬 인증서 갱신 경로 분석 작업을 큐에 추가했습니다.", {
+    await requestStore?.createLog("info", "renewal-agent", "로컬 인증서 갱신 경로 분석 작업을 큐에 추가했습니다.", {
       jobId: job.id,
       customerId: job.customerId,
       customerName: job.customerName,
@@ -1354,21 +1449,23 @@ export async function createApp(store: AppStore, webDist: string) {
     const payload = renewalAgentCompleteSchema.parse(req.body);
     const job = renewalAutomation.completeJob(params.id, payload.agentId, payload.result);
 
-    await store.createLog(
-      "info",
-      "renewal-agent",
-      job.type === "certid-probe"
-        ? "로컬 인증서 certID 조회 작업이 완료되었습니다."
-        : job.type === "renewal-preflight"
-          ? "로컬 인증서 갱신 경로 분석 작업이 완료되었습니다."
-          : "로컬 인증서 목록 진단 작업이 완료되었습니다.",
-      {
-      jobId: job.id,
-      type: job.type,
-      claimedBy: job.claimedBy,
-      summary: job.summary
-      }
-    );
+    if (store) {
+      await store.createLog(
+        "info",
+        "renewal-agent",
+        job.type === "certid-probe"
+          ? "로컬 인증서 certID 조회 작업이 완료되었습니다."
+          : job.type === "renewal-preflight"
+            ? "로컬 인증서 갱신 경로 분석 작업이 완료되었습니다."
+            : "로컬 인증서 목록 진단 작업이 완료되었습니다.",
+        {
+          jobId: job.id,
+          type: job.type,
+          claimedBy: job.claimedBy,
+          summary: job.summary
+        }
+      );
+    }
 
     res.json(job);
   });
@@ -1378,21 +1475,23 @@ export async function createApp(store: AppStore, webDist: string) {
     const payload = renewalAgentFailSchema.parse(req.body);
     const job = renewalAutomation.failJob(params.id, payload.agentId, payload.error);
 
-    await store.createLog(
-      "warn",
-      "renewal-agent",
-      job.type === "certid-probe"
-        ? "로컬 인증서 certID 조회 작업이 실패했습니다."
-        : job.type === "renewal-preflight"
-          ? "로컬 인증서 갱신 경로 분석 작업이 실패했습니다."
-          : "로컬 인증서 목록 진단 작업이 실패했습니다.",
-      {
-      jobId: job.id,
-      type: job.type,
-      claimedBy: job.claimedBy,
-      error: job.error
-      }
-    );
+    if (store) {
+      await store.createLog(
+        "warn",
+        "renewal-agent",
+        job.type === "certid-probe"
+          ? "로컬 인증서 certID 조회 작업이 실패했습니다."
+          : job.type === "renewal-preflight"
+            ? "로컬 인증서 갱신 경로 분석 작업이 실패했습니다."
+            : "로컬 인증서 목록 진단 작업이 실패했습니다.",
+        {
+          jobId: job.id,
+          type: job.type,
+          claimedBy: job.claimedBy,
+          error: job.error
+        }
+      );
+    }
 
     res.json(job);
   });
@@ -1404,8 +1503,7 @@ export async function createApp(store: AppStore, webDist: string) {
 
   app.get("/api/popbill/partner-points", async (_req, res) => {
     requirePlatformAdmin(res);
-    const requestStore = getRequestStore(res, store);
-    const settings = await getServerManagedSettings(requestStore);
+    const settings = store ? await getServerManagedSettings(store) : applyServerManagedSettings(createEmptySettings());
     const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
 
     if (!settings.popbillLinkId || !settings.popbillSecretKey) {
@@ -1861,8 +1959,12 @@ export async function createApp(store: AppStore, webDist: string) {
 
   app.get("/api/logs", async (_req, res) => {
     requirePlatformAdmin(res);
-    const requestStore = getRequestStore(res, store);
-    res.json(await requestStore.listLogs());
+    if (!store) {
+      res.json([]);
+      return;
+    }
+
+    res.json(await store.listLogs());
   });
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -1894,12 +1996,24 @@ export async function createApp(store: AppStore, webDist: string) {
   return app;
 }
 
-export async function createConfiguredStore(options: { bootstrapOrganization?: boolean } = {}) {
+function isNoOrganizationStoreError(error: unknown): boolean {
+  return error instanceof Error && error.message === "사용 가능한 조직이 없습니다.";
+}
+
+export async function createConfiguredStore(options: { bootstrapOrganization?: boolean } = {}): Promise<AppStore | null> {
   const store = new SupabaseStore({
-    bootstrapOrganization: options.bootstrapOrganization ?? true
+    bootstrapOrganization: options.bootstrapOrganization ?? false
   });
-  await store.initialize();
-  return store;
+
+  try {
+    await store.initialize();
+    return store;
+  } catch (error) {
+    if (isNoOrganizationStoreError(error)) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function startServer(options: StartServerOptions = {}) {
@@ -1910,22 +2024,26 @@ export async function startServer(options: StartServerOptions = {}) {
   const port = options.port ?? Number(process.env.PORT ?? 4300);
 
   const store = await createConfiguredStore();
-  const scheduler = new Scheduler(store);
+  const scheduler = store ? new Scheduler(store) : null;
   const app = await createApp(store, webDist);
   const server = app.listen(port, () => {
-    void store.createLog("info", "server", "AUTO-TAX 서버가 시작되었습니다.", { port });
-    if (options.startScheduler === true) {
+    if (store) {
+      void store.createLog("info", "server", "AUTO-TAX 서버가 시작되었습니다.", { port });
+    }
+    if (options.startScheduler === true && scheduler) {
       scheduler.start();
     }
-    void store.getSettings().then((settings) => {
-      if (!shouldRefreshCertificateStatuses(settings.certLastCheckedAt)) {
-        return;
-      }
-      void refreshAllCertificateStatuses(store).catch((error) => {
-        const message = error instanceof Error ? error.message : "인증서 자동 점검 실패";
-        void store.createLog("error", "popbill", "앱 시작 시 인증서 자동 점검에 실패했습니다.", { error: message });
+    if (store) {
+      void store.getSettings().then((settings) => {
+        if (!shouldRefreshCertificateStatuses(settings.certLastCheckedAt)) {
+          return;
+        }
+        void refreshAllCertificateStatuses(store).catch((error) => {
+          const message = error instanceof Error ? error.message : "인증서 자동 점검 실패";
+          void store.createLog("error", "popbill", "앱 시작 시 인증서 자동 점검에 실패했습니다.", { error: message });
+        });
       });
-    });
+    }
     console.log(`AUTO-TAX server listening on http://localhost:${port}`);
   });
 
@@ -1938,10 +2056,14 @@ export async function startServer(options: StartServerOptions = {}) {
     webDist,
     close: () =>
       new Promise<void>((resolve, reject) => {
-        scheduler.stop();
+        scheduler?.stop();
         server.close((error) => {
           if (error) {
             reject(error);
+            return;
+          }
+          if (!store) {
+            resolve();
             return;
           }
           void store.close().then(resolve).catch(reject);

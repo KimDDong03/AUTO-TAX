@@ -300,9 +300,9 @@ export interface AuthenticatedAppSession {
   email: string | null;
   isPlatformAdmin: boolean;
   organizations: AuthenticatedOrganizationMembership[];
-  activeOrganizationId: string;
-  activeOrganizationName: string;
-  activeOrganizationRole: OrganizationMemberRole;
+  activeOrganizationId: string | null;
+  activeOrganizationName: string | null;
+  activeOrganizationRole: OrganizationMemberRole | null;
   activeDisplayName: string | null;
 }
 
