@@ -1972,7 +1972,7 @@ export function App() {
           <div className="auth-copy">
             <span className="auth-badge">AUTO-TAX</span>
             <h1>작업공간 로그인</h1>
-            <p>운영자가 개통한 로그인 계정으로 로그인한 뒤 태양광 회사 작업공간을 선택해 사용합니다.</p>
+            <p>플랫폼 관리자가 개통한 로그인 계정으로 로그인한 뒤 태양광 회사 작업공간을 선택해 사용합니다.</p>
           </div>
           <form className="auth-form" onSubmit={(event) => void signIn(event)}>
             <label>
@@ -1980,7 +1980,7 @@ export function App() {
               <input
                 value={signInAccount}
                 onChange={(event) => setSignInAccount(event.target.value)}
-                placeholder="고객사 사용자: 로그인 아이디 / 운영자: 이메일"
+                placeholder="고객사 사용자: 로그인 아이디 / 플랫폼 관리자: 이메일"
                 autoComplete="username"
                 required
               />
@@ -2168,7 +2168,7 @@ export function App() {
     {
       id: "popbill",
       step: 2,
-      title: "팝빌 / 운영자",
+      title: "팝빌 / 담당자",
       done: settingsHealth.popbillReady && settingsHealth.operatorReady,
       summary: settingsHealth.popbillReady && settingsHealth.operatorReady
         ? "플랫폼 키 연결 및 작업공간 운영값 준비 완료"
@@ -2190,7 +2190,7 @@ export function App() {
           { id: "settings" as const, label: "시스템설정", icon: "settings" }
         ]
       : []),
-    ...(isPlatformAdmin ? [{ id: "ops" as const, label: "운영자", icon: "ops" }] : [])
+    ...(isPlatformAdmin ? [{ id: "ops" as const, label: "플랫폼 관리자", icon: "ops" }] : [])
   ];
   const activeNavLabel = navItems.find((item) => item.id === activeTab)?.label ?? "AUTO-TAX";
 
@@ -2271,7 +2271,7 @@ export function App() {
               <span className="hero-pill">{activeWorkspaceName}</span>
               {activeTab === "ops" ? (
                 <>
-                  <span className="hero-pill">운영자 전용</span>
+                  <span className="hero-pill">플랫폼 관리자 전용</span>
                   <span className="hero-pill">
                     파트너 {opsConsole?.partnerPoints.available && opsConsole.partnerPoints.partnerRemainPoint !== null ? `${formatMoney(opsConsole.partnerPoints.partnerRemainPoint)}P` : "-"}
                   </span>
@@ -3264,7 +3264,7 @@ export function App() {
                                       </button>
                                     ) : (
                                       <span className="field-hint">
-                                        {isOwner ? "owner 계정 비밀번호는 운영자 탭에서 재설정합니다." : "현재 로그인한 계정입니다."}
+                                        {isOwner ? "owner 계정 비밀번호는 플랫폼 관리자 탭에서 재설정합니다." : "현재 로그인한 계정입니다."}
                                       </span>
                                     )}
                                   </div>
@@ -3565,7 +3565,7 @@ export function App() {
                 <div className="ops-grid">
                   <Panel
                     title="배치 작업"
-                    subtitle="Supabase cron 없이도 운영자가 큐 생성과 실행을 수동으로 점검할 수 있습니다."
+                    subtitle="Supabase cron 없이도 플랫폼 관리자가 큐 생성과 실행을 수동으로 점검할 수 있습니다."
                     actions={
                       <>
                         <button className="btn-secondary" onClick={() => void runAction("ops-dispatch-jobs", dispatchInternalJobs, { reload: false })}>
@@ -3588,7 +3588,7 @@ export function App() {
                       </div>
                       <div className="full">
                         <span>운영 메모</span>
-                        <strong>무료 운영 단계에서는 Supabase cron이 이 두 API를 주기적으로 깨우고, 운영자는 여기서 수동 점검을 할 수 있습니다.</strong>
+                        <strong>무료 운영 단계에서는 Supabase cron이 이 두 API를 주기적으로 깨우고, 플랫폼 관리자는 여기서 수동 점검을 할 수 있습니다.</strong>
                       </div>
                     </div>
                   </Panel>
@@ -3775,7 +3775,7 @@ export function App() {
                 </div>
               </>
             ) : (
-              <div className="empty">운영자 데이터를 불러오는 중입니다.</div>
+              <div className="empty">플랫폼 관리자 데이터를 불러오는 중입니다.</div>
             )}
           </div>
         ) : null}

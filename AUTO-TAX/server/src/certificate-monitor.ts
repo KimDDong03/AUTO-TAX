@@ -160,7 +160,7 @@ export async function refreshAllCertificateStatuses(store: AppStore): Promise<Ce
 
       if (sent) {
         notificationStatus = "sent";
-        notificationMessage = "운영자 알림 메일을 발송했습니다.";
+        notificationMessage = "플랫폼 관리자 알림 메일을 발송했습니다.";
         nextSettings.certAlertLastSentAt = checkedAt;
       } else {
         notificationStatus = "skipped-no-target";
