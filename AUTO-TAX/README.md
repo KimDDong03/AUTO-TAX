@@ -133,7 +133,7 @@ npm run build:vercel
 
 ## Vercel 배포 메모
 
-- Vercel Express 진입점: `src/server.ts`
+- Vercel Express 진입점: `api/index.ts`
 - Vercel 정적 산출물: `public`
 - Vercel 설정 파일: `vercel.json`
 - Vercel 배포 시 웹 화면은 `public` 정적 파일로 서빙되고, API는 Express 함수로 처리됩니다.

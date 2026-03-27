@@ -6,5 +6,5 @@
     "lib": ["ES2022"],
     "types": ["node"]
   },
-  "include": ["src/server.ts", "server/src/**/*.ts"]
+  "include": ["api/index.ts", "server/src/**/*.ts"]
 }
