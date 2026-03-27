@@ -96,9 +96,9 @@ AUTO-TAX를 구독하는 태양광 회사
 역할 예시:
 
 - owner
-- admin
-- operator
-- viewer
+- member
+
+운영사 최고권한은 고객사 내부 역할과 별도로 두는 것을 기준으로 본다.
 
 ### 4-3. organization_settings
 
@@ -136,14 +136,17 @@ AUTO-TAX를 구독하는 태양광 회사
 - smtp_pass_encrypted
 - smtp_from_name
 - smtp_from_email
-- popbill_link_id
-- popbill_secret_key_encrypted
-- popbill_partner_corp_num
 - popbill_user_id_prefix
 - popbill_shared_password_encrypted
 - operator_contact_name
 - operator_contact_email
 - operator_contact_tel
+
+플랫폼 공통 팝빌 비밀값은 이 테이블이 아니라 서버 env에 둔다.
+
+- popbill_link_id
+- popbill_secret_key
+- popbill_partner_corp_num
 
 ### 4-5. managed_customers
 
@@ -267,11 +270,24 @@ AUTO-TAX를 구독하는 태양광 회사
 - result
 - error
 
+`job_type` 예시는 아래와 같이 본다.
+
+- `mail-sync`
+- `auto-issue`
+- `certificate-check`
+- `renewal-agent-*`
+
 ## 5. 왜 job_queue가 필요한가
 
 현재 구조는 서버 내부에서 계속 돌아가는 스케줄러에 의존한다.
 
 하지만 Vercel 구조에서는 상시 실행 방식보다 `작업을 큐에 넣고, 따로 처리하는 구조`가 더 안전하다.
+
+현재 기준 구조는 다음과 같다.
+
+- Supabase가 작업 큐와 상태를 영속 저장
+- 별도 Node 워커가 due 작업을 생성하고 실행
+- 메일 수집은 자동 + 수동 둘 다 지원
 
 따라서 아래 작업은 `job_queue` 기반으로 전환하는 것이 맞다.
 
@@ -300,9 +316,9 @@ AUTO-TAX를 구독하는 태양광 회사
 Supabase RLS 기준 원칙은 아래와 같다.
 
 - 사용자는 자기 고객사의 데이터만 조회 가능
-- owner / admin만 설정 수정 가능
-- operator는 실무 데이터 수정 가능
-- viewer는 조회만 가능
+- owner / member만 고객사 작업공간에 접근 가능
+- owner만 구독/결제, owner 변경, 작업공간 비활성화/삭제 가능
+- member는 작업공간 설정, 사용자 관리, 관리 고객 운영, 발행, 인증서 보조 작업 가능
 
 즉 `organization_members`의 역할을 기준으로 정책을 건다.
 

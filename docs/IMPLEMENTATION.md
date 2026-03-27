@@ -82,8 +82,8 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 ### 5. 발행
 
 - 고객 모드가 `review`면 검수 대기로 둔다.
-- 고객 모드가 `auto`면 예약 발행 시각을 계산해 `scheduled`로 둔다.
-- 예약 시각이 되면 스케줄러가 자동 발행을 시도한다.
+- 고객 모드가 `auto`면 월 자동 실행일의 메일 동기화 작업에서 `scheduled`로 만들고 즉시 자동 발행 큐로 넘긴다.
+- 월 자동 실행일/시각은 고객사 작업공간 설정에서 바꿀 수 있고, 기본값은 `매월 26일`이다.
 - 발행 실패 시 `failed`로 바꾸고 운영자 메일 알림을 보낸다.
 
 ## 팝빌 매핑 규칙
@@ -114,12 +114,8 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 
 - IMAP/SMTP 설정
 - 운영자 알림 메일 목록
-- 운영 담당자명 / 이메일 / 연락처
 - 기본 발행일 / 발행 시각
 - 메일 폴링 주기
-- 팝빌 LinkID / SecretKey / 테스트 여부
-- 팝빌 사용자 ID 접두어
-- 팝빌 공통 비밀번호
 - 스케줄러 활성화 여부
 
 ### managed_customers
@@ -165,20 +161,29 @@ AUTO-TAX는 한전의 `신재생에너지 요금안내` 메일을 읽고, 발전
 
 ## 환경 설정
 
-환경값은 `.env`에서 넣고, 서버 시작 시 Supabase 조직 설정에 반영한다.
+환경값은 두 종류로 나뉜다.
+
+- 고객사별 메일/스케줄 값: Supabase 작업공간 설정에 저장
+- 서버 전용 팝빌 값: `.env` 또는 Vercel 서버 환경변수에 저장
+- 조직별 팝빌 운영 정책 값: Supabase 작업공간 설정 화면에서 관리
 
 중요 키:
 
-- `AUTO_TAX_IMAP_*`
-- `AUTO_TAX_SMTP_*`
-- `AUTO_TAX_NOTIFICATION_EMAILS`
 - `AUTO_TAX_POPBILL_LINK_ID`
 - `AUTO_TAX_POPBILL_SECRET_KEY`
-- `AUTO_TAX_POPBILL_USER_ID_PREFIX`
-- `AUTO_TAX_POPBILL_SHARED_PASSWORD`
-- `AUTO_TAX_OPERATOR_CONTACT_NAME`
-- `AUTO_TAX_OPERATOR_CONTACT_EMAIL`
-- `AUTO_TAX_OPERATOR_CONTACT_TEL`
+- `AUTO_TAX_POPBILL_IS_TEST`
+
+조직별로 따로 관리하는 값:
+
+- 팝빌 사용자 ID 접두어
+- 팝빌 공통 비밀번호
+- 팝빌 가입용 운영 담당자 이름/이메일/연락처
+
+추가 참고:
+
+- `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`은 파트너 포인트 조회/충전이 필요할 때만 추가한다.
+- `SUPABASE_ORGANIZATION_ID`, `AUTO_TAX_ORGANIZATION_*`는 부트스트랩 또는 기본 작업공간 고정이 필요할 때만 추가한다.
+- `AUTO_TAX_SERVER_URL`, `AUTO_TAX_RENEWAL_AGENT_*`는 로컬 인증서/갱신 에이전트를 붙일 때만 추가한다.
 
 ## 현재 제약
 

@@ -25,11 +25,20 @@ import {
   joinMember,
   quitMember
 } from "./popbill-client.js";
+import { dispatchRecurringJobs, runDueJobs } from "./job-queue.js";
 import { RenewalAutomationManager } from "./renewal-automation.js";
 import { Scheduler } from "./scheduler.js";
+import { applyServerManagedSettings, getServerManagedSettings } from "./server-managed-settings.js";
 import type { AppStore } from "./store-contract.js";
-import { resolveAuthenticatedAppSession, type AuthenticatedAppSession } from "./supabase.js";
+import { sendSupportRequest } from "./support-request.js";
+import {
+  createSupabaseAdminClient,
+  createSupabasePublicClient,
+  resolveAuthenticatedAppSession,
+  type AuthenticatedAppSession
+} from "./supabase.js";
 import { SupabaseStore } from "./supabase-store.js";
+import { digitsOnly } from "./utils.js";
 
 export type StartServerOptions = {
   port?: number;
@@ -42,6 +51,37 @@ type RequestLocals = {
   authContext?: AuthenticatedAppSession;
   requestStore?: AppStore;
 };
+
+type OpsWorkspaceSummary = {
+  organizationId: string;
+  organizationName: string;
+  organizationBusinessNumber: string | null;
+  organizationPlanCode: string;
+  organizationStatus: "trial" | "active" | "suspended" | "churned";
+  ownerLoginId: string | null;
+  ownerDisplayName: string | null;
+  memberCount: number;
+  createdAt: string;
+};
+
+type OrganizationMemberSummary = {
+  membershipId: string;
+  userId: string;
+  loginId: string | null;
+  displayName: string | null;
+  role: "owner" | "member";
+  createdAt: string;
+};
+
+class HttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}
 
 type ClientAppSettings = Pick<
   AppSettings,
@@ -66,6 +106,11 @@ type ClientAppSettings = Pick<
   | "mailPollMinutes"
   | "mailSyncStartAt"
   | "timezone"
+  | "popbillUserIdPrefix"
+  | "popbillSharedPassword"
+  | "operatorContactName"
+  | "operatorContactEmail"
+  | "operatorContactTel"
   | "schedulerEnabled"
   | "certLastCheckedAt"
   | "certAlertLastSentAt"
@@ -83,85 +128,12 @@ function envString(name: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
-function envInt(name: string): number | undefined {
-  const value = envString(name);
-  if (!value) return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function envBool(name: string): boolean | undefined {
-  const value = envString(name)?.toLowerCase();
-  if (!value) return undefined;
-  if (["1", "true", "yes", "on"].includes(value)) return true;
-  if (["0", "false", "no", "off"].includes(value)) return false;
-  return undefined;
-}
-
-function envList(name: string): string[] | undefined {
-  const value = envString(name);
-  if (!value) return undefined;
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function resolvePathFromRoot(rootDir: string, value: string): string {
   return path.isAbsolute(value) ? value : path.resolve(rootDir, value);
 }
 
-async function applyEnvSettings(store: AppStore): Promise<void> {
-  const payload: Partial<AppSettings> = {
-    imapHost: envString("AUTO_TAX_IMAP_HOST"),
-    imapPort: envInt("AUTO_TAX_IMAP_PORT"),
-    imapSecure: envBool("AUTO_TAX_IMAP_SECURE"),
-    imapUser: envString("AUTO_TAX_IMAP_USER"),
-    imapPass: envString("AUTO_TAX_IMAP_PASS"),
-    imapMailbox: envString("AUTO_TAX_IMAP_MAILBOX"),
-    smtpHost: envString("AUTO_TAX_SMTP_HOST"),
-    smtpPort: envInt("AUTO_TAX_SMTP_PORT"),
-    smtpSecure: envBool("AUTO_TAX_SMTP_SECURE"),
-    smtpUser: envString("AUTO_TAX_SMTP_USER"),
-    smtpPass: envString("AUTO_TAX_SMTP_PASS"),
-    smtpFromName: envString("AUTO_TAX_SMTP_FROM_NAME"),
-    smtpFromEmail: envString("AUTO_TAX_SMTP_FROM_EMAIL"),
-    notificationEmails: envList("AUTO_TAX_NOTIFICATION_EMAILS"),
-    defaultIssueDay: envInt("AUTO_TAX_DEFAULT_ISSUE_DAY"),
-    defaultIssueHour: envInt("AUTO_TAX_DEFAULT_ISSUE_HOUR"),
-    defaultIssueMinute: envInt("AUTO_TAX_DEFAULT_ISSUE_MINUTE"),
-    mailPollMinutes: envInt("AUTO_TAX_MAIL_POLL_MINUTES"),
-    mailSyncStartAt: envString("AUTO_TAX_MAIL_SYNC_START_AT"),
-    timezone: envString("AUTO_TAX_TIMEZONE"),
-    popbillLinkId: envString("AUTO_TAX_POPBILL_LINK_ID"),
-    popbillSecretKey: envString("AUTO_TAX_POPBILL_SECRET_KEY"),
-    popbillIsTest: envBool("AUTO_TAX_POPBILL_IS_TEST"),
-    popbillPartnerCorpNum: envString("AUTO_TAX_POPBILL_PARTNER_CORP_NUM"),
-    popbillUserIdPrefix: envString("AUTO_TAX_POPBILL_USER_ID_PREFIX"),
-    popbillSharedPassword: envString("AUTO_TAX_POPBILL_SHARED_PASSWORD"),
-    operatorContactName: envString("AUTO_TAX_OPERATOR_CONTACT_NAME"),
-    operatorContactEmail: envString("AUTO_TAX_OPERATOR_CONTACT_EMAIL"),
-    operatorContactTel: envString("AUTO_TAX_OPERATOR_CONTACT_TEL"),
-    schedulerEnabled: envBool("AUTO_TAX_SCHEDULER_ENABLED")
-  };
-
-  const filtered = Object.fromEntries(
-    Object.entries(payload).filter(([, value]) => value !== undefined)
-  ) as Partial<AppSettings>;
-
-  if (Object.keys(filtered).length > 0) {
-    await store.updateSettings(filtered);
-  }
-}
-
-async function enforceProductionMode(store: AppStore): Promise<void> {
-  const settings = await store.getSettings();
-  if (settings.popbillIsTest) {
-    await store.updateSettings({ popbillIsTest: false });
-  }
-}
-
 function toClientSettings(settings: AppSettings): ClientAppSettings {
+  const runtimeSettings = applyServerManagedSettings(settings);
   return {
     id: settings.id,
     imapHost: settings.imapHost,
@@ -184,13 +156,24 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
     mailPollMinutes: settings.mailPollMinutes,
     mailSyncStartAt: settings.mailSyncStartAt,
     timezone: settings.timezone,
+    popbillUserIdPrefix: settings.popbillUserIdPrefix,
+    popbillSharedPassword: settings.popbillSharedPassword,
+    operatorContactName: settings.operatorContactName,
+    operatorContactEmail: settings.operatorContactEmail,
+    operatorContactTel: settings.operatorContactTel,
     schedulerEnabled: settings.schedulerEnabled,
     certLastCheckedAt: settings.certLastCheckedAt,
     certAlertLastSentAt: settings.certAlertLastSentAt,
     createdAt: settings.createdAt,
     updatedAt: settings.updatedAt,
-    popbillConfigured: Boolean(settings.popbillLinkId && settings.popbillSecretKey),
-    operatorConfigured: Boolean(settings.operatorContactName && settings.operatorContactEmail && settings.operatorContactTel)
+    popbillConfigured: Boolean(runtimeSettings.popbillLinkId && runtimeSettings.popbillSecretKey),
+    operatorConfigured: Boolean(
+      settings.popbillUserIdPrefix &&
+      settings.popbillSharedPassword &&
+      settings.operatorContactName &&
+      settings.operatorContactEmail &&
+      settings.operatorContactTel
+    )
   };
 }
 
@@ -222,6 +205,11 @@ const settingsSchema = z.object({
   mailPollMinutes: z.number().int().min(1).max(1440),
   mailSyncStartAt: z.string().nullable(),
   timezone: z.string(),
+  popbillUserIdPrefix: z.string(),
+  popbillSharedPassword: z.string(),
+  operatorContactName: z.string(),
+  operatorContactEmail: z.string(),
+  operatorContactTel: z.string(),
   schedulerEnabled: z.boolean()
 });
 
@@ -250,13 +238,56 @@ const customerSchema = z.object({
   addr: z.string().min(1),
   bizType: z.string().min(1),
   bizClass: z.string().min(1),
-  issueMode: z.literal("review").optional().default("review"),
+  issueMode: z.enum(["review", "auto"]).optional().default("review"),
   issueDay: z.number().int().min(1).max(31).nullable().optional().default(null),
   issueHour: z.number().int().min(0).max(23).nullable().optional().default(null),
   issueMinute: z.number().int().min(0).max(59).nullable().optional().default(null),
   memo: z.string().default(""),
   plantNames: z.array(z.string().min(1)),
   matchAddresses: z.array(z.string().min(1)).default([])
+});
+
+const opsWorkspaceCreateSchema = z.object({
+  organizationName: z.string().trim().min(1),
+  organizationBusinessNumber: z.string().trim().default(""),
+  ownerLoginId: z
+    .string()
+    .trim()
+    .min(3)
+    .max(32)
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
+  ownerDisplayName: z.string().trim().default(""),
+  ownerPassword: z.string().default(""),
+  planCode: z.string().trim().min(1).default("starter"),
+  status: z.enum(["trial", "active", "suspended", "churned"]).default("trial")
+});
+
+const organizationMemberCreateSchema = z.object({
+  loginId: z
+    .string()
+    .trim()
+    .min(3)
+    .max(32)
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
+  displayName: z.string().trim().default(""),
+  password: z.string().default("")
+});
+
+const passwordResetSchema = z.object({
+  password: z.string().trim().min(8)
+});
+
+const publicLoginSchema = z.object({
+  account: z.string().trim().min(1),
+  password: z.string().min(1)
+});
+
+const supportRequestSchema = z.object({
+  companyName: z.string().trim().min(1),
+  requesterName: z.string().trim().min(1),
+  requesterEmail: z.string().trim().email(),
+  requesterPhone: z.string().trim().min(1),
+  message: z.string().trim().min(1)
 });
 
 const renewalAgentProcessSchema = z.object({
@@ -420,10 +451,16 @@ function isAnonymousApiPath(req: express.Request): boolean {
   return (
     req.method === "OPTIONS" ||
     req.path === "/health" ||
+    req.path === "/public/login" ||
+    req.path === "/public/support-request" ||
     req.path === "/automation/renewal-agent/heartbeat" ||
     req.path === "/automation/renewal-agent/jobs/claim" ||
     /^\/automation\/renewal-agent\/jobs\/\d+\/(complete|fail)$/.test(req.path)
   );
+}
+
+function isInternalJobApiPath(req: express.Request): boolean {
+  return req.path === "/internal/jobs/dispatch" || req.path === "/internal/jobs/run";
 }
 
 function setRequestLocals(res: express.Response, authContext: AuthenticatedAppSession, requestStore: AppStore) {
@@ -445,6 +482,223 @@ function requireAuthContext(res: express.Response): AuthenticatedAppSession {
   return locals.authContext;
 }
 
+function requirePlatformAdmin(res: express.Response): AuthenticatedAppSession {
+  const authContext = requireAuthContext(res);
+  if (!authContext.isPlatformAdmin) {
+    throw new HttpError(403, "운영자 전용 페이지입니다.");
+  }
+  return authContext;
+}
+
+function requireOrganizationOwner(res: express.Response): AuthenticatedAppSession {
+  const authContext = requireAuthContext(res);
+  if (authContext.activeOrganizationRole !== "owner") {
+    throw new HttpError(403, "소유자만 사용자 관리를 할 수 있습니다.");
+  }
+  return authContext;
+}
+
+function requireWorkspaceEditor(res: express.Response): AuthenticatedAppSession {
+  const authContext = requireAuthContext(res);
+  if (authContext.activeOrganizationRole === "viewer") {
+    throw new HttpError(403, "이 작업은 작업공간 멤버만 실행할 수 있습니다.");
+  }
+  return authContext;
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeLoginId(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function createWorkspaceLoginEmail(loginId: string): string {
+  return `${normalizeLoginId(loginId)}@workspace.auto-tax.local`;
+}
+
+function isEmailLikeAccount(value: string): boolean {
+  return value.includes("@");
+}
+
+function readJobSecret(req: express.Request): string | null {
+  const headerValue = req.header("x-auto-tax-job-secret")?.trim();
+  if (headerValue) {
+    return headerValue;
+  }
+
+  const authorization = req.header("authorization")?.trim();
+  if (!authorization) {
+    return null;
+  }
+
+  const [scheme, token] = authorization.split(/\s+/, 2);
+  if (scheme?.toLowerCase() !== "bearer" || !token) {
+    return null;
+  }
+
+  return token;
+}
+
+function hasValidJobSecret(req: express.Request): boolean {
+  const configuredSecret = envString("AUTO_TAX_JOB_SECRET");
+  if (!configuredSecret) {
+    return false;
+  }
+
+  return readJobSecret(req) === configuredSecret;
+}
+
+function requireInternalJobAccess(req: express.Request, res: express.Response): "secret" | "ops" {
+  if (hasValidJobSecret(req)) {
+    return "secret";
+  }
+
+  requirePlatformAdmin(res);
+  return "ops";
+}
+
+type AuthUserSummary = {
+  id: string;
+  email: string | null;
+  loginId: string | null;
+  displayName: string | null;
+};
+
+async function listAllAuthUsers(adminClient: ReturnType<typeof createSupabaseAdminClient>) {
+  const users: AuthUserSummary[] = [];
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    const {
+      data: pageData,
+      error
+    } = await adminClient.auth.admin.listUsers({ page, perPage });
+
+    if (error) {
+      throw new Error(`Supabase 사용자 목록 조회에 실패했습니다: ${error.message}`);
+    }
+
+    const pageUsers = pageData.users.map((user) => {
+      const userMetadata = user.user_metadata && typeof user.user_metadata === "object" ? user.user_metadata : {};
+      const loginId =
+        typeof userMetadata.login_id === "string" && userMetadata.login_id.trim() !== ""
+          ? normalizeLoginId(userMetadata.login_id)
+          : null;
+      const displayName =
+        typeof userMetadata.display_name === "string" && userMetadata.display_name.trim() !== ""
+          ? userMetadata.display_name.trim()
+          : null;
+
+      return {
+        id: user.id,
+        email: user.email ?? null,
+        loginId,
+        displayName
+      };
+    });
+    users.push(...pageUsers);
+
+    if (pageUsers.length < perPage) {
+      break;
+    }
+    page += 1;
+  }
+
+  return users;
+}
+
+async function findAuthUserByLoginId(adminClient: ReturnType<typeof createSupabaseAdminClient>, loginId: string) {
+  const normalizedLoginId = normalizeLoginId(loginId);
+  const users = await listAllAuthUsers(adminClient);
+  return users.find((user) => normalizeLoginId(user.loginId ?? "") === normalizedLoginId) ?? null;
+}
+
+async function listOpsWorkspaces(): Promise<OpsWorkspaceSummary[]> {
+  const adminClient = createSupabaseAdminClient();
+  const { data: organizations, error: organizationsError } = await adminClient
+    .from("organizations")
+    .select("id, name, business_number, plan_code, status, created_at")
+    .order("created_at", { ascending: false });
+
+  if (organizationsError) {
+    throw new Error(`작업공간 목록 조회에 실패했습니다: ${organizationsError.message}`);
+  }
+
+  const organizationRows = organizations ?? [];
+  if (organizationRows.length === 0) {
+    return [];
+  }
+
+  const organizationIds = organizationRows.map((organization) => String(organization.id));
+  const { data: members, error: membersError } = await adminClient
+    .from("organization_members")
+    .select("organization_id, user_id, role, display_name, created_at")
+    .in("organization_id", organizationIds)
+    .order("created_at", { ascending: true });
+
+  if (membersError) {
+    throw new Error(`작업공간 멤버 조회에 실패했습니다: ${membersError.message}`);
+  }
+
+  const authUsers = await listAllAuthUsers(adminClient);
+  const accountByUserId = new Map(authUsers.map((user) => [user.id, user.loginId ?? user.email]));
+  const membersByOrganizationId = new Map<string, Array<Record<string, unknown>>>();
+
+  for (const member of members ?? []) {
+    const organizationId = String(member.organization_id);
+    const list = membersByOrganizationId.get(organizationId) ?? [];
+    list.push(member as Record<string, unknown>);
+    membersByOrganizationId.set(organizationId, list);
+  }
+
+  return organizationRows.map((organization) => {
+    const organizationId = String(organization.id);
+    const organizationMembers = membersByOrganizationId.get(organizationId) ?? [];
+    const owner = organizationMembers.find((member) => String(member.role) === "owner") ?? null;
+    const ownerUserId = owner ? String(owner.user_id) : null;
+
+    return {
+      organizationId,
+      organizationName: String(organization.name),
+      organizationBusinessNumber: organization.business_number ? String(organization.business_number) : null,
+      organizationPlanCode: String(organization.plan_code),
+      organizationStatus: String(organization.status) as OpsWorkspaceSummary["organizationStatus"],
+      ownerLoginId: ownerUserId ? accountByUserId.get(ownerUserId) ?? null : null,
+      ownerDisplayName: owner?.display_name ? String(owner.display_name) : null,
+      memberCount: organizationMembers.length,
+      createdAt: String(organization.created_at)
+    };
+  });
+}
+
+async function listOrganizationMembers(organizationId: string): Promise<OrganizationMemberSummary[]> {
+  const adminClient = createSupabaseAdminClient();
+  const { data: members, error } = await adminClient
+    .from("organization_members")
+    .select("id, organization_id, user_id, role, display_name, created_at")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(`작업공간 사용자 목록 조회에 실패했습니다: ${error.message}`);
+  }
+
+  const authUsers = await listAllAuthUsers(adminClient);
+  const accountByUserId = new Map(authUsers.map((user) => [user.id, user.loginId ?? user.email]));
+
+  return (members ?? []).map((member) => ({
+    membershipId: String(member.id),
+    userId: String(member.user_id),
+    loginId: accountByUserId.get(String(member.user_id)) ?? null,
+    displayName: member.display_name ? String(member.display_name) : null,
+    role: String(member.role) === "owner" ? "owner" : "member",
+    createdAt: String(member.created_at)
+  }));
+}
+
 export async function createApp(store: AppStore, webDist: string) {
   const app = express();
   const renewalAutomation = new RenewalAutomationManager();
@@ -452,6 +706,11 @@ export async function createApp(store: AppStore, webDist: string) {
   app.use(express.json({ limit: "2mb" }));
 
   app.use("/api", async (req, res, next) => {
+    if (isInternalJobApiPath(req) && hasValidJobSecret(req)) {
+      next();
+      return;
+    }
+
     if (isAnonymousApiPath(req)) {
       next();
       return;
@@ -483,23 +742,505 @@ export async function createApp(store: AppStore, webDist: string) {
     res.json({ ok: true });
   });
 
+  app.post("/api/public/support-request", async (req, res) => {
+    const payload = supportRequestSchema.parse(req.body ?? {});
+
+    try {
+      await sendSupportRequest({
+        ...payload,
+        userAgent: req.header("user-agent") ?? null
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "문의 메일 전송에 실패했습니다.";
+      if (message.includes("문의 메일 발송 설정")) {
+        throw new HttpError(503, message);
+      }
+      throw error;
+    }
+
+    res.status(201).json({ ok: true });
+  });
+
+  app.post("/api/public/login", async (req, res) => {
+    const payload = publicLoginSchema.parse(req.body ?? {});
+    const account = payload.account.trim();
+    let email = account;
+
+    if (!isEmailLikeAccount(account)) {
+      const matchedUser = await findAuthUserByLoginId(createSupabaseAdminClient(), account);
+      if (!matchedUser?.email) {
+        throw new HttpError(401, "로그인 정보가 올바르지 않습니다.");
+      }
+      email = matchedUser.email;
+    }
+
+    const publicClient = createSupabasePublicClient();
+    const {
+      data: signInResult,
+      error: signInError
+    } = await publicClient.auth.signInWithPassword({
+      email: normalizeEmail(email),
+      password: payload.password
+    });
+
+    if (signInError || !signInResult.session) {
+      throw new HttpError(401, "로그인 정보가 올바르지 않습니다.");
+    }
+
+    res.json({
+      session: signInResult.session
+    });
+  });
+
   app.get("/api/bootstrap", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
     const authContext = requireAuthContext(res);
     const dashboard = await requestStore.getDashboard();
+    const { logs: _logs, ...workspaceDashboard } = dashboard;
     res.json({
-      ...dashboard,
+      ...workspaceDashboard,
       settings: toClientSettings(dashboard.settings),
-      renewalAutomation: renewalAutomation.getSnapshot(),
       auth: authContext
     });
   });
 
+  app.post("/api/internal/jobs/dispatch", async (req, res) => {
+    const accessMode = requireInternalJobAccess(req, res);
+    const result = await dispatchRecurringJobs();
+    res.json({
+      ok: true,
+      accessMode,
+      ...result
+    });
+  });
+
+  app.post("/api/internal/jobs/run", async (req, res) => {
+    const accessMode = requireInternalJobAccess(req, res);
+    const payload = z
+      .object({
+        limit: z.number().int().min(1).max(100).optional()
+      })
+      .parse(req.body ?? {});
+    const result = await runDueJobs({
+      limit: payload.limit,
+      claimedBy: accessMode === "secret" ? "cron-runner" : "ops-runner"
+    });
+    res.json({
+      ok: true,
+      accessMode,
+      ...result
+    });
+  });
+
+  app.get("/api/organization/members", async (_req, res) => {
+    const authContext = requireOrganizationOwner(res);
+    res.json(await listOrganizationMembers(authContext.activeOrganizationId));
+  });
+
+  app.post("/api/organization/members", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const authContext = requireOrganizationOwner(res);
+    const payload = organizationMemberCreateSchema.parse(req.body ?? {});
+    const adminClient = createSupabaseAdminClient();
+    const normalizedLoginId = normalizeLoginId(payload.loginId);
+
+    const existingMembers = await listOrganizationMembers(authContext.activeOrganizationId);
+    if (existingMembers.some((member) => normalizeLoginId(member.loginId ?? "") === normalizedLoginId)) {
+      throw new HttpError(409, "이미 이 작업공간에 등록된 로그인 아이디입니다.");
+    }
+
+    let memberUser = await findAuthUserByLoginId(adminClient, normalizedLoginId);
+    let createdUserId: string | null = null;
+
+    if (!memberUser) {
+      if (payload.password.trim().length < 8) {
+        throw new HttpError(400, "새 사용자 계정을 만들려면 8자 이상 임시 비밀번호가 필요합니다.");
+      }
+
+      const {
+        data: createdUserResult,
+        error: createUserError
+      } = await adminClient.auth.admin.createUser({
+        email: createWorkspaceLoginEmail(normalizedLoginId),
+        password: payload.password,
+        email_confirm: true,
+        user_metadata: {
+          login_id: normalizedLoginId,
+          ...(payload.displayName ? { display_name: payload.displayName } : {})
+        }
+      });
+
+      if (createUserError || !createdUserResult.user) {
+        throw new Error(`사용자 계정 생성에 실패했습니다: ${createUserError?.message ?? "사용자 생성 실패"}`);
+      }
+
+      memberUser = {
+        id: createdUserResult.user.id,
+        email: createdUserResult.user.email ?? createWorkspaceLoginEmail(normalizedLoginId),
+        loginId: normalizedLoginId,
+        displayName: payload.displayName || null
+      };
+      createdUserId = createdUserResult.user.id;
+    }
+
+    try {
+      const { error: membershipError } = await adminClient.from("organization_members").insert({
+        organization_id: authContext.activeOrganizationId,
+        user_id: memberUser.id,
+        role: "operator",
+        display_name: payload.displayName || null,
+        invited_by: authContext.userId
+      });
+
+      if (membershipError) {
+        throw new Error(`작업공간 사용자 연결에 실패했습니다: ${membershipError.message}`);
+      }
+
+      await requestStore.createLog("info", "organization-members", "작업공간 사용자를 추가했습니다.", {
+        targetLoginId: memberUser.loginId ?? normalizedLoginId,
+        createdUser: createdUserId !== null
+      });
+
+      res.status(201).json({
+        members: await listOrganizationMembers(authContext.activeOrganizationId),
+        memberAction: createdUserId ? "created-user" : "linked-existing-user"
+      });
+    } catch (error) {
+      if (createdUserId) {
+        await adminClient.auth.admin.deleteUser(createdUserId);
+      }
+      throw error;
+    }
+  });
+
+  app.delete("/api/organization/members/:id", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const authContext = requireOrganizationOwner(res);
+    const membershipId = z.object({ id: z.string().uuid() }).parse(req.params).id;
+    const adminClient = createSupabaseAdminClient();
+    const { data: membership, error: membershipError } = await adminClient
+      .from("organization_members")
+      .select("id, user_id, role, display_name")
+      .eq("organization_id", authContext.activeOrganizationId)
+      .eq("id", membershipId)
+      .maybeSingle();
+
+    if (membershipError) {
+      throw new Error(`작업공간 사용자 조회에 실패했습니다: ${membershipError.message}`);
+    }
+
+    if (!membership) {
+      throw new HttpError(404, "사용자를 찾지 못했습니다.");
+    }
+
+    if (String(membership.role) === "owner") {
+      throw new HttpError(400, "owner 계정은 여기서 삭제할 수 없습니다.");
+    }
+
+    if (String(membership.user_id) === authContext.userId) {
+      throw new HttpError(400, "자기 자신의 계정은 여기서 제거할 수 없습니다.");
+    }
+
+    const targetUser = (await listAllAuthUsers(adminClient)).find((user) => user.id === String(membership.user_id)) ?? null;
+    const targetLoginId = targetUser?.loginId ?? targetUser?.email ?? null;
+
+    const { error: deleteError } = await adminClient
+      .from("organization_members")
+      .delete()
+      .eq("organization_id", authContext.activeOrganizationId)
+      .eq("id", membershipId);
+
+    if (deleteError) {
+      throw new Error(`작업공간 사용자 제거에 실패했습니다: ${deleteError.message}`);
+    }
+
+    await requestStore.createLog("warn", "organization-members", "작업공간 사용자를 제거했습니다.", {
+      targetMembershipId: membershipId,
+      targetLoginId
+    });
+
+    res.json({
+      ok: true,
+      members: await listOrganizationMembers(authContext.activeOrganizationId)
+    });
+  });
+
+  app.post("/api/organization/members/:id/reset-password", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const authContext = requireOrganizationOwner(res);
+    const membershipId = z.object({ id: z.string().uuid() }).parse(req.params).id;
+    const payload = passwordResetSchema.parse(req.body ?? {});
+    const adminClient = createSupabaseAdminClient();
+    const { data: membership, error: membershipError } = await adminClient
+      .from("organization_members")
+      .select("id, user_id, role")
+      .eq("organization_id", authContext.activeOrganizationId)
+      .eq("id", membershipId)
+      .maybeSingle();
+
+    if (membershipError) {
+      throw new Error(`작업공간 사용자 조회에 실패했습니다: ${membershipError.message}`);
+    }
+
+    if (!membership) {
+      throw new HttpError(404, "사용자를 찾지 못했습니다.");
+    }
+
+    if (String(membership.role) === "owner") {
+      throw new HttpError(400, "owner 계정 비밀번호는 운영자에게 요청하세요.");
+    }
+
+    const allUsers = await listAllAuthUsers(adminClient);
+    const targetUser = allUsers.find((user) => user.id === String(membership.user_id)) ?? null;
+    const targetLoginId = targetUser?.loginId ?? targetUser?.email ?? null;
+
+    const { data: updatedUserResult, error: updateUserError } = await adminClient.auth.admin.updateUserById(
+      String(membership.user_id),
+      {
+        password: payload.password
+      }
+    );
+
+    if (updateUserError || !updatedUserResult.user) {
+      throw new Error(`임시 비밀번호 재설정에 실패했습니다: ${updateUserError?.message ?? "비밀번호 재설정 실패"}`);
+    }
+
+    await requestStore.createLog("warn", "organization-members", "작업공간 사용자 임시 비밀번호를 재설정했습니다.", {
+      targetMembershipId: membershipId,
+      targetLoginId
+    });
+
+    res.json({
+      ok: true,
+      loginId: targetLoginId
+    });
+  });
+
+  app.get("/api/ops/workspaces", async (_req, res) => {
+    requirePlatformAdmin(res);
+    res.json(await listOpsWorkspaces());
+  });
+
+  app.post("/api/ops/workspaces", async (req, res) => {
+    const authContext = requirePlatformAdmin(res);
+    const payload = opsWorkspaceCreateSchema.parse(req.body ?? {});
+    const adminClient = createSupabaseAdminClient();
+    const normalizedBusinessNumber = digitsOnly(payload.organizationBusinessNumber);
+    const normalizedOwnerLoginId = normalizeLoginId(payload.ownerLoginId);
+
+    if (normalizedBusinessNumber) {
+      const { data: existingOrganization, error: existingOrganizationError } = await adminClient
+        .from("organizations")
+        .select("id")
+        .eq("business_number", normalizedBusinessNumber)
+        .maybeSingle();
+
+      if (existingOrganizationError) {
+        throw new Error(`기존 작업공간 확인에 실패했습니다: ${existingOrganizationError.message}`);
+      }
+
+      if (existingOrganization) {
+        throw new HttpError(409, "같은 사업자번호를 가진 작업공간이 이미 있습니다.");
+      }
+    }
+
+    let ownerUser = await findAuthUserByLoginId(adminClient, normalizedOwnerLoginId);
+    let createdUserId: string | null = null;
+    if (!ownerUser) {
+      if (payload.ownerPassword.trim().length < 8) {
+        throw new HttpError(400, "새 owner 계정을 만들려면 8자 이상 임시 비밀번호가 필요합니다.");
+      }
+
+      const {
+        data: createdUserResult,
+        error: createUserError
+      } = await adminClient.auth.admin.createUser({
+        email: createWorkspaceLoginEmail(normalizedOwnerLoginId),
+        password: payload.ownerPassword,
+        email_confirm: true,
+        user_metadata: {
+          login_id: normalizedOwnerLoginId,
+          ...(payload.ownerDisplayName ? { display_name: payload.ownerDisplayName } : {})
+        }
+      });
+
+      if (createUserError || !createdUserResult.user) {
+        throw new Error(`owner 계정 생성에 실패했습니다: ${createUserError?.message ?? "사용자 생성 실패"}`);
+      }
+
+      ownerUser = {
+        id: createdUserResult.user.id,
+        email: createdUserResult.user.email ?? createWorkspaceLoginEmail(normalizedOwnerLoginId),
+        loginId: normalizedOwnerLoginId,
+        displayName: payload.ownerDisplayName || null
+      };
+      createdUserId = createdUserResult.user.id;
+    }
+
+    let createdOrganizationId: string | null = null;
+
+    try {
+      const { data: organization, error: organizationError } = await adminClient
+        .from("organizations")
+        .insert({
+          name: payload.organizationName,
+          business_number: normalizedBusinessNumber || null,
+          plan_code: payload.planCode,
+          status: payload.status
+        })
+        .select("id, name, business_number, plan_code, status, created_at")
+        .single();
+
+      if (organizationError || !organization) {
+        throw new Error(`작업공간 생성에 실패했습니다: ${organizationError?.message ?? "조직 생성 실패"}`);
+      }
+
+      createdOrganizationId = String(organization.id);
+
+      const { error: settingsError } = await adminClient.from("organization_settings").upsert(
+        {
+          organization_id: createdOrganizationId
+        },
+        { onConflict: "organization_id" }
+      );
+
+      if (settingsError) {
+        throw new Error(`작업공간 기본 설정 생성에 실패했습니다: ${settingsError.message}`);
+      }
+
+      const { error: integrationsError } = await adminClient.from("organization_integrations").upsert(
+        {
+          organization_id: createdOrganizationId
+        },
+        { onConflict: "organization_id" }
+      );
+
+      if (integrationsError) {
+        throw new Error(`작업공간 연동 설정 생성에 실패했습니다: ${integrationsError.message}`);
+      }
+
+      const { error: membershipError } = await adminClient.from("organization_members").insert({
+        organization_id: createdOrganizationId,
+        user_id: ownerUser.id,
+        role: "owner",
+        display_name: payload.ownerDisplayName || null,
+        invited_by: authContext.userId
+      });
+
+      if (membershipError) {
+        throw new Error(`첫 owner 연결에 실패했습니다: ${membershipError.message}`);
+      }
+
+      const { error: logError } = await adminClient.from("app_logs").insert({
+        organization_id: createdOrganizationId,
+        actor_user_id: authContext.userId,
+        level: "info",
+        scope: "ops",
+        message: "운영자가 고객사 작업공간을 개통했습니다.",
+        context_json: {
+          ownerLoginId: ownerUser.loginId ?? normalizedOwnerLoginId,
+          ownerAction: createdUserId ? "created-user" : "linked-existing-user"
+        }
+      });
+
+      if (logError) {
+        throw new Error(`개통 로그 저장에 실패했습니다: ${logError.message}`);
+      }
+
+      const workspace: OpsWorkspaceSummary = {
+        organizationId: createdOrganizationId,
+        organizationName: String(organization.name),
+        organizationBusinessNumber: organization.business_number ? String(organization.business_number) : null,
+        organizationPlanCode: String(organization.plan_code),
+        organizationStatus: String(organization.status) as OpsWorkspaceSummary["organizationStatus"],
+        ownerLoginId: ownerUser.loginId ?? normalizedOwnerLoginId,
+        ownerDisplayName: payload.ownerDisplayName || null,
+        memberCount: 1,
+        createdAt: String(organization.created_at)
+      };
+
+      res.status(201).json({
+        workspace,
+        ownerAction: createdUserId ? "created-user" : "linked-existing-user"
+      });
+    } catch (error) {
+      if (createdOrganizationId) {
+        await adminClient.from("organizations").delete().eq("id", createdOrganizationId);
+      }
+
+      if (createdUserId) {
+        await adminClient.auth.admin.deleteUser(createdUserId);
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/api/ops/workspaces/:organizationId/reset-owner-password", async (req, res) => {
+    const authContext = requirePlatformAdmin(res);
+    const payload = passwordResetSchema.parse(req.body ?? {});
+    const params = z.object({ organizationId: z.string().uuid() }).parse(req.params);
+    const adminClient = createSupabaseAdminClient();
+    const { data: ownerMembership, error: ownerMembershipError } = await adminClient
+      .from("organization_members")
+      .select("id, user_id, role")
+      .eq("organization_id", params.organizationId)
+      .eq("role", "owner")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (ownerMembershipError) {
+      throw new Error(`owner 계정 조회에 실패했습니다: ${ownerMembershipError.message}`);
+    }
+
+    if (!ownerMembership) {
+      throw new HttpError(404, "owner 계정을 찾지 못했습니다.");
+    }
+
+    const allUsers = await listAllAuthUsers(adminClient);
+    const ownerUser = allUsers.find((user) => user.id === String(ownerMembership.user_id)) ?? null;
+    const ownerLoginId = ownerUser?.loginId ?? ownerUser?.email ?? null;
+
+    const { data: updatedUserResult, error: updateUserError } = await adminClient.auth.admin.updateUserById(
+      String(ownerMembership.user_id),
+      {
+        password: payload.password
+      }
+    );
+
+    if (updateUserError || !updatedUserResult.user) {
+      throw new Error(`owner 임시 비밀번호 재설정에 실패했습니다: ${updateUserError?.message ?? "비밀번호 재설정 실패"}`);
+    }
+
+    const { error: logError } = await adminClient.from("app_logs").insert({
+      organization_id: params.organizationId,
+      actor_user_id: authContext.userId,
+      level: "warn",
+      scope: "ops",
+      message: "운영자가 owner 임시 비밀번호를 재설정했습니다.",
+      context_json: {
+        ownerLoginId
+      }
+    });
+
+    if (logError) {
+      throw new Error(`owner 비밀번호 재설정 로그 저장에 실패했습니다: ${logError.message}`);
+    }
+
+    res.json({
+      ok: true,
+      ownerLoginId
+    });
+  });
+
   app.get("/api/automation/renewal-agent/snapshot", (_req, res) => {
+    requirePlatformAdmin(res);
     res.json(renewalAutomation.getSnapshot());
   });
 
   app.post("/api/automation/renewal-jobs/bridge-probe", async (req, res) => {
+    requirePlatformAdmin(res);
     const requestStore = getRequestStore(res, store);
     const payload = renewalBridgeProbeRequestSchema.parse(req.body ?? {});
     let customerName: string | null = null;
@@ -529,6 +1270,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/automation/renewal-jobs/certid-probe", async (req, res) => {
+    requirePlatformAdmin(res);
     const requestStore = getRequestStore(res, store);
     const payload = renewalCertIdProbeRequestSchema.parse(req.body ?? {});
     let customerName: string | null = null;
@@ -562,6 +1304,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/automation/renewal-jobs/preflight", async (req, res) => {
+    requirePlatformAdmin(res);
     const requestStore = getRequestStore(res, store);
     const payload = renewalPreflightRequestSchema.parse(req.body ?? {});
     let customerName: string | null = null;
@@ -660,8 +1403,9 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.get("/api/popbill/partner-points", async (_req, res) => {
+    requirePlatformAdmin(res);
     const requestStore = getRequestStore(res, store);
-    const settings = await requestStore.getSettings();
+    const settings = await getServerManagedSettings(requestStore);
     const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
 
     if (!settings.popbillLinkId || !settings.popbillSecretKey) {
@@ -709,8 +1453,9 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.get("/api/popbill/partner-charge-url", async (_req, res) => {
+    requirePlatformAdmin(res);
     const requestStore = getRequestStore(res, store);
-    const settings = await requestStore.getSettings();
+    const settings = await getServerManagedSettings(requestStore);
     const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
 
     if (!settings.popbillLinkId || !settings.popbillSecretKey) {
@@ -732,6 +1477,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.put("/api/settings", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const payload = settingsSchema.parse(req.body) satisfies Partial<AppSettings>;
     const settings = await requestStore.updateSettings(payload);
@@ -740,6 +1486,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/system/mail-test", async (req, res) => {
+    requireWorkspaceEditor(res);
     const payload = mailTestSchema.parse(req.body);
     const result = await testMailConnections(payload);
     res.json(result);
@@ -751,6 +1498,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/customers", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const payload = customerSchema.parse(req.body) satisfies CustomerInput;
     const customer = await requestStore.saveCustomer(payload);
@@ -759,6 +1507,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.put("/api/customers/:id", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
     const payload = customerSchema.parse(req.body) satisfies CustomerInput;
@@ -768,6 +1517,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.delete("/api/customers/:id", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
     const customer = await requestStore.getCustomer(customerId);
@@ -785,6 +1535,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/customers/:id/popbill/join", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
     const customer = await requestStore.getCustomer(customerId);
@@ -793,7 +1544,7 @@ export async function createApp(store: AppStore, webDist: string) {
       return;
     }
 
-    const settings = await requestStore.getSettings();
+    const settings = await getServerManagedSettings(requestStore);
 
     if (customer.popbillState === "joined") {
       await requestStore.createLog("info", "popbill", "이미 가입된 고객이라 팝빌 가입을 건너뛰었습니다.", { customerId });
@@ -830,6 +1581,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/customers/:id/popbill/reset", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
     const customer = await requestStore.getCustomer(customerId);
@@ -847,6 +1599,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/customers/:id/popbill/quit", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
     const customer = await requestStore.getCustomer(customerId);
@@ -855,7 +1608,7 @@ export async function createApp(store: AppStore, webDist: string) {
       return;
     }
 
-    const settings = await requestStore.getSettings();
+    const settings = await getServerManagedSettings(requestStore);
     if (!settings.popbillIsTest) {
       res.status(400).json({ error: "팝빌 탈퇴는 테스트 환경에서만 허용됩니다." });
       return;
@@ -871,6 +1624,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/customers/:id/popbill/cert-url", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
     const customer = await requestStore.getCustomer(customerId);
@@ -879,12 +1633,13 @@ export async function createApp(store: AppStore, webDist: string) {
       return;
     }
 
-    const url = await getTaxCertURL(await requestStore.getSettings(), customer);
+    const url = await getTaxCertURL(await getServerManagedSettings(requestStore), customer);
     await requestStore.createLog("info", "popbill", "인증서 등록 URL을 발급했습니다.", { customerId });
     res.json({ url });
   });
 
   app.post("/api/customers/:id/popbill/cert-status", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
     const customer = await requestStore.getCustomer(customerId);
@@ -893,13 +1648,14 @@ export async function createApp(store: AppStore, webDist: string) {
       return;
     }
 
-    const expireDate = await getCertificateExpireDate(await requestStore.getSettings(), customer);
+    const expireDate = await getCertificateExpireDate(await getServerManagedSettings(requestStore), customer);
     const updated = await requestStore.updateCustomerPopbillState(customerId, customer.popbillState, true, expireDate);
     await requestStore.createLog("info", "popbill", "인증서 만료일을 갱신했습니다.", { customerId, expireDate });
     res.json(updated);
   });
 
   app.post("/api/popbill/cert-status/refresh-all", async (_req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const result = await refreshAllCertificateStatuses(requestStore);
     res.json(result);
@@ -911,6 +1667,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/inbox/:id/reprocess", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const messageId = Number(req.params.id);
     const message = await requestStore.getInboxMessage(messageId);
@@ -924,6 +1681,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/mail/sync", async (_req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const result = await syncMailbox(requestStore);
     res.json(result);
@@ -935,6 +1693,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/drafts/:id/issue", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const draftId = Number(req.params.id);
     const draft = await requestStore.getDraft(draftId);
@@ -956,7 +1715,7 @@ export async function createApp(store: AppStore, webDist: string) {
     }
 
     try {
-      const issued = await issueDraftNow(requestStore, await requestStore.getSettings(), customer, claimedDraft);
+      const issued = await issueDraftNow(requestStore, await getServerManagedSettings(requestStore), customer, claimedDraft);
       await requestStore.createLog("info", "drafts", "수동 발행을 완료했습니다.", { draftId, customerId: customer.id });
       res.json(issued);
     } catch (error) {
@@ -967,6 +1726,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/drafts/issue-all", async (_req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const drafts = (await requestStore.listDrafts()).filter((draft) => draft.status === "review" || draft.status === "failed");
     const results: Array<{ draftId: number; customerId: number; status: "issued" | "failed"; error?: string }> = [];
@@ -986,7 +1746,7 @@ export async function createApp(store: AppStore, webDist: string) {
       }
 
       try {
-        await issueDraftNow(requestStore, await requestStore.getSettings(), customer, claimedDraft);
+        await issueDraftNow(requestStore, await getServerManagedSettings(requestStore), customer, claimedDraft);
         results.push({ draftId: draft.id, customerId: customer.id, status: "issued" });
       } catch (error) {
         const message = error instanceof Error ? error.message : "일괄 발행 실패";
@@ -1011,6 +1771,7 @@ export async function createApp(store: AppStore, webDist: string) {
   });
 
   app.post("/api/drafts/:id/cancel", async (req, res) => {
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const draftId = Number(req.params.id);
     const draft = await requestStore.getDraft(draftId);
@@ -1030,7 +1791,7 @@ export async function createApp(store: AppStore, webDist: string) {
       return;
     }
 
-    const response = await cancelTaxInvoice(await requestStore.getSettings(), customer, draft, "AUTO-TAX 재발행 테스트 취소");
+    const response = await cancelTaxInvoice(await getServerManagedSettings(requestStore), customer, draft, "AUTO-TAX 재발행 테스트 취소");
     const reopened = await requestStore.reopenIssuedDraftForReissue(draftId);
     await requestStore.createLog("warn", "drafts", "발행 완료 건을 취소하고 검수 대기로 되돌렸습니다.", {
       draftId,
@@ -1056,7 +1817,7 @@ export async function createApp(store: AppStore, webDist: string) {
       return;
     }
 
-    const info = await getTaxInvoiceInfo(await requestStore.getSettings(), customer, draft);
+    const info = await getTaxInvoiceInfo(await getServerManagedSettings(requestStore), customer, draft);
     res.json(info);
   });
 
@@ -1075,7 +1836,7 @@ export async function createApp(store: AppStore, webDist: string) {
       return;
     }
 
-    const url = await getTaxInvoiceViewURL(await requestStore.getSettings(), customer, draft);
+    const url = await getTaxInvoiceViewURL(await getServerManagedSettings(requestStore), customer, draft);
     res.json({ url });
   });
 
@@ -1094,11 +1855,12 @@ export async function createApp(store: AppStore, webDist: string) {
       return;
     }
 
-    const url = await getTaxInvoicePrintURL(await requestStore.getSettings(), customer, draft);
+    const url = await getTaxInvoicePrintURL(await getServerManagedSettings(requestStore), customer, draft);
     res.json({ url });
   });
 
   app.get("/api/logs", async (_req, res) => {
+    requirePlatformAdmin(res);
     const requestStore = getRequestStore(res, store);
     res.json(await requestStore.listLogs());
   });
@@ -1109,6 +1871,10 @@ export async function createApp(store: AppStore, webDist: string) {
     void requestStore.createLog("error", "api", "API 요청 처리에 실패했습니다.", { error: message });
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: error.flatten() });
+      return;
+    }
+    if (error instanceof HttpError) {
+      res.status(error.status).json({ error: error.message });
       return;
     }
     res.status(500).json({ error: message });
@@ -1133,8 +1899,6 @@ export async function createConfiguredStore(options: { bootstrapOrganization?: b
     bootstrapOrganization: options.bootstrapOrganization ?? true
   });
   await store.initialize();
-  await applyEnvSettings(store);
-  await enforceProductionMode(store);
   return store;
 }
 

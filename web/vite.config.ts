@@ -4,9 +4,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const webRoot = fileURLToPath(new URL(".", import.meta.url));
+const projectRoot = path.resolve(webRoot, "..");
 
 export default defineConfig({
   root: webRoot,
+  envDir: projectRoot,
   plugins: [react()],
   server: {
     port: 5173,

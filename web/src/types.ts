@@ -25,6 +25,11 @@ export interface AppSettings {
   mailPollMinutes: number;
   mailSyncStartAt: string | null;
   timezone: string;
+  popbillUserIdPrefix: string;
+  popbillSharedPassword: string;
+  operatorContactName: string;
+  operatorContactEmail: string;
+  operatorContactTel: string;
   popbillConfigured: boolean;
   operatorConfigured: boolean;
   schedulerEnabled: boolean;
@@ -293,6 +298,7 @@ export interface AuthenticatedOrganizationMembership {
 export interface AuthenticatedAppSession {
   userId: string;
   email: string | null;
+  isPlatformAdmin: boolean;
   organizations: AuthenticatedOrganizationMembership[];
   activeOrganizationId: string;
   activeOrganizationName: string;
@@ -300,7 +306,7 @@ export interface AuthenticatedAppSession {
   activeDisplayName: string | null;
 }
 
-export interface BootstrapPayload extends DashboardPayload {
+export interface BootstrapPayload extends Omit<DashboardPayload, "logs" | "renewalAutomation"> {
   auth: AuthenticatedAppSession;
 }
 
@@ -310,4 +316,30 @@ export interface PartnerPointsPayload {
   referenceCorpNum: string | null;
   partnerRemainPoint: number | null;
   message: string;
+}
+
+export interface OpsWorkspaceSummary {
+  organizationId: string;
+  organizationName: string;
+  organizationBusinessNumber: string | null;
+  organizationPlanCode: string;
+  organizationStatus: OrganizationStatus;
+  ownerLoginId: string | null;
+  ownerDisplayName: string | null;
+  memberCount: number;
+  createdAt: string;
+}
+
+export interface OpsWorkspaceCreateResponse {
+  workspace: OpsWorkspaceSummary;
+  ownerAction: "linked-existing-user" | "created-user";
+}
+
+export interface OrganizationMemberSummary {
+  membershipId: string;
+  userId: string;
+  loginId: string | null;
+  displayName: string | null;
+  role: "owner" | "member";
+  createdAt: string;
 }

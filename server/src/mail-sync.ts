@@ -9,8 +9,16 @@ export interface MailSyncResult {
   scanned: number;
   imported: number;
   createdDrafts: number;
+  scheduledDrafts: number;
   unmatched: number;
   failures: number;
+}
+
+export type MailSyncMode = "manual" | "scheduled";
+
+export interface MailSyncOptions {
+  mode?: MailSyncMode;
+  now?: Date;
 }
 
 function isRelevantSubject(subject: string): boolean {
@@ -22,16 +30,19 @@ function toIso(value: Date | string | undefined): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-export async function syncMailbox(store: AppStore): Promise<MailSyncResult> {
+export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}): Promise<MailSyncResult> {
   const settings = await store.getSettings();
   if (!settings.imapHost || !settings.imapUser || !settings.imapPass) {
     throw new Error("IMAP 설정이 완성되지 않았습니다.");
   }
 
+  const mode = options.mode ?? "manual";
+  const scheduledAt = toIso(options.now);
   const result: MailSyncResult = {
     scanned: 0,
     imported: 0,
     createdDrafts: 0,
+    scheduledDrafts: 0,
     unmatched: 0,
     failures: 0
   };
@@ -150,15 +161,19 @@ export async function syncMailbox(store: AppStore): Promise<MailSyncResult> {
           customerId: customer.id
         });
 
-        const status: InvoiceDraft["status"] = "review";
+        const shouldAutoSchedule = mode === "scheduled" && customer.issueMode === "auto";
+        const status: InvoiceDraft["status"] = shouldAutoSchedule ? "scheduled" : "review";
         await store.createDraft({
           customer,
           sourceMessageId: inbox.id,
           status,
-          scheduledFor: null,
+          scheduledFor: shouldAutoSchedule ? scheduledAt : null,
           parsedMail
         });
         result.createdDrafts += 1;
+        if (shouldAutoSchedule) {
+          result.scheduledDrafts += 1;
+        }
         result.imported += 1;
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "파싱 실패";
@@ -186,6 +201,9 @@ export async function syncMailbox(store: AppStore): Promise<MailSyncResult> {
     await client.logout();
   }
 
-  await store.createLog("info", "mail-sync", "메일 동기화를 완료했습니다.", result);
+  await store.createLog("info", "mail-sync", "메일 동기화를 완료했습니다.", {
+    ...result,
+    mode
+  });
   return result;
 }
