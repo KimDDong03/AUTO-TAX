@@ -914,6 +914,83 @@ type AuthUserSummary = {
   displayName: string | null;
 };
 
+type AuthUserLoginIndexRow = {
+  user_id: string;
+  login_id: string;
+  auth_email: string;
+  display_name: string | null;
+};
+
+function isMissingRelationError(error: unknown, relationName: string): boolean {
+  const message = typeof error === "object" && error && "message" in error ? String(error.message ?? "") : "";
+  const code = typeof error === "object" && error && "code" in error ? String(error.code ?? "") : "";
+  return code === "42P01" || message.includes(relationName);
+}
+
+async function upsertAuthUserLoginIndex(
+  adminClient: ReturnType<typeof createSupabaseAdminClient>,
+  account: {
+    userId: string;
+    loginId: string;
+    email: string;
+    displayName?: string | null;
+  }
+): Promise<void> {
+  const { error } = await adminClient.from("auth_user_login_index").upsert(
+    {
+      user_id: account.userId,
+      login_id: normalizeLoginId(account.loginId),
+      auth_email: normalizeEmail(account.email),
+      display_name: account.displayName?.trim() || null,
+      updated_at: nowIso()
+    },
+    { onConflict: "user_id" }
+  );
+
+  if (error) {
+    throw new Error(`로그인 조회 인덱스 저장에 실패했습니다: ${error.message}`);
+  }
+}
+
+function mapIndexedAuthUser(row: AuthUserLoginIndexRow): AuthUserSummary {
+  return {
+    id: String(row.user_id),
+    email: String(row.auth_email),
+    loginId: normalizeLoginId(String(row.login_id)),
+    displayName: row.display_name ? String(row.display_name) : null
+  };
+}
+
+async function listIndexedAuthUsers(
+  adminClient: ReturnType<typeof createSupabaseAdminClient>,
+  options: {
+    userIds?: string[];
+    loginId?: string;
+  } = {}
+): Promise<AuthUserSummary[] | null> {
+  let query = adminClient.from("auth_user_login_index").select("user_id, login_id, auth_email, display_name");
+
+  if (options.userIds && options.userIds.length > 0) {
+    query = query.in("user_id", options.userIds);
+  }
+
+  if (options.loginId) {
+    query = query.eq("login_id", normalizeLoginId(options.loginId));
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    if (isMissingRelationError(error, "auth_user_login_index")) {
+      return null;
+    }
+
+    throw new Error(`로그인 조회 인덱스 조회에 실패했습니다: ${error.message}`);
+  }
+
+  return (data ?? []).map((row) => mapIndexedAuthUser(row as AuthUserLoginIndexRow));
+}
+
 async function listAllAuthUsers(adminClient: ReturnType<typeof createSupabaseAdminClient>) {
   const users: AuthUserSummary[] = [];
   let page = 1;
@@ -958,10 +1035,76 @@ async function listAllAuthUsers(adminClient: ReturnType<typeof createSupabaseAdm
   return users;
 }
 
+async function listAuthUsersByIds(
+  adminClient: ReturnType<typeof createSupabaseAdminClient>,
+  userIds: string[]
+): Promise<AuthUserSummary[]> {
+  if (userIds.length === 0) {
+    return [];
+  }
+
+  const uniqueUserIds = [...new Set(userIds)];
+  const indexedUsers = await listIndexedAuthUsers(adminClient, { userIds: uniqueUserIds });
+  const indexedList = indexedUsers ?? [];
+  const indexedByUserId = new Map(indexedList.map((user) => [user.id, user]));
+  const missingUserIds = uniqueUserIds.filter((userId) => !indexedByUserId.has(userId));
+
+  if (missingUserIds.length === 0) {
+    return uniqueUserIds.flatMap((userId) => {
+      const user = indexedByUserId.get(userId);
+      return user ? [user] : [];
+    });
+  }
+
+  const allUsers = await listAllAuthUsers(adminClient);
+  const fallbackUsers = allUsers.filter((user) => missingUserIds.includes(user.id));
+
+  for (const user of fallbackUsers) {
+    if (user.loginId && user.email) {
+      void upsertAuthUserLoginIndex(adminClient, {
+        userId: user.id,
+        loginId: user.loginId,
+        email: user.email,
+        displayName: user.displayName
+      }).catch(() => undefined);
+    }
+  }
+
+  const mergedByUserId = new Map<string, AuthUserSummary>();
+  for (const user of indexedList) {
+    mergedByUserId.set(user.id, user);
+  }
+  for (const user of fallbackUsers) {
+    mergedByUserId.set(user.id, user);
+  }
+
+  return uniqueUserIds.flatMap((userId) => {
+    const user = mergedByUserId.get(userId);
+    return user ? [user] : [];
+  });
+}
+
 async function findAuthUserByLoginId(adminClient: ReturnType<typeof createSupabaseAdminClient>, loginId: string) {
   const normalizedLoginId = normalizeLoginId(loginId);
+  const indexedUsers = await listIndexedAuthUsers(adminClient, { loginId: normalizedLoginId });
+  const indexedMatch = indexedUsers?.[0] ?? null;
+  if (indexedMatch) {
+    return indexedMatch;
+  }
+
   const users = await listAllAuthUsers(adminClient);
-  return users.find((user) => normalizeLoginId(user.loginId ?? "") === normalizedLoginId) ?? null;
+  const matchedUser = users.find((user) => normalizeLoginId(user.loginId ?? "") === normalizedLoginId) ?? null;
+
+  if (matchedUser?.loginId && matchedUser.email) {
+    void upsertAuthUserLoginIndex(adminClient, {
+      userId: matchedUser.id,
+      loginId: matchedUser.loginId,
+      email: matchedUser.email,
+      displayName: matchedUser.displayName
+    }).catch(() => undefined);
+  }
+
+  return matchedUser;
 }
 
 async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsWorkspaceSummary[]> {
@@ -987,7 +1130,7 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
   }
 
   const organizationIds = organizationRows.map((organization) => String(organization.id));
-  const [members, issuedDrafts, managedCustomers, authUsers] = await Promise.all([
+  const [members, issuedDrafts, managedCustomers] = await Promise.all([
     adminClient
       .from("organization_members")
       .select("organization_id, user_id, role, display_name, created_at")
@@ -1001,8 +1144,7 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
     adminClient
       .from("managed_customers")
       .select("organization_id")
-      .in("organization_id", organizationIds),
-    listAllAuthUsers(adminClient)
+      .in("organization_id", organizationIds)
   ]);
 
   if (members.error) {
@@ -1017,7 +1159,6 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
     throw new Error(`작업공간 고객 수 조회에 실패했습니다: ${managedCustomers.error.message}`);
   }
 
-  const accountByUserId = new Map(authUsers.map((user) => [user.id, user.loginId ?? user.email]));
   const membersByOrganizationId = new Map<string, Array<Record<string, unknown>>>();
   const managedCustomerCountByOrganizationId = new Map<string, number>();
   const issuedStatsByOrganizationId = new Map<
@@ -1036,6 +1177,10 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
     list.push(member as Record<string, unknown>);
     membersByOrganizationId.set(organizationId, list);
   }
+
+  const memberUserIds = (members.data ?? []).map((member) => String(member.user_id));
+  const authUsers = await listAuthUsersByIds(adminClient, memberUserIds);
+  const accountByUserId = new Map(authUsers.map((user) => [user.id, user.loginId ?? user.email]));
 
   for (const managedCustomer of managedCustomers.data ?? []) {
     const organizationId = String(managedCustomer.organization_id);
@@ -1115,7 +1260,10 @@ async function listOrganizationMembers(organizationId: string): Promise<Organiza
     throw new Error(`작업공간 사용자 목록 조회에 실패했습니다: ${error.message}`);
   }
 
-  const authUsers = await listAllAuthUsers(adminClient);
+  const authUsers = await listAuthUsersByIds(
+    adminClient,
+    (members ?? []).map((member) => String(member.user_id))
+  );
   const accountByUserId = new Map(authUsers.map((user) => [user.id, user.loginId ?? user.email]));
 
   return (members ?? []).map((member) => ({
@@ -1365,6 +1513,15 @@ export async function createApp(store: AppStore | null, webDist: string) {
       createdUserId = createdUserResult.user.id;
     }
 
+    if (memberUser.loginId && memberUser.email) {
+      await upsertAuthUserLoginIndex(adminClient, {
+        userId: memberUser.id,
+        loginId: memberUser.loginId,
+        email: memberUser.email,
+        displayName: payload.displayName || memberUser.displayName
+      });
+    }
+
     try {
       const { error: membershipError } = await adminClient.from("organization_members").insert({
         organization_id: authContext.activeOrganizationId,
@@ -1547,6 +1704,15 @@ export async function createApp(store: AppStore | null, webDist: string) {
         };
         createdUserId = createdUserResult.user.id;
       }
+    }
+
+    if (ownerUser.loginId && ownerUser.email) {
+      await upsertAuthUserLoginIndex(adminClient, {
+        userId: ownerUser.id,
+        loginId: ownerUser.loginId,
+        email: ownerUser.email,
+        displayName: payload.ownerDisplayName || ownerUser.displayName
+      });
     }
 
     if (normalizedBusinessNumber) {
