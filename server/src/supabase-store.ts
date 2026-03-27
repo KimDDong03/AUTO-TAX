@@ -290,7 +290,8 @@ export class SupabaseStore implements AppStore {
               name: envString("AUTO_TAX_ORGANIZATION_NAME") ?? "AUTO-TAX Default Workspace",
               business_number: digitsOnly(envString("AUTO_TAX_ORGANIZATION_BUSINESS_NUMBER") ?? ""),
               plan_code: "starter",
-              status: "trial"
+              status: "trial",
+              managed_customer_limit: 50
             })
             .select("id")
             .single()
@@ -335,6 +336,25 @@ export class SupabaseStore implements AppStore {
       settingsRow: settingsRow as Row,
       integrationRow: integrationRow as Row
     };
+  }
+
+  private async getManagedCustomerLimit(): Promise<number | null> {
+    await this.initialize();
+    const row = await assertNoError(
+      "작업공간 한도 조회 실패",
+      this.client
+        .from("organizations")
+        .select("managed_customer_limit")
+        .eq("id", this.requireOrganizationId())
+        .single()
+    );
+
+    const value = (row as Row).managed_customer_limit;
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    return asNumber(value);
   }
 
   private async getManagedCustomerRowByLegacyId(customerId: number): Promise<Row | null> {
@@ -696,6 +716,21 @@ export class SupabaseStore implements AppStore {
         this.client.from("managed_customer_match_addresses").delete().eq("managed_customer_id", asString(current.id))
       );
     } else {
+      const [managedCustomerLimit, existingCustomerCountResult] = await Promise.all([
+        this.getManagedCustomerLimit(),
+        this.client
+          .from("managed_customers")
+          .select("*", { count: "exact", head: true })
+          .eq("organization_id", organizationId)
+      ]);
+      if (existingCustomerCountResult.error) {
+        throw new Error(`현재 관리 고객 수 조회 실패: ${existingCustomerCountResult.error.message}`);
+      }
+      const currentCustomerCount = existingCustomerCountResult.count ?? 0;
+      if (managedCustomerLimit !== null && currentCustomerCount >= managedCustomerLimit) {
+        throw new Error(`관리 고객 등록 한도(${managedCustomerLimit}명)를 초과했습니다. 플랫폼 관리자에게 한도 상향을 요청하세요.`);
+      }
+
       const createdRow = await assertNoError(
         "고객 생성 실패",
         this.client

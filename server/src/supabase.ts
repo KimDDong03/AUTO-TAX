@@ -51,6 +51,7 @@ export interface AuthenticatedOrganizationMembership {
   organizationBusinessNumber: string | null;
   organizationPlanCode: string;
   organizationStatus: OrganizationStatus;
+  managedCustomerLimit: number | null;
   role: OrganizationMemberRole;
   displayName: string | null;
 }
@@ -77,6 +78,7 @@ type MembershipRow = {
         business_number: string | null;
         plan_code: string;
         status: OrganizationStatus;
+        managed_customer_limit: number | null;
       }
     | Array<{
         id: string;
@@ -84,6 +86,7 @@ type MembershipRow = {
         business_number: string | null;
         plan_code: string;
         status: OrganizationStatus;
+        managed_customer_limit: number | null;
       }>
     | null;
 };
@@ -114,7 +117,7 @@ async function listOrganizationMemberships(
   const { data, error } = await client
     .from("organization_members")
     .select(
-      "organization_id, role, display_name, organizations(id, name, business_number, plan_code, status)"
+      "organization_id, role, display_name, organizations(id, name, business_number, plan_code, status, managed_customer_limit)"
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
@@ -140,6 +143,7 @@ async function listOrganizationMemberships(
         organizationBusinessNumber: organization.business_number,
         organizationPlanCode: organization.plan_code,
         organizationStatus: organization.status,
+        managedCustomerLimit: organization.managed_customer_limit,
         role: membership.role,
         displayName: membership.display_name
       }

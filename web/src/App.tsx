@@ -11,6 +11,7 @@ import type {
   LogEntry,
   OrganizationMemberSummary,
   OpsWorkspaceCreateResponse,
+  OpsWorkspaceLimitUpdateResponse,
   OpsWorkspaceSummary,
   PartnerPointsPayload,
   RenewalAutomationPayload
@@ -50,6 +51,7 @@ type InternalJobRunResponse = {
 type OpsWorkspaceFormState = {
   organizationName: string;
   organizationBusinessNumber: string;
+  managedCustomerLimit: string;
   ownerLoginId: string;
   ownerDisplayName: string;
   ownerPassword: string;
@@ -138,6 +140,7 @@ type OrganizationMemberFormState = {
 const baseOpsWorkspaceForm: OpsWorkspaceFormState = {
   organizationName: "",
   organizationBusinessNumber: "",
+  managedCustomerLimit: "50",
   ownerLoginId: "",
   ownerDisplayName: "",
   ownerPassword: ""
@@ -1042,6 +1045,7 @@ export function App() {
   const [organizationMembers, setOrganizationMembers] = useState<OrganizationMemberSummary[]>([]);
   const [organizationMemberForm, setOrganizationMemberForm] = useState<OrganizationMemberFormState>(baseOrganizationMemberForm);
   const [opsWorkspaceForm, setOpsWorkspaceForm] = useState<OpsWorkspaceFormState>(baseOpsWorkspaceForm);
+  const [workspaceLimitEdits, setWorkspaceLimitEdits] = useState<Record<string, string>>({});
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
   const [error, setError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -1081,6 +1085,16 @@ export function App() {
     const nextSettingsForm = settingsToForm(payload.settings);
     setData(payload);
     setOpsConsole(nextOpsConsole);
+    setWorkspaceLimitEdits(
+      nextOpsConsole
+        ? Object.fromEntries(
+            nextOpsConsole.workspaces.map((workspace) => [
+              workspace.organizationId,
+              String(workspace.managedCustomerLimit ?? "")
+            ])
+          )
+        : {}
+    );
     await loadOrganizationMembers(payload);
     setSettingsForm(nextSettingsForm);
     setCustomerForm((prev) => {
@@ -1732,9 +1746,15 @@ export function App() {
   };
 
   const createWorkspace = async () => {
+    const managedCustomerLimit = Number(opsWorkspaceForm.managedCustomerLimit);
+    if (!Number.isInteger(managedCustomerLimit) || managedCustomerLimit < 1) {
+      throw new Error("관리 고객 한도는 1 이상 숫자로 입력하세요.");
+    }
+
     const payload = {
       organizationName: opsWorkspaceForm.organizationName.trim(),
       organizationBusinessNumber: opsWorkspaceForm.organizationBusinessNumber.trim(),
+      managedCustomerLimit,
       ownerLoginId: opsWorkspaceForm.ownerLoginId.trim(),
       ownerDisplayName: opsWorkspaceForm.ownerDisplayName.trim(),
       ownerPassword: opsWorkspaceForm.ownerPassword
@@ -1752,6 +1772,41 @@ export function App() {
         : result.ownerAction === "created-user"
           ? `고객사 작업공간을 개통했습니다.\n작업공간: ${result.workspace.organizationName}\nowner 로그인 아이디: ${result.workspace.ownerLoginId}\n새 계정이 생성되었습니다. 전달한 임시 비밀번호로 첫 로그인하면 됩니다.`
           : `고객사 작업공간을 개통했습니다.\n작업공간: ${result.workspace.organizationName}\nowner 로그인 아이디: ${result.workspace.ownerLoginId}\n기존 사용자 계정을 owner로 연결했습니다.`
+    );
+  };
+
+  const updateWorkspaceManagedCustomerLimit = async (workspace: OpsWorkspaceSummary) => {
+    const rawValue = workspaceLimitEdits[workspace.organizationId] ?? String(workspace.managedCustomerLimit ?? "");
+    const managedCustomerLimit = Number(rawValue);
+
+    if (!Number.isInteger(managedCustomerLimit) || managedCustomerLimit < 1) {
+      throw new Error("관리 고객 한도는 1 이상 숫자로 입력하세요.");
+    }
+
+    const result = await api<OpsWorkspaceLimitUpdateResponse>(
+      `/api/ops/workspaces/${workspace.organizationId}/managed-customer-limit`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ managedCustomerLimit })
+      }
+    );
+
+    setOpsConsole((prev) =>
+      prev
+        ? {
+            ...prev,
+            workspaces: prev.workspaces.map((item) =>
+              item.organizationId === result.workspace.organizationId ? result.workspace : item
+            )
+          }
+        : prev
+    );
+    setWorkspaceLimitEdits((prev) => ({
+      ...prev,
+      [workspace.organizationId]: String(result.workspace.managedCustomerLimit ?? "")
+    }));
+    window.alert(
+      `${result.workspace.organizationName} 작업공간의 관리 고객 한도를 ${result.workspace.managedCustomerLimit ?? "-"}명으로 저장했습니다.`
     );
   };
 
@@ -2173,6 +2228,12 @@ export function App() {
   ];
   const setupPendingCount = setupChecklist.filter((step) => !step.done).length;
   const certAttentionCount = expiredCertCustomers.length + expiringSoonCustomers.length;
+  const activeOrganizationMembership =
+    data.auth.organizations.find((organization) => organization.organizationId === data.auth.activeOrganizationId) ?? null;
+  const managedCustomerLimit = activeOrganizationMembership?.managedCustomerLimit ?? null;
+  const managedCustomerCount = data.counts.customers;
+  const hasReachedManagedCustomerLimit =
+    managedCustomerLimit !== null && managedCustomerCount >= managedCustomerLimit;
   const opsAgent = opsConsole?.renewalAutomation.agent ?? null;
   const opsJobs = opsConsole?.renewalAutomation.jobs ?? [];
   const opsLogs = opsConsole?.logs ?? [];
@@ -2547,6 +2608,7 @@ export function App() {
                   <>
                     <button
                       className="btn-secondary"
+                      disabled={hasReachedManagedCustomerLimit}
                       onClick={() => {
                         setCreatingCustomer(true);
                         setCustomerForm(createCustomerFormDefaults());
@@ -2582,6 +2644,14 @@ export function App() {
                       준비 필요만 {blockedCustomerCount}명
                     </button>
                   </div>
+                </div>
+                <div className="helper-box">
+                  <strong>관리 고객 한도</strong>
+                  <span>
+                    현재 {managedCustomerCount}명
+                    {managedCustomerLimit !== null ? ` / 한도 ${managedCustomerLimit}명` : ""}
+                    {hasReachedManagedCustomerLimit ? " · 한도에 도달해 새 고객 등록이 잠겨 있습니다." : ""}
+                  </span>
                 </div>
                 <div className="list">
                   {filteredCustomers.map((customer) => {
@@ -2844,7 +2914,12 @@ export function App() {
                     </div>
                     {!selectedCustomer ? (
                       <div className="button-row">
-                        <button onClick={() => void runAction("save-customer", saveCustomer)}>고객 등록</button>
+                        <button disabled={hasReachedManagedCustomerLimit} onClick={() => void runAction("save-customer", saveCustomer)}>
+                          고객 등록
+                        </button>
+                        {hasReachedManagedCustomerLimit ? (
+                          <span className="field-hint">관리 고객 한도에 도달해 새 고객 등록이 잠겨 있습니다. 플랫폼 관리자에게 한도 상향을 요청하세요.</span>
+                        ) : null}
                       </div>
                     ) : null}
                   </>
@@ -3459,6 +3534,19 @@ export function App() {
                       />
                     </label>
                     <label>
+                      관리 고객 한도
+                      <input
+                        disabled={busyKey !== null}
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={opsWorkspaceForm.managedCustomerLimit}
+                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, managedCustomerLimit: event.target.value }))}
+                        placeholder="예: 50"
+                      />
+                      <span className="field-hint">이 고객사가 등록할 수 있는 최대 관리 고객 수입니다.</span>
+                    </label>
+                    <label>
                       첫 owner 로그인 아이디
                       <input
                         disabled={busyKey !== null}
@@ -3555,6 +3643,10 @@ export function App() {
                               <span>owner: {workspace.ownerDisplayName ? `${workspace.ownerDisplayName} · ` : ""}{workspace.ownerLoginId ?? "-"}</span>
                               <span>멤버 {workspace.memberCount}명</span>
                               <span>플랜 {workspace.organizationPlanCode}</span>
+                              <span>
+                                관리 고객 {workspace.managedCustomerCount}명
+                                {workspace.managedCustomerLimit !== null ? ` / 한도 ${workspace.managedCustomerLimit}명` : ""}
+                              </span>
                               <span>누적 발행 {formatMoney(workspace.issuedDraftCount)}건</span>
                               <span>이번 달 발행 {formatMoney(workspace.currentMonthIssuedDraftCount)}건</span>
                               <span>
@@ -3574,6 +3666,45 @@ export function App() {
                               >
                                 owner 비밀번호 재설정
                               </button>
+                            </div>
+                            <div className="helper-box-stack">
+                              <strong>관리 고객 한도</strong>
+                              <div className="form-grid">
+                                <label>
+                                  현재 등록 고객
+                                  <input value={`${workspace.managedCustomerCount}명`} disabled />
+                                </label>
+                                <label>
+                                  최대 등록 가능 수
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={workspaceLimitEdits[workspace.organizationId] ?? String(workspace.managedCustomerLimit ?? "")}
+                                    onChange={(event) =>
+                                      setWorkspaceLimitEdits((prev) => ({
+                                        ...prev,
+                                        [workspace.organizationId]: event.target.value
+                                      }))
+                                    }
+                                  />
+                                </label>
+                              </div>
+                              <div className="button-row">
+                                <button
+                                  className="btn-secondary"
+                                  disabled={busyKey !== null}
+                                  onClick={() =>
+                                    void runAction(
+                                      `ops-workspace-limit-${workspace.organizationId}`,
+                                      async () => void (await updateWorkspaceManagedCustomerLimit(workspace)),
+                                      { reload: false }
+                                    )
+                                  }
+                                >
+                                  한도 저장
+                                </button>
+                              </div>
                             </div>
                             {isOwnerResetTarget ? (
                               <div className="helper-box-stack inline-password-reset">

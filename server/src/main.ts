@@ -66,6 +66,8 @@ type OpsWorkspaceSummary = {
   organizationBusinessNumber: string | null;
   organizationPlanCode: string;
   organizationStatus: "trial" | "active" | "suspended" | "churned";
+  managedCustomerLimit: number | null;
+  managedCustomerCount: number;
   ownerLoginId: string | null;
   ownerDisplayName: string | null;
   memberCount: number;
@@ -79,6 +81,10 @@ type OpsWorkspaceCreateResponse = {
   workspace: OpsWorkspaceSummary;
   ownerAction: "linked-existing-user" | "created-user";
   workspaceAction: "created" | "reused-existing";
+};
+
+type OpsWorkspaceLimitUpdateResponse = {
+  workspace: OpsWorkspaceSummary;
 };
 
 type OrganizationMemberSummary = {
@@ -355,6 +361,7 @@ const customerSchema = z.object({
 const opsWorkspaceCreateSchema = z.object({
   organizationName: z.string().trim().min(1),
   organizationBusinessNumber: z.string().trim().default(""),
+  managedCustomerLimit: z.number().int().min(1).max(10000).default(50),
   ownerLoginId: z
     .string()
     .trim()
@@ -365,6 +372,10 @@ const opsWorkspaceCreateSchema = z.object({
   ownerPassword: z.string().default(""),
   planCode: z.string().trim().min(1).default("starter"),
   status: z.enum(["trial", "active", "suspended", "churned"]).default("trial")
+});
+
+const opsWorkspaceLimitUpdateSchema = z.object({
+  managedCustomerLimit: z.number().int().min(1).max(10000)
 });
 
 const organizationMemberCreateSchema = z.object({
@@ -736,7 +747,7 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
   const adminClient = createSupabaseAdminClient();
   let organizationsQuery = adminClient
     .from("organizations")
-    .select("id, name, business_number, plan_code, status, created_at")
+    .select("id, name, business_number, plan_code, status, managed_customer_limit, created_at")
     .order("created_at", { ascending: false });
 
   if (organizationIdsFilter && organizationIdsFilter.length > 0) {
@@ -755,7 +766,7 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
   }
 
   const organizationIds = organizationRows.map((organization) => String(organization.id));
-  const [members, issuedDrafts, authUsers] = await Promise.all([
+  const [members, issuedDrafts, managedCustomers, authUsers] = await Promise.all([
     adminClient
       .from("organization_members")
       .select("organization_id, user_id, role, display_name, created_at")
@@ -766,6 +777,10 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
       .select("organization_id, issued_at")
       .in("organization_id", organizationIds)
       .eq("status", "issued"),
+    adminClient
+      .from("managed_customers")
+      .select("organization_id")
+      .in("organization_id", organizationIds),
     listAllAuthUsers(adminClient)
   ]);
 
@@ -777,8 +792,13 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
     throw new Error(`작업공간 발행 이력 조회에 실패했습니다: ${issuedDrafts.error.message}`);
   }
 
+  if (managedCustomers.error) {
+    throw new Error(`작업공간 고객 수 조회에 실패했습니다: ${managedCustomers.error.message}`);
+  }
+
   const accountByUserId = new Map(authUsers.map((user) => [user.id, user.loginId ?? user.email]));
   const membersByOrganizationId = new Map<string, Array<Record<string, unknown>>>();
+  const managedCustomerCountByOrganizationId = new Map<string, number>();
   const issuedStatsByOrganizationId = new Map<
     string,
     {
@@ -794,6 +814,14 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
     const list = membersByOrganizationId.get(organizationId) ?? [];
     list.push(member as Record<string, unknown>);
     membersByOrganizationId.set(organizationId, list);
+  }
+
+  for (const managedCustomer of managedCustomers.data ?? []) {
+    const organizationId = String(managedCustomer.organization_id);
+    managedCustomerCountByOrganizationId.set(
+      organizationId,
+      (managedCustomerCountByOrganizationId.get(organizationId) ?? 0) + 1
+    );
   }
 
   for (const issuedDraft of issuedDrafts.data ?? []) {
@@ -833,6 +861,11 @@ async function listOpsWorkspaces(organizationIdsFilter?: string[]): Promise<OpsW
       organizationBusinessNumber: organization.business_number ? String(organization.business_number) : null,
       organizationPlanCode: String(organization.plan_code),
       organizationStatus: String(organization.status) as OpsWorkspaceSummary["organizationStatus"],
+      managedCustomerLimit:
+        organization.managed_customer_limit === null || organization.managed_customer_limit === undefined
+          ? null
+          : Number(organization.managed_customer_limit),
+      managedCustomerCount: managedCustomerCountByOrganizationId.get(organizationId) ?? 0,
       ownerLoginId: ownerUserId ? accountByUserId.get(ownerUserId) ?? null : null,
       ownerDisplayName: owner?.display_name ? String(owner.display_name) : null,
       memberCount: organizationMembers.length,
@@ -1289,9 +1322,10 @@ export async function createApp(store: AppStore | null, webDist: string) {
           name: payload.organizationName,
           business_number: normalizedBusinessNumber || null,
           plan_code: payload.planCode,
-          status: payload.status
+          status: payload.status,
+          managed_customer_limit: payload.managedCustomerLimit
         })
-        .select("id, name, business_number, plan_code, status, created_at")
+        .select("id, name, business_number, plan_code, status, managed_customer_limit, created_at")
         .single();
 
       let organizationRow = organization;
@@ -1304,7 +1338,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
 
         const { data: existingOrganizationRow, error: existingOrganizationRowError } = await adminClient
           .from("organizations")
-          .select("id, name, business_number, plan_code, status, created_at")
+          .select("id, name, business_number, plan_code, status, managed_customer_limit, created_at")
           .eq("id", workspaceId)
           .maybeSingle();
 
@@ -1414,6 +1448,48 @@ export async function createApp(store: AppStore | null, webDist: string) {
 
       throw error;
     }
+  });
+
+  app.put("/api/ops/workspaces/:organizationId/managed-customer-limit", async (req, res) => {
+    requirePlatformAdmin(res);
+    const params = z.object({ organizationId: z.string().uuid() }).parse(req.params);
+    const payload = opsWorkspaceLimitUpdateSchema.parse(req.body ?? {});
+    const adminClient = createSupabaseAdminClient();
+
+    const { count: managedCustomerCount, error: countError } = await adminClient
+      .from("managed_customers")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", params.organizationId);
+
+    if (countError) {
+      throw new Error(`현재 관리 고객 수 확인에 실패했습니다: ${countError.message}`);
+    }
+
+    const currentCount = managedCustomerCount ?? 0;
+    if (payload.managedCustomerLimit < currentCount) {
+      throw new HttpError(400, `현재 등록된 관리 고객이 ${currentCount}명이라 ${payload.managedCustomerLimit}명으로 낮출 수 없습니다.`);
+    }
+
+    const { error: updateError } = await adminClient
+      .from("organizations")
+      .update({
+        managed_customer_limit: payload.managedCustomerLimit
+      })
+      .eq("id", params.organizationId);
+
+    if (updateError) {
+      throw new Error(`관리 고객 한도 저장에 실패했습니다: ${updateError.message}`);
+    }
+
+    const workspace = await getOpsWorkspaceSummaryById(params.organizationId);
+    if (!workspace) {
+      throw new Error("한도 저장 후 작업공간을 다시 찾지 못했습니다.");
+    }
+
+    const response: OpsWorkspaceLimitUpdateResponse = {
+      workspace
+    };
+    res.json(response);
   });
 
   app.post("/api/ops/workspaces/:organizationId/reset-owner-password", async (req, res) => {

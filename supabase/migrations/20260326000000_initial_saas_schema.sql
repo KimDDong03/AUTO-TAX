@@ -51,6 +51,7 @@ create table if not exists public.organizations (
   business_number text,
   plan_code text not null default 'starter',
   status public.organization_status not null default 'trial',
+  managed_customer_limit integer not null default 50,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
