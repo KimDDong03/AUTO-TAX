@@ -99,7 +99,7 @@ create table if not exists public.organization_integrations (
   popbill_link_id text not null default '',
   popbill_secret_key_encrypted text not null default '',
   popbill_partner_corp_num text not null default '',
-  popbill_user_id_prefix text not null default 'HAE_',
+  popbill_user_id_prefix text not null default 'TEST_',
   popbill_shared_password_encrypted text not null default '',
   operator_contact_name text not null default '',
   operator_contact_email text not null default '',

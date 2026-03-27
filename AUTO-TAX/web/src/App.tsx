@@ -3069,9 +3069,9 @@ export function App() {
                           <input
                             value={settingsForm.popbillUserIdPrefix}
                             onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })}
-                            placeholder="예: HAE_"
+                            placeholder="예: TEST_"
                           />
-                          <span className="field-hint">신규 고객 팝빌 ID를 만들 때 앞에 붙는 값입니다. 예: `HAE_001`</span>
+                          <span className="field-hint">신규 고객 팝빌 ID를 만들 때 앞에 붙는 값입니다. 예: `TEST_001`</span>
                         </label>
                         <label>
                           신규 고객 기본 비밀번호

@@ -106,7 +106,7 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     popbillSecretKey: asString(integrationRow.popbill_secret_key_encrypted),
     popbillIsTest: asBoolean(integrationRow.popbill_is_test, false),
     popbillPartnerCorpNum: asString(integrationRow.popbill_partner_corp_num),
-    popbillUserIdPrefix: asString(integrationRow.popbill_user_id_prefix, "HAE_"),
+    popbillUserIdPrefix: asString(integrationRow.popbill_user_id_prefix, "TEST_"),
     popbillSharedPassword: asString(integrationRow.popbill_shared_password_encrypted),
     operatorContactName: asString(integrationRow.operator_contact_name),
     operatorContactEmail: asString(integrationRow.operator_contact_email),

@@ -52,7 +52,7 @@ export function ensureBranchId(value: string): string {
 
 export function normalizePopbillUserPrefix(value: string): string {
   const sanitized = value.replace(/[^A-Za-z0-9_]/g, "").trim();
-  return sanitized || "HAE_";
+  return sanitized || "TEST_";
 }
 
 export function buildPopbillUserId(prefix: string, customerId: number): string {
