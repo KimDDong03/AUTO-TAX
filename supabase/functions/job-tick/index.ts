@@ -26,8 +26,16 @@ function hasValidTickSecret(req: Request): boolean {
   return Boolean(headerValue) && headerValue === expected;
 }
 
+function getServerUrl(): string {
+  const value = env("AUTO_TAX_SERVER_URL").replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+  return `https://${value}`;
+}
+
 async function callInternalJobApi(pathname: string, body?: Record<string, unknown>): Promise<JobApiPayload> {
-  const serverUrl = env("AUTO_TAX_SERVER_URL");
+  const serverUrl = getServerUrl();
   const jobSecret = env("AUTO_TAX_JOB_SECRET");
   const url = new URL(pathname, serverUrl);
   const response = await fetch(url, {
