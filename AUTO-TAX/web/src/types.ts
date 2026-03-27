@@ -291,6 +291,7 @@ export interface AuthenticatedOrganizationMembership {
   organizationBusinessNumber: string | null;
   organizationPlanCode: string;
   organizationStatus: OrganizationStatus;
+  managedCustomerLimit: number | null;
   role: OrganizationMemberRole;
   displayName: string | null;
 }
@@ -325,6 +326,8 @@ export interface OpsWorkspaceSummary {
   organizationBusinessNumber: string | null;
   organizationPlanCode: string;
   organizationStatus: OrganizationStatus;
+  managedCustomerLimit: number | null;
+  managedCustomerCount: number;
   ownerLoginId: string | null;
   ownerDisplayName: string | null;
   memberCount: number;
@@ -338,6 +341,10 @@ export interface OpsWorkspaceCreateResponse {
   workspace: OpsWorkspaceSummary;
   ownerAction: "linked-existing-user" | "created-user";
   workspaceAction: "created" | "reused-existing";
+}
+
+export interface OpsWorkspaceLimitUpdateResponse {
+  workspace: OpsWorkspaceSummary;
 }
 
 export interface OrganizationMemberSummary {
