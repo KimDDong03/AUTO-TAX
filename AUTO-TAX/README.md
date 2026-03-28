@@ -59,6 +59,7 @@ npm run build:vercel
 
 ## 문서
 
+- [디자인 시스템](./DESIGN.md)
 - [구현 문서](./docs/IMPLEMENTATION.md)
 - [운영 문서](./docs/OPERATIONS.md)
 - [고객 온보딩 문서](./docs/ONBOARDING.md)
@@ -69,6 +70,7 @@ npm run build:vercel
 - [Supabase 프로젝트 연결 메모](./docs/SUPABASE_PROJECT_SETUP.md)
 - [Supabase Cron 연결 메모](./docs/SUPABASE_CRON_SETUP.md)
 - [구현 상태 문서](./docs/IMPLEMENTATION_STATUS.md)
+- [출시 전 체크리스트](./docs/GO_LIVE_CHECKLIST.md)
 - [공동인증서 갱신 로컬 에이전트 POC](./docs/CERTIFICATE_RENEWAL_POC.md)
 
 ## 지금 바로 채워야 하는 값

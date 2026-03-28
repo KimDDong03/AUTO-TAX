@@ -106,6 +106,20 @@ class HttpError extends Error {
   }
 }
 
+function isUniqueViolation(error: { code?: unknown; message?: unknown } | null | undefined, constraintName?: string) {
+  if (!error) {
+    return false;
+  }
+
+  const errorCode = typeof error.code === "string" ? error.code : String(error.code ?? "");
+  const message = typeof error.message === "string" ? error.message.toLowerCase() : String(error.message ?? "").toLowerCase();
+  const normalizedConstraint = constraintName?.toLowerCase() ?? null;
+  return (
+    errorCode === "23505" &&
+    (normalizedConstraint === null || message.includes(normalizedConstraint) || message.includes("duplicate"))
+  );
+}
+
 type ClientAppSettings = Pick<
   AppSettings,
   | "id"
@@ -1802,16 +1816,23 @@ export async function createApp(store: AppStore | null, webDist: string) {
         throw new Error(`작업공간 연동 설정 생성에 실패했습니다: ${integrationsError.message}`);
       }
 
-      const { data: existingOwnerMember, error: existingOwnerMemberError } = await adminClient
+      const { data: existingOwnerMembers, error: existingOwnerMemberError } = await adminClient
         .from("organization_members")
         .select("user_id")
         .eq("organization_id", createdOrganizationId)
         .eq("role", "owner")
-        .maybeSingle();
+        .order("created_at", { ascending: true })
+        .limit(2);
 
       if (existingOwnerMemberError) {
         throw new Error(`기존 owner 확인에 실패했습니다: ${existingOwnerMemberError.message}`);
       }
+
+      if ((existingOwnerMembers ?? []).length > 1) {
+        throw new HttpError(409, "이 작업공간에 owner 계정이 중복되어 있습니다. 먼저 정리한 뒤 다시 시도하세요.");
+      }
+
+      const existingOwnerMember = existingOwnerMembers?.[0] ?? null;
 
       if (existingOwnerMember && String(existingOwnerMember.user_id) !== ownerUser.id) {
         throw new HttpError(409, "같은 고객사 작업공간이 이미 개통되어 있습니다. 기존 작업공간을 확인하세요.");
@@ -1829,6 +1850,9 @@ export async function createApp(store: AppStore | null, webDist: string) {
       );
 
       if (membershipError) {
+        if (isUniqueViolation(membershipError, "organization_members_single_owner_idx")) {
+          throw new HttpError(409, "이 작업공간에는 owner 계정을 1명만 둘 수 있습니다.");
+        }
         throw new Error(`첫 owner 연결에 실패했습니다: ${membershipError.message}`);
       }
 
@@ -2150,6 +2174,16 @@ export async function createApp(store: AppStore | null, webDist: string) {
   app.get("/api/settings", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
     res.json(toClientSettings(await requestStore.getSettings()));
+  });
+
+  app.get("/api/settings/popbill-shared-password", async (_req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const settings = await requestStore.getSettings();
+    await requestStore.createLog("warn", "settings", "팝빌 기본 비밀번호를 조회했습니다.");
+    res.json({
+      password: settings.popbillSharedPassword
+    });
   });
 
   app.get("/api/popbill/partner-points", async (_req, res) => {

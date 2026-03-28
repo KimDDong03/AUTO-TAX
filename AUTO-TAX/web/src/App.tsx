@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api, setActiveOrganizationId } from "./api";
 import { supabase } from "./supabase";
@@ -130,6 +130,19 @@ type PasswordResetTarget =
       organizationName: string;
       loginId: string | null;
     };
+
+type SettingsAutosaveState = "idle" | "pending" | "saving" | "saved" | "error";
+
+type AppDialogTone = "default" | "success" | "warn" | "danger";
+
+type AppDialogState = {
+  kind: "alert" | "confirm";
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  tone: AppDialogTone;
+};
 
 function shouldShowPopbillPrefixPlaceholder(settings: AppSettings): boolean {
   const normalizedPrefix = settings.popbillUserIdPrefix.trim().toUpperCase();
@@ -604,6 +617,54 @@ function Panel(props: { title: string; subtitle?: string; children: React.ReactN
       </header>
       {props.children}
     </section>
+  );
+}
+
+function AppDialog(props: {
+  dialog: AppDialogState;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="app-dialog-backdrop" role="presentation">
+      <section
+        className={props.dialog.tone === "danger" ? "app-dialog app-dialog-danger" : "app-dialog"}
+        role={props.dialog.kind === "confirm" ? "alertdialog" : "dialog"}
+        aria-modal="true"
+        aria-labelledby="app-dialog-title"
+        aria-describedby="app-dialog-message"
+      >
+        <div className="app-dialog-head">
+          <span
+            className={
+              props.dialog.tone === "danger"
+                ? "chip chip-danger"
+                : props.dialog.tone === "warn"
+                  ? "chip chip-warn"
+                  : props.dialog.tone === "success"
+                    ? "chip chip-success"
+                    : "chip"
+            }
+          >
+            {props.dialog.kind === "confirm" ? "확인 필요" : "안내"}
+          </span>
+          <div>
+            <h2 id="app-dialog-title">{props.dialog.title}</h2>
+            <p id="app-dialog-message" className="app-dialog-message">{props.dialog.message}</p>
+          </div>
+        </div>
+        <div className="app-dialog-actions">
+          {props.dialog.kind === "confirm" ? (
+            <button type="button" className="btn-secondary" onClick={props.onCancel}>
+              {props.dialog.cancelLabel ?? "취소"}
+            </button>
+          ) : null}
+          <button type="button" onClick={props.onConfirm}>
+            {props.dialog.confirmLabel}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1162,9 +1223,13 @@ export function App() {
   const [opsWorkspaceForm, setOpsWorkspaceForm] = useState<OpsWorkspaceFormState>(baseOpsWorkspaceForm);
   const [workspaceLimitEdits, setWorkspaceLimitEdits] = useState<Record<string, string>>({});
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
+  const [settingsAutosaveState, setSettingsAutosaveState] = useState<SettingsAutosaveState>("idle");
+  const [appDialog, setAppDialog] = useState<AppDialogState | null>(null);
   const [error, setError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>({});
+  const settingsAutosaveBaselineRef = useRef("");
+  const appDialogResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const publicManagedCustomerCount = normalizeManagedCustomerCount(managedCustomerCountInput);
   const publicPricing = calculatePublicPrice(pricingPlanId, publicManagedCustomerCount);
 
@@ -1214,6 +1279,8 @@ export function App() {
     );
     await loadOrganizationMembers(payload);
     setSettingsForm(nextSettingsForm);
+    settingsAutosaveBaselineRef.current = JSON.stringify(buildSettingsPayload(nextSettingsForm).payload);
+    setSettingsAutosaveState("saved");
     setCustomerForm((prev) => {
       if (prev.id) {
         const current = payload.customers.find((customer) => customer.id === prev.id);
@@ -1299,6 +1366,10 @@ export function App() {
         setOpsConsole(null);
         setOrganizationMembers([]);
         setSettingsForm(null);
+        setAppDialog(null);
+        appDialogResolverRef.current = null;
+        settingsAutosaveBaselineRef.current = "";
+        setSettingsAutosaveState("idle");
         setActiveOrganizationId(null);
       }
     });
@@ -1400,6 +1471,133 @@ export function App() {
     }
   }, [creatingCustomer, customerForm.id]);
 
+  useEffect(() => {
+    if (!settingsForm) {
+      return;
+    }
+
+    const signature = getSettingsPayloadSignature(settingsForm);
+
+    if (!settingsAutosaveBaselineRef.current) {
+      settingsAutosaveBaselineRef.current = signature;
+      setSettingsAutosaveState("saved");
+      return;
+    }
+
+    if (signature === settingsAutosaveBaselineRef.current) {
+      setSettingsAutosaveState((prev) => (prev === "error" ? prev : "saved"));
+      return;
+    }
+
+    setSettingsAutosaveState("pending");
+
+    if (busyKey !== null || !canAutosaveSettings(settingsForm)) {
+      return;
+    }
+
+    const timerId = window.setTimeout(async () => {
+      try {
+        setSettingsAutosaveState("saving");
+        setError("");
+        const { payload } = buildSettingsPayload(settingsForm);
+        const savedSettings = await api<AppSettings>("/api/settings", {
+          method: "PUT",
+          body: JSON.stringify(payload)
+        });
+        applySavedSettings(savedSettings, {
+          syncForm: false,
+          baselineForm: settingsForm
+        });
+      } catch (saveError) {
+        setSettingsAutosaveState("error");
+        setError(saveError instanceof Error ? saveError.message : "설정 자동 저장에 실패했습니다.");
+      }
+    }, 700);
+
+    return () => window.clearTimeout(timerId);
+  }, [busyKey, settingsForm]);
+
+  const openAppDialog = (dialog: AppDialogState) =>
+    new Promise<boolean>((resolve) => {
+      appDialogResolverRef.current = resolve;
+      setAppDialog(dialog);
+    });
+
+  const closeAppDialog = (confirmed: boolean) => {
+    const resolve = appDialogResolverRef.current;
+    appDialogResolverRef.current = null;
+    setAppDialog(null);
+    resolve?.(confirmed);
+  };
+
+  const showAppAlert = async (
+    message: string,
+    options?: {
+      title?: string;
+      tone?: AppDialogTone;
+      confirmLabel?: string;
+    }
+  ) => {
+    await openAppDialog({
+      kind: "alert",
+      title: options?.title ?? "안내",
+      message,
+      confirmLabel: options?.confirmLabel ?? "확인",
+      tone: options?.tone ?? "default"
+    });
+  };
+
+  const showAppConfirm = (
+    message: string,
+    options?: {
+      title?: string;
+      tone?: AppDialogTone;
+      confirmLabel?: string;
+      cancelLabel?: string;
+    }
+  ) =>
+    openAppDialog({
+      kind: "confirm",
+      title: options?.title ?? "이 작업을 진행할까요?",
+      message,
+      confirmLabel: options?.confirmLabel ?? "진행하기",
+      cancelLabel: options?.cancelLabel ?? "취소",
+      tone: options?.tone ?? "default"
+    });
+
+  useEffect(() => {
+    if (!appDialog) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeAppDialog(appDialog.kind === "alert" ? true : false);
+        return;
+      }
+
+      if (event.key === "Enter" && !event.shiftKey) {
+        const target = event.target as HTMLElement | null;
+        if (target?.tagName === "TEXTAREA") {
+          return;
+        }
+        event.preventDefault();
+        closeAppDialog(true);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [appDialog]);
+
   const runAction = async (
     key: string,
     action: () => Promise<void>,
@@ -1438,7 +1636,10 @@ export function App() {
 
       setSupportRequestForm(baseSupportRequestForm);
       setShowSupportRequestForm(false);
-      window.alert("문의가 접수되었습니다. 확인 후 등록 안내 메일을 보내드리겠습니다.");
+      await showAppAlert("문의가 접수되었습니다. 확인 후 등록 안내 메일을 보내드리겠습니다.", {
+        title: "문의 접수 완료",
+        tone: "success"
+      });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "문의 전송에 실패했습니다.");
     } finally {
@@ -1509,6 +1710,10 @@ export function App() {
     setRecoveryPasswordForm(basePasswordResetForm);
     setOrganizationMembers([]);
     setSettingsForm(null);
+    setAppDialog(null);
+    appDialogResolverRef.current = null;
+    settingsAutosaveBaselineRef.current = "";
+    setSettingsAutosaveState("idle");
     setActiveOrganizationId(null);
     clearSupabaseAuthHash();
     await supabase.auth.signOut();
@@ -1633,19 +1838,56 @@ export function App() {
     };
   };
 
-  const applySavedSettings = (savedSettings: AppSettings) => {
-    setSettingsForm(settingsToForm(savedSettings));
-    setData((prev) => (prev ? { ...prev, settings: savedSettings } : prev));
+  const getSettingsPayloadSignature = (form: SettingsFormState) => JSON.stringify(buildSettingsPayload(form).payload);
+
+  const canAutosaveSettings = (form: SettingsFormState) => {
+    const { payload } = buildSettingsPayload(form);
+    const isFiniteInteger = (value: number) => Number.isInteger(value) && Number.isFinite(value);
+
+    return (
+      isFiniteInteger(payload.imapPort) &&
+      payload.imapPort >= 1 &&
+      isFiniteInteger(payload.smtpPort) &&
+      payload.smtpPort >= 1 &&
+      isFiniteInteger(payload.defaultIssueDay) &&
+      payload.defaultIssueDay >= 1 &&
+      payload.defaultIssueDay <= 31 &&
+      isFiniteInteger(payload.defaultIssueHour) &&
+      payload.defaultIssueHour >= 0 &&
+      payload.defaultIssueHour <= 23 &&
+      isFiniteInteger(payload.defaultIssueMinute) &&
+      payload.defaultIssueMinute >= 0 &&
+      payload.defaultIssueMinute <= 59 &&
+      isFiniteInteger(payload.mailPollMinutes) &&
+      payload.mailPollMinutes >= 1 &&
+      payload.mailPollMinutes <= 1440
+    );
   };
 
-  const saveSettings = async () => {
+  const applySavedSettings = (
+    savedSettings: AppSettings,
+    options?: {
+      syncForm?: boolean;
+      baselineForm?: SettingsFormState | null;
+    }
+  ) => {
+    const baselineForm = options?.baselineForm ?? settingsToForm(savedSettings);
+    if (options?.syncForm !== false) {
+      setSettingsForm(baselineForm);
+    }
+    settingsAutosaveBaselineRef.current = baselineForm ? getSettingsPayloadSignature(baselineForm) : "";
+    setData((prev) => (prev ? { ...prev, settings: savedSettings } : prev));
+    setSettingsAutosaveState("saved");
+  };
+
+  const loadCurrentPopbillSharedPassword = async () => {
     if (!settingsForm) return;
-    const { payload } = buildSettingsPayload(settingsForm);
-    const savedSettings = await api<AppSettings>("/api/settings", {
-      method: "PUT",
-      body: JSON.stringify(payload)
-    });
-    applySavedSettings(savedSettings);
+    const result = await api<{ password: string }>("/api/settings/popbill-shared-password");
+    const nextForm = { ...settingsForm, popbillSharedPassword: result.password };
+    settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
+    setSettingsAutosaveState("saved");
+    setSettingsForm(nextForm);
+    setRevealedFields((prev) => ({ ...prev, popbillSharedPassword: true }));
   };
 
   const testMailSettings = async () => {
@@ -1683,11 +1925,18 @@ export function App() {
         method: "PUT",
         body: JSON.stringify(payload)
       });
-      applySavedSettings(savedSettings);
+      applySavedSettings(savedSettings, {
+        syncForm: false,
+        baselineForm: normalized
+      });
     }
 
-    window.alert(
-      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\nIMAP: ${result.imapOk ? "성공" : "실패"}\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${result.smtpMessage}\n\n테스트 메일 발송: ${result.testMailSent ? "예" : "아니오"}\n\n설정 저장: ${testSucceeded ? "성공" : "실패로 저장 안 함"}`
+    await showAppAlert(
+      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\nIMAP: ${result.imapOk ? "성공" : "실패"}\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${result.smtpMessage}\n\n테스트 메일 발송: ${result.testMailSent ? "예" : "아니오"}\n\n설정 저장: ${testSucceeded ? "성공" : "실패로 저장 안 함"}`,
+      {
+        title: "메일 연결 테스트 결과",
+        tone: testSucceeded ? "success" : "warn"
+      }
     );
   };
 
@@ -1712,7 +1961,10 @@ export function App() {
     }
 
     setPasswordChangeForm(basePasswordChangeForm);
-    window.alert("비밀번호를 변경했습니다.");
+    await showAppAlert("비밀번호를 변경했습니다.", {
+      title: "비밀번호 변경 완료",
+      tone: "success"
+    });
   };
 
   const returnToLoginFromRecovery = async () => {
@@ -1821,7 +2073,10 @@ export function App() {
         }
       );
 
-      window.alert(`${result.loginId ?? "선택한 사용자"}의 임시 비밀번호를 재설정했습니다.`);
+      await showAppAlert(`${result.loginId ?? "선택한 사용자"}의 임시 비밀번호를 재설정했습니다.`, {
+        title: "임시 비밀번호 재설정",
+        tone: "success"
+      });
     } else {
       const result = await api<{ ok: true; ownerLoginId: string | null }>(
         `/api/ops/workspaces/${passwordResetTarget.organizationId}/reset-owner-password`,
@@ -1833,8 +2088,12 @@ export function App() {
         }
       );
 
-      window.alert(
-        `${passwordResetTarget.organizationName} 작업공간의 owner(${result.ownerLoginId ?? "-"}) 임시 비밀번호를 재설정했습니다.`
+      await showAppAlert(
+        `${passwordResetTarget.organizationName} 작업공간의 owner(${result.ownerLoginId ?? "-"}) 임시 비밀번호를 재설정했습니다.`,
+        {
+          title: "owner 비밀번호 재설정",
+          tone: "success"
+        }
       );
     }
 
@@ -1856,15 +2115,23 @@ export function App() {
 
     setOrganizationMembers(result.members);
     setOrganizationMemberForm(baseOrganizationMemberForm);
-    window.alert(
+    await showAppAlert(
       result.memberAction === "created-user"
         ? "새 사용자 계정을 만들고 작업공간 멤버로 연결했습니다."
-        : "기존 사용자 계정을 작업공간 멤버로 연결했습니다."
+        : "기존 사용자 계정을 작업공간 멤버로 연결했습니다.",
+      {
+        title: "사용자 추가 완료",
+        tone: "success"
+      }
     );
   };
 
   const removeOrganizationMember = async (member: OrganizationMemberSummary) => {
-    const confirmed = window.confirm(`${member.loginId ?? "선택한 사용자"}를 이 작업공간에서 제거할까요?`);
+    const confirmed = await showAppConfirm(`${member.loginId ?? "선택한 사용자"}를 이 작업공간에서 제거할까요?`, {
+      title: "작업공간 사용자 제거",
+      tone: "danger",
+      confirmLabel: "제거하기"
+    });
     if (!confirmed) {
       return;
     }
@@ -1886,8 +2153,12 @@ export function App() {
       method: "POST"
     });
 
-    window.alert(
-      `배치 작업 생성이 완료되었습니다.\n확인한 작업공간: ${result.checkedOrganizations}곳\n새로 큐에 넣은 작업: ${result.dispatched}건\n건너뛴 작업: ${result.skipped}건`
+    await showAppAlert(
+      `배치 작업 생성이 완료되었습니다.\n확인한 작업공간: ${result.checkedOrganizations}곳\n새로 큐에 넣은 작업: ${result.dispatched}건\n건너뛴 작업: ${result.skipped}건`,
+      {
+        title: "배치 작업 생성 완료",
+        tone: "success"
+      }
     );
   };
 
@@ -1897,8 +2168,12 @@ export function App() {
       body: JSON.stringify({ limit: 100 })
     });
 
-    window.alert(
-      `배치 작업 실행이 완료되었습니다.\n조회한 작업: ${result.attempted}건\n선점한 작업: ${result.claimed}건\n완료: ${result.completed}건\n실패: ${result.failed}건`
+    await showAppAlert(
+      `배치 작업 실행이 완료되었습니다.\n조회한 작업: ${result.attempted}건\n선점한 작업: ${result.claimed}건\n완료: ${result.completed}건\n실패: ${result.failed}건`,
+      {
+        title: "배치 작업 실행 완료",
+        tone: "success"
+      }
     );
   };
 
@@ -1923,12 +2198,16 @@ export function App() {
     });
 
     setOpsWorkspaceForm(baseOpsWorkspaceForm);
-    window.alert(
+    await showAppAlert(
       result.workspaceAction === "reused-existing"
         ? `이미 개통된 고객사 작업공간을 다시 불러왔습니다.\n작업공간: ${result.workspace.organizationName}\nowner 로그인 아이디: ${result.workspace.ownerLoginId}`
         : result.ownerAction === "created-user"
           ? `고객사 작업공간을 개통했습니다.\n작업공간: ${result.workspace.organizationName}\nowner 로그인 아이디: ${result.workspace.ownerLoginId}\n새 계정이 생성되었습니다. 전달한 임시 비밀번호로 첫 로그인하면 됩니다.`
-          : `고객사 작업공간을 개통했습니다.\n작업공간: ${result.workspace.organizationName}\nowner 로그인 아이디: ${result.workspace.ownerLoginId}\n기존 사용자 계정을 owner로 연결했습니다.`
+          : `고객사 작업공간을 개통했습니다.\n작업공간: ${result.workspace.organizationName}\nowner 로그인 아이디: ${result.workspace.ownerLoginId}\n기존 사용자 계정을 owner로 연결했습니다.`,
+      {
+        title: "고객사 작업공간 개통",
+        tone: "success"
+      }
     );
   };
 
@@ -1962,8 +2241,12 @@ export function App() {
       ...prev,
       [workspace.organizationId]: String(result.workspace.managedCustomerLimit ?? "")
     }));
-    window.alert(
-      `${result.workspace.organizationName} 작업공간의 관리 고객 한도를 ${result.workspace.managedCustomerLimit ?? "-"}명으로 저장했습니다.`
+    await showAppAlert(
+      `${result.workspace.organizationName} 작업공간의 관리 고객 한도를 ${result.workspace.managedCustomerLimit ?? "-"}명으로 저장했습니다.`,
+      {
+        title: "관리 고객 한도 저장",
+        tone: "success"
+      }
     );
   };
 
@@ -1975,7 +2258,10 @@ export function App() {
       })
     });
 
-    window.alert(`로컬 인증서 목록 진단 작업을 큐에 추가했습니다.\n작업번호: ${result.id}`);
+    await showAppAlert(`로컬 인증서 목록 진단 작업을 큐에 추가했습니다.\n작업번호: ${result.id}`, {
+      title: "진단 작업 추가",
+      tone: "success"
+    });
   };
 
   const requestRenewalCertIdProbe = async (
@@ -1989,8 +2275,12 @@ export function App() {
       })
     });
 
-    window.alert(
-      `certID 조회 작업을 큐에 추가했습니다.\n작업번호: ${result.id}\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 조회됩니다.`
+    await showAppAlert(
+      `certID 조회 작업을 큐에 추가했습니다.\n작업번호: ${result.id}\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 조회됩니다.`,
+      {
+        title: "certID 조회 작업 추가",
+        tone: "success"
+      }
     );
   };
 
@@ -2005,14 +2295,23 @@ export function App() {
       })
     });
 
-    window.alert(
-      `갱신 경로 분석 작업을 큐에 추가했습니다.\n작업번호: ${result.id}\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 분석됩니다.`
+    await showAppAlert(
+      `갱신 경로 분석 작업을 큐에 추가했습니다.\n작업번호: ${result.id}\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 분석됩니다.`,
+      {
+        title: "갱신 경로 분석 작업 추가",
+        tone: "success"
+      }
     );
   };
 
   const resetPopbillLink = async (customer: Customer) => {
-    const confirmed = window.confirm(
-      `${customer.customerName} 고객의 팝빌 로컬 연결 상태를 초기화합니다.\n팝빌 실제 계정은 삭제되지 않고, 앱 상태만 pending/인증전으로 돌아갑니다.`
+    const confirmed = await showAppConfirm(
+      `${customer.customerName} 고객의 팝빌 로컬 연결 상태를 초기화합니다.\n팝빌 실제 계정은 삭제되지 않고, 앱 상태만 pending/인증전으로 돌아갑니다.`,
+      {
+        title: "팝빌 연결 상태 초기화",
+        tone: "warn",
+        confirmLabel: "초기화"
+      }
     );
     if (!confirmed) return;
 
@@ -2022,8 +2321,13 @@ export function App() {
   };
 
   const deleteCustomer = async (customer: Customer) => {
-    const confirmed = window.confirm(
-      `${customer.customerName} 고객을 삭제합니다.\n관련된 로컬 메일 매칭/발행초안도 같이 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`
+    const confirmed = await showAppConfirm(
+      `${customer.customerName} 고객을 삭제합니다.\n관련된 로컬 메일 매칭/발행초안도 같이 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`,
+      {
+        title: "고객 삭제",
+        tone: "danger",
+        confirmLabel: "삭제하기"
+      }
     );
     if (!confirmed) return;
 
@@ -2035,8 +2339,13 @@ export function App() {
   };
 
   const quitPopbillMember = async (customer: Customer) => {
-    const confirmed = window.confirm(
-      `${customer.customerName} 고객을 팝빌 테스트 서버에서 탈퇴시킵니다.\n이 작업은 팝빌 테스트 환경의 연동회원 자체를 제거합니다.\n계속할까요?`
+    const confirmed = await showAppConfirm(
+      `${customer.customerName} 고객을 팝빌 테스트 서버에서 탈퇴시킵니다.\n이 작업은 팝빌 테스트 환경의 연동회원 자체를 제거합니다.\n계속할까요?`,
+      {
+        title: "팝빌 테스트 회원 탈퇴",
+        tone: "danger",
+        confirmLabel: "탈퇴시키기"
+      }
     );
     if (!confirmed) return;
 
@@ -2047,7 +2356,9 @@ export function App() {
 
   const showDraftPopbillInfo = async (draftId: number) => {
     const info = await api<Record<string, unknown>>(`/api/drafts/${draftId}/popbill/info`);
-    window.alert(summarizePopbillInfo(info));
+    await showAppAlert(summarizePopbillInfo(info), {
+      title: "팝빌 문서 정보"
+    });
   };
 
   const openDraftPopbillUrl = async (draftId: number, type: "view-url" | "print-url") => {
@@ -2058,17 +2369,26 @@ export function App() {
   const issueAllReviewDrafts = async () => {
     const targets = data?.drafts.filter((draft) => draft.status === "review" || draft.status === "failed") ?? [];
     if (targets.length === 0) {
-      window.alert("발행할 검수 대기/실패 건이 없습니다.");
+      await showAppAlert("발행할 검수 대기/실패 건이 없습니다.", {
+        title: "전체 발행"
+      });
       return;
     }
 
-    const confirmed = window.confirm(`검수 대기/실패 ${targets.length}건을 전체 발행합니다.\n계속할까요?`);
+    const confirmed = await showAppConfirm(`검수 대기/실패 ${targets.length}건을 전체 발행합니다.\n계속할까요?`, {
+      title: "전체 발행 확인",
+      tone: "warn",
+      confirmLabel: "전체 발행"
+    });
     if (!confirmed) return;
 
     const result = await api<{ total: number; issued: number; failed: number }>("/api/drafts/issue-all", {
       method: "POST"
     });
-    window.alert(`전체 발행 완료\n대상: ${result.total}건\n성공: ${result.issued}건\n실패: ${result.failed}건`);
+    await showAppAlert(`전체 발행 완료\n대상: ${result.total}건\n성공: ${result.issued}건\n실패: ${result.failed}건`, {
+      title: "전체 발행 완료",
+      tone: "success"
+    });
   };
 
   const refreshAllCertificateStatuses = async () => {
@@ -2084,14 +2404,23 @@ export function App() {
       method: "POST"
     });
 
-    window.alert(
-      `인증서 일괄 점검 완료\n점검 대상: ${result.checked}건\n갱신 성공: ${result.updated}건\n조회 실패: ${result.failed}건\n만료: ${result.expired}건\n30일 이내 만료 예정: ${result.expiringSoon}건\n알림: ${formatNotificationStatus(result.notificationStatus, result.notificationMessage)}`
+    await showAppAlert(
+      `인증서 일괄 점검 완료\n점검 대상: ${result.checked}건\n갱신 성공: ${result.updated}건\n조회 실패: ${result.failed}건\n만료: ${result.expired}건\n30일 이내 만료 예정: ${result.expiringSoon}건\n알림: ${formatNotificationStatus(result.notificationStatus, result.notificationMessage)}`,
+      {
+        title: "인증서 일괄 점검 완료",
+        tone: "success"
+      }
     );
   };
 
   const cancelIssuedDraft = async (draftId: number) => {
-    const confirmed = window.confirm(
-      "이 발행 건을 취소하고 검수 대기로 되돌립니다.\n취소 후에는 같은 건을 다시 발행할 수 있습니다.\n계속할까요?"
+    const confirmed = await showAppConfirm(
+      "이 발행 건을 취소하고 검수 대기로 되돌립니다.\n취소 후에는 같은 건을 다시 발행할 수 있습니다.\n계속할까요?",
+      {
+        title: "발행 취소",
+        tone: "warn",
+        confirmLabel: "취소하고 되돌리기"
+      }
     );
     if (!confirmed) return;
 
@@ -2109,11 +2438,17 @@ export function App() {
   const reprocessAllUnmatchedMessages = async () => {
     const targets = data?.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed" || message.parseStatus === "duplicate") ?? [];
     if (targets.length === 0) {
-      window.alert("재처리할 확인 메일이 없습니다.");
+      await showAppAlert("재처리할 확인 메일이 없습니다.", {
+        title: "메일 재처리"
+      });
       return;
     }
 
-    const confirmed = window.confirm(`확인 메일 ${targets.length}건을 다시 처리합니다.\n계속할까요?`);
+    const confirmed = await showAppConfirm(`확인 메일 ${targets.length}건을 다시 처리합니다.\n계속할까요?`, {
+      title: "메일 재처리 확인",
+      tone: "warn",
+      confirmLabel: "재처리"
+    });
     if (!confirmed) return;
 
     let success = 0;
@@ -2130,7 +2465,10 @@ export function App() {
       }
     }
 
-    window.alert(`메일 재처리 완료\n성공: ${success}건\n확인 필요 유지: ${stillPending}건`);
+    await showAppAlert(`메일 재처리 완료\n성공: ${success}건\n확인 필요 유지: ${stillPending}건`, {
+      title: "메일 재처리 완료",
+      tone: "success"
+    });
   };
 
   if (!authReady) {
@@ -2139,86 +2477,90 @@ export function App() {
 
   if (recoveryMode) {
     return (
-      <div className="auth-shell">
-        <section className="auth-card">
-          <div className="auth-copy">
-            <span className="auth-badge">AUTO-TAX</span>
-            <h1>새 비밀번호 설정</h1>
-            <p>재설정 메일에서 열린 화면입니다. 새 비밀번호를 저장한 뒤 다시 로그인하세요.</p>
-          </div>
-          <form className="auth-form" onSubmit={(event) => void submitRecoveryPassword(event)}>
-            <label>
-              <span>새 비밀번호</span>
-              <div className="password-field">
-                <input
-                  type={revealedFields.recoveryNextPassword ? "text" : "password"}
-                  value={recoveryPasswordForm.nextPassword}
-                  onChange={(event) =>
-                    setRecoveryPasswordForm((prev) => ({
-                      ...prev,
-                      nextPassword: event.target.value
-                    }))
-                  }
-                  placeholder="8자 이상 입력"
-                  autoComplete="new-password"
-                  required
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  aria-label={revealedFields.recoveryNextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
-                  onClick={() => toggleRevealField("recoveryNextPassword")}
-                >
-                  <RevealIcon open={Boolean(revealedFields.recoveryNextPassword)} />
-                </button>
-              </div>
-            </label>
-            <label>
-              <span>새 비밀번호 확인</span>
-              <div className="password-field">
-                <input
-                  type={revealedFields.recoveryConfirmPassword ? "text" : "password"}
-                  value={recoveryPasswordForm.confirmPassword}
-                  onChange={(event) =>
-                    setRecoveryPasswordForm((prev) => ({
-                      ...prev,
-                      confirmPassword: event.target.value
-                    }))
-                  }
-                  placeholder="한 번 더 입력"
-                  autoComplete="new-password"
-                  required
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  aria-label={revealedFields.recoveryConfirmPassword ? "새 비밀번호 확인 숨기기" : "새 비밀번호 확인 보기"}
-                  onClick={() => toggleRevealField("recoveryConfirmPassword")}
-                >
-                  <RevealIcon open={Boolean(revealedFields.recoveryConfirmPassword)} />
-                </button>
-              </div>
-            </label>
-            {error ? <div className="alert error">{error}</div> : null}
-            <div className="auth-actions">
-              <button type="submit" disabled={authBusy}>
-                {authBusy ? "저장 중..." : "새 비밀번호 저장"}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => void returnToLoginFromRecovery()} disabled={authBusy}>
-                로그인으로 돌아가기
-              </button>
+      <>
+        <div className="auth-shell">
+          <section className="auth-card">
+            <div className="auth-copy">
+              <span className="auth-badge">AUTO-TAX</span>
+              <h1>새 비밀번호 설정</h1>
+              <p>재설정 메일에서 열린 화면입니다. 새 비밀번호를 저장한 뒤 다시 로그인하세요.</p>
             </div>
-            <p className="field-hint">링크가 만료되었으면 Supabase에서 새 재설정 메일을 다시 보내세요.</p>
-          </form>
-        </section>
-      </div>
+            <form className="auth-form" onSubmit={(event) => void submitRecoveryPassword(event)}>
+              <label>
+                <span>새 비밀번호</span>
+                <div className="password-field">
+                  <input
+                    type={revealedFields.recoveryNextPassword ? "text" : "password"}
+                    value={recoveryPasswordForm.nextPassword}
+                    onChange={(event) =>
+                      setRecoveryPasswordForm((prev) => ({
+                        ...prev,
+                        nextPassword: event.target.value
+                      }))
+                    }
+                    placeholder="8자 이상 입력"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle"
+                    aria-label={revealedFields.recoveryNextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
+                    onClick={() => toggleRevealField("recoveryNextPassword")}
+                  >
+                    <RevealIcon open={Boolean(revealedFields.recoveryNextPassword)} />
+                  </button>
+                </div>
+              </label>
+              <label>
+                <span>새 비밀번호 확인</span>
+                <div className="password-field">
+                  <input
+                    type={revealedFields.recoveryConfirmPassword ? "text" : "password"}
+                    value={recoveryPasswordForm.confirmPassword}
+                    onChange={(event) =>
+                      setRecoveryPasswordForm((prev) => ({
+                        ...prev,
+                        confirmPassword: event.target.value
+                      }))
+                    }
+                    placeholder="한 번 더 입력"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle"
+                    aria-label={revealedFields.recoveryConfirmPassword ? "새 비밀번호 확인 숨기기" : "새 비밀번호 확인 보기"}
+                    onClick={() => toggleRevealField("recoveryConfirmPassword")}
+                  >
+                    <RevealIcon open={Boolean(revealedFields.recoveryConfirmPassword)} />
+                  </button>
+                </div>
+              </label>
+              {error ? <div className="alert error">{error}</div> : null}
+              <div className="auth-actions">
+                <button type="submit" disabled={authBusy}>
+                  {authBusy ? "저장 중..." : "새 비밀번호 저장"}
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => void returnToLoginFromRecovery()} disabled={authBusy}>
+                  로그인으로 돌아가기
+                </button>
+              </div>
+              <p className="field-hint">링크가 만료되었으면 Supabase에서 새 재설정 메일을 다시 보내세요.</p>
+            </form>
+          </section>
+        </div>
+        {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
+      </>
     );
   }
 
   if (!authSession) {
     return (
-      <div className="landing-shell">
-        <header className="landing-topbar">
+      <>
+        <div className="landing-shell">
+          <header className="landing-topbar">
           <div className="landing-topbar-inner">
             <button type="button" className="landing-brand" onClick={() => scrollToLandingSection("landing-top")}>
               <span className="brand-badge landing-brand-badge">AT</span>
@@ -2469,8 +2811,10 @@ export function App() {
             </div>
           </section>
 
-        </main>
-      </div>
+          </main>
+        </div>
+        {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
+      </>
     );
   }
 
@@ -2603,6 +2947,15 @@ export function App() {
       summary: canManageOrganizationMembers ? "로그인 비밀번호 변경 및 사용자 관리" : "로그인 비밀번호 변경"
     }
   ];
+  const settingsAutosaveLabel =
+    settingsAutosaveState === "saving"
+      ? "자동 저장 중"
+      : settingsAutosaveState === "error"
+        ? "저장 실패"
+        : settingsAutosaveState === "pending"
+          ? "저장 대기"
+          : "자동 저장";
+  const isMailTesting = busyKey === "mail-test";
   const navItems: Array<{ id: TabId; label: string; icon: string }> = [
     ...(hasActiveWorkspace
       ? [
@@ -2616,8 +2969,9 @@ export function App() {
   const activeNavLabel = navItems.find((item) => item.id === activeTab)?.label ?? "AUTO-TAX";
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <>
+      <div className="app-shell">
+        <aside className="sidebar">
         <div className="brand">
           <span className="brand-badge">AT</span>
           <div>
@@ -2760,7 +3114,7 @@ export function App() {
                   </>
                 }
               >
-                <div className="table-wrap">
+                <div className={reviewDrafts.length === 0 ? "table-wrap queue-table-shell is-empty" : "table-wrap queue-table-shell"}>
                   <table className="responsive-table queue-table">
                     <thead>
                       <tr>
@@ -2792,9 +3146,15 @@ export function App() {
                           </td>
                         </tr>
                       ))}
+                      {reviewDrafts.length === 0 ? (
+                        <tr className="queue-empty-row">
+                          <td className="queue-empty-cell" colSpan={5}>
+                            지금 발행할 건이 없습니다.
+                          </td>
+                        </tr>
+                      ) : null}
                     </tbody>
                   </table>
-                  {reviewDrafts.length === 0 ? <div className="empty">지금 발행할 건이 없습니다.</div> : null}
                 </div>
               </Panel>
 
@@ -3271,8 +3631,18 @@ export function App() {
                   ))}
                 </div>
                 {activeSettingsSection !== "account" ? (
-                  <div className="settings-sidebar-actions">
-                    <button onClick={() => void runAction("save-settings", saveSettings)}>설정 저장</button>
+                  <div className="settings-sidebar-actions settings-sidebar-actions-passive">
+                    <span
+                      className={
+                        settingsAutosaveState === "error"
+                          ? "chip chip-danger"
+                          : settingsAutosaveState === "saving"
+                            ? "chip chip-warn"
+                            : "chip chip-success"
+                      }
+                    >
+                      {settingsAutosaveLabel}
+                    </span>
                   </div>
                 ) : null}
                 <div className="settings-inline-note">
@@ -3293,10 +3663,21 @@ export function App() {
                   note="한전 메일을 읽고 알림을 보내는 메일 계정을 연결합니다."
                   actions={
                     <>
-                      <button onClick={() => void runAction("mail-test", testMailSettings, { reload: false })}>메일 연결 테스트</button>
+                      <button
+                        disabled={busyKey !== null}
+                        onClick={() => void runAction("mail-test", testMailSettings, { reload: false })}
+                      >
+                        {isMailTesting ? "메일 연결 확인 중..." : "메일 연결 테스트"}
+                      </button>
                     </>
                   }
                 >
+                  {isMailTesting ? (
+                    <div className="settings-action-feedback">
+                      <span className="chip chip-warn">테스트 중</span>
+                      <span>IMAP/SMTP 연결을 확인하고 있습니다.</span>
+                    </div>
+                  ) : null}
                   <div className="form-grid">
                     <div className="settings-detected-provider full">
                       <span>메일 수집 시작 기준</span>
@@ -3467,7 +3848,7 @@ export function App() {
                           />
                           <span className="field-hint">신규 고객 팝빌 ID를 만들 때 앞에 붙는 값입니다. 예: `TEST_001` · 다른 고객사와 중복되면 저장할 수 없습니다.</span>
                         </label>
-                        <label>
+                        <label className="settings-field-full-width">
                           신규 고객 기본 비밀번호
                           <div className="password-field">
                             <input
@@ -3485,11 +3866,29 @@ export function App() {
                               <RevealIcon open={Boolean(revealedFields.popbillSharedPassword)} />
                             </button>
                           </div>
-                          <span className="field-hint">
-                            {data.settings.popbillSharedPasswordConfigured
-                              ? "이미 저장된 기본 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요."
-                              : "신규 고객 팝빌 계정을 만들 때 초기 비밀번호로 사용합니다."}
-                          </span>
+                          <div className="field-meta-row">
+                            <span className="field-hint">
+                              {data.settings.popbillSharedPasswordConfigured
+                                ? "이미 저장된 기본 비밀번호가 있습니다. 변경하거나 확인하려면 불러오기를 누르세요."
+                                : "신규 고객 팝빌 계정을 만들 때 초기 비밀번호로 사용합니다."}
+                            </span>
+                            {data.settings.popbillSharedPasswordConfigured ? (
+                              <div className="field-action-row">
+                                <button
+                                  type="button"
+                                  className="btn-secondary field-inline-action"
+                                  disabled={busyKey !== null}
+                                  onClick={() =>
+                                    void runAction("load-popbill-shared-password", loadCurrentPopbillSharedPassword, {
+                                      reload: false
+                                    })
+                                  }
+                                >
+                                  저장된 비밀번호 불러오기
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
                         </label>
                         <label>
                           운영 담당자명
@@ -4343,7 +4742,9 @@ export function App() {
             )}
           </div>
         ) : null}
-      </main>
-    </div>
+        </main>
+      </div>
+      {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
+    </>
   );
 }
