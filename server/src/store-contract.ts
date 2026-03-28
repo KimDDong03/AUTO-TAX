@@ -1,6 +1,8 @@
 import type {
   AppSettings,
+  CompletedBillingMonth,
   Customer,
+  CustomerImportProfile,
   CustomerInput,
   DashboardPayload,
   DraftStatus,
@@ -15,15 +17,19 @@ import type {
 export interface AppStore {
   initialize(): Promise<void>;
   getSettings(): Promise<AppSettings>;
+  getCustomerImportProfile(): Promise<CustomerImportProfile | null>;
+  updateCustomerImportProfile(input: Pick<CustomerImportProfile, "headerRowIndex" | "fieldHeaderMap">): Promise<CustomerImportProfile>;
+  listCompletedBillingMonths(): Promise<CompletedBillingMonth[]>;
+  markCompletedBillingMonth(billingMonth: string): Promise<CompletedBillingMonth>;
   listCustomers(): Promise<Customer[]>;
   getCustomer(customerId: number): Promise<Customer | null>;
   findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null>;
   findCustomerByMatchAddress(matchAddress: string): Promise<Customer | null>;
   saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer>;
+  updateCustomerPopbillUserId(customerId: number, popbillUserId: string): Promise<Customer>;
   updateCustomerPopbillState(customerId: number, state: PopbillState, certRegistered?: boolean, certExpireDate?: string | null): Promise<Customer>;
   resetCustomerPopbill(customerId: number): Promise<Customer>;
   deleteCustomer(customerId: number): Promise<void>;
-  findCustomerByPlantAndAddress(plantName: string, plantAddress?: string | null): Promise<Customer | null>;
   getMessageByUid(messageUid: string): Promise<InboxMessage | null>;
   getInboxMessage(messageId: number): Promise<InboxMessage | null>;
   saveInboxMessage(args: {

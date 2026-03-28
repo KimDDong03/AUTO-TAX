@@ -1,6 +1,6 @@
 export type IssueMode = "review" | "auto";
 export type PopbillState = "pending" | "joined" | "failed";
-export type MailParseStatus = "pending" | "parsed" | "failed" | "unmatched" | "duplicate";
+export type MailParseStatus = "pending" | "parsed" | "failed" | "unmatched" | "duplicate" | "ignored";
 export type DraftStatus = "review" | "scheduled" | "issuing" | "issued" | "failed";
 
 export interface AppSettings {
@@ -81,6 +81,19 @@ export interface CustomerInput {
   memo: string;
   plantNames: string[];
   matchAddresses: string[];
+}
+
+export interface CustomerImportProfile {
+  headerRowIndex: number;
+  fieldHeaderMap: Record<"customerName" | "businessNumber" | "corpName" | "addr", string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompletedBillingMonth {
+  billingMonth: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ParsedMail {

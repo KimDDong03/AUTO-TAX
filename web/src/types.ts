@@ -62,12 +62,25 @@ export interface Customer {
   matchAddresses: string[];
 }
 
+export interface CustomerImportProfile {
+  headerRowIndex: number;
+  fieldHeaderMap: Record<"customerName" | "businessNumber" | "corpName" | "addr", string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompletedBillingMonth {
+  billingMonth: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InboxMessage {
   id: number;
   subject: string;
   fromAddress: string;
   receivedAt: string;
-  parseStatus: "pending" | "parsed" | "failed" | "unmatched" | "duplicate";
+  parseStatus: "pending" | "parsed" | "failed" | "unmatched" | "duplicate" | "ignored";
   parseError: string;
   customerId: number | null;
   draftId: number | null;
