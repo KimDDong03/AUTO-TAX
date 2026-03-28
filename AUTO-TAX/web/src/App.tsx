@@ -1,12 +1,15 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
+import * as XLSX from "xlsx";
 import { ApiError, api, setActiveOrganizationId } from "./api";
 import { supabase } from "./supabase";
 import type {
   AppSettings,
   BootstrapPayload,
+  CompletedBillingMonth,
   Customer,
+  CustomerImportProfile,
   InvoiceDraft,
   LogEntry,
   OrganizationMemberSummary,
@@ -17,7 +20,7 @@ import type {
   RenewalAutomationPayload
 } from "./types";
 
-type TabId = "work" | "customers" | "settings" | "ops";
+type TabId = "work" | "customers" | "initial" | "settings" | "ops";
 type SettingsSectionId = "gmail" | "popbill" | "account";
 type CustomerDetailTabId = "info" | "history";
 type MailProvider = "gmail" | "naver" | "daum";
@@ -70,7 +73,6 @@ type CustomerFormState = {
   customerName: string;
   businessNumber: string;
   corpName: string;
-  ceoName: string;
   addr: string;
   bizType: string;
   bizClass: string;
@@ -78,7 +80,6 @@ type CustomerFormState = {
   popbillUserId: string;
   popbillPassword: string;
   memo: string;
-  plantNamesText: string;
 };
 
 type SettingsFormState = {
@@ -143,6 +144,180 @@ type AppDialogState = {
   cancelLabel?: string;
   tone: AppDialogTone;
 };
+
+type AddressResolveResponse = {
+  ok: boolean;
+  input: string;
+  resolvedAddress: string | null;
+  postalCode: string | null;
+  isRoadAddress: boolean | null;
+};
+
+type CustomerImportFieldId = "customerName" | "businessNumber" | "corpName" | "addr";
+
+type CustomerImportColumnOption = {
+  value: string;
+  label: string;
+};
+
+type CustomerImportMapping = Record<CustomerImportFieldId, string>;
+
+type CustomerImportParsedFile = {
+  fileName: string;
+  sheetName: string;
+  rows: string[][];
+};
+
+type CustomerImportMappedRowPayload = {
+  rowIndex: number;
+  customerName: string;
+  businessNumber: string;
+  corpName: string;
+  addr: string;
+};
+
+type QuickRegisterFormState = {
+  messageId: number | null;
+  customerName: string;
+  businessNumber: string;
+  corpName: string;
+  addr: string;
+};
+
+type CustomerImportPreviewRow = CustomerImportMappedRowPayload & {
+  normalizedBusinessNumber: string;
+  normalizedAddress: string;
+  errors: string[];
+  canImport: boolean;
+};
+
+type CustomerImportPreviewResponse = {
+  totalRows: number;
+  importableRows: number;
+  blockedRows: number;
+  rows: CustomerImportPreviewRow[];
+};
+
+type CustomerImportCommitResponse = {
+  totalRows: number;
+  successCount: number;
+  failedCount: number;
+  failedRows: Array<{
+    rowIndex: number;
+    message: string;
+  }>;
+};
+
+type BillingMonthSummary = {
+  billingMonth: string;
+  totalCount: number;
+  actionableCount: number;
+  latestReceivedAt: string | null;
+  completed: boolean;
+};
+
+const CUSTOMER_IMPORT_FIELD_OPTIONS: Array<{ id: CustomerImportFieldId; label: string; keywords: string[] }> = [
+  { id: "customerName", label: "대표자명", keywords: ["대표", "성명", "고객명", "이름"] },
+  { id: "businessNumber", label: "사업자번호", keywords: ["사업자", "등록번호", "사업자번호"] },
+  { id: "corpName", label: "세금계산서 상호", keywords: ["상호", "법인명", "업체명", "회사명"] },
+  { id: "addr", label: "주소", keywords: ["주소", "소재지", "도로명"] }
+];
+
+const EMPTY_CUSTOMER_IMPORT_MAPPING: CustomerImportMapping = {
+  customerName: "",
+  businessNumber: "",
+  corpName: "",
+  addr: ""
+};
+
+function normalizeImportCell(value: unknown): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function buildCustomerImportColumnOptions(rows: string[][], headerRowIndex: number): CustomerImportColumnOption[] {
+  const headerRow = rows[headerRowIndex] ?? [];
+  return headerRow.map((value, index) => ({
+    value: String(index),
+    label: normalizeImportCell(value) || `열 ${index + 1}`
+  }));
+}
+
+function guessCustomerImportMapping(columns: CustomerImportColumnOption[]): CustomerImportMapping {
+  const nextMapping = { ...EMPTY_CUSTOMER_IMPORT_MAPPING };
+
+  for (const field of CUSTOMER_IMPORT_FIELD_OPTIONS) {
+    const matchedColumn = columns.find((column) => {
+      const normalizedLabel = column.label.replace(/\s+/g, "").toLowerCase();
+      return field.keywords.some((keyword) => normalizedLabel.includes(keyword.replace(/\s+/g, "").toLowerCase()));
+    });
+    if (matchedColumn) {
+      nextMapping[field.id] = matchedColumn.value;
+    }
+  }
+
+  return nextMapping;
+}
+
+function buildCustomerImportMappingFromProfile(
+  columns: CustomerImportColumnOption[],
+  profile: Pick<CustomerImportProfile, "fieldHeaderMap">
+): CustomerImportMapping {
+  const nextMapping = { ...EMPTY_CUSTOMER_IMPORT_MAPPING };
+
+  for (const field of CUSTOMER_IMPORT_FIELD_OPTIONS) {
+    const targetHeader = normalizeImportCell(profile.fieldHeaderMap[field.id]).toLowerCase();
+    if (!targetHeader) continue;
+    const matchedColumn = columns.find((column) => normalizeImportCell(column.label).toLowerCase() === targetHeader);
+    if (matchedColumn) {
+      nextMapping[field.id] = matchedColumn.value;
+    }
+  }
+
+  return nextMapping;
+}
+
+function buildCustomerImportRowsPayload(
+  rows: string[][],
+  headerRowIndex: number,
+  mapping: CustomerImportMapping
+): CustomerImportMappedRowPayload[] {
+  const fieldColumnIndexes = Object.fromEntries(
+    (Object.entries(mapping) as Array<[CustomerImportFieldId, string]>).map(([fieldId, columnIndex]) => [
+      fieldId,
+      columnIndex === "" ? -1 : Number(columnIndex)
+    ])
+  ) as Record<CustomerImportFieldId, number>;
+
+  return rows.slice(headerRowIndex + 1).flatMap((row, index) => {
+    const mappedRow: CustomerImportMappedRowPayload = {
+      rowIndex: headerRowIndex + 2 + index,
+      customerName: fieldColumnIndexes.customerName >= 0 ? normalizeImportCell(row[fieldColumnIndexes.customerName]) : "",
+      businessNumber: fieldColumnIndexes.businessNumber >= 0 ? normalizeImportCell(row[fieldColumnIndexes.businessNumber]) : "",
+      corpName: fieldColumnIndexes.corpName >= 0 ? normalizeImportCell(row[fieldColumnIndexes.corpName]) : "",
+      addr: fieldColumnIndexes.addr >= 0 ? normalizeImportCell(row[fieldColumnIndexes.addr]) : ""
+    };
+
+    if (!mappedRow.customerName && !mappedRow.businessNumber && !mappedRow.corpName && !mappedRow.addr) {
+      return [];
+    }
+
+    return [mappedRow];
+  });
+}
+
+function isCustomerImportMappingComplete(mapping: CustomerImportMapping): boolean {
+  return Object.values(mapping).every((value) => value !== "");
+}
+
+function createQuickRegisterForm(message?: BootstrapPayload["inbox"][number] | null): QuickRegisterFormState {
+  return {
+    messageId: message?.id ?? null,
+    customerName: "",
+    businessNumber: "",
+    corpName: "",
+    addr: message?.parsedData?.plantAddress ?? ""
+  };
+}
 
 function shouldShowPopbillPrefixPlaceholder(settings: AppSettings): boolean {
   const normalizedPrefix = settings.popbillUserIdPrefix.trim().toUpperCase();
@@ -293,7 +468,7 @@ const MAIL_PROVIDER_CONFIG: Record<
 
 function getTabFromHash(hash: string): TabId | null {
   const value = hash.replace(/^#/, "");
-  return value === "customers" || value === "settings" || value === "work" || value === "ops" ? value : null;
+  return value === "customers" || value === "initial" || value === "settings" || value === "work" || value === "ops" ? value : null;
 }
 
 function getHashParams(hash: string): URLSearchParams {
@@ -355,15 +530,13 @@ const baseCustomerForm: CustomerFormState = {
   customerName: "",
   businessNumber: "",
   corpName: "",
-  ceoName: "",
   addr: "",
   bizType: "전기업",
   bizClass: "태양광발전(자가용PPA)",
   issueMode: "review",
   popbillUserId: "",
   popbillPassword: "",
-  memo: "",
-  plantNamesText: ""
+  memo: ""
 };
 
 function createCustomerFormDefaults(): CustomerFormState {
@@ -378,13 +551,11 @@ function isPristineCustomerForm(form: CustomerFormState): boolean {
     form.customerName === "" &&
     form.businessNumber === "" &&
     form.corpName === "" &&
-    form.ceoName === "" &&
     form.addr === "" &&
     form.bizType === "" &&
     form.bizClass === "" &&
     form.issueMode === "review" &&
-    form.memo === "" &&
-    form.plantNamesText === ""
+    form.memo === ""
   );
 }
 
@@ -395,15 +566,13 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
     customerName: customer.customerName,
     businessNumber: customer.businessNumber,
     corpName: customer.corpName,
-    ceoName: customer.ceoName,
     addr: customer.addr,
     bizType: customer.bizType,
     bizClass: customer.bizClass,
     issueMode: customer.issueMode,
     popbillUserId: customer.popbillUserId,
     popbillPassword: customer.popbillPassword,
-    memo: customer.memo,
-    plantNamesText: customer.plantNames[0] ?? ""
+    memo: customer.memo
   };
 }
 
@@ -428,7 +597,7 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
     defaultIssueHour: String(settings.defaultIssueHour),
     defaultIssueMinute: String(settings.defaultIssueMinute),
     mailPollMinutes: String(settings.mailPollMinutes),
-    mailSyncStartAt: settings.mailSyncStartAt ?? "",
+    mailSyncStartAt: "",
     timezone: settings.timezone,
     popbillUserIdPrefix: shouldShowPopbillPrefixPlaceholder(settings) ? "" : settings.popbillUserIdPrefix,
     popbillSharedPassword: "",
@@ -443,6 +612,7 @@ function Icon(props: { name: string; className?: string }) {
   const glyphs: Record<string, string> = {
     dashboard: "DS",
     group: "CU",
+    initial: "IN",
     review: "TX",
     settings: "SY",
     ops: "OP",
@@ -598,6 +768,8 @@ function getParseStatusLabel(status: string): string {
       return "파싱 실패";
     case "duplicate":
       return "중복 의심";
+    case "ignored":
+      return "완료 처리";
     case "pending":
       return "처리 대기";
     default:
@@ -1225,13 +1397,54 @@ export function App() {
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
   const [settingsAutosaveState, setSettingsAutosaveState] = useState<SettingsAutosaveState>("idle");
   const [appDialog, setAppDialog] = useState<AppDialogState | null>(null);
+  const [customerAddressResolveMessage, setCustomerAddressResolveMessage] = useState("");
+  const [customerImportFile, setCustomerImportFile] = useState<CustomerImportParsedFile | null>(null);
+  const [customerImportHeaderRowIndex, setCustomerImportHeaderRowIndex] = useState(0);
+  const [customerImportMapping, setCustomerImportMapping] = useState<CustomerImportMapping>(EMPTY_CUSTOMER_IMPORT_MAPPING);
+  const [customerImportPreview, setCustomerImportPreview] = useState<CustomerImportPreviewResponse | null>(null);
+  const [customerImportProfile, setCustomerImportProfile] = useState<CustomerImportProfile | null>(null);
+  const [completedBillingMonths, setCompletedBillingMonths] = useState<CompletedBillingMonth[]>([]);
+  const [customerImportError, setCustomerImportError] = useState("");
+  const [customerImportNotice, setCustomerImportNotice] = useState("");
+  const [quickRegisterForm, setQuickRegisterForm] = useState<QuickRegisterFormState>(createQuickRegisterForm());
+  const [quickRegisterNotice, setQuickRegisterNotice] = useState("");
+  const [quickRegisterError, setQuickRegisterError] = useState("");
+  const [completedBillingNotice, setCompletedBillingNotice] = useState("");
+  const [customerCertNotice, setCustomerCertNotice] = useState("");
+  const [pendingCertSyncCustomerId, setPendingCertSyncCustomerId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>({});
   const settingsAutosaveBaselineRef = useRef("");
   const appDialogResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const customerAddressLookupRef = useRef("");
+  const customerNameInputRef = useRef<HTMLInputElement | null>(null);
+  const certSyncInFlightRef = useRef(false);
   const publicManagedCustomerCount = normalizeManagedCustomerCount(managedCustomerCountInput);
   const publicPricing = calculatePublicPrice(pricingPlanId, publicManagedCustomerCount);
+  const customerImportHeaderOptions = customerImportFile
+    ? buildCustomerImportColumnOptions(customerImportFile.rows, customerImportHeaderRowIndex)
+    : [];
+  const customerImportRowsPayload = customerImportFile
+    ? buildCustomerImportRowsPayload(customerImportFile.rows, customerImportHeaderRowIndex, customerImportMapping)
+    : [];
+  const canPreviewCustomerImport =
+    customerImportFile !== null &&
+    isCustomerImportMappingComplete(customerImportMapping) &&
+    customerImportRowsPayload.length > 0;
+  const completedBillingMonthSet = new Set(completedBillingMonths.map((item) => item.billingMonth));
+  const isBillingMonthCompleted = (billingMonth?: string | null) => Boolean(billingMonth && completedBillingMonthSet.has(billingMonth));
+  const getInboxDisplayParseStatus = (message: BootstrapPayload["inbox"][number]) => {
+    if (message.parseStatus === "ignored") {
+      return "ignored";
+    }
+
+    return isBillingMonthCompleted(message.parsedData?.billingMonth) ? "ignored" : message.parseStatus;
+  };
+  const isInboxActionable = (message: BootstrapPayload["inbox"][number]) => {
+    const status = getInboxDisplayParseStatus(message);
+    return status === "unmatched" || status === "failed" || status === "duplicate";
+  };
 
   const loadOpsConsole = async (): Promise<OpsConsoleData> => {
     const [partnerPoints, renewalAutomation, logs, workspaces] = await Promise.all([
@@ -1262,11 +1475,19 @@ export function App() {
   const load = async () => {
     const payload = await api<BootstrapPayload>("/api/bootstrap");
     const nextOpsConsole = payload.auth.isPlatformAdmin ? await loadOpsConsole() : null;
+    const [nextImportProfile, nextCompletedBillingMonths] = payload.auth.activeOrganizationId
+      ? await Promise.all([
+          api<{ profile: CustomerImportProfile | null }>("/api/customer-import/profile").then((response) => response.profile),
+          api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
+        ])
+      : [null, []];
     setError("");
     setActiveOrganizationId(payload.auth.activeOrganizationId);
     const nextSettingsForm = settingsToForm(payload.settings);
     setData(payload);
     setOpsConsole(nextOpsConsole);
+    setCustomerImportProfile(nextImportProfile);
+    setCompletedBillingMonths(nextCompletedBillingMonths);
     setWorkspaceLimitEdits(
       nextOpsConsole
         ? Object.fromEntries(
@@ -1443,7 +1664,9 @@ export function App() {
     const visibleCustomers = data.customers.filter((customer) => {
       const matchesFilter = customerListFilter === "blocked" ? !getCustomerIssueReadiness(customer).canIssueNow : true;
       const matchesSearch =
-        normalizedSearch === "" || customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedSearch);
+        normalizedSearch === "" ||
+        customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedSearch) ||
+        customer.corpName.toLocaleLowerCase("ko-KR").includes(normalizedSearch);
       return matchesFilter && matchesSearch;
     });
 
@@ -1466,10 +1689,105 @@ export function App() {
   }, [activeTab, creatingCustomer, customerForm, customerListFilter, customerSearchQuery, data]);
 
   useEffect(() => {
+    if (!data || activeTab !== "initial") return;
+
+    const nextQuickRegisterMessages = data.inbox
+      .filter((message) => getInboxDisplayParseStatus(message) === "unmatched" && message.parsedData?.plantAddress)
+      .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime());
+
+    if (nextQuickRegisterMessages.length === 0) {
+      if (quickRegisterForm.messageId !== null) {
+        setQuickRegisterForm(createQuickRegisterForm());
+      }
+      return;
+    }
+
+    const selectedMessage = quickRegisterForm.messageId
+      ? nextQuickRegisterMessages.find((message) => message.id === quickRegisterForm.messageId) ?? null
+      : null;
+
+    if (!selectedMessage) {
+      setQuickRegisterForm(createQuickRegisterForm(nextQuickRegisterMessages[0]));
+    }
+  }, [activeTab, data, quickRegisterForm.messageId, completedBillingMonths]);
+
+  useEffect(() => {
     if (creatingCustomer || customerForm.id === null) {
       setCustomerDetailTab("info");
     }
   }, [creatingCustomer, customerForm.id]);
+
+  useEffect(() => {
+    setCustomerCertNotice("");
+    setPendingCertSyncCustomerId(null);
+  }, [creatingCustomer, customerForm.id]);
+
+  useEffect(() => {
+    if (activeTab !== "customers" || pendingCertSyncCustomerId === null) {
+      return;
+    }
+
+    let disposed = false;
+    const tryRefreshCertificateStatus = async () => {
+      if (disposed || certSyncInFlightRef.current) {
+        return;
+      }
+
+      certSyncInFlightRef.current = true;
+      try {
+        await api(`/api/customers/${pendingCertSyncCustomerId}/popbill/cert-status`, {
+          method: "POST"
+        });
+        await load();
+        if (!disposed) {
+          setCustomerCertNotice("인증서 상태를 자동으로 다시 확인했습니다.");
+        }
+      } catch {
+        if (!disposed) {
+          setCustomerCertNotice("인증서 등록 후 상태를 아직 확인하지 못했습니다. 완료 후 다시 이 화면으로 돌아오거나 만료일 확인을 눌러주세요.");
+        }
+      } finally {
+        certSyncInFlightRef.current = false;
+        if (!disposed) {
+          setPendingCertSyncCustomerId(null);
+        }
+      }
+    };
+
+    const handleWindowFocus = () => {
+      void tryRefreshCertificateStatus();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void tryRefreshCertificateStatus();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [activeTab, pendingCertSyncCustomerId]);
+
+  useEffect(() => {
+    if (activeTab !== "customers") {
+      return;
+    }
+
+    if (!creatingCustomer || customerForm.id !== null) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      customerNameInputRef.current?.focus();
+    }, 0);
+
+    return () => window.clearTimeout(timerId);
+  }, [activeTab, creatingCustomer, customerForm.id]);
 
   useEffect(() => {
     if (!settingsForm) {
@@ -1740,15 +2058,60 @@ export function App() {
     }));
   };
 
+  const resolveCustomerAddress = async () => {
+    const rawAddress = customerForm.addr.trim();
+
+    if (!rawAddress) {
+      customerAddressLookupRef.current = "";
+      setCustomerAddressResolveMessage("");
+      return "";
+    }
+
+    if (customerAddressLookupRef.current === rawAddress) {
+      return rawAddress;
+    }
+
+    setCustomerAddressResolveMessage("주소 보정 중...");
+
+    try {
+      const result = await api<AddressResolveResponse>(`/api/address/resolve?query=${encodeURIComponent(rawAddress)}`);
+
+      if (!result.ok || !result.resolvedAddress) {
+        customerAddressLookupRef.current = "";
+        setCustomerAddressResolveMessage("도로명과 건물번호를 더 자세히 입력하면 전체 주소로 보정됩니다.");
+        return rawAddress;
+      }
+
+      const resolvedAddress = result.resolvedAddress;
+      customerAddressLookupRef.current = resolvedAddress;
+      setCustomerForm((prev) => (prev.addr.trim() === rawAddress ? { ...prev, addr: resolvedAddress } : prev));
+      setCustomerAddressResolveMessage(
+        resolvedAddress === rawAddress
+          ? result.postalCode
+            ? `주소 확인 완료 · 우편번호 ${result.postalCode}`
+            : "주소 확인 완료"
+          : result.postalCode
+            ? `전체 주소로 보정했습니다 · 우편번호 ${result.postalCode}`
+            : "전체 주소로 보정했습니다."
+      );
+      return resolvedAddress;
+    } catch {
+      customerAddressLookupRef.current = "";
+      setCustomerAddressResolveMessage("주소 자동 보정에 실패했습니다.");
+      return rawAddress;
+    }
+  };
+
   const saveCustomer = async () => {
     const isEditing = customerForm.id !== null;
-    const normalizedPlantName = customerForm.plantNamesText.trim();
+    const resolvedAddress = await resolveCustomerAddress();
+    const normalizedAddress = (resolvedAddress || customerForm.addr).trim();
     const payload = {
       customerName: customerForm.customerName,
       businessNumber: customerForm.businessNumber,
       corpName: customerForm.corpName,
-      ceoName: customerForm.ceoName,
-      addr: customerForm.addr,
+      ceoName: customerForm.customerName,
+      addr: resolvedAddress || customerForm.addr,
       bizType: customerForm.bizType,
       bizClass: customerForm.bizClass,
       issueMode: isEditing ? customerForm.issueMode : "review",
@@ -1756,8 +2119,8 @@ export function App() {
       issueHour: null,
       issueMinute: null,
       memo: customerForm.memo,
-      plantNames: normalizedPlantName ? [normalizedPlantName] : [],
-      matchAddresses: customerForm.addr.trim() ? [customerForm.addr.trim()] : []
+      plantNames: [],
+      matchAddresses: normalizedAddress ? [normalizedAddress] : []
     };
 
     if (customerForm.id) {
@@ -1779,6 +2142,220 @@ export function App() {
 
     setCreatingCustomer(true);
     setCustomerForm(createCustomerFormDefaults());
+    setCustomerAddressResolveMessage("");
+    customerAddressLookupRef.current = "";
+  };
+
+  const applyCustomerImportHeaderRow = (nextHeaderRowIndex: number) => {
+    if (!customerImportFile) return;
+    setCustomerImportHeaderRowIndex(nextHeaderRowIndex);
+    const nextColumns = buildCustomerImportColumnOptions(customerImportFile.rows, nextHeaderRowIndex);
+    const guessedMapping = guessCustomerImportMapping(nextColumns);
+    const profileMapping =
+      customerImportProfile && customerImportProfile.headerRowIndex === nextHeaderRowIndex
+        ? buildCustomerImportMappingFromProfile(nextColumns, customerImportProfile)
+        : EMPTY_CUSTOMER_IMPORT_MAPPING;
+    setCustomerImportMapping({ ...guessedMapping, ...Object.fromEntries(Object.entries(profileMapping).filter(([, value]) => value !== "")) });
+    setCustomerImportPreview(null);
+    setCustomerImportError("");
+    setCustomerImportNotice("");
+  };
+
+  const handleCustomerImportFileChange = async (file: File | null) => {
+    if (!file) {
+      setCustomerImportFile(null);
+      setCustomerImportHeaderRowIndex(0);
+      setCustomerImportMapping(EMPTY_CUSTOMER_IMPORT_MAPPING);
+      setCustomerImportPreview(null);
+      setCustomerImportError("");
+      setCustomerImportNotice("");
+      return;
+    }
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        throw new Error("읽을 수 있는 시트가 없습니다.");
+      }
+
+      const sheet = workbook.Sheets[firstSheetName];
+      const parsedRows = (XLSX.utils.sheet_to_json(sheet, {
+        header: 1,
+        raw: false,
+        blankrows: false,
+        defval: ""
+      }) as unknown[][])
+        .map((row) => (Array.isArray(row) ? row.map((cell) => normalizeImportCell(cell)) : []))
+        .filter((row) => row.some((cell) => cell !== ""));
+
+      if (parsedRows.length === 0) {
+        throw new Error("비어 있는 파일입니다.");
+      }
+
+      const nextFile = {
+        fileName: file.name,
+        sheetName: firstSheetName,
+        rows: parsedRows
+      };
+
+      const preferredHeaderRowIndex =
+        customerImportProfile && customerImportProfile.headerRowIndex < parsedRows.length
+          ? customerImportProfile.headerRowIndex
+          : 0;
+      const nextColumns = buildCustomerImportColumnOptions(parsedRows, preferredHeaderRowIndex);
+      const guessedMapping = guessCustomerImportMapping(nextColumns);
+      const profileMapping = customerImportProfile
+        ? buildCustomerImportMappingFromProfile(nextColumns, customerImportProfile)
+        : EMPTY_CUSTOMER_IMPORT_MAPPING;
+
+      setCustomerImportFile(nextFile);
+      setCustomerImportHeaderRowIndex(preferredHeaderRowIndex);
+      setCustomerImportMapping({ ...guessedMapping, ...Object.fromEntries(Object.entries(profileMapping).filter(([, value]) => value !== "")) });
+      setCustomerImportPreview(null);
+      setCustomerImportError("");
+      setCustomerImportNotice(`${file.name} 파일을 불러왔습니다.`);
+    } catch (importError) {
+      setCustomerImportFile(null);
+      setCustomerImportHeaderRowIndex(0);
+      setCustomerImportMapping(EMPTY_CUSTOMER_IMPORT_MAPPING);
+      setCustomerImportPreview(null);
+      setCustomerImportNotice("");
+      setCustomerImportError(importError instanceof Error ? importError.message : "파일을 읽지 못했습니다.");
+    }
+  };
+
+  const previewCustomerImport = async () => {
+    if (!canPreviewCustomerImport) {
+      setCustomerImportError("헤더와 4개 필드 매핑을 먼저 확인하세요.");
+      return;
+    }
+
+    setCustomerImportError("");
+    setCustomerImportNotice("");
+    const profilePayload = {
+      headerRowIndex: customerImportHeaderRowIndex,
+      fieldHeaderMap: Object.fromEntries(
+        CUSTOMER_IMPORT_FIELD_OPTIONS.map((field) => [
+          field.id,
+          customerImportHeaderOptions.find((option) => option.value === customerImportMapping[field.id])?.label ?? ""
+        ])
+      ) as CustomerImportProfile["fieldHeaderMap"]
+    };
+    const savedProfile = await api<{ profile: CustomerImportProfile }>("/api/customer-import/profile", {
+      method: "PUT",
+      body: JSON.stringify(profilePayload)
+    });
+    setCustomerImportProfile(savedProfile.profile);
+    const preview = await api<CustomerImportPreviewResponse>("/api/customer-import/preview", {
+      method: "POST",
+      body: JSON.stringify({ rows: customerImportRowsPayload })
+    });
+    setCustomerImportPreview(preview);
+  };
+
+  const commitCustomerImport = async () => {
+    if (!customerImportPreview || customerImportPreview.importableRows === 0) {
+      setCustomerImportError("가져올 수 있는 행이 없습니다.");
+      return;
+    }
+
+    setCustomerImportError("");
+    const result = await api<CustomerImportCommitResponse>("/api/customer-import/commit", {
+      method: "POST",
+      body: JSON.stringify({ rows: customerImportRowsPayload })
+    });
+
+    setCustomerImportNotice(`가져오기 완료 · 성공 ${result.successCount}건 / 실패 ${result.failedCount}건`);
+    if (result.failedCount > 0) {
+      setCustomerImportError(result.failedRows.map((row) => `${row.rowIndex}행: ${row.message}`).join("\n"));
+    } else {
+      setCustomerImportError("");
+    }
+    await load();
+    const followUpPreview = await api<CustomerImportPreviewResponse>("/api/customer-import/preview", {
+      method: "POST",
+      body: JSON.stringify({ rows: customerImportRowsPayload })
+    });
+    setCustomerImportPreview(followUpPreview);
+  };
+
+  const selectQuickRegisterMessage = (messageId: number) => {
+    const message = quickRegisterMessages.find((item) => item.id === messageId) ?? null;
+    setQuickRegisterForm(createQuickRegisterForm(message));
+    setQuickRegisterNotice("");
+    setQuickRegisterError("");
+  };
+
+  const submitQuickRegister = async () => {
+    if (!quickRegisterForm.messageId) {
+      setQuickRegisterError("등록할 미매칭 메일을 선택하세요.");
+      return;
+    }
+
+    const customerName = quickRegisterForm.customerName.trim();
+    const businessNumber = quickRegisterForm.businessNumber.trim();
+    const corpName = quickRegisterForm.corpName.trim();
+    const addr = quickRegisterForm.addr.trim();
+
+    if (!customerName || !businessNumber || !corpName || !addr) {
+      setQuickRegisterError("대표자명, 사업자번호, 세금계산서 상호, 주소를 모두 입력하세요.");
+      return;
+    }
+
+    setQuickRegisterError("");
+    setQuickRegisterNotice("");
+
+    await api("/api/customers", {
+      method: "POST",
+      body: JSON.stringify({
+        customerName,
+        businessNumber,
+        corpName,
+        ceoName: customerName,
+        addr,
+        bizType: "전기업",
+        bizClass: "태양광발전(자가용PPA)",
+        issueMode: "review",
+        issueDay: null,
+        issueHour: null,
+        issueMinute: null,
+        memo: "",
+        plantNames: [],
+        matchAddresses: [addr]
+      })
+    });
+
+    const result = await api<{ ok: true; status: string }>(`/api/inbox/${quickRegisterForm.messageId}/reprocess`, {
+      method: "POST"
+    });
+
+    setQuickRegisterNotice(`고객 등록 후 메일 재처리 완료 · ${getParseStatusLabel(result.status)}`);
+    await load();
+  };
+
+  const markBillingMonthCompleted = async (summary: BillingMonthSummary) => {
+    const confirmed = await showAppConfirm(
+      `${summary.billingMonth} 정산월 메일 ${summary.totalCount}건을 완료 처리합니다.\n이 달 메일은 더 이상 확인 대상에 올리지 않습니다.`,
+      {
+        title: "정산월 완료 처리",
+        tone: "warn",
+        confirmLabel: "완료 처리"
+      }
+    );
+    if (!confirmed) return;
+
+    setCompletedBillingNotice("");
+    const response = await api<{ month: CompletedBillingMonth }>("/api/completed-billing-months", {
+      method: "POST",
+      body: JSON.stringify({ billingMonth: summary.billingMonth })
+    });
+    setCompletedBillingMonths((prev) => {
+      const next = [...prev.filter((item) => item.billingMonth !== response.month.billingMonth), response.month];
+      return next.sort((left, right) => right.billingMonth.localeCompare(left.billingMonth));
+    });
+    setCompletedBillingNotice(`${summary.billingMonth} 정산월을 완료 처리했습니다.`);
   };
 
   const buildSettingsPayload = (form: SettingsFormState) => {
@@ -1807,7 +2384,7 @@ export function App() {
         defaultIssueHour: Number(normalized.defaultIssueHour),
         defaultIssueMinute: Number(normalized.defaultIssueMinute),
         mailPollMinutes: Number(normalized.mailPollMinutes),
-        mailSyncStartAt: normalized.mailSyncStartAt.trim() ? normalized.mailSyncStartAt : null,
+        mailSyncStartAt: null,
         timezone: normalized.timezone,
         popbillUserIdPrefix: normalized.popbillUserIdPrefix.trim(),
         popbillSharedPassword: normalized.popbillSharedPassword,
@@ -2436,7 +3013,7 @@ export function App() {
   };
 
   const reprocessAllUnmatchedMessages = async () => {
-    const targets = data?.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed" || message.parseStatus === "duplicate") ?? [];
+    const targets = data?.inbox.filter((message) => isInboxActionable(message)) ?? [];
     if (targets.length === 0) {
       await showAppAlert("재처리할 확인 메일이 없습니다.", {
         title: "메일 재처리"
@@ -2846,9 +3423,45 @@ export function App() {
     popbillReady: data.settings.popbillConfigured,
     operatorReady: data.settings.operatorConfigured
   };
-  const unmatchedMessages = data.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed");
-  const duplicateMessages = data.inbox.filter((message) => message.parseStatus === "duplicate");
-  const reprocessableMessages = data.inbox.filter((message) => message.parseStatus === "unmatched" || message.parseStatus === "failed" || message.parseStatus === "duplicate");
+  const unmatchedMessages = data.inbox.filter((message) => {
+    const status = getInboxDisplayParseStatus(message);
+    return status === "unmatched" || status === "failed";
+  });
+  const quickRegisterMessages = data.inbox
+    .filter((message) => getInboxDisplayParseStatus(message) === "unmatched" && message.parsedData?.plantAddress)
+    .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime());
+  const duplicateMessages = data.inbox.filter((message) => getInboxDisplayParseStatus(message) === "duplicate");
+  const reprocessableMessages = data.inbox.filter((message) => isInboxActionable(message));
+  const billingMonthSummaryMap = new Map<string, BillingMonthSummary>();
+  for (const message of data.inbox) {
+    const billingMonth = message.parsedData?.billingMonth;
+    if (!billingMonth) continue;
+    const status = getInboxDisplayParseStatus(message);
+    const existing = billingMonthSummaryMap.get(billingMonth);
+    const latestReceivedAt =
+      existing && existing.latestReceivedAt && new Date(existing.latestReceivedAt).getTime() >= new Date(message.receivedAt).getTime()
+        ? existing.latestReceivedAt
+        : message.receivedAt;
+    billingMonthSummaryMap.set(billingMonth, {
+      billingMonth,
+      totalCount: (existing?.totalCount ?? 0) + 1,
+      actionableCount:
+        (existing?.actionableCount ?? 0) + (status === "unmatched" || status === "failed" || status === "duplicate" ? 1 : 0),
+      latestReceivedAt,
+      completed: isBillingMonthCompleted(billingMonth)
+    });
+  }
+  for (const month of completedBillingMonths) {
+    if (billingMonthSummaryMap.has(month.billingMonth)) continue;
+    billingMonthSummaryMap.set(month.billingMonth, {
+      billingMonth: month.billingMonth,
+      totalCount: 0,
+      actionableCount: 0,
+      latestReceivedAt: null,
+      completed: true
+    });
+  }
+  const billingMonthSummaries = [...billingMonthSummaryMap.values()].sort((left, right) => right.billingMonth.localeCompare(left.billingMonth));
   const recentInboxMessages = [...data.inbox]
     .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime())
     .slice(0, 6);
@@ -2859,8 +3472,19 @@ export function App() {
   const blockedIssueCustomers = data.customers.filter((customer) => !getCustomerIssueReadiness(customer).canIssueNow);
   const normalizedCustomerSearch = customerSearchQuery.trim().toLocaleLowerCase("ko-KR");
   const filteredCustomers = (customerListFilter === "blocked" ? blockedIssueCustomers : data.customers).filter((customer) =>
-    normalizedCustomerSearch === "" || customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch)
+    normalizedCustomerSearch === "" ||
+    customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch) ||
+    customer.corpName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch)
   );
+  const customerImportHeaderCandidates = customerImportFile
+    ? customerImportFile.rows.slice(0, Math.min(customerImportFile.rows.length, 5)).map((row, index) => ({
+        index,
+        preview: row.slice(0, 4).join(" | ") || `빈 행 ${index + 1}`
+      }))
+    : [];
+  const selectedQuickRegisterMessage = quickRegisterForm.messageId
+    ? quickRegisterMessages.find((message) => message.id === quickRegisterForm.messageId) ?? null
+    : null;
   const workLayoutClassName = "work-layout";
   const selectedCustomer = customerForm.id ? data.customers.find((customer) => customer.id === customerForm.id) ?? null : null;
   const selectedCustomerReadiness = selectedCustomer ? getCustomerIssueReadiness(selectedCustomer) : null;
@@ -2894,7 +3518,17 @@ export function App() {
   const opsLogs = opsConsole?.logs ?? [];
   const opsWorkspaces = opsConsole?.workspaces ?? [];
   const isCreatingWorkspace = busyKey === "ops-create-workspace";
+  const isSavingCustomer =
+    busyKey === "save-customer" ||
+    busyKey === "save-customer-top" ||
+    (customerForm.id !== null && busyKey === `save-customer-${customerForm.id}`);
+  const isQuickRegistering = busyKey === "quick-register-unmatched";
   const partnerTaxInvoiceUnitCost = opsConsole?.partnerPoints.taxInvoiceUnitCost ?? null;
+  const opsPartnerIsTest = opsConsole?.partnerPoints.isTest ?? false;
+  const opsPartnerModeLabel = opsPartnerIsTest ? "테스트 모드" : "운영 모드";
+  const opsPartnerModeDescription = opsPartnerIsTest
+    ? "현재 팝빌 테스트 환경으로 연결되어 있습니다. 실제 고객 운영 전에는 운영 모드 전환 여부를 다시 확인하세요."
+    : "현재 팝빌 운영 환경으로 연결되어 있습니다. 실제 발행과 파트너 포인트가 운영 기준으로 반영됩니다.";
   const totalWorkspaceIssuedDraftCount = opsWorkspaces.reduce((sum, workspace) => sum + workspace.issuedDraftCount, 0);
   const totalWorkspaceCurrentMonthIssuedDraftCount = opsWorkspaces.reduce(
     (sum, workspace) => sum + workspace.currentMonthIssuedDraftCount,
@@ -2961,6 +3595,7 @@ export function App() {
       ? [
           { id: "work" as const, label: "오늘 작업", icon: "dashboard" },
           { id: "customers" as const, label: "고객관리", icon: "group" },
+          { id: "initial" as const, label: "초기 등록", icon: "initial" },
           { id: "settings" as const, label: "시스템설정", icon: "settings" }
         ]
       : []),
@@ -3032,6 +3667,8 @@ export function App() {
             ? "content content-work"
             : activeTab === "customers"
               ? "content content-customers"
+              : activeTab === "initial"
+                ? "content content-customers"
               : activeTab === "settings"
                 ? "content content-settings"
                 : activeTab === "ops"
@@ -3226,8 +3863,8 @@ export function App() {
                                     <span>{formatDateTime(message.receivedAt)}</span>
                                   </div>
                                   <div className="history-actions">
-                                    <span className={`status status-${message.parseStatus}`}>{getParseStatusLabel(message.parseStatus)}</span>
-                                    {message.parseStatus === "unmatched" || message.parseStatus === "failed" || message.parseStatus === "duplicate" ? (
+                                    <span className={`status status-${getInboxDisplayParseStatus(message)}`}>{getParseStatusLabel(getInboxDisplayParseStatus(message))}</span>
+                                    {isInboxActionable(message) ? (
                                       <button className="btn-secondary" onClick={() => void runAction(`reprocess-${message.id}`, async () => void (await reprocessInboxMessage(message.id)))}>재처리</button>
                                     ) : null}
                                   </div>
@@ -3283,6 +3920,8 @@ export function App() {
                       onClick={() => {
                         setCreatingCustomer(true);
                         setCustomerForm(createCustomerFormDefaults());
+                        setCustomerAddressResolveMessage("");
+                        customerAddressLookupRef.current = "";
                       }}
                     >
                       새 고객
@@ -3291,13 +3930,13 @@ export function App() {
                   </>
                 }
               >
-                <div className="customer-list-toolbar">
-                  <div className="customer-list-search">
-                    <input
-                      placeholder="고객명 검색"
-                      value={customerSearchQuery}
-                      onChange={(event) => setCustomerSearchQuery(event.target.value)}
-                    />
+                  <div className="customer-list-toolbar">
+                    <div className="customer-list-search">
+                      <input
+                        placeholder="대표자명 / 상호 검색"
+                        value={customerSearchQuery}
+                        onChange={(event) => setCustomerSearchQuery(event.target.value)}
+                      />
                   </div>
                   <div className="customer-list-filters">
                     <button
@@ -3338,12 +3977,14 @@ export function App() {
                           setCreatingCustomer(false);
                           setCustomerDetailTab("info");
                           setCustomerForm(customerToForm(customer));
+                          setCustomerAddressResolveMessage("");
+                          customerAddressLookupRef.current = "";
                         }}
                       >
                         <div className="customer-summary-head">
                           <div>
-                            <strong>{customer.customerName}</strong>
-                            <p>{customer.plantNames.join(", ")}</p>
+                            <strong>{customer.corpName}</strong>
+                            <p>{customer.customerName}</p>
                           </div>
                           <span className={`chip ${readiness.tone === "success" ? "chip-success" : readiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>{readiness.label}</span>
                         </div>
@@ -3371,23 +4012,24 @@ export function App() {
                 title={selectedCustomer ? `${selectedCustomer.customerName}` : "새 고객 등록"}
                 actions={selectedCustomer && customerDetailTab === "info" ? (
                   <button
+                    disabled={busyKey !== null}
                     onClick={() => void runAction("save-customer-top", saveCustomer)}
                   >
-                    고객 저장
+                    {isSavingCustomer ? "고객 저장 중..." : "고객 저장"}
                   </button>
                 ) : null}
               >
                 {selectedCustomer && selectedCustomerReadiness ? (
                   <div className="customer-detail-top">
                     <div className="customer-detail-copy">
-                      <strong>{selectedCustomer.customerName}</strong>
-                      <span>{selectedCustomer.addr}</span>
+                      <strong>{selectedCustomer.corpName}</strong>
+                      <span>{selectedCustomer.customerName} · {selectedCustomer.addr}</span>
                       <span>{getCustomerPopbillSummary(selectedCustomer)} · {getCustomerCertificateSummary(selectedCustomer)}</span>
                     </div>
                     <div className="customer-detail-stats">
                       <div>
-                        <span>발전소명</span>
-                        <strong>{selectedCustomer.plantNames.join(", ") || "-"}</strong>
+                        <span>주소</span>
+                        <strong>{selectedCustomer.addr || "-"}</strong>
                       </div>
                       <div>
                         <span>발행 방식</span>
@@ -3420,13 +4062,34 @@ export function App() {
                             const result = await api<{ url: string }>(`/api/customers/${selectedCustomer.id}/popbill/cert-url`, {
                               method: "POST"
                             });
+                            setCustomerCertNotice("인증서 등록 창을 열었습니다. 등록 후 이 화면으로 돌아오면 상태를 자동으로 다시 확인합니다.");
+                            setPendingCertSyncCustomerId(selectedCustomer.id);
                             window.open(result.url, "_blank", "noopener,noreferrer");
-                          })
+                          }, { reload: false })
                         }
                       >
                         {selectedCustomer.popbillCertRegistered ? "인증서 재등록" : "인증서 등록"}
                       </button>
                       <button className="btn-secondary" onClick={() => void runAction(`cert-status-${selectedCustomer.id}`, async () => void (await api(`/api/customers/${selectedCustomer.id}/popbill/cert-status`, { method: "POST" })))}>만료일 확인</button>
+                    </div>
+                    {customerCertNotice ? <div className="helper-box customer-cert-notice"><span>{customerCertNotice}</span></div> : null}
+                    <div className="helper-box-stack customer-cert-guide">
+                      <strong>공동인증서 등록 전 확인</strong>
+                      <span>아래 정보와 같은 고객 공동인증서만 등록하세요. 다르면 인증서 등록이나 이후 발행이 정상 동작하지 않을 수 있습니다.</span>
+                      <div className="fields three-column">
+                        <div>
+                          <span>사업자번호</span>
+                          <strong>{selectedCustomer.businessNumber || "-"}</strong>
+                        </div>
+                        <div>
+                          <span>세금계산서 상호</span>
+                          <strong>{selectedCustomer.corpName || "-"}</strong>
+                        </div>
+                        <div>
+                          <span>대표자명</span>
+                          <strong>{selectedCustomer.customerName || "-"}</strong>
+                        </div>
+                      </div>
                     </div>
                     <details className="customer-detail-secondary">
                       <summary>더보기</summary>
@@ -3519,84 +4182,402 @@ export function App() {
                   </div>
                 ) : (
                   <>
-                    <div className="form-grid">
-                      <label>
-                        고객명
-                        <input value={customerForm.customerName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, customerName: event.target.value }))} />
-                      </label>
-                      <label>
-                        사업자번호
-                        <input value={customerForm.businessNumber} onChange={(event) => setCustomerForm((prev) => ({ ...prev, businessNumber: event.target.value }))} />
-                      </label>
-                      <label>
-                        상호
-                        <input value={customerForm.corpName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, corpName: event.target.value }))} />
-                      </label>
-                      <label>
-                        대표자
-                        <input value={customerForm.ceoName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, ceoName: event.target.value }))} />
-                      </label>
-                      <label className="full">
-                        주소
-                        <input value={customerForm.addr} onChange={(event) => setCustomerForm((prev) => ({ ...prev, addr: event.target.value }))} />
-                      </label>
-                      <label>
-                        업태
-                        <input value={customerForm.bizType} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizType: event.target.value }))} />
-                      </label>
-                      <label>
-                        업종
-                        <input value={customerForm.bizClass} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizClass: event.target.value }))} />
-                      </label>
-                      <label className="full">
-                        발행 방식
-                        <select
-                          value={customerForm.issueMode}
-                          onChange={(event) =>
-                            setCustomerForm((prev) => ({
-                              ...prev,
-                              issueMode:
-                                prev.id === null ? "review" : event.target.value === "auto" ? "auto" : "review"
-                            }))
-                          }
-                          disabled={customerForm.id === null}
-                        >
-                          <option value="review">검수 후 발행</option>
-                          <option value="auto" disabled={customerForm.id === null}>월 자동 발행</option>
-                        </select>
-                        <span className="field-hint">
-                          {customerForm.id === null
-                            ? "처음 등록하는 고객은 먼저 검수 후 발행으로 저장됩니다. 저장 후 수정 화면에서 월 자동 발행으로 바꿀 수 있습니다."
-                            : "자동 발행 고객은 작업공간 설정의 월 자동 실행일/시각에 메일 동기화 후 바로 발행되고, 검수 고객은 초안만 만들어집니다."}
-                        </span>
-                      </label>
-                      <label className="full">
-                        발전소명
-                        <input
-                          value={customerForm.plantNamesText}
-                          onChange={(event) => setCustomerForm((prev) => ({ ...prev, plantNamesText: event.target.value }))}
-                          placeholder="예: 이상택태양광"
-                        />
-                      </label>
-                      <label className="full">
-                        메모
-                        <textarea rows={3} value={customerForm.memo} onChange={(event) => setCustomerForm((prev) => ({ ...prev, memo: event.target.value }))} />
-                      </label>
-                    </div>
-                    {!selectedCustomer ? (
-                      <div className="button-row">
-                        <button disabled={hasReachedManagedCustomerLimit} onClick={() => void runAction("save-customer", saveCustomer)}>
-                          고객 등록
-                        </button>
-                        {hasReachedManagedCustomerLimit ? (
-                          <span className="field-hint">관리 고객 한도에 도달해 새 고객 등록이 잠겨 있습니다. 플랫폼 관리자에게 한도 상향을 요청하세요.</span>
-                        ) : null}
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (busyKey !== null) return;
+                        if (!selectedCustomer && hasReachedManagedCustomerLimit) return;
+                        void runAction(customerForm.id === null ? "save-customer" : `save-customer-${customerForm.id}`, saveCustomer);
+                      }}
+                    >
+                      <div className="form-grid">
+                        <label>
+                          대표자명
+                          <input
+                            ref={customerNameInputRef}
+                            value={customerForm.customerName}
+                            onChange={(event) => setCustomerForm((prev) => ({ ...prev, customerName: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          주소
+                          <input
+                            value={customerForm.addr}
+                            onChange={(event) => {
+                              const nextAddress = event.target.value;
+                              customerAddressLookupRef.current = "";
+                              setCustomerAddressResolveMessage("");
+                              setCustomerForm((prev) => ({ ...prev, addr: nextAddress }));
+                            }}
+                            onBlur={() => void resolveCustomerAddress()}
+                          />
+                          <span className="field-hint">저장된 도로명주소와 같은 주소로 들어온 메일만 자동 매칭됩니다.</span>
+                          {customerAddressResolveMessage ? <span className="field-hint">{customerAddressResolveMessage}</span> : null}
+                        </label>
+                        <label>
+                          사업자번호
+                          <input value={customerForm.businessNumber} onChange={(event) => setCustomerForm((prev) => ({ ...prev, businessNumber: event.target.value }))} />
+                        </label>
+                        <label>
+                          세금계산서 상호
+                          <input value={customerForm.corpName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, corpName: event.target.value }))} />
+                        </label>
+                        <label>
+                          업태
+                          <input value={customerForm.bizType} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizType: event.target.value }))} />
+                        </label>
+                        <label>
+                          업종
+                          <input value={customerForm.bizClass} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizClass: event.target.value }))} />
+                        </label>
+                        <label className="full">
+                          발행 방식
+                          <select
+                            value={customerForm.issueMode}
+                            onChange={(event) =>
+                              setCustomerForm((prev) => ({
+                                ...prev,
+                                issueMode:
+                                  prev.id === null ? "review" : event.target.value === "auto" ? "auto" : "review"
+                              }))
+                            }
+                            disabled={customerForm.id === null}
+                          >
+                            <option value="review">검수 후 발행</option>
+                            <option value="auto" disabled={customerForm.id === null}>월 자동 발행</option>
+                          </select>
+                          <span className="field-hint">
+                            {customerForm.id === null
+                              ? "처음 등록하는 고객은 먼저 검수 후 발행으로 저장됩니다. 저장 후 수정 화면에서 월 자동 발행으로 바꿀 수 있습니다."
+                              : "자동 발행 고객은 작업공간 설정의 월 자동 실행일/시각에 메일 동기화 후 바로 발행되고, 검수 고객은 초안만 만들어집니다."}
+                          </span>
+                        </label>
+                        <label className="full">
+                          메모
+                          <textarea rows={3} value={customerForm.memo} onChange={(event) => setCustomerForm((prev) => ({ ...prev, memo: event.target.value }))} />
+                        </label>
                       </div>
-                    ) : null}
+                      {!selectedCustomer ? (
+                        <div className="button-row">
+                          <button type="submit" disabled={hasReachedManagedCustomerLimit || busyKey !== null}>
+                            {isSavingCustomer ? "고객 등록 및 팝빌 가입 중..." : "고객 등록"}
+                          </button>
+                          {hasReachedManagedCustomerLimit ? (
+                            <span className="field-hint">관리 고객 한도에 도달해 새 고객 등록이 잠겨 있습니다. 플랫폼 관리자에게 한도 상향을 요청하세요.</span>
+                          ) : isSavingCustomer ? (
+                            <span className="field-hint">고객 등록과 팝빌 가입을 처리하고 있습니다. 잠시만 기다려주세요.</span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </form>
                   </>
                 )}
               </Panel>
             </div>
+          </div>
+        ) : null}
+
+        {activeTab === "initial" ? (
+          <div className="initial-screen">
+            <div className="import-layout">
+              <Panel
+                className="panel-initial-import"
+                title="엑셀 업로드"
+                actions={(
+                  <button
+                    className="btn-secondary"
+                    onClick={() => {
+                      setCustomerImportFile(null);
+                      setCustomerImportHeaderRowIndex(0);
+                      setCustomerImportMapping(EMPTY_CUSTOMER_IMPORT_MAPPING);
+                      setCustomerImportPreview(null);
+                      setCustomerImportError("");
+                      setCustomerImportNotice("");
+                    }}
+                  >
+                    초기화
+                  </button>
+                )}
+              >
+                <div className="helper-box import-helper-box">
+                  <strong>지원 범위</strong>
+                  <span>`xlsx`, `csv`, 첫 시트, 필수 4개 컬럼만 지원합니다.</span>
+                </div>
+
+                <div className="form-grid">
+                  <label className="full">
+                    파일 선택
+                    <input
+                      type="file"
+                      accept=".xlsx,.csv"
+                      onChange={(event) => void handleCustomerImportFileChange(event.target.files?.[0] ?? null)}
+                    />
+                    <span className="field-hint">대표자명, 사업자번호, 세금계산서 상호, 주소를 포함한 파일을 올리세요.</span>
+                  </label>
+                </div>
+
+                {customerImportFile ? (
+                  <>
+                    <div className="helper-box import-helper-box">
+                      <strong>{customerImportFile.fileName}</strong>
+                      <span>{customerImportFile.sheetName} · 총 {customerImportRowsPayload.length}행 감지</span>
+                    </div>
+
+                    <div className="import-header-row-list">
+                      {customerImportHeaderCandidates.map((candidate) => (
+                        <button
+                          key={candidate.index}
+                          type="button"
+                          className={customerImportHeaderRowIndex === candidate.index ? "btn-secondary active-filter" : "btn-secondary"}
+                          onClick={() => applyCustomerImportHeaderRow(candidate.index)}
+                        >
+                          {candidate.index + 1}행 헤더
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="import-header-preview">
+                      {customerImportHeaderCandidates.find((candidate) => candidate.index === customerImportHeaderRowIndex)?.preview ?? "-"}
+                    </div>
+
+                    <div className="form-grid">
+                      {CUSTOMER_IMPORT_FIELD_OPTIONS.map((field) => (
+                        <label key={field.id}>
+                          {field.label}
+                          <select
+                            value={customerImportMapping[field.id]}
+                            onChange={(event) => {
+                              setCustomerImportMapping((prev) => ({ ...prev, [field.id]: event.target.value }));
+                              setCustomerImportPreview(null);
+                              setCustomerImportError("");
+                              setCustomerImportNotice("");
+                            }}
+                          >
+                            <option value="">컬럼 선택</option>
+                            {customerImportHeaderOptions.map((option) => (
+                              <option key={`${field.id}-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="button-row">
+                      <button
+                        disabled={!canPreviewCustomerImport || busyKey !== null}
+                        onClick={() => void runAction("customer-import-preview", previewCustomerImport)}
+                      >
+                        미리보기
+                      </button>
+                      <button
+                        className="btn-secondary"
+                        disabled={!customerImportPreview || customerImportPreview.importableRows === 0 || busyKey !== null}
+                        onClick={() => void runAction("customer-import-commit", commitCustomerImport)}
+                      >
+                        가져오기 실행
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="empty">엑셀 파일을 올리면 컬럼 매핑을 시작할 수 있습니다.</div>
+                )}
+              </Panel>
+
+              <Panel className="panel-initial-preview" title="가져오기 미리보기">
+                {customerImportPreview ? (
+                  <>
+                    <div className="helper-box import-helper-box">
+                      <strong>검증 결과</strong>
+                      <span>가져오기 가능 {customerImportPreview.importableRows}건 · 확인 필요 {customerImportPreview.blockedRows}건</span>
+                    </div>
+                    <div className="table-wrap">
+                      <table className="responsive-table import-preview-table">
+                        <thead>
+                          <tr>
+                            <th>행</th>
+                            <th>대표자명</th>
+                            <th>사업자번호</th>
+                            <th>세금계산서 상호</th>
+                            <th>주소</th>
+                            <th>결과</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {customerImportPreview.rows.map((row) => (
+                            <tr key={row.rowIndex}>
+                              <td data-label="행">{row.rowIndex}</td>
+                              <td data-label="대표자명">{row.customerName || "-"}</td>
+                              <td data-label="사업자번호">{row.businessNumber || "-"}</td>
+                              <td data-label="세금계산서 상호">{row.corpName || "-"}</td>
+                              <td data-label="주소">{row.addr || "-"}</td>
+                              <td data-label="결과">
+                                <span className={row.canImport ? "chip chip-success" : "chip chip-danger"}>
+                                  {row.canImport ? "가져오기 가능" : "확인 필요"}
+                                </span>
+                                {!row.canImport ? (
+                                  <div className="import-preview-errors">
+                                    {row.errors.map((errorMessage) => (
+                                      <span key={`${row.rowIndex}-${errorMessage}`}>{errorMessage}</span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <div className="empty">파일을 올리고 컬럼 매핑 후 미리보기를 실행하세요.</div>
+                )}
+              </Panel>
+            </div>
+
+            {customerImportNotice ? <div className="alert success">{customerImportNotice}</div> : null}
+            {customerImportError ? <div className="alert error import-error-box">{customerImportError}</div> : null}
+
+            <div className="import-layout">
+              <Panel className="panel-initial-unmatched" title={`미등록 고객 ${quickRegisterMessages.length}건`}>
+                {quickRegisterMessages.length > 0 ? (
+                  <div className="list initial-unmatched-list">
+                    {quickRegisterMessages.map((message) => {
+                      const isSelected = quickRegisterForm.messageId === message.id;
+                      return (
+                        <button
+                          key={message.id}
+                          type="button"
+                          className={isSelected ? "customer-summary selected" : "customer-summary"}
+                          onClick={() => selectQuickRegisterMessage(message.id)}
+                        >
+                          <div className="customer-summary-head">
+                            <div>
+                              <strong>{message.parsedData?.plantAddress || "주소 없음"}</strong>
+                              <p>{message.subject}</p>
+                            </div>
+                            <span className={`status status-${getInboxDisplayParseStatus(message)}`}>{getParseStatusLabel(getInboxDisplayParseStatus(message))}</span>
+                          </div>
+                          <div className="customer-summary-meta">
+                            <span>{message.parsedData?.billingMonth || "-"}</span>
+                            <span>{formatDateTime(message.receivedAt)}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="empty">주소까지 파싱된 미등록 고객 메일이 없습니다.</div>
+                )}
+              </Panel>
+
+              <Panel className="panel-initial-quick-register" title="빠른 등록">
+                {selectedQuickRegisterMessage ? (
+                  <>
+                    <div className="helper-box import-helper-box">
+                      <strong>{selectedQuickRegisterMessage.subject}</strong>
+                      <span>
+                        {selectedQuickRegisterMessage.parsedData?.billingMonth || "-"} · {selectedQuickRegisterMessage.parsedData?.plantName || "-"}
+                      </span>
+                    </div>
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (busyKey !== null) return;
+                        void runAction("quick-register-unmatched", submitQuickRegister);
+                      }}
+                    >
+                      <div className="form-grid">
+                        <label>
+                          대표자명
+                          <input
+                            value={quickRegisterForm.customerName}
+                            onChange={(event) => setQuickRegisterForm((prev) => ({ ...prev, customerName: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          주소
+                          <input
+                            value={quickRegisterForm.addr}
+                            onChange={(event) => setQuickRegisterForm((prev) => ({ ...prev, addr: event.target.value }))}
+                          />
+                          <span className="field-hint">메일에서 읽은 주소가 먼저 들어가 있습니다. 필요하면 수정 후 등록하세요.</span>
+                        </label>
+                        <label>
+                          사업자번호
+                          <input
+                            value={quickRegisterForm.businessNumber}
+                            onChange={(event) => setQuickRegisterForm((prev) => ({ ...prev, businessNumber: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          세금계산서 상호
+                          <input
+                            value={quickRegisterForm.corpName}
+                            onChange={(event) => setQuickRegisterForm((prev) => ({ ...prev, corpName: event.target.value }))}
+                          />
+                        </label>
+                      </div>
+                      <div className="button-row">
+                        <button type="submit" disabled={busyKey !== null}>
+                          {isQuickRegistering ? "고객 등록 및 팝빌 가입 중..." : "고객 등록 후 메일 연결"}
+                        </button>
+                        {isQuickRegistering ? <span className="field-hint">고객 등록, 팝빌 가입, 메일 연결을 처리하고 있습니다.</span> : null}
+                      </div>
+                    </form>
+                  </>
+                ) : (
+                  <div className="empty">왼쪽에서 미등록 고객 메일을 선택하세요.</div>
+                )}
+              </Panel>
+            </div>
+
+            {quickRegisterNotice ? <div className="alert success">{quickRegisterNotice}</div> : null}
+            {quickRegisterError ? <div className="alert error import-error-box">{quickRegisterError}</div> : null}
+
+            <Panel
+              className="panel-initial-months"
+              title={`월별 완료 처리 ${billingMonthSummaries.length}개`}
+              subtitle="이미 발행이 끝난 정산월은 완료 처리해 두면 이후 메일을 다시 올리지 않습니다."
+            >
+              {billingMonthSummaries.length > 0 ? (
+                <div className="list month-completion-list">
+                  {billingMonthSummaries.map((summary) => (
+                    <div key={summary.billingMonth} className={summary.completed ? "month-summary completed" : "month-summary"}>
+                      <div className="customer-summary-head">
+                        <div>
+                          <strong>{summary.billingMonth}</strong>
+                          <p>
+                            메일 {summary.totalCount}건
+                            {summary.actionableCount > 0 ? ` · 확인 필요 ${summary.actionableCount}건` : ""}
+                            {summary.latestReceivedAt ? ` · 최근 수신 ${formatDateTime(summary.latestReceivedAt)}` : ""}
+                          </p>
+                        </div>
+                        {summary.completed ? (
+                          <span className="status status-ignored">완료 처리</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={busyKey !== null}
+                            onClick={() =>
+                              void runAction(`complete-billing-month-${summary.billingMonth}`, () => markBillingMonthCompleted(summary), { reload: false })
+                            }
+                          >
+                            완료 처리
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty">정산월이 파싱된 메일이 아직 없습니다.</div>
+              )}
+            </Panel>
+
+            {completedBillingNotice ? <div className="alert success">{completedBillingNotice}</div> : null}
           </div>
         ) : null}
 
@@ -3680,30 +4661,11 @@ export function App() {
                   ) : null}
                   <div className="form-grid">
                     <div className="settings-detected-provider full">
-                      <span>메일 수집 시작 기준</span>
-                      <strong>{settingsForm.mailSyncStartAt ? formatDateTime(settingsForm.mailSyncStartAt) : "설정 안 됨"}</strong>
-                      <div className="button-row">
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() =>
-                            setSettingsForm((prev) =>
-                              prev ? { ...prev, mailSyncStartAt: new Date().toISOString() } : prev
-                            )
-                          }
-                        >
-                          지금부터 시작
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() =>
-                            setSettingsForm((prev) => (prev ? { ...prev, mailSyncStartAt: "" } : prev))
-                          }
-                        >
-                          기준 해제
-                        </button>
-                      </div>
+                      <span>메일 수집 범위</span>
+                      <strong>최근 1000통 기준으로 바로 연동</strong>
+                      <p className="settings-inline-help">
+                        기존 메일까지 함께 읽고, 이미 처리한 달은 초기 등록의 월별 완료 처리에서 제외합니다.
+                      </p>
                     </div>
                     <div className="settings-detected-provider full">
                       <span>감지된 메일 서비스</span>
@@ -4308,6 +5270,14 @@ export function App() {
                   </div>
                 </Panel>
 
+                <section className={`alert ${opsPartnerIsTest ? "warn" : "success"} ops-mode-banner`}>
+                  <div className="ops-mode-banner-head">
+                    <strong>팝빌 현재 연결 모드</strong>
+                    <span className={`chip ${opsPartnerIsTest ? "chip-warn" : "chip-success"}`}>{opsPartnerModeLabel}</span>
+                  </div>
+                  <p>{opsPartnerModeDescription}</p>
+                </section>
+
                 <section className="stats-grid stats-grid-compact ops-stats">
                   <StatCard
                     label="파트너 포인트"
@@ -4565,8 +5535,8 @@ export function App() {
                         </strong>
                       </div>
                       <div>
-                        <span>운영 환경</span>
-                        <strong>{opsConsole.partnerPoints.isTest ? "테스트" : "운영"}</strong>
+                        <span>현재 연결 모드</span>
+                        <strong>{opsPartnerModeLabel}</strong>
                       </div>
                       <div>
                         <span>조회 기준</span>

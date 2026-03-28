@@ -11,15 +11,15 @@ export function normalizePlantName(value: string): string {
 }
 
 export function toRoadAddress(value: string): string {
-  return value
-    .replace(/\([^)]*\)/g, "")
+  return String(value ?? "")
+    .replace(/\([^)]*\)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 export function normalizeAddress(value: string): string {
   return toRoadAddress(value)
-    .replace(/[,\-]/g, " ")
+    .replace(/[()[\],\-]/g, " ")
     .replace(/\s+/g, "")
     .trim()
     .toLowerCase();

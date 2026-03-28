@@ -38,6 +38,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
 
   const mode = options.mode ?? "manual";
   const scheduledAt = toIso(options.now);
+  const completedBillingMonthSet = new Set((await store.listCompletedBillingMonths()).map((item) => item.billingMonth));
   const result: MailSyncResult = {
     scanned: 0,
     imported: 0,
@@ -61,8 +62,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
 
   try {
     const mailbox = await client.mailboxOpen(settings.imapMailbox || "INBOX");
-    const fromSeq = Math.max(1, mailbox.exists - 99);
-    const syncStartAt = settings.mailSyncStartAt ? Date.parse(settings.mailSyncStartAt) : null;
+    const fromSeq = Math.max(1, mailbox.exists - 999);
     for await (const message of client.fetch(`${fromSeq}:*`, {
       uid: true,
       envelope: true,
@@ -85,9 +85,6 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
       }
 
        const receivedAtIso = toIso(message.internalDate);
-       if (syncStartAt !== null && Number.isFinite(syncStartAt) && Date.parse(receivedAtIso) <= syncStartAt) {
-        continue;
-      }
 
       const sourceText = message.source.toString("utf8");
       const parsedMime = await simpleParser(message.source);
@@ -95,7 +92,28 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
 
       try {
         const parsedMail = parseKepcoMail(bodyText);
-        const customer = await store.findCustomerByPlantAndAddress(parsedMail.plantName, parsedMail.plantAddress);
+        if (completedBillingMonthSet.has(parsedMail.billingMonth)) {
+          await store.saveInboxMessage({
+            messageUid,
+            mailbox: settings.imapMailbox,
+            fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
+            subject,
+            receivedAt: receivedAtIso,
+            rawSource: sourceText,
+            textBody: bodyText,
+            parseStatus: "ignored",
+            parseError: "초기 등록에서 완료 처리한 정산월입니다.",
+            parsedData: parsedMail
+          });
+          await store.createLog("info", "mail-sync", "완료 처리한 정산월 메일을 검토 대상에서 제외했습니다.", {
+            subject,
+            billingMonth: parsedMail.billingMonth
+          });
+          result.imported += 1;
+          continue;
+        }
+
+        const customer = await store.findCustomerByMatchAddress(parsedMail.plantAddress);
         if (!customer) {
           await store.saveInboxMessage({
             messageUid,
@@ -108,7 +126,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
             parseStatus: "unmatched",
             parsedData: parsedMail
           });
-          await store.createLog("warn", "mail-sync", "발전소명과 고객을 매칭하지 못했습니다.", {
+          await store.createLog("warn", "mail-sync", "발전소 주소와 고객을 매칭하지 못했습니다.", {
             subject,
             plantName: parsedMail.plantName,
             plantAddress: parsedMail.plantAddress

@@ -6,8 +6,9 @@
 
 - IMAP 메일 수집
 - 한전 메일 파싱
-- 발전소명 기준 고객 매칭
-- 고객/발전소명/팝빌 계정 관리
+- 주소 기준 고객 매칭
+- 고객/팝빌 계정 관리
+- 초기 등록 탭 엑셀 컬럼 매핑 업로드
 - 팝빌 연동회원 가입
 - 인증서 등록 URL 발급 및 만료일 확인
 - 인증서 일괄 점검 및 만료 예정 운영자 알림 메일
@@ -47,9 +48,8 @@ npm run build:vercel
 
 1. 작업공간 설정에서 Gmail 계정/앱 비밀번호 입력
 2. 고객 등록
-3. 고객별 발전소명 등록
-4. 팝빌 서버 연결 상태 확인
-5. 팝빌 가입
+3. 팝빌 서버 연결 상태 확인
+4. 팝빌 가입
 5. 인증서 등록 URL 열기
 6. 인증 상태 확인
 7. 필요 시 `인증서 일괄 점검` 실행
@@ -71,6 +71,7 @@ npm run build:vercel
 - [Supabase Cron 연결 메모](./docs/SUPABASE_CRON_SETUP.md)
 - [구현 상태 문서](./docs/IMPLEMENTATION_STATUS.md)
 - [출시 전 체크리스트](./docs/GO_LIVE_CHECKLIST.md)
+- [초기 등록 기능 설계](./docs/INITIAL_REGISTRATION_PLAN.md)
 - [공동인증서 갱신 로컬 에이전트 POC](./docs/CERTIFICATE_RENEWAL_POC.md)
 
 ## 지금 바로 채워야 하는 값

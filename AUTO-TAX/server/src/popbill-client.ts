@@ -64,6 +64,30 @@ function parsePointValue(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeCertificateExpireDate(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (match) {
+    const [, year, month, day] = match;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  const compact = trimmed.replace(/\D/g, "");
+  if (compact.length >= 8) {
+    return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+  }
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
+    const day = `${parsed.getDate()}`.padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  throw new Error(`인증서 만료일 형식을 해석하지 못했습니다: ${value}`);
+}
+
 export async function joinMember(settings: AppSettings, customer: Customer): Promise<unknown> {
   assertCustomerPopbillIdentity(customer);
   assertOperatorContact(settings);
@@ -185,14 +209,14 @@ export async function getPartnerChargeURL(settings: AppSettings, businessNumber:
 export async function getCertificateExpireDate(settings: AppSettings, customer: Customer): Promise<string> {
   assertCustomerPopbillIdentity(customer);
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify<string>((done) => {
     service.getCertificateExpireDate(
       digitsOnly(customer.businessNumber),
       customer.popbillUserId || "",
       (response: string) => done({ response }),
       (error: CallbackResult<never>["error"]) => done({ error })
     );
-  });
+  }).then((response) => normalizeCertificateExpireDate(response));
 }
 
 export async function getTaxInvoiceInfo(settings: AppSettings, customer: Customer, draft: InvoiceDraft): Promise<unknown> {

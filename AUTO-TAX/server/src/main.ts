@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import cors, { type CorsOptions } from "cors";
 import express from "express";
 import { z } from "zod";
+import { resolveRoadAddress } from "./address-resolver.js";
 import { issueDraftNow } from "./automation.js";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
 import type { AppSettings, Customer, CustomerInput, DashboardPayload } from "./domain.js";
@@ -40,7 +41,7 @@ import {
   type AuthenticatedAppSession
 } from "./supabase.js";
 import { SupabaseStore } from "./supabase-store.js";
-import { digitsOnly, nowIso } from "./utils.js";
+import { buildPopbillUserId, digitsOnly, normalizeAddress, nowIso, toRoadAddress } from "./utils.js";
 
 export type StartServerOptions = {
   port?: number;
@@ -95,6 +96,41 @@ type OrganizationMemberSummary = {
   role: "owner" | "member";
   createdAt: string;
 };
+
+type CustomerImportMappedRow = {
+  rowIndex: number;
+  customerName: string;
+  businessNumber: string;
+  corpName: string;
+  addr: string;
+};
+
+type CustomerImportPreviewRow = CustomerImportMappedRow & {
+  normalizedBusinessNumber: string;
+  normalizedAddress: string;
+  errors: string[];
+  canImport: boolean;
+};
+
+type CustomerImportPreviewResult = {
+  totalRows: number;
+  importableRows: number;
+  blockedRows: number;
+  rows: CustomerImportPreviewRow[];
+};
+
+type CustomerImportProfilePayload = {
+  headerRowIndex: number;
+  fieldHeaderMap: Record<"customerName" | "businessNumber" | "corpName" | "addr", string>;
+};
+
+type AutoJoinCustomerResult = {
+  customer: Customer;
+  status: "already-joined" | "linked-existing-member" | "joined" | "linked-after-duplicate-check" | "failed";
+  error?: string;
+};
+
+const AUTO_JOIN_POPBILL_MAX_ID_RETRIES = 5;
 
 class HttpError extends Error {
   readonly status: number;
@@ -521,11 +557,41 @@ const mailTestSchema = z.object({
   notificationEmails: z.array(z.string())
 });
 
+const addressLookupSchema = z.object({
+  query: z.string().trim().min(1).max(200)
+});
+
+const customerImportRowSchema = z.object({
+  rowIndex: z.number().int().min(1),
+  customerName: z.string().default(""),
+  businessNumber: z.string().default(""),
+  corpName: z.string().default(""),
+  addr: z.string().default("")
+});
+
+const customerImportSchema = z.object({
+  rows: z.array(customerImportRowSchema).min(1).max(5000)
+});
+
+const customerImportProfileSchema = z.object({
+  headerRowIndex: z.number().int().min(0).max(20),
+  fieldHeaderMap: z.object({
+    customerName: z.string().default(""),
+    businessNumber: z.string().default(""),
+    corpName: z.string().default(""),
+    addr: z.string().default("")
+  })
+});
+
+const completedBillingMonthSchema = z.object({
+  billingMonth: z.string().regex(/^\d{4}-\d{2}$/, "정산월 형식이 올바르지 않습니다.")
+});
+
 const customerSchema = z.object({
   customerName: z.string().min(1),
   businessNumber: z.string().min(1),
   corpName: z.string().min(1),
-  ceoName: z.string().min(1),
+  ceoName: z.string().trim().optional().default(""),
   addr: z.string().min(1),
   bizType: z.string().min(1),
   bizClass: z.string().min(1),
@@ -534,7 +600,7 @@ const customerSchema = z.object({
   issueHour: z.number().int().min(0).max(23).nullable().optional().default(null),
   issueMinute: z.number().int().min(0).max(59).nullable().optional().default(null),
   memo: z.string().default(""),
-  plantNames: z.array(z.string().min(1)),
+  plantNames: z.array(z.string().min(1)).default([]),
   matchAddresses: z.array(z.string().min(1)).default([])
 });
 
@@ -553,6 +619,259 @@ const opsWorkspaceCreateSchema = z.object({
   planCode: z.string().trim().min(1).default("starter"),
   status: z.enum(["trial", "active", "suspended", "churned"]).default("active")
 });
+
+function normalizeCustomerInput(payload: z.infer<typeof customerSchema>): CustomerInput {
+  const customerName = payload.customerName.trim();
+  return {
+    customerName,
+    businessNumber: payload.businessNumber,
+    corpName: payload.corpName,
+    ceoName: customerName,
+    addr: payload.addr,
+    bizType: payload.bizType,
+    bizClass: payload.bizClass,
+    issueMode: payload.issueMode,
+    issueDay: payload.issueDay,
+    issueHour: payload.issueHour,
+    issueMinute: payload.issueMinute,
+    memo: payload.memo,
+    plantNames: payload.plantNames,
+    matchAddresses: payload.matchAddresses
+  };
+}
+
+function normalizeCustomerImportRow(row: z.infer<typeof customerImportRowSchema>): CustomerImportMappedRow {
+  return {
+    rowIndex: row.rowIndex,
+    customerName: row.customerName.trim(),
+    businessNumber: row.businessNumber.trim(),
+    corpName: row.corpName.trim(),
+    addr: row.addr.trim()
+  };
+}
+
+function isPopbillUserIdConflictError(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return (
+    (normalized.includes("id") && (normalized.includes("duplicate") || normalized.includes("exists") || normalized.includes("already"))) ||
+    normalized.includes("회원아이디") ||
+    normalized.includes("아이디") ||
+    normalized.includes("사용중") ||
+    normalized.includes("중복")
+  );
+}
+
+function buildPopbillRetryUserId(prefix: string, customerId: number, attempt: number): string {
+  const base = buildPopbillUserId(prefix, customerId);
+  return attempt <= 0 ? base : `${base}_${attempt + 1}`;
+}
+
+async function autoJoinCustomerPopbill(requestStore: AppStore, customer: Customer): Promise<AutoJoinCustomerResult> {
+  if (customer.popbillState === "joined") {
+    return { customer, status: "already-joined" };
+  }
+
+  let settings: AppSettings | null = null;
+  let joinTarget = customer;
+
+  try {
+    settings = await getServerManagedSettings(requestStore);
+    const isExistingMember = await checkIsMember(settings, customer.businessNumber);
+    if (isExistingMember) {
+      const updated = await requestStore.updateCustomerPopbillState(customer.id, "joined");
+      await requestStore.createLog("info", "popbill", "고객 등록 직후 기존 팝빌 연동회원으로 확인되어 joined로 연결했습니다.", {
+        customerId: customer.id
+      });
+      return { customer: updated, status: "linked-existing-member" };
+    }
+
+    for (let attempt = 0; attempt < AUTO_JOIN_POPBILL_MAX_ID_RETRIES; attempt += 1) {
+      if (attempt > 0) {
+        const nextPopbillUserId = buildPopbillRetryUserId(settings.popbillUserIdPrefix, customer.id, attempt);
+        joinTarget = await requestStore.updateCustomerPopbillUserId(customer.id, nextPopbillUserId);
+        await requestStore.createLog("warn", "popbill", "팝빌 회원 아이디 충돌 가능성으로 다른 아이디로 자동 재시도합니다.", {
+          customerId: customer.id,
+          attempt: attempt + 1,
+          popbillUserId: nextPopbillUserId
+        });
+      }
+
+      try {
+        await joinMember(settings, joinTarget);
+        const updated = await requestStore.updateCustomerPopbillState(customer.id, "joined");
+        await requestStore.createLog("info", "popbill", "고객 등록 직후 팝빌 연동회원 가입을 완료했습니다.", {
+          customerId: customer.id,
+          popbillUserId: updated.popbillUserId,
+          retryCount: attempt
+        });
+        return { customer: updated, status: "joined" };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "팝빌 자동 가입에 실패했습니다.";
+        const fallbackMemberState = await checkIsMember(settings, customer.businessNumber).catch(() => false);
+
+        if (fallbackMemberState) {
+          const updated = await requestStore.updateCustomerPopbillState(customer.id, "joined");
+          await requestStore.createLog("warn", "popbill", "고객 등록 직후 중복/기존 회원으로 확인되어 joined로 보정했습니다.", {
+            customerId: customer.id,
+            error: errorMessage
+          });
+          return { customer: updated, status: "linked-after-duplicate-check" };
+        }
+
+        if (attempt < AUTO_JOIN_POPBILL_MAX_ID_RETRIES - 1 && isPopbillUserIdConflictError(errorMessage)) {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw new Error("팝빌 자동 가입 재시도 한도를 초과했습니다.");
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "팝빌 자동 가입에 실패했습니다.";
+    const fallbackMemberState =
+      settings ? await checkIsMember(settings, customer.businessNumber).catch(() => false) : false;
+
+    if (fallbackMemberState) {
+      const updated = await requestStore.updateCustomerPopbillState(customer.id, "joined");
+      await requestStore.createLog("warn", "popbill", "고객 등록 직후 중복/기존 회원으로 확인되어 joined로 보정했습니다.", {
+        customerId: customer.id,
+        error: errorMessage
+      });
+      return { customer: updated, status: "linked-after-duplicate-check" };
+    }
+
+    const failedCustomer = await requestStore.updateCustomerPopbillState(customer.id, "failed");
+    await requestStore.createLog("error", "popbill", "고객 등록 직후 팝빌 자동 가입에 실패했습니다.", {
+      customerId: customer.id,
+      error: errorMessage
+    });
+    return { customer: failedCustomer, status: "failed", error: errorMessage };
+  }
+}
+
+async function buildCustomerImportPreview(
+  requestStore: AppStore,
+  inputRows: CustomerImportMappedRow[]
+): Promise<CustomerImportPreviewResult> {
+  const customers = await requestStore.listCustomers();
+  const businessNumberMap = new Map<string, Customer>();
+  const addressMap = new Map<string, Customer>();
+
+  for (const customer of customers) {
+    const normalizedBusinessNumber = digitsOnly(customer.businessNumber);
+    if (normalizedBusinessNumber) {
+      businessNumberMap.set(normalizedBusinessNumber, customer);
+    }
+
+    const normalizedCustomerAddress = normalizeAddress(customer.addr);
+    if (normalizedCustomerAddress && !addressMap.has(normalizedCustomerAddress)) {
+      addressMap.set(normalizedCustomerAddress, customer);
+    }
+
+    for (const matchAddress of customer.matchAddresses) {
+      const normalizedMatchAddress = normalizeAddress(matchAddress);
+      if (normalizedMatchAddress && !addressMap.has(normalizedMatchAddress)) {
+        addressMap.set(normalizedMatchAddress, customer);
+      }
+    }
+  }
+
+  const resolvedAddressCache = new Map<string, string>();
+  const normalizedRows = await Promise.all(
+    inputRows.map(async (row) => {
+      const normalizedBusinessNumber = digitsOnly(row.businessNumber);
+      const rawAddress = row.addr.trim();
+
+      let normalizedAddress = "";
+      if (rawAddress) {
+        const cachedAddress = resolvedAddressCache.get(rawAddress);
+        if (cachedAddress !== undefined) {
+          normalizedAddress = cachedAddress;
+        } else {
+          const resolved = await resolveRoadAddress(rawAddress);
+          normalizedAddress = toRoadAddress(resolved?.resolvedAddress ?? rawAddress);
+          resolvedAddressCache.set(rawAddress, normalizedAddress);
+        }
+      }
+
+      return {
+        ...row,
+        businessNumber: normalizedBusinessNumber,
+        addr: normalizedAddress,
+        normalizedBusinessNumber,
+        normalizedAddress
+      };
+    })
+  );
+
+  const businessNumberCounts = new Map<string, number>();
+  const addressCounts = new Map<string, number>();
+
+  for (const row of normalizedRows) {
+    if (row.normalizedBusinessNumber) {
+      businessNumberCounts.set(row.normalizedBusinessNumber, (businessNumberCounts.get(row.normalizedBusinessNumber) ?? 0) + 1);
+    }
+    if (row.normalizedAddress) {
+      addressCounts.set(row.normalizedAddress, (addressCounts.get(row.normalizedAddress) ?? 0) + 1);
+    }
+  }
+
+  const rows = normalizedRows.map<CustomerImportPreviewRow>((row) => {
+    const errors: string[] = [];
+
+    if (!row.customerName) {
+      errors.push("대표자명이 비어 있습니다.");
+    }
+    if (!row.corpName) {
+      errors.push("세금계산서 상호가 비어 있습니다.");
+    }
+    if (!row.normalizedBusinessNumber) {
+      errors.push("사업자번호가 비어 있습니다.");
+    } else if (row.normalizedBusinessNumber.length !== 10) {
+      errors.push("사업자번호는 숫자 10자리여야 합니다.");
+    }
+    if (!row.normalizedAddress) {
+      errors.push("주소를 확인할 수 없습니다.");
+    }
+
+    if (row.normalizedBusinessNumber && (businessNumberCounts.get(row.normalizedBusinessNumber) ?? 0) > 1) {
+      errors.push("업로드 파일 안에서 사업자번호가 중복됩니다.");
+    }
+    if (row.normalizedAddress && (addressCounts.get(row.normalizedAddress) ?? 0) > 1) {
+      errors.push("업로드 파일 안에서 주소가 중복됩니다.");
+    }
+
+    const existingByBusinessNumber = row.normalizedBusinessNumber ? businessNumberMap.get(row.normalizedBusinessNumber) ?? null : null;
+    if (existingByBusinessNumber) {
+      errors.push(`이미 등록된 사업자번호입니다. 기존 고객: ${existingByBusinessNumber.corpName}`);
+    }
+
+    const existingByAddress = row.normalizedAddress ? addressMap.get(row.normalizedAddress) ?? null : null;
+    if (existingByAddress) {
+      errors.push(`이미 등록된 주소입니다. 기존 고객: ${existingByAddress.corpName}`);
+    }
+
+    return {
+      rowIndex: row.rowIndex,
+      customerName: row.customerName,
+      businessNumber: row.normalizedBusinessNumber,
+      corpName: row.corpName,
+      addr: row.normalizedAddress,
+      normalizedBusinessNumber: row.normalizedBusinessNumber,
+      normalizedAddress: row.normalizedAddress,
+      errors,
+      canImport: errors.length === 0
+    };
+  });
+
+  return {
+    totalRows: rows.length,
+    importableRows: rows.filter((row) => row.canImport).length,
+    blockedRows: rows.filter((row) => !row.canImport).length,
+    rows
+  };
+}
 
 const opsWorkspaceLimitUpdateSchema = z.object({
   managedCustomerLimit: z.number().int().min(1).max(10000)
@@ -2288,6 +2607,114 @@ export async function createApp(store: AppStore | null, webDist: string) {
     res.json(result);
   });
 
+  app.get("/api/address/resolve", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const { query } = addressLookupSchema.parse(req.query);
+    const resolved = await resolveRoadAddress(query);
+    res.json({
+      ok: resolved !== null,
+      input: query,
+      resolvedAddress: resolved?.resolvedAddress ?? null,
+      postalCode: resolved?.postalCode ?? null,
+      isRoadAddress: resolved?.isRoadAddress ?? null
+    });
+  });
+
+  app.post("/api/customer-import/preview", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const payload = customerImportSchema.parse(req.body);
+    const rows = payload.rows.map(normalizeCustomerImportRow);
+    res.json(await buildCustomerImportPreview(requestStore, rows));
+  });
+
+  app.get("/api/customer-import/profile", async (_req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    res.json({ profile: await requestStore.getCustomerImportProfile() });
+  });
+
+  app.put("/api/customer-import/profile", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const payload = customerImportProfileSchema.parse(req.body) satisfies CustomerImportProfilePayload;
+    const profile = await requestStore.updateCustomerImportProfile(payload);
+    res.json({ profile });
+  });
+
+  app.get("/api/completed-billing-months", async (_req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    res.json({ months: await requestStore.listCompletedBillingMonths() });
+  });
+
+  app.post("/api/completed-billing-months", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const payload = completedBillingMonthSchema.parse(req.body);
+    const month = await requestStore.markCompletedBillingMonth(payload.billingMonth);
+    res.json({ month });
+  });
+
+  app.post("/api/customer-import/commit", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const payload = customerImportSchema.parse(req.body);
+    const rows = payload.rows.map(normalizeCustomerImportRow);
+    const preview = await buildCustomerImportPreview(requestStore, rows);
+    const failedRows: Array<{ rowIndex: number; message: string }> = preview.rows
+      .filter((row) => !row.canImport)
+      .map((row) => ({
+        rowIndex: row.rowIndex,
+        message: row.errors.join(" ")
+      }));
+
+    let successCount = 0;
+    for (const row of preview.rows) {
+      if (!row.canImport) continue;
+
+      try {
+        await requestStore.saveCustomer({
+          customerName: row.customerName,
+          businessNumber: row.businessNumber,
+          corpName: row.corpName,
+          ceoName: row.customerName,
+          addr: row.addr,
+          bizType: "전기업",
+          bizClass: "태양광발전(자가용PPA)",
+          issueMode: "review",
+          issueDay: null,
+          issueHour: null,
+          issueMinute: null,
+          memo: "",
+          plantNames: [],
+          matchAddresses: [row.addr]
+        });
+        successCount += 1;
+      } catch (error) {
+        failedRows.push({
+          rowIndex: row.rowIndex,
+          message: error instanceof Error ? error.message : "고객 저장에 실패했습니다."
+        });
+      }
+    }
+
+    if (successCount > 0) {
+      await requestStore.createLog("info", "customer-import", "초기 등록 엑셀 가져오기를 실행했습니다.", {
+        totalRows: preview.totalRows,
+        successCount,
+        failedCount: failedRows.length
+      });
+    }
+
+    res.json({
+      totalRows: preview.totalRows,
+      successCount,
+      failedCount: failedRows.length,
+      failedRows
+    });
+  });
+
   app.get("/api/customers", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
     res.json((await requestStore.listCustomers()).map(toClientCustomer));
@@ -2296,7 +2723,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
   app.post("/api/customers", async (req, res) => {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
-    const payload = customerSchema.parse(req.body) satisfies CustomerInput;
+    const payload = normalizeCustomerInput(customerSchema.parse(req.body));
     const customer = await requestStore.saveCustomer({
       ...payload,
       issueMode: "review",
@@ -2304,15 +2731,24 @@ export async function createApp(store: AppStore | null, webDist: string) {
       issueHour: null,
       issueMinute: null
     });
-    await requestStore.createLog("info", "customers", "고객을 등록했습니다.", { customerId: customer.id });
-    res.status(201).json(toClientCustomer(customer));
+    const autoJoin = await autoJoinCustomerPopbill(requestStore, customer);
+    await requestStore.createLog("info", "customers", "고객을 등록했습니다.", {
+      customerId: autoJoin.customer.id,
+      autoJoinStatus: autoJoin.status,
+      autoJoinError: autoJoin.error ?? null
+    });
+    res.status(201).json({
+      ...toClientCustomer(autoJoin.customer),
+      autoJoinStatus: autoJoin.status,
+      autoJoinError: autoJoin.error ?? null
+    });
   });
 
   app.put("/api/customers/:id", async (req, res) => {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
-    const payload = customerSchema.parse(req.body) satisfies CustomerInput;
+    const payload = normalizeCustomerInput(customerSchema.parse(req.body));
     const customer = await requestStore.saveCustomer(payload, customerId);
     await requestStore.createLog("info", "customers", "고객 정보를 수정했습니다.", { customerId });
     res.json(toClientCustomer(customer));
@@ -2328,10 +2764,37 @@ export async function createApp(store: AppStore | null, webDist: string) {
       return;
     }
 
+    let popbillCleanupStatus: "not-needed" | "quit-on-delete" | "already-missing-on-delete" = "not-needed";
+    if (customer.popbillState === "joined") {
+      const settings = await getServerManagedSettings(requestStore);
+      if (settings.popbillIsTest) {
+        try {
+          await quitMember(settings, customer, "AUTO-TAX 테스트 고객 삭제");
+          popbillCleanupStatus = "quit-on-delete";
+          await requestStore.createLog("warn", "popbill", "테스트 환경 고객 삭제와 함께 팝빌 테스트 회원을 탈퇴 처리했습니다.", {
+            customerId,
+            customerName: customer.customerName
+          });
+        } catch (error) {
+          const fallbackMemberState = await checkIsMember(settings, customer.businessNumber).catch(() => false);
+          if (fallbackMemberState) {
+            throw error;
+          }
+          popbillCleanupStatus = "already-missing-on-delete";
+          await requestStore.createLog("warn", "popbill", "테스트 환경 고객 삭제 시 팝빌 회원이 이미 없어 로컬 삭제만 진행했습니다.", {
+            customerId,
+            customerName: customer.customerName,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    }
+
     await requestStore.deleteCustomer(customerId);
     await requestStore.createLog("warn", "customers", "고객과 관련 로컬 데이터를 삭제했습니다.", {
       customerId,
-      customerName: customer.customerName
+      customerName: customer.customerName,
+      popbillCleanupStatus
     });
     res.json({ ok: true });
   });
@@ -2346,40 +2809,22 @@ export async function createApp(store: AppStore | null, webDist: string) {
       return;
     }
 
-    const settings = await getServerManagedSettings(requestStore);
-
-    if (customer.popbillState === "joined") {
-      await requestStore.createLog("info", "popbill", "이미 가입된 고객이라 팝빌 가입을 건너뛰었습니다.", { customerId });
-      res.json({ ok: true, status: "already-joined" });
+    const autoJoin = await autoJoinCustomerPopbill(requestStore, customer);
+    if (autoJoin.status === "failed") {
+      res.status(400).json({
+        ok: false,
+        status: autoJoin.status,
+        error: autoJoin.error ?? "팝빌 가입에 실패했습니다.",
+        customer: toClientCustomer(autoJoin.customer)
+      });
       return;
     }
 
-    const isExistingMember = await checkIsMember(settings, customer.businessNumber);
-    if (isExistingMember) {
-      await requestStore.updateCustomerPopbillState(customerId, "joined");
-      await requestStore.createLog("info", "popbill", "기존 팝빌 연동회원으로 확인되어 로컬 상태를 joined로 연결했습니다.", { customerId });
-      res.json({ ok: true, status: "linked-existing-member" });
-      return;
-    }
-
-    try {
-      const response = await joinMember(settings, customer);
-      await requestStore.updateCustomerPopbillState(customerId, "joined");
-      await requestStore.createLog("info", "popbill", "팝빌 연동회원 가입을 완료했습니다.", { customerId });
-      res.json({ ok: true, status: "joined", response });
-    } catch (error) {
-      const fallbackMemberState = await checkIsMember(settings, customer.businessNumber).catch(() => false);
-      if (fallbackMemberState) {
-        await requestStore.updateCustomerPopbillState(customerId, "joined");
-        await requestStore.createLog("warn", "popbill", "가입 중 중복/기존 회원으로 확인되어 로컬 상태를 joined로 보정했습니다.", {
-          customerId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        res.json({ ok: true, status: "linked-after-duplicate-check" });
-        return;
-      }
-      throw error;
-    }
+    res.json({
+      ok: true,
+      status: autoJoin.status,
+      customer: toClientCustomer(autoJoin.customer)
+    });
   });
 
   app.post("/api/customers/:id/popbill/reset", async (req, res) => {

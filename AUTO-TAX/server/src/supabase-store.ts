@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   AppSettings,
+  CompletedBillingMonth,
   Customer,
+  CustomerImportProfile,
   CustomerInput,
   DashboardPayload,
   DraftStatus,
@@ -22,7 +24,6 @@ import {
   digitsOnly,
   nextDraftMgtKey,
   normalizeAddress,
-  normalizePlantName,
   normalizePopbillUserPrefix,
   nowIso,
   toRoadAddress
@@ -120,13 +121,74 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
   };
 }
 
+function mapCustomerImportProfile(row: Row): CustomerImportProfile {
+  const rawFieldHeaderMap = row.field_header_map;
+  const fieldHeaderMap =
+    rawFieldHeaderMap && typeof rawFieldHeaderMap === "object"
+      ? rawFieldHeaderMap as Record<"customerName" | "businessNumber" | "corpName" | "addr", string>
+      : { customerName: "", businessNumber: "", corpName: "", addr: "" };
+
+  return {
+    headerRowIndex: asNumber(row.header_row_index),
+    fieldHeaderMap: {
+      customerName: asString(fieldHeaderMap.customerName),
+      businessNumber: asString(fieldHeaderMap.businessNumber),
+      corpName: asString(fieldHeaderMap.corpName),
+      addr: asString(fieldHeaderMap.addr)
+    },
+    createdAt: asString(row.created_at, nowIso()),
+    updatedAt: asString(row.updated_at, nowIso())
+  };
+}
+
+function mapCompletedBillingMonth(row: Row): CompletedBillingMonth {
+  return {
+    billingMonth: asString(row.billing_month),
+    createdAt: asString(row.created_at, nowIso()),
+    updatedAt: asString(row.updated_at, nowIso())
+  };
+}
+
+function isMissingCustomerImportProfilesTableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? asString((error as { code?: unknown }).code) : "";
+  const message = "message" in error ? asString((error as { message?: unknown }).message).toLowerCase() : "";
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    (message.includes("customer_import_profiles") &&
+      (message.includes("schema cache") || message.includes("does not exist") || message.includes("relation")))
+  );
+}
+
+function isMissingCompletedBillingMonthsTableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? asString((error as { code?: unknown }).code) : "";
+  const message = "message" in error ? asString((error as { message?: unknown }).message).toLowerCase() : "";
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    (message.includes("organization_completed_billing_months") &&
+      (message.includes("schema cache") || message.includes("does not exist") || message.includes("relation")))
+  );
+}
+
 function mapCustomer(row: Row, plantNames: string[], matchAddresses: string[]): Customer {
+  const customerName = asString(row.customer_name);
   return {
     id: asNumber(row.legacy_id),
-    customerName: asString(row.customer_name),
+    customerName,
     businessNumber: asString(row.business_number),
     corpName: asString(row.corp_name),
-    ceoName: asString(row.ceo_name),
+    ceoName: customerName || asString(row.ceo_name),
     addr: asString(row.addr),
     bizType: asString(row.biz_type),
     bizClass: asString(row.biz_class),
@@ -486,6 +548,101 @@ export class SupabaseStore implements AppStore {
     return mapSettings(settingsRow, integrationRow);
   }
 
+  async getCustomerImportProfile(): Promise<CustomerImportProfile | null> {
+    await this.initialize();
+    const { data, error } = await this.client
+      .from("customer_import_profiles")
+      .select("*")
+      .eq("organization_id", this.requireOrganizationId())
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingCustomerImportProfilesTableError(error)) {
+        return null;
+      }
+      throw new Error(`초기 등록 매핑 프로필 조회 실패: ${error.message}`);
+    }
+
+    const row = data;
+    return row ? mapCustomerImportProfile(row as Row) : null;
+  }
+
+  async updateCustomerImportProfile(
+    input: Pick<CustomerImportProfile, "headerRowIndex" | "fieldHeaderMap">
+  ): Promise<CustomerImportProfile> {
+    await this.initialize();
+    const { data, error } = await this.client
+      .from("customer_import_profiles")
+      .upsert(
+        {
+          organization_id: this.requireOrganizationId(),
+          header_row_index: input.headerRowIndex,
+          field_header_map: input.fieldHeaderMap
+        },
+        { onConflict: "organization_id" }
+      )
+      .select("*")
+      .single();
+
+    if (error) {
+      if (isMissingCustomerImportProfilesTableError(error)) {
+        const timestamp = nowIso();
+        return {
+          headerRowIndex: input.headerRowIndex,
+          fieldHeaderMap: input.fieldHeaderMap,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        };
+      }
+      throw new Error(`초기 등록 매핑 프로필 저장 실패: ${error.message}`);
+    }
+
+    const row = data;
+    return mapCustomerImportProfile(row as Row);
+  }
+
+  async listCompletedBillingMonths(): Promise<CompletedBillingMonth[]> {
+    await this.initialize();
+    const { data, error } = await this.client
+      .from("organization_completed_billing_months")
+      .select("*")
+      .eq("organization_id", this.requireOrganizationId())
+      .order("billing_month", { ascending: false });
+
+    if (error) {
+      if (isMissingCompletedBillingMonthsTableError(error)) {
+        return [];
+      }
+      throw new Error(`완료 처리 월 조회 실패: ${error.message}`);
+    }
+
+    return (data ?? []).map((row) => mapCompletedBillingMonth(row as Row));
+  }
+
+  async markCompletedBillingMonth(billingMonth: string): Promise<CompletedBillingMonth> {
+    await this.initialize();
+    const { data, error } = await this.client
+      .from("organization_completed_billing_months")
+      .upsert(
+        {
+          organization_id: this.requireOrganizationId(),
+          billing_month: billingMonth
+        },
+        { onConflict: "organization_id,billing_month" }
+      )
+      .select("*")
+      .single();
+
+    if (error) {
+      if (isMissingCompletedBillingMonthsTableError(error)) {
+        throw new Error("완료 처리 월 테이블이 아직 준비되지 않았습니다. 마이그레이션을 적용한 뒤 다시 시도하세요.");
+      }
+      throw new Error(`완료 처리 월 저장 실패: ${error.message}`);
+    }
+
+    return mapCompletedBillingMonth(data as Row);
+  }
+
   async updateSettings(input: Partial<AppSettings>): Promise<AppSettings> {
     const current = await this.getSettings();
     const nextPopbillUserIdPrefix =
@@ -610,6 +767,7 @@ export class SupabaseStore implements AppStore {
   async findCustomerByMatchAddress(matchAddress: string): Promise<Customer | null> {
     await this.initialize();
     const normalized = normalizeAddress(matchAddress);
+    if (!normalized) return null;
     const matchRow = await assertNoError(
       "매칭 주소 조회 실패",
       this.client
@@ -642,7 +800,6 @@ export class SupabaseStore implements AppStore {
     const roadAddress = toRoadAddress(input.addr);
     const existingByBusinessNumber = await this.findCustomerByBusinessNumber(normalizedBusinessNumber);
     const normalizedMatchAddresses = new Map<string, string>();
-    const normalizedPlantNames = new Map<string, string>();
     const effectiveMatchAddresses = (input.matchAddresses.filter(Boolean).map((item) => item.trim()).filter(Boolean).length > 0
       ? input.matchAddresses
       : [roadAddress]
@@ -652,15 +809,6 @@ export class SupabaseStore implements AppStore {
 
     if (existingByBusinessNumber && existingByBusinessNumber.id !== customerId) {
       throw new Error(`이미 등록된 사업자번호입니다. 기존 고객: ${existingByBusinessNumber.customerName}`);
-    }
-
-    for (const plantName of input.plantNames.filter(Boolean)) {
-      const normalizedPlantName = normalizePlantName(plantName);
-      const duplicatePlant = normalizedPlantNames.get(normalizedPlantName);
-      if (duplicatePlant) {
-        throw new Error(`같은 고객에 발전소명이 중복되었습니다: ${plantName}`);
-      }
-      normalizedPlantNames.set(normalizedPlantName, plantName);
     }
 
     for (const matchAddress of effectiveMatchAddresses) {
@@ -699,7 +847,7 @@ export class SupabaseStore implements AppStore {
             customer_name: input.customerName,
             business_number: normalizedBusinessNumber,
             corp_name: input.corpName,
-            ceo_name: input.ceoName,
+            ceo_name: input.customerName,
             addr: roadAddress,
             biz_type: input.bizType,
             biz_class: input.bizClass,
@@ -750,7 +898,7 @@ export class SupabaseStore implements AppStore {
             customer_name: input.customerName,
             business_number: normalizedBusinessNumber,
             corp_name: input.corpName,
-            ceo_name: input.ceoName,
+            ceo_name: input.customerName,
             addr: roadAddress,
             biz_type: input.bizType,
             biz_class: input.bizClass,
@@ -782,19 +930,6 @@ export class SupabaseStore implements AppStore {
     }
 
     const managedCustomerId = asString(persistedRow.id);
-    if (input.plantNames.filter(Boolean).length > 0) {
-      await assertNoError(
-        "발전소명 저장 실패",
-        this.client.from("managed_customer_plants").insert(
-          input.plantNames.filter(Boolean).map((plantName) => ({
-            managed_customer_id: managedCustomerId,
-            plant_name: plantName.trim(),
-            normalized_plant_name: normalizePlantName(plantName)
-          }))
-        )
-      );
-    }
-
     if (effectiveMatchAddresses.length > 0) {
       await assertNoError(
         "매칭 주소 저장 실패",
@@ -849,6 +984,30 @@ export class SupabaseStore implements AppStore {
     return customer;
   }
 
+  async updateCustomerPopbillUserId(customerId: number, popbillUserId: string): Promise<Customer> {
+    const current = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!current) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    await assertNoError(
+      "고객 팝빌 ID 저장 실패",
+      this.client
+        .from("managed_customers")
+        .update({
+          popbill_user_id: popbillUserId.trim(),
+          updated_at: nowIso()
+        })
+        .eq("id", asString(current.id))
+    );
+
+    const customer = await this.getCustomer(customerId);
+    if (!customer) {
+      throw new Error("고객 팝빌 ID 업데이트 후 다시 읽지 못했습니다.");
+    }
+    return customer;
+  }
+
   async resetCustomerPopbill(customerId: number): Promise<Customer> {
     return this.updateCustomerPopbillState(customerId, "pending", false, null);
   }
@@ -867,42 +1026,6 @@ export class SupabaseStore implements AppStore {
       "고객 삭제 실패",
       this.client.from("managed_customers").delete().eq("id", managedCustomerId)
     );
-  }
-
-  async findCustomerByPlantAndAddress(plantName: string, plantAddress?: string | null): Promise<Customer | null> {
-    const normalizedPlant = normalizePlantName(plantName);
-    const plantRows = await assertNoError(
-      "발전소명 매칭 조회 실패",
-      this.client.from("managed_customer_plants").select("managed_customer_id").eq("normalized_plant_name", normalizedPlant)
-    );
-    const candidateIds = [...new Set((plantRows as Row[]).map((row) => asString(row.managed_customer_id)).filter(Boolean))];
-    if (candidateIds.length === 0) return null;
-
-    const customerRows = await assertNoError(
-      "발전소명 고객 조회 실패",
-      this.client
-        .from("managed_customers")
-        .select("*")
-        .eq("organization_id", this.requireOrganizationId())
-        .in("id", candidateIds)
-        .order("legacy_id", { ascending: true })
-    );
-
-    const customers = await Promise.all((customerRows as Row[]).map((row) => this.mapCustomerRow(row)));
-    if (customers.length === 0) return null;
-    if (customers.length === 1) {
-      const customer = customers[0];
-      if (!plantAddress || customer.matchAddresses.length === 0) return customer;
-      const normalizedAddress = normalizeAddress(plantAddress);
-      return customer.matchAddresses.some((address) => normalizeAddress(address) === normalizedAddress) ? customer : null;
-    }
-
-    if (!plantAddress) return null;
-    const normalizedAddress = normalizeAddress(plantAddress);
-    const matchedCustomers = customers.filter((customer) =>
-      customer.matchAddresses.some((address) => normalizeAddress(address) === normalizedAddress)
-    );
-    return matchedCustomers.length === 1 ? matchedCustomers[0] : null;
   }
 
   async getMessageByUid(messageUid: string): Promise<InboxMessage | null> {

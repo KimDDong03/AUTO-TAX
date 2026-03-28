@@ -28,7 +28,25 @@ export async function reprocessInboxMessage(
 
   try {
     const parsedMail = parseKepcoMail(message.textBody || message.rawSource);
-    const customer = await store.findCustomerByPlantAndAddress(parsedMail.plantName, parsedMail.plantAddress);
+    const completedBillingMonthSet = new Set((await store.listCompletedBillingMonths()).map((item) => item.billingMonth));
+
+    if (completedBillingMonthSet.has(parsedMail.billingMonth)) {
+      await store.updateInboxMatchResult({
+        messageId,
+        parseStatus: "ignored",
+        parseError: "초기 등록에서 완료 처리한 정산월입니다.",
+        parsedMail,
+        customerId: null,
+        draftId: null
+      });
+      await store.createLog("info", "mail-reprocess", "완료 처리한 정산월 메일을 재처리 대상에서 제외했습니다.", {
+        messageId,
+        billingMonth: parsedMail.billingMonth
+      });
+      return { status: "ignored" };
+    }
+
+    const customer = await store.findCustomerByMatchAddress(parsedMail.plantAddress);
 
     if (!customer) {
       await store.updateInboxMatchResult({
