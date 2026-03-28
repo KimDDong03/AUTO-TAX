@@ -12,6 +12,7 @@ import type {
   LogEntry,
   MailParseStatus,
   ParsedMail,
+  PopbillEnvironment,
   PopbillState
 } from "./domain.js";
 import { createSupabaseAdminClient } from "./supabase.js";
@@ -181,6 +182,22 @@ function isMissingCompletedBillingMonthsTableError(error: unknown): boolean {
   );
 }
 
+function isMissingMailSyncCheckpointsTableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? asString((error as { code?: unknown }).code) : "";
+  const message = "message" in error ? asString((error as { message?: unknown }).message).toLowerCase() : "";
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    (message.includes("mail_sync_checkpoints") &&
+      (message.includes("schema cache") || message.includes("does not exist") || message.includes("relation")))
+  );
+}
+
 function mapCustomer(row: Row, plantNames: string[], matchAddresses: string[]): Customer {
   const customerName = asString(row.customer_name);
   return {
@@ -256,6 +273,7 @@ function mapDraft(row: Row): InvoiceDraft {
     kepcoBizClass: asString(row.kepco_biz_class),
     recipientEmail: asString(row.recipient_email),
     popbillMgtKey: asString(row.popbill_mgt_key),
+    popbillEnvironment: asNullableString(row.popbill_environment) as PopbillEnvironment | null,
     popbillResultJson: typeof row.popbill_result_json === "string" ? row.popbill_result_json : JSON.stringify(row.popbill_result_json ?? ""),
     createdAt: asString(row.created_at, nowIso()),
     updatedAt: asString(row.updated_at, nowIso())
@@ -306,6 +324,11 @@ async function assertUniquePopbillUserPrefix(
   if (duplicated) {
     throw new Error(`팝빌 사용자 ID 접두어 '${normalizedPrefix}'는 이미 다른 고객사에서 사용 중입니다. 다른 접두어를 입력하세요.`);
   }
+}
+
+function buildDefaultPopbillUserPrefixForOrganization(organizationId: string): string {
+  const compactOrganizationId = organizationId.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  return normalizePopbillUserPrefix(`ORG${compactOrganizationId.slice(0, 8)}_`);
 }
 
 export class SupabaseStore implements AppStore {
@@ -371,7 +394,16 @@ export class SupabaseStore implements AppStore {
     );
     await assertNoError(
       "조직 연동 설정 보장 실패",
-      this.client.from("organization_integrations").upsert({ organization_id: this.requireOrganizationId() }, { onConflict: "organization_id" })
+      this.client.from("organization_integrations").upsert(
+        {
+          organization_id: this.requireOrganizationId(),
+          popbill_user_id_prefix: buildDefaultPopbillUserPrefixForOrganization(this.requireOrganizationId())
+        },
+        {
+          onConflict: "organization_id",
+          ignoreDuplicates: true
+        }
+      )
     );
 
     this.initialized = true;
@@ -641,6 +673,61 @@ export class SupabaseStore implements AppStore {
     }
 
     return mapCompletedBillingMonth(data as Row);
+  }
+
+  async getMailSyncCheckpoint(mailbox: string): Promise<number | null> {
+    await this.initialize();
+    const normalizedMailbox = mailbox.trim();
+    if (!normalizedMailbox) {
+      return null;
+    }
+
+    const { data, error } = await this.client
+      .from("mail_sync_checkpoints")
+      .select("last_uid")
+      .eq("organization_id", this.requireOrganizationId())
+      .eq("mailbox", normalizedMailbox)
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingMailSyncCheckpointsTableError(error)) {
+        return null;
+      }
+      throw new Error(`메일 동기화 체크포인트 조회 실패: ${error.message}`);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return asNumber((data as Row).last_uid, 0);
+  }
+
+  async updateMailSyncCheckpoint(mailbox: string, lastUid: number): Promise<void> {
+    await this.initialize();
+    const normalizedMailbox = mailbox.trim();
+    if (!normalizedMailbox) {
+      return;
+    }
+
+    const { error } = await this.client
+      .from("mail_sync_checkpoints")
+      .upsert(
+        {
+          organization_id: this.requireOrganizationId(),
+          mailbox: normalizedMailbox,
+          last_uid: Math.max(0, Math.trunc(lastUid)),
+          updated_at: nowIso()
+        },
+        { onConflict: "organization_id,mailbox" }
+      );
+
+    if (error) {
+      if (isMissingMailSyncCheckpointsTableError(error)) {
+        return;
+      }
+      throw new Error(`메일 동기화 체크포인트 저장 실패: ${error.message}`);
+    }
   }
 
   async updateSettings(input: Partial<AppSettings>): Promise<AppSettings> {
@@ -1341,7 +1428,8 @@ export class SupabaseStore implements AppStore {
     status: DraftStatus,
     issueError = "",
     writeDate?: string | null,
-    popbillResult?: unknown
+    popbillResult?: unknown,
+    popbillEnvironment?: PopbillEnvironment | null
   ): Promise<InvoiceDraft> {
     const draftRow = await this.getDraftRowByLegacyId(draftId);
     if (!draftRow) {
@@ -1362,6 +1450,9 @@ export class SupabaseStore implements AppStore {
     if (popbillResult !== undefined) {
       payload.popbill_result_json = popbillResult;
     }
+    if (popbillEnvironment !== undefined) {
+      payload.popbill_environment = popbillEnvironment;
+    }
 
     await assertNoError(
       "초안 상태 저장 실패",
@@ -1373,6 +1464,30 @@ export class SupabaseStore implements AppStore {
       throw new Error("초안 상태 저장 후 다시 읽지 못했습니다.");
     }
     return draft;
+  }
+
+  async updateDraftPopbillEnvironment(draftId: number, popbillEnvironment: PopbillEnvironment): Promise<InvoiceDraft> {
+    const draftRow = await this.getDraftRowByLegacyId(draftId);
+    if (!draftRow) {
+      throw new Error("초안을 찾지 못했습니다.");
+    }
+
+    await assertNoError(
+      "초안 팝빌 환경 저장 실패",
+      this.client
+        .from("invoice_drafts")
+        .update({
+          popbill_environment: popbillEnvironment,
+          updated_at: nowIso()
+        })
+        .eq("id", asString(draftRow.id))
+    );
+
+    const updated = await this.getDraft(draftId);
+    if (!updated) {
+      throw new Error("초안 팝빌 환경 저장 후 다시 읽지 못했습니다.");
+    }
+    return updated;
   }
 
   async claimDraftForIssue(draftId: number): Promise<InvoiceDraft | null> {
@@ -1425,6 +1540,7 @@ export class SupabaseStore implements AppStore {
           issue_error: "",
           write_date: null,
           popbill_result_json: null,
+          popbill_environment: null,
           popbill_mgt_key: nextMgtKey,
           updated_at: nowIso()
         })

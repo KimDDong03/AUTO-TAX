@@ -1,8 +1,11 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import * as XLSX from "xlsx";
 import { ApiError, api, setActiveOrganizationId } from "./api";
+import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, SetupPanel, StatCard } from "./components/ui";
+import { CustomersTab } from "./features/customers/CustomersTab";
+import { InitialRegistrationTab } from "./features/initial-registration/InitialRegistrationTab";
+import { SettingsTab } from "./features/settings/SettingsTab";
 import { supabase } from "./supabase";
 import type {
   AppSettings,
@@ -134,17 +137,6 @@ type PasswordResetTarget =
 
 type SettingsAutosaveState = "idle" | "pending" | "saving" | "saved" | "error";
 
-type AppDialogTone = "default" | "success" | "warn" | "danger";
-
-type AppDialogState = {
-  kind: "alert" | "confirm";
-  title: string;
-  message: string;
-  confirmLabel: string;
-  cancelLabel?: string;
-  tone: AppDialogTone;
-};
-
 type AddressResolveResponse = {
   ok: boolean;
   input: string;
@@ -208,6 +200,27 @@ type CustomerImportCommitResponse = {
   }>;
 };
 
+class LoadCancelledError extends Error {
+  constructor() {
+    super("현재 세션에서 더 이상 유효하지 않은 데이터 불러오기 요청입니다.");
+    this.name = "LoadCancelledError";
+  }
+}
+
+function isLoadCancelledError(error: unknown): error is LoadCancelledError {
+  return error instanceof LoadCancelledError;
+}
+
+let xlsxModulePromise: Promise<typeof import("xlsx")> | null = null;
+
+function loadXlsxModule() {
+  if (!xlsxModulePromise) {
+    xlsxModulePromise = import("xlsx");
+  }
+
+  return xlsxModulePromise;
+}
+
 type BillingMonthSummary = {
   billingMonth: string;
   totalCount: number;
@@ -232,6 +245,37 @@ const EMPTY_CUSTOMER_IMPORT_MAPPING: CustomerImportMapping = {
 
 function normalizeImportCell(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function scoreDecodedCustomerImportText(value: string): number {
+  const sample = value.slice(0, 300);
+  const replacementPenalty = (sample.match(/�/g) ?? []).length * 10;
+  const mojibakePenalty = (sample.match(/[ÃÂÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîï]/g) ?? []).length;
+  const keywordScore = ["대표자명", "사업자번호", "세금계산서 상호", "주소", "상호", "대표", "사업자"].reduce(
+    (total, keyword) => total + (sample.includes(keyword) ? 8 : 0),
+    0
+  );
+
+  return keywordScore - replacementPenalty - mojibakePenalty;
+}
+
+function decodeCustomerImportCsv(arrayBuffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(arrayBuffer);
+  const candidates = ["utf-8", "euc-kr"]
+    .map((encoding) => {
+      try {
+        return {
+          encoding,
+          text: new TextDecoder(encoding).decode(bytes)
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter((candidate): candidate is { encoding: string; text: string } => candidate !== null)
+    .sort((left, right) => scoreDecodedCustomerImportText(right.text) - scoreDecodedCustomerImportText(left.text));
+
+  return candidates[0]?.text ?? new TextDecoder("utf-8").decode(bytes);
 }
 
 function buildCustomerImportColumnOptions(rows: string[][], headerRowIndex: number): CustomerImportColumnOption[] {
@@ -608,70 +652,6 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
   };
 }
 
-function Icon(props: { name: string; className?: string }) {
-  const glyphs: Record<string, string> = {
-    dashboard: "DS",
-    group: "CU",
-    initial: "IN",
-    review: "TX",
-    settings: "SY",
-    ops: "OP",
-    issue: "IS",
-    unmatched: "ML",
-    cert: "CT",
-    complete: "OK",
-    refresh: "↻",
-    sync: "⇄"
-  };
-
-  return <span className={props.className ? `glyph ${props.className}` : "glyph"}>{glyphs[props.name] ?? props.name.slice(0, 2).toUpperCase()}</span>;
-}
-
-function RevealIcon(props: { open: boolean }) {
-  return (
-    <svg className="reveal-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M2 12C3.9 8.8 7.4 6.5 12 6.5C16.6 6.5 20.1 8.8 22 12C20.1 15.2 16.6 17.5 12 17.5C7.4 17.5 3.9 15.2 2 12Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="12" r="3.1" stroke="currentColor" strokeWidth="1.8" />
-      {props.open ? null : (
-        <path
-          d="M4 4L20 20"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      )}
-    </svg>
-  );
-}
-
-function getStatIcon(label: string): string {
-  if (label.includes("고객")) return "group";
-  if (label.includes("발행 대상")) return "issue";
-  if (label.includes("발행 완료")) return "complete";
-  if (label.includes("실패")) return "review";
-  if (label.includes("미매칭")) return "unmatched";
-  return "dashboard";
-}
-
-function StatCard(props: { label: string; value: number; tone?: "default" | "warn" | "error" }) {
-  return (
-    <div className={`stat-card stat-${props.tone ?? "default"}`}>
-      <div className="stat-card-head">
-        <span>{props.label}</span>
-        <Icon name={getStatIcon(props.label)} className="stat-card-icon" />
-      </div>
-      <strong>{props.value}</strong>
-    </div>
-  );
-}
-
 function getDraftStatusLabel(status: string): string {
   switch (status) {
     case "review":
@@ -782,98 +762,6 @@ function getParseStatusLabel(status: string): string {
     default:
       return status;
   }
-}
-
-function Panel(props: { title: string; subtitle?: string; children: React.ReactNode; actions?: React.ReactNode; className?: string }) {
-  return (
-    <section className={props.className ? `panel ${props.className}` : "panel"}>
-      <header className="panel-header">
-        <div>
-          <h2>{props.title}</h2>
-          {props.subtitle ? <p>{props.subtitle}</p> : null}
-        </div>
-        {props.actions ? <div className="panel-actions">{props.actions}</div> : null}
-      </header>
-      {props.children}
-    </section>
-  );
-}
-
-function AppDialog(props: {
-  dialog: AppDialogState;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="app-dialog-backdrop" role="presentation">
-      <section
-        className={props.dialog.tone === "danger" ? "app-dialog app-dialog-danger" : "app-dialog"}
-        role={props.dialog.kind === "confirm" ? "alertdialog" : "dialog"}
-        aria-modal="true"
-        aria-labelledby="app-dialog-title"
-        aria-describedby="app-dialog-message"
-      >
-        <div className="app-dialog-head">
-          <span
-            className={
-              props.dialog.tone === "danger"
-                ? "chip chip-danger"
-                : props.dialog.tone === "warn"
-                  ? "chip chip-warn"
-                  : props.dialog.tone === "success"
-                    ? "chip chip-success"
-                    : "chip"
-            }
-          >
-            {props.dialog.kind === "confirm" ? "확인 필요" : "안내"}
-          </span>
-          <div>
-            <h2 id="app-dialog-title">{props.dialog.title}</h2>
-            <p id="app-dialog-message" className="app-dialog-message">{props.dialog.message}</p>
-          </div>
-        </div>
-        <div className="app-dialog-actions">
-          {props.dialog.kind === "confirm" ? (
-            <button type="button" className="btn-secondary" onClick={props.onCancel}>
-              {props.dialog.cancelLabel ?? "취소"}
-            </button>
-          ) : null}
-          <button type="button" onClick={props.onConfirm}>
-            {props.dialog.confirmLabel}
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function SetupPanel(props: {
-  step: number;
-  title: string;
-  done: boolean;
-  children: React.ReactNode;
-  actions?: React.ReactNode;
-  className?: string;
-  note?: string;
-}) {
-  return (
-    <section className={props.className ? `panel setup-panel ${props.className}` : "panel setup-panel"}>
-      <header className="panel-header setup-panel-header">
-        <div className="setup-panel-title">
-          <span className="setup-order">{props.step}</span>
-          <div>
-            <h2>{props.title}</h2>
-            {props.note ? <p>{props.note}</p> : null}
-          </div>
-        </div>
-        <div className="panel-actions">
-          <span className={`chip ${props.done ? "chip-success" : "chip-danger"}`}>{props.done ? "완료" : "설정 필요"}</span>
-          {props.actions}
-        </div>
-      </header>
-      {props.children}
-    </section>
-  );
 }
 
 function formatMoney(value: number): string {
@@ -1427,6 +1315,8 @@ export function App() {
   const customerAddressLookupRef = useRef("");
   const customerNameInputRef = useRef<HTMLInputElement | null>(null);
   const certSyncInFlightRef = useRef(false);
+  const authSessionRef = useRef<Session | null>(null);
+  const activeLoadTokenRef = useRef(0);
   const publicManagedCustomerCount = normalizeManagedCustomerCount(managedCustomerCountInput);
   const publicPricing = calculatePublicPrice(pricingPlanId, publicManagedCustomerCount);
   const customerImportHeaderOptions = customerImportFile
@@ -1452,6 +1342,14 @@ export function App() {
     const status = getInboxDisplayParseStatus(message);
     return status === "unmatched" || status === "failed" || status === "duplicate";
   };
+  const invalidateActiveLoads = () => {
+    activeLoadTokenRef.current += 1;
+  };
+  const ensureActiveLoad = (loadToken: number) => {
+    if (activeLoadTokenRef.current !== loadToken || !authSessionRef.current) {
+      throw new LoadCancelledError();
+    }
+  };
 
   const loadOpsConsole = async (): Promise<OpsConsoleData> => {
     const [partnerPoints, renewalAutomation, logs, workspaces] = await Promise.all([
@@ -1469,25 +1367,32 @@ export function App() {
     };
   };
 
-  const loadOrganizationMembers = async (payload: BootstrapPayload) => {
+  const loadOrganizationMembers = async (payload: BootstrapPayload, loadToken: number) => {
     if (payload.auth.activeOrganizationRole !== "owner") {
       setOrganizationMembers([]);
       return;
     }
 
+    ensureActiveLoad(loadToken);
     const members = await api<OrganizationMemberSummary[]>("/api/organization/members");
+    ensureActiveLoad(loadToken);
     setOrganizationMembers(members);
   };
 
   const load = async () => {
+    const loadToken = activeLoadTokenRef.current + 1;
+    activeLoadTokenRef.current = loadToken;
     const payload = await api<BootstrapPayload>("/api/bootstrap");
+    ensureActiveLoad(loadToken);
     const nextOpsConsole = payload.auth.isPlatformAdmin ? await loadOpsConsole() : null;
+    ensureActiveLoad(loadToken);
     const [nextImportProfile, nextCompletedBillingMonths] = payload.auth.activeOrganizationId
       ? await Promise.all([
           api<{ profile: CustomerImportProfile | null }>("/api/customer-import/profile").then((response) => response.profile),
           api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
         ])
       : [null, []];
+    ensureActiveLoad(loadToken);
     setError("");
     setActiveOrganizationId(payload.auth.activeOrganizationId);
     const nextSettingsForm = settingsToForm(payload.settings);
@@ -1505,7 +1410,8 @@ export function App() {
           )
         : {}
     );
-    await loadOrganizationMembers(payload);
+    await loadOrganizationMembers(payload, loadToken);
+    ensureActiveLoad(loadToken);
     setSettingsForm(nextSettingsForm);
     settingsAutosaveBaselineRef.current = JSON.stringify(buildSettingsPayload(nextSettingsForm).payload);
     setSettingsAutosaveState("saved");
@@ -1530,6 +1436,9 @@ export function App() {
         await load();
         return;
       } catch (error) {
+        if (isLoadCancelledError(error)) {
+          return;
+        }
         lastError = error instanceof Error ? error : new Error("초기 데이터를 불러오지 못했습니다.");
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
           break;
@@ -1569,6 +1478,7 @@ export function App() {
 
     void supabase.auth.getSession().then(({ data: next }) => {
       if (!mounted) return;
+      authSessionRef.current = next.session;
       setAuthSession(next.session);
       setAuthReady(true);
     });
@@ -1577,6 +1487,7 @@ export function App() {
       data: { subscription }
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
+      authSessionRef.current = nextSession;
       setAuthSession(nextSession);
 
       if (event === "PASSWORD_RECOVERY") {
@@ -1590,6 +1501,7 @@ export function App() {
       }
 
       if (!nextSession) {
+        invalidateActiveLoads();
         setData(null);
         setOpsConsole(null);
         setOrganizationMembers([]);
@@ -1611,7 +1523,11 @@ export function App() {
   useEffect(() => {
     if (!authReady || !authSession || recoveryMode) return;
 
-    void loadWithRetry().catch((loadError: Error) => setError(loadError.message));
+    void loadWithRetry().catch((loadError) => {
+      if (!isLoadCancelledError(loadError)) {
+        setError(loadError instanceof Error ? loadError.message : "초기 데이터를 불러오지 못했습니다.");
+      }
+    });
   }, [authReady, authSession, recoveryMode]);
 
   useEffect(() => {
@@ -2024,6 +1940,8 @@ export function App() {
   };
 
   const signOut = async () => {
+    invalidateActiveLoads();
+    authSessionRef.current = null;
     setBusyKey(null);
     setError("");
     setAuthNotice("");
@@ -2180,8 +2098,11 @@ export function App() {
     }
 
     try {
+      const XLSX = await loadXlsxModule();
       const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array" });
+      const workbook = file.name.toLowerCase().endsWith(".csv")
+        ? XLSX.read(decodeCustomerImportCsv(arrayBuffer), { type: "string", raw: false })
+        : XLSX.read(arrayBuffer, { type: "array" });
       const firstSheetName = workbook.SheetNames[0];
       if (!firstSheetName) {
         throw new Error("읽을 수 있는 시트가 없습니다.");
@@ -3608,6 +3529,52 @@ export function App() {
       : []),
     ...(isPlatformAdmin ? [{ id: "ops" as const, label: "플랫폼 관리자", icon: "ops" }] : [])
   ];
+  const startCreatingCustomer = () => {
+    setCreatingCustomer(true);
+    setCustomerForm(createCustomerFormDefaults());
+    setCustomerAddressResolveMessage("");
+    customerAddressLookupRef.current = "";
+  };
+  const selectCustomerForEdit = (customer: Customer) => {
+    setCreatingCustomer(false);
+    setCustomerDetailTab("info");
+    setCustomerForm(customerToForm(customer));
+    setCustomerAddressResolveMessage("");
+    customerAddressLookupRef.current = "";
+  };
+  const joinCustomerPopbill = async (customerId: number) => {
+    await api(`/api/customers/${customerId}/popbill/join`, { method: "POST" });
+  };
+  const openCustomerCertRegistration = async (customerId: number) => {
+    const result = await api<{ url: string }>(`/api/customers/${customerId}/popbill/cert-url`, {
+      method: "POST"
+    });
+    setCustomerCertNotice("인증서 등록 창을 열었습니다. 등록 후 이 화면으로 돌아오면 상태를 자동으로 다시 확인합니다.");
+    setPendingCertSyncCustomerId(customerId);
+    window.open(result.url, "_blank", "noopener,noreferrer");
+  };
+  const refreshSingleCustomerCertificateStatus = async (customerId: number) => {
+    await api(`/api/customers/${customerId}/popbill/cert-status`, { method: "POST" });
+  };
+  const detectedMailProviderLabel = MAIL_PROVIDER_CONFIG[inferMailProviderFromAddress(settingsForm.mailAddress, settingsForm.mailProvider)].label;
+  const handleSettingsMailAddressChange = (nextAddress: string) => {
+    setSettingsForm((prev) => {
+      if (!prev) return prev;
+      const nextProvider = inferMailProviderFromAddress(nextAddress, prev.mailProvider);
+      const config = MAIL_PROVIDER_CONFIG[nextProvider];
+      return {
+        ...prev,
+        mailAddress: nextAddress,
+        mailProvider: nextProvider,
+        imapHost: config.imapHost,
+        imapPort: config.imapPort,
+        imapSecure: config.imapSecure,
+        smtpHost: config.smtpHost,
+        smtpPort: config.smtpPort,
+        smtpSecure: config.smtpSecure
+      };
+    });
+  };
   const activeNavLabel = navItems.find((item) => item.id === activeTab)?.label ?? "AUTO-TAX";
 
   return (
@@ -3902,1284 +3869,145 @@ export function App() {
         ) : null}
 
         {activeTab === "customers" ? (
-          <div className="customers-screen">
-            {expiredCertCustomers.length > 0 ? (
-              <div className="alert error">
-                인증서 만료 고객 {expiredCertCustomers.length}건: {expiredCertCustomers.map((customer) => customer.customerName).join(", ")}
-              </div>
-            ) : null}
-            {expiringSoonCustomers.length > 0 ? (
-              <div className="alert warn">
-                인증서 만료 예정 30일 이내 {expiringSoonCustomers.length}건: {expiringSoonCustomers
-                  .map((customer) => `${customer.customerName}(${formatCertificateExpireDate(customer.popbillCertExpireDate)})`)
-                  .join(", ")}
-              </div>
-            ) : null}
-            <div className="customers-layout">
-              <Panel
-                className="panel-customer-list"
-                title="고객 목록"
-                actions={
-                  <>
-                    <button
-                      className="btn-secondary"
-                      disabled={hasReachedManagedCustomerLimit}
-                      onClick={() => {
-                        setCreatingCustomer(true);
-                        setCustomerForm(createCustomerFormDefaults());
-                        setCustomerAddressResolveMessage("");
-                        customerAddressLookupRef.current = "";
-                      }}
-                    >
-                      새 고객
-                    </button>
-                    <button onClick={() => void runAction("customers-cert-refresh-all", refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
-                  </>
-                }
-              >
-                  <div className="customer-list-toolbar">
-                    <div className="customer-list-search">
-                      <input
-                        placeholder="대표자명 / 상호 검색"
-                        value={customerSearchQuery}
-                        onChange={(event) => setCustomerSearchQuery(event.target.value)}
-                      />
-                  </div>
-                  <div className="customer-list-filters">
-                    <button
-                      type="button"
-                      className={customerListFilter === "all" ? "btn-secondary active-filter" : "btn-secondary"}
-                      onClick={() => setCustomerListFilter("all")}
-                    >
-                      전체 {data.customers.length}명
-                    </button>
-                    <button
-                      type="button"
-                      className={customerListFilter === "blocked" ? "btn-secondary active-filter" : "btn-secondary"}
-                      onClick={() => setCustomerListFilter("blocked")}
-                    >
-                      준비 필요만 {blockedCustomerCount}명
-                    </button>
-                  </div>
-                </div>
-                <div className="helper-box">
-                  <strong>관리 고객 한도</strong>
-                  <span>
-                    현재 {managedCustomerCount}명
-                    {managedCustomerLimit !== null ? ` / 한도 ${managedCustomerLimit}명` : ""}
-                    {hasReachedManagedCustomerLimit ? " · 한도에 도달해 새 고객 등록이 잠겨 있습니다." : ""}
-                  </span>
-                </div>
-                <div className="list">
-                  {filteredCustomers.map((customer) => {
-                    const readiness = getCustomerIssueReadiness(customer);
-                    const isSelected = customerForm.id === customer.id;
-
-                    return (
-                      <button
-                        key={customer.id}
-                        type="button"
-                        className={`customer-summary ${isSelected ? "selected" : ""} ${readiness.canIssueNow ? "customer-summary-ready" : "customer-summary-blocked"}`}
-                        onClick={() => {
-                          setCreatingCustomer(false);
-                          setCustomerDetailTab("info");
-                          setCustomerForm(customerToForm(customer));
-                          setCustomerAddressResolveMessage("");
-                          customerAddressLookupRef.current = "";
-                        }}
-                      >
-                        <div className="customer-summary-head">
-                          <div>
-                            <strong>{customer.corpName}</strong>
-                            <p>{customer.customerName}</p>
-                          </div>
-                          <span className={`chip ${readiness.tone === "success" ? "chip-success" : readiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>{readiness.label}</span>
-                        </div>
-                        <div className="customer-summary-meta">
-                          <span>{customer.addr}</span>
-                          <span>{getCustomerCertificateSummary(customer)}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {filteredCustomers.length === 0 ? (
-                    <div className="empty">
-                      {customerSearchQuery.trim() !== ""
-                        ? "검색 결과가 없습니다."
-                        : customerListFilter === "blocked"
-                          ? "준비 필요 고객이 없습니다."
-                          : "등록된 고객이 없습니다."}
-                    </div>
-                  ) : null}
-                </div>
-              </Panel>
-
-              <Panel
-                className="panel-customer-editor"
-                title={selectedCustomer ? `${selectedCustomer.customerName}` : "새 고객 등록"}
-                actions={selectedCustomer && customerDetailTab === "info" ? (
-                  <button
-                    disabled={busyKey !== null}
-                    onClick={() => void runAction("save-customer-top", saveCustomer)}
-                  >
-                    {isSavingCustomer ? "고객 저장 중..." : "고객 저장"}
-                  </button>
-                ) : null}
-              >
-                {selectedCustomer && selectedCustomerReadiness ? (
-                  <div className="customer-detail-top">
-                    <div className="customer-detail-copy">
-                      <strong>{selectedCustomer.corpName}</strong>
-                      <span>{selectedCustomer.customerName} · {selectedCustomer.addr}</span>
-                      <span>{getCustomerPopbillSummary(selectedCustomer)} · {getCustomerCertificateSummary(selectedCustomer)}</span>
-                    </div>
-                    <div className="customer-detail-stats">
-                      <div>
-                        <span>주소</span>
-                        <strong>{selectedCustomer.addr || "-"}</strong>
-                      </div>
-                      <div>
-                        <span>발행 방식</span>
-                        <strong>{getIssueModeLabel(selectedCustomer.issueMode)}</strong>
-                      </div>
-                      <div>
-                        <span>팝빌 상태</span>
-                        <strong>{getCustomerPopbillSummary(selectedCustomer)}</strong>
-                      </div>
-                      <div>
-                        <span>인증서 상태</span>
-                        <strong>{getCustomerCertificateSummary(selectedCustomer)}</strong>
-                      </div>
-                    </div>
-                    <div className="customer-detail-actions">
-                      <span className={`chip ${selectedCustomerReadiness.tone === "success" ? "chip-success" : selectedCustomerReadiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>
-                        {selectedCustomerReadiness.label}
-                      </span>
-                      {selectedCustomer.popbillState !== "joined" && (
-                        <button
-                          className="btn-secondary"
-                          onClick={() => void runAction(`join-${selectedCustomer.id}`, async () => void (await api(`/api/customers/${selectedCustomer.id}/popbill/join`, { method: "POST" })))}
-                        >
-                          팝빌 가입
-                        </button>
-                      )}
-                      <button
-                        onClick={() =>
-                          void runAction(`cert-url-${selectedCustomer.id}`, async () => {
-                            const result = await api<{ url: string }>(`/api/customers/${selectedCustomer.id}/popbill/cert-url`, {
-                              method: "POST"
-                            });
-                            setCustomerCertNotice("인증서 등록 창을 열었습니다. 등록 후 이 화면으로 돌아오면 상태를 자동으로 다시 확인합니다.");
-                            setPendingCertSyncCustomerId(selectedCustomer.id);
-                            window.open(result.url, "_blank", "noopener,noreferrer");
-                          }, { reload: false })
-                        }
-                      >
-                        {selectedCustomer.popbillCertRegistered ? "인증서 재등록" : "인증서 등록"}
-                      </button>
-                      <button className="btn-secondary" onClick={() => void runAction(`cert-status-${selectedCustomer.id}`, async () => void (await api(`/api/customers/${selectedCustomer.id}/popbill/cert-status`, { method: "POST" })))}>만료일 확인</button>
-                    </div>
-                    {customerCertNotice ? <div className="helper-box customer-cert-notice"><span>{customerCertNotice}</span></div> : null}
-                    <div className="helper-box-stack customer-cert-guide">
-                      <strong>공동인증서 등록 전 확인</strong>
-                      <span>아래 정보와 같은 고객 공동인증서만 등록하세요. 다르면 인증서 등록이나 이후 발행이 정상 동작하지 않을 수 있습니다.</span>
-                      <div className="fields three-column">
-                        <div>
-                          <span>사업자번호</span>
-                          <strong>{selectedCustomer.businessNumber || "-"}</strong>
-                        </div>
-                        <div>
-                          <span>세금계산서 상호</span>
-                          <strong>{selectedCustomer.corpName || "-"}</strong>
-                        </div>
-                        <div>
-                          <span>대표자명</span>
-                          <strong>{selectedCustomer.customerName || "-"}</strong>
-                        </div>
-                      </div>
-                    </div>
-                    <details className="customer-detail-secondary">
-                      <summary>더보기</summary>
-                      <div className="customer-detail-secondary-actions">
-                        {selectedCustomer.popbillState === "joined" ? (
-                          <button className="btn-ghost" onClick={() => void runAction(`reset-popbill-${selectedCustomer.id}`, async () => void (await resetPopbillLink(selectedCustomer)))}>
-                            연결 해제
-                          </button>
-                        ) : null}
-                        <button className="btn-ghost btn-danger" onClick={() => void runAction(`delete-customer-${selectedCustomer.id}`, async () => void (await deleteCustomer(selectedCustomer)))}>
-                          고객 삭제
-                        </button>
-                      </div>
-                    </details>
-                  </div>
-                ) : (
-                  <div className="customer-empty-state">
-                    <strong>새 고객을 등록합니다.</strong>
-                    <span>기존 고객을 수정하려면 왼쪽 목록에서 고객을 선택하세요.</span>
-                  </div>
-                )}
-                {selectedCustomer ? (
-                  <div className="customer-detail-tabs">
-                    <button
-                      type="button"
-                      className={customerDetailTab === "info" ? "btn-secondary active-filter" : "btn-secondary"}
-                      onClick={() => setCustomerDetailTab("info")}
-                    >
-                      기본 정보
-                    </button>
-                    <button
-                      type="button"
-                      className={customerDetailTab === "history" ? "btn-secondary active-filter" : "btn-secondary"}
-                      onClick={() => setCustomerDetailTab("history")}
-                    >
-                      발행 이력 {selectedCustomerIssuedDrafts.length}건
-                    </button>
-                  </div>
-                ) : null}
-
-                {selectedCustomer && customerDetailTab === "history" ? (
-                  <div className="customer-history-list">
-                    {selectedCustomerIssuedDrafts.length > 0 ? (
-                      selectedCustomerIssuedDrafts.map((draft) => {
-                        const confirmNumber = getDraftConfirmNumber(draft);
-                        return (
-                          <article key={draft.id} className="customer-history-card">
-                            <div className="customer-history-head">
-                              <div>
-                                <strong>{draft.itemName}</strong>
-                                <span>{formatDateTime(draft.issuedAt)}</span>
-                              </div>
-                              <span className="chip chip-success">발행 완료</span>
-                            </div>
-                            <div className="customer-history-meta">
-                              <span>공급가액 {formatMoney(draft.supplyCost)}원</span>
-                              <span>합계 {formatMoney(draft.totalAmount)}원</span>
-                              <span>관리번호 {draft.popbillMgtKey || "-"}</span>
-                              <span>승인번호 {confirmNumber ?? "-"}</span>
-                            </div>
-                            <div className="customer-history-actions">
-                              <button
-                                className="btn-secondary"
-                                disabled={busyKey !== null}
-                                onClick={() => void runAction(`draft-info-${draft.id}`, async () => void (await showDraftPopbillInfo(draft.id)))}
-                              >
-                                상태조회
-                              </button>
-                              <button
-                                className="btn-secondary"
-                                disabled={busyKey !== null}
-                                onClick={() => void runAction(`draft-view-customer-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}
-                              >
-                                보기
-                              </button>
-                              <button
-                                className="btn-secondary"
-                                disabled={busyKey !== null}
-                                onClick={() => void runAction(`draft-print-customer-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "print-url")))}
-                              >
-                                인쇄
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      })
-                    ) : (
-                      <div className="empty">이 고객의 발행 이력이 없습니다.</div>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    <form
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        if (busyKey !== null) return;
-                        if (!selectedCustomer && hasReachedManagedCustomerLimit) return;
-                        void runAction(customerForm.id === null ? "save-customer" : `save-customer-${customerForm.id}`, saveCustomer);
-                      }}
-                    >
-                      <div className="form-grid">
-                        <label>
-                          대표자명
-                          <input
-                            ref={customerNameInputRef}
-                            value={customerForm.customerName}
-                            onChange={(event) => setCustomerForm((prev) => ({ ...prev, customerName: event.target.value }))}
-                          />
-                        </label>
-                        <label>
-                          주소
-                          <input
-                            value={customerForm.addr}
-                            onChange={(event) => {
-                              const nextAddress = event.target.value;
-                              customerAddressLookupRef.current = "";
-                              setCustomerAddressResolveMessage("");
-                              setCustomerForm((prev) => ({ ...prev, addr: nextAddress }));
-                            }}
-                            onBlur={() => void resolveCustomerAddress()}
-                          />
-                          <span className="field-hint">저장된 도로명주소와 같은 주소로 들어온 메일만 자동 매칭됩니다.</span>
-                          {customerAddressResolveMessage ? <span className="field-hint">{customerAddressResolveMessage}</span> : null}
-                        </label>
-                        <label>
-                          사업자번호
-                          <input value={customerForm.businessNumber} onChange={(event) => setCustomerForm((prev) => ({ ...prev, businessNumber: event.target.value }))} />
-                        </label>
-                        <label>
-                          세금계산서 상호
-                          <input value={customerForm.corpName} onChange={(event) => setCustomerForm((prev) => ({ ...prev, corpName: event.target.value }))} />
-                        </label>
-                        <label>
-                          업태
-                          <input value={customerForm.bizType} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizType: event.target.value }))} />
-                        </label>
-                        <label>
-                          업종
-                          <input value={customerForm.bizClass} onChange={(event) => setCustomerForm((prev) => ({ ...prev, bizClass: event.target.value }))} />
-                        </label>
-                        <label className="full">
-                          발행 방식
-                          <select
-                            value={customerForm.issueMode}
-                            onChange={(event) =>
-                              setCustomerForm((prev) => ({
-                                ...prev,
-                                issueMode:
-                                  prev.id === null ? "review" : event.target.value === "auto" ? "auto" : "review"
-                              }))
-                            }
-                            disabled={customerForm.id === null}
-                          >
-                            <option value="review">검수 후 발행</option>
-                            <option value="auto" disabled={customerForm.id === null}>월 자동 발행</option>
-                          </select>
-                          <span className="field-hint">
-                            {customerForm.id === null
-                              ? "처음 등록하는 고객은 먼저 검수 후 발행으로 저장됩니다. 저장 후 수정 화면에서 월 자동 발행으로 바꿀 수 있습니다."
-                              : "자동 발행 고객은 작업공간 설정의 월 자동 실행일/시각에 메일 동기화 후 바로 발행되고, 검수 고객은 초안만 만들어집니다."}
-                          </span>
-                        </label>
-                        <label className="full">
-                          메모
-                          <textarea rows={3} value={customerForm.memo} onChange={(event) => setCustomerForm((prev) => ({ ...prev, memo: event.target.value }))} />
-                        </label>
-                      </div>
-                      {!selectedCustomer ? (
-                        <div className="button-row">
-                          <button type="submit" disabled={hasReachedManagedCustomerLimit || busyKey !== null}>
-                            {isSavingCustomer ? "고객 등록 및 팝빌 가입 중..." : "고객 등록"}
-                          </button>
-                          {hasReachedManagedCustomerLimit ? (
-                            <span className="field-hint">관리 고객 한도에 도달해 새 고객 등록이 잠겨 있습니다. 플랫폼 관리자에게 한도 상향을 요청하세요.</span>
-                          ) : isSavingCustomer ? (
-                            <span className="field-hint">고객 등록과 팝빌 가입을 처리하고 있습니다. 잠시만 기다려주세요.</span>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </form>
-                  </>
-                )}
-              </Panel>
-            </div>
-          </div>
+          <CustomersTab
+            customers={data.customers}
+            expiredCertCustomers={expiredCertCustomers}
+            expiringSoonCustomers={expiringSoonCustomers}
+            filteredCustomers={filteredCustomers}
+            selectedCustomer={selectedCustomer}
+            selectedCustomerReadiness={selectedCustomerReadiness}
+            selectedCustomerIssuedDrafts={selectedCustomerIssuedDrafts}
+            blockedCustomerCount={blockedCustomerCount}
+            managedCustomerCount={managedCustomerCount}
+            managedCustomerLimit={managedCustomerLimit}
+            hasReachedManagedCustomerLimit={hasReachedManagedCustomerLimit}
+            busyKey={busyKey}
+            isSavingCustomer={isSavingCustomer}
+            customerSearchQuery={customerSearchQuery}
+            customerListFilter={customerListFilter}
+            customerDetailTab={customerDetailTab}
+            customerForm={customerForm}
+            customerCertNotice={customerCertNotice}
+            customerAddressResolveMessage={customerAddressResolveMessage}
+            customerNameInputRef={customerNameInputRef}
+            customerAddressLookupRef={customerAddressLookupRef}
+            setCustomerSearchQuery={setCustomerSearchQuery}
+            setCustomerListFilter={setCustomerListFilter}
+            setCustomerDetailTab={setCustomerDetailTab}
+            setCustomerForm={setCustomerForm}
+            setCustomerAddressResolveMessage={setCustomerAddressResolveMessage}
+            onCreateCustomer={startCreatingCustomer}
+            onSelectCustomer={selectCustomerForEdit}
+            onSaveCustomer={saveCustomer}
+            onJoinCustomerPopbill={joinCustomerPopbill}
+            onOpenCustomerCertRegistration={openCustomerCertRegistration}
+            onRefreshCustomerCertificateStatus={refreshSingleCustomerCertificateStatus}
+            onRefreshAllCertificateStatuses={refreshAllCertificateStatuses}
+            onResetPopbillLink={resetPopbillLink}
+            onDeleteCustomer={deleteCustomer}
+            onShowDraftPopbillInfo={showDraftPopbillInfo}
+            onOpenDraftPopbillUrl={openDraftPopbillUrl}
+            resolveCustomerAddress={resolveCustomerAddress}
+            runAction={runAction}
+            formatCertificateExpireDate={formatCertificateExpireDate}
+            getCustomerIssueReadiness={getCustomerIssueReadiness}
+            getCustomerCertificateSummary={getCustomerCertificateSummary}
+            getCustomerPopbillSummary={getCustomerPopbillSummary}
+            getIssueModeLabel={getIssueModeLabel}
+            getDraftConfirmNumber={getDraftConfirmNumber}
+            formatDateTime={formatDateTime}
+            formatMoney={formatMoney}
+          />
         ) : null}
 
         {activeTab === "initial" ? (
-          <div className="initial-screen">
-            <div className="import-layout">
-              <Panel
-                className="panel-initial-import"
-                title="엑셀 업로드"
-                actions={(
-                  <button
-                    className="btn-secondary"
-                    onClick={() => {
-                      setCustomerImportFile(null);
-                      setCustomerImportHeaderRowIndex(0);
-                      setCustomerImportMapping(EMPTY_CUSTOMER_IMPORT_MAPPING);
-                      setCustomerImportPreview(null);
-                      setCustomerImportError("");
-                      setCustomerImportNotice("");
-                    }}
-                  >
-                    초기화
-                  </button>
-                )}
-              >
-                <div className="helper-box import-helper-box">
-                  <strong>지원 범위</strong>
-                  <span>`xlsx`, `csv`, 첫 시트, 필수 4개 컬럼만 지원합니다.</span>
-                </div>
-
-                <div className="form-grid">
-                  <label className="full">
-                    파일 선택
-                    <input
-                      type="file"
-                      accept=".xlsx,.csv"
-                      onChange={(event) => void handleCustomerImportFileChange(event.target.files?.[0] ?? null)}
-                    />
-                    <span className="field-hint">대표자명, 사업자번호, 세금계산서 상호, 주소를 포함한 파일을 올리세요.</span>
-                  </label>
-                </div>
-
-                {customerImportFile ? (
-                  <>
-                    <div className="helper-box import-helper-box">
-                      <strong>{customerImportFile.fileName}</strong>
-                      <span>{customerImportFile.sheetName} · 총 {customerImportRowsPayload.length}행 감지</span>
-                    </div>
-
-                    <div className="import-header-row-list">
-                      {customerImportHeaderCandidates.map((candidate) => (
-                        <button
-                          key={candidate.index}
-                          type="button"
-                          className={customerImportHeaderRowIndex === candidate.index ? "btn-secondary active-filter" : "btn-secondary"}
-                          onClick={() => applyCustomerImportHeaderRow(candidate.index)}
-                        >
-                          {candidate.index + 1}행 헤더
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="import-header-preview">
-                      {customerImportHeaderCandidates.find((candidate) => candidate.index === customerImportHeaderRowIndex)?.preview ?? "-"}
-                    </div>
-
-                    <div className="form-grid">
-                      {CUSTOMER_IMPORT_FIELD_OPTIONS.map((field) => (
-                        <label key={field.id}>
-                          {field.label}
-                          <select
-                            value={customerImportMapping[field.id]}
-                            onChange={(event) => {
-                              setCustomerImportMapping((prev) => ({ ...prev, [field.id]: event.target.value }));
-                              setCustomerImportPreview(null);
-                              setCustomerImportError("");
-                              setCustomerImportNotice("");
-                            }}
-                          >
-                            <option value="">컬럼 선택</option>
-                            {customerImportHeaderOptions.map((option) => (
-                              <option key={`${field.id}-${option.value}`} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      ))}
-                    </div>
-
-                    <div className="button-row">
-                      <button
-                        disabled={!canPreviewCustomerImport || busyKey !== null}
-                        onClick={() => void runAction("customer-import-preview", previewCustomerImport)}
-                      >
-                        미리보기
-                      </button>
-                      <button
-                        className="btn-secondary"
-                        disabled={!customerImportPreview || customerImportPreview.importableRows === 0 || busyKey !== null}
-                        onClick={() => void runAction("customer-import-commit", commitCustomerImport)}
-                      >
-                        가져오기 실행
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="empty">엑셀 파일을 올리면 컬럼 매핑을 시작할 수 있습니다.</div>
-                )}
-              </Panel>
-
-              <Panel className="panel-initial-preview" title="가져오기 미리보기">
-                {customerImportPreview ? (
-                  <>
-                    <div className="helper-box import-helper-box">
-                      <strong>검증 결과</strong>
-                      <span>가져오기 가능 {customerImportPreview.importableRows}건 · 확인 필요 {customerImportPreview.blockedRows}건</span>
-                    </div>
-                    <div className="table-wrap">
-                      <table className="responsive-table import-preview-table">
-                        <thead>
-                          <tr>
-                            <th>행</th>
-                            <th>대표자명</th>
-                            <th>사업자번호</th>
-                            <th>세금계산서 상호</th>
-                            <th>주소</th>
-                            <th>결과</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {customerImportPreview.rows.map((row) => (
-                            <tr key={row.rowIndex}>
-                              <td data-label="행">{row.rowIndex}</td>
-                              <td data-label="대표자명">{row.customerName || "-"}</td>
-                              <td data-label="사업자번호">{row.businessNumber || "-"}</td>
-                              <td data-label="세금계산서 상호">{row.corpName || "-"}</td>
-                              <td data-label="주소">{row.addr || "-"}</td>
-                              <td data-label="결과">
-                                <span className={row.canImport ? "chip chip-success" : "chip chip-danger"}>
-                                  {row.canImport ? "가져오기 가능" : "확인 필요"}
-                                </span>
-                                {!row.canImport ? (
-                                  <div className="import-preview-errors">
-                                    {row.errors.map((errorMessage) => (
-                                      <span key={`${row.rowIndex}-${errorMessage}`}>{errorMessage}</span>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                ) : (
-                  <div className="empty">파일을 올리고 컬럼 매핑 후 미리보기를 실행하세요.</div>
-                )}
-              </Panel>
-            </div>
-
-            {customerImportNotice ? <div className="alert success">{customerImportNotice}</div> : null}
-            {customerImportError ? <div className="alert error import-error-box">{customerImportError}</div> : null}
-
-            <div className="import-layout">
-              <Panel className="panel-initial-unmatched" title={`미등록 고객 ${quickRegisterMessages.length}건`}>
-                {quickRegisterMessages.length > 0 ? (
-                  <div className="list initial-unmatched-list">
-                    {quickRegisterMessages.map((message) => {
-                      const isSelected = quickRegisterForm.messageId === message.id;
-                      return (
-                        <button
-                          key={message.id}
-                          type="button"
-                          className={isSelected ? "customer-summary selected" : "customer-summary"}
-                          onClick={() => selectQuickRegisterMessage(message.id)}
-                        >
-                          <div className="customer-summary-head">
-                            <div>
-                              <strong>{message.parsedData?.plantAddress || "주소 없음"}</strong>
-                              <p>{message.subject}</p>
-                            </div>
-                            <span className={`status status-${getInboxDisplayParseStatus(message)}`}>{getParseStatusLabel(getInboxDisplayParseStatus(message))}</span>
-                          </div>
-                          <div className="customer-summary-meta">
-                            <span>{message.parsedData?.billingMonth || "-"}</span>
-                            <span>{formatDateTime(message.receivedAt)}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="empty">주소까지 파싱된 미등록 고객 메일이 없습니다.</div>
-                )}
-              </Panel>
-
-              <Panel className="panel-initial-quick-register" title="빠른 등록">
-                {selectedQuickRegisterMessage ? (
-                  <>
-                    <div className="helper-box import-helper-box">
-                      <strong>{selectedQuickRegisterMessage.subject}</strong>
-                      <span>
-                        {selectedQuickRegisterMessage.parsedData?.billingMonth || "-"} · {selectedQuickRegisterMessage.parsedData?.plantName || "-"}
-                      </span>
-                    </div>
-                    <form
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        if (busyKey !== null) return;
-                        void runAction("quick-register-unmatched", submitQuickRegister);
-                      }}
-                    >
-                      <div className="form-grid">
-                        <label>
-                          대표자명
-                          <input
-                            value={quickRegisterForm.customerName}
-                            onChange={(event) => setQuickRegisterForm((prev) => ({ ...prev, customerName: event.target.value }))}
-                          />
-                        </label>
-                        <label>
-                          주소
-                          <input
-                            value={quickRegisterForm.addr}
-                            onChange={(event) => setQuickRegisterForm((prev) => ({ ...prev, addr: event.target.value }))}
-                          />
-                          <span className="field-hint">메일에서 읽은 주소가 먼저 들어가 있습니다. 필요하면 수정 후 등록하세요.</span>
-                        </label>
-                        <label>
-                          사업자번호
-                          <input
-                            value={quickRegisterForm.businessNumber}
-                            onChange={(event) => setQuickRegisterForm((prev) => ({ ...prev, businessNumber: event.target.value }))}
-                          />
-                        </label>
-                        <label>
-                          세금계산서 상호
-                          <input
-                            value={quickRegisterForm.corpName}
-                            onChange={(event) => setQuickRegisterForm((prev) => ({ ...prev, corpName: event.target.value }))}
-                          />
-                        </label>
-                      </div>
-                      <div className="button-row">
-                        <button type="submit" disabled={busyKey !== null}>
-                          {isQuickRegistering ? "고객 등록 및 팝빌 가입 중..." : "고객 등록 후 메일 연결"}
-                        </button>
-                        {isQuickRegistering ? <span className="field-hint">고객 등록, 팝빌 가입, 메일 연결을 처리하고 있습니다.</span> : null}
-                      </div>
-                    </form>
-                  </>
-                ) : (
-                  <div className="empty">왼쪽에서 미등록 고객 메일을 선택하세요.</div>
-                )}
-              </Panel>
-            </div>
-
-            {quickRegisterNotice ? <div className="alert success">{quickRegisterNotice}</div> : null}
-            {quickRegisterError ? <div className="alert error import-error-box">{quickRegisterError}</div> : null}
-
-            <Panel
-              className="panel-initial-months"
-              title={`월별 완료 처리 ${billingMonthSummaries.length}개`}
-              subtitle="이미 발행이 끝난 정산월은 완료 처리해 두면 이후 메일을 다시 올리지 않습니다."
-            >
-              {billingMonthSummaries.length > 0 ? (
-                <div className="list month-completion-list">
-                  {billingMonthSummaries.map((summary) => (
-                    <div key={summary.billingMonth} className={summary.completed ? "month-summary completed" : "month-summary"}>
-                      <div className="customer-summary-head">
-                        <div>
-                          <strong>{summary.billingMonth}</strong>
-                          <p>
-                            메일 {summary.totalCount}건
-                            {summary.actionableCount > 0 ? ` · 확인 필요 ${summary.actionableCount}건` : ""}
-                            {summary.latestReceivedAt ? ` · 최근 수신 ${formatDateTime(summary.latestReceivedAt)}` : ""}
-                          </p>
-                        </div>
-                        {summary.completed ? (
-                          <span className="status status-ignored">완료 처리</span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            disabled={busyKey !== null}
-                            onClick={() =>
-                              void runAction(`complete-billing-month-${summary.billingMonth}`, () => markBillingMonthCompleted(summary), { reload: false })
-                            }
-                          >
-                            완료 처리
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty">정산월이 파싱된 메일이 아직 없습니다.</div>
-              )}
-            </Panel>
-
-            {completedBillingNotice ? <div className="alert success">{completedBillingNotice}</div> : null}
-          </div>
+          <InitialRegistrationTab
+            customerImportFile={customerImportFile}
+            customerImportRowsPayload={customerImportRowsPayload}
+            customerImportHeaderCandidates={customerImportHeaderCandidates}
+            customerImportHeaderRowIndex={customerImportHeaderRowIndex}
+            customerImportMapping={customerImportMapping}
+            customerImportHeaderOptions={customerImportHeaderOptions}
+            customerImportPreview={customerImportPreview}
+            customerImportNotice={customerImportNotice}
+            customerImportError={customerImportError}
+            canPreviewCustomerImport={canPreviewCustomerImport}
+            busyKey={busyKey}
+            quickRegisterMessages={quickRegisterMessages}
+            quickRegisterForm={quickRegisterForm}
+            selectedQuickRegisterMessage={selectedQuickRegisterMessage}
+            isQuickRegistering={isQuickRegistering}
+            quickRegisterNotice={quickRegisterNotice}
+            quickRegisterError={quickRegisterError}
+            billingMonthSummaries={billingMonthSummaries}
+            completedBillingNotice={completedBillingNotice}
+            setCustomerImportFile={setCustomerImportFile}
+            setCustomerImportHeaderRowIndex={setCustomerImportHeaderRowIndex}
+            setCustomerImportMapping={setCustomerImportMapping}
+            setCustomerImportPreview={setCustomerImportPreview}
+            setCustomerImportError={setCustomerImportError}
+            setCustomerImportNotice={setCustomerImportNotice}
+            setQuickRegisterForm={setQuickRegisterForm}
+            handleCustomerImportFileChange={handleCustomerImportFileChange}
+            applyCustomerImportHeaderRow={applyCustomerImportHeaderRow}
+            previewCustomerImport={previewCustomerImport}
+            commitCustomerImport={commitCustomerImport}
+            selectQuickRegisterMessage={selectQuickRegisterMessage}
+            submitQuickRegister={submitQuickRegister}
+            markBillingMonthCompleted={markBillingMonthCompleted}
+            runAction={runAction}
+            formatDateTime={formatDateTime}
+            getInboxDisplayParseStatus={getInboxDisplayParseStatus}
+            getParseStatusLabel={getParseStatusLabel}
+            customerImportFieldOptions={CUSTOMER_IMPORT_FIELD_OPTIONS}
+            emptyCustomerImportMapping={EMPTY_CUSTOMER_IMPORT_MAPPING}
+          />
         ) : null}
 
         {activeTab === "settings" ? (
-          <div className="settings-layout">
-            <aside className="settings-sidebar-stack">
-              <section className="panel settings-sidebar-panel">
-                <header className="panel-header settings-sidebar-header">
-                  <div>
-                    <h2>처음 설정 순서</h2>
-                  </div>
-                  <span className={`chip ${setupPendingCount === 0 ? "chip-success" : "chip-warn"}`}>
-                    {setupPendingCount === 0 ? "준비 완료" : `${setupPendingCount}개 남음`}
-                  </span>
-                </header>
-                <div className="settings-step-list">
-                  {settingsSections.map((section) => (
-                    <button
-                      key={section.id}
-                      className={activeSettingsSection === section.id ? "settings-step-card active" : "settings-step-card"}
-                      onClick={() => setActiveSettingsSection(section.id)}
-                    >
-                      <div className="settings-step-head">
-                        <span className="setup-order">{section.step}</span>
-                        <div className="settings-step-copy">
-                          <strong>{section.title}</strong>
-                          <span>{section.summary}</span>
-                        </div>
-                      </div>
-                      <span className={`chip ${section.done ? "chip-success" : "chip-danger"}`}>{section.done ? "완료" : "입력 필요"}</span>
-                    </button>
-                  ))}
-                </div>
-                {activeSettingsSection !== "account" ? (
-                  <div className="settings-sidebar-actions settings-sidebar-actions-passive">
-                    <span
-                      className={
-                        settingsAutosaveState === "error"
-                          ? "chip chip-danger"
-                          : settingsAutosaveState === "saving"
-                            ? "chip chip-warn"
-                            : "chip chip-success"
-                      }
-                    >
-                      {settingsAutosaveLabel}
-                    </span>
-                  </div>
-                ) : null}
-                <div className="settings-inline-note">
-                  <strong>{customerRegistrationReady ? `고객 ${data.customers.length}명 등록됨` : "고객 등록이 필요합니다."}</strong>
-                  <span>설정을 마치면 고객관리에서 고객을 등록하고 메일 동기화 테스트를 진행하면 됩니다.</span>
-                  <button className="btn-secondary" onClick={() => void runAction("refresh-certificates", refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
-                </div>
-              </section>
-            </aside>
-
-            <div className="settings-detail">
-              {activeSettingsSection === "gmail" ? (
-                <SetupPanel
-                  step={1}
-                  className="panel-settings-mail"
-                  title="메일 연결"
-                  done={settingsHealth.mailReady}
-                  note="한전 메일을 읽고 알림을 보내는 메일 계정을 연결합니다."
-                  actions={
-                    <>
-                      <button
-                        disabled={busyKey !== null}
-                        onClick={() => void runAction("mail-test", testMailSettings, { reload: false })}
-                      >
-                        {isMailTesting ? "메일 연결 확인 중..." : "메일 연결 테스트"}
-                      </button>
-                    </>
-                  }
-                >
-                  {isMailTesting ? (
-                    <div className="settings-action-feedback">
-                      <span className="chip chip-warn">테스트 중</span>
-                      <span>IMAP/SMTP 연결을 확인하고 있습니다.</span>
-                    </div>
-                  ) : null}
-                  <div className="form-grid">
-                    <div className="settings-detected-provider full">
-                      <span>메일 수집 범위</span>
-                      <strong>최근 1000통 기준으로 바로 연동</strong>
-                      <p className="settings-inline-help">
-                        기존 메일까지 함께 읽고, 이미 처리한 달은 초기 등록의 월별 완료 처리에서 제외합니다.
-                      </p>
-                    </div>
-                    <div className="settings-detected-provider full">
-                      <span>감지된 메일 서비스</span>
-                      <strong>{MAIL_PROVIDER_CONFIG[inferMailProviderFromAddress(settingsForm.mailAddress, settingsForm.mailProvider)].label}</strong>
-                    </div>
-                    <label>
-                      메일 주소
-                      <input
-                        placeholder="example@mail.com"
-                        value={settingsForm.mailAddress}
-                        onChange={(event) =>
-                          setSettingsForm((prev) => {
-                            if (!prev) return prev;
-                            const nextAddress = event.target.value;
-                            const nextProvider = inferMailProviderFromAddress(nextAddress, prev.mailProvider);
-                            const config = MAIL_PROVIDER_CONFIG[nextProvider];
-                            return {
-                              ...prev,
-                              mailAddress: nextAddress,
-                              mailProvider: nextProvider,
-                              imapHost: config.imapHost,
-                              imapPort: config.imapPort,
-                              imapSecure: config.imapSecure,
-                              smtpHost: config.smtpHost,
-                              smtpPort: config.smtpPort,
-                              smtpSecure: config.smtpSecure
-                            };
-                          })
-                        }
-                      />
-                      <span className="field-hint">한전 메일을 읽고 알림 메일을 보낼 때 함께 사용하는 주소입니다. 도메인을 보고 서비스가 자동 감지됩니다.</span>
-                    </label>
-                    <label>
-                      앱 비밀번호
-                      <div className="password-field">
-                        <input
-                          type={revealedFields.mailPassword ? "text" : "password"}
-                          value={settingsForm.mailPassword}
-                          onChange={(event) => setSettingsForm((prev) => prev && { ...prev, mailPassword: event.target.value })}
-                          placeholder={data.settings.mailPasswordConfigured ? "변경할 때만 다시 입력" : "앱 비밀번호 입력"}
-                        />
-                        <button
-                          type="button"
-                          className="password-toggle"
-                          aria-label={revealedFields.mailPassword ? "앱 비밀번호 숨기기" : "앱 비밀번호 보기"}
-                          onClick={() => toggleRevealField("mailPassword")}
-                        >
-                          <RevealIcon open={Boolean(revealedFields.mailPassword)} />
-                        </button>
-                      </div>
-                      <span className="field-hint">
-                        {data.settings.mailPasswordConfigured
-                          ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 연결 시 빈칸이면 서버에 저장된 값을 사용합니다."
-                          : "위 메일 주소로 로그인할 때 쓰는 비밀번호입니다. 수신/발신 모두 이 값을 사용합니다."}
-                      </span>
-                    </label>
-                    <label className="full">
-                      알림 수신 메일
-                      <textarea rows={4} value={settingsForm.notificationEmailsText} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, notificationEmailsText: event.target.value })} />
-                      <span className="field-hint">파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나 쉼표로 구분합니다.</span>
-                    </label>
-                    <div className="helper-box full">
-                      <strong>월 자동 처리</strong>
-                      <div className="fields three-column">
-                        <label>
-                          자동 실행
-                          <select
-                            value={settingsForm.schedulerEnabled ? "on" : "off"}
-                            onChange={(event) =>
-                              setSettingsForm((prev) =>
-                                prev
-                                  ? {
-                                      ...prev,
-                                      schedulerEnabled: event.target.value === "on"
-                                    }
-                                  : prev
-                              )
-                            }
-                          >
-                            <option value="on">사용</option>
-                            <option value="off">중지</option>
-                          </select>
-                        </label>
-                        <label>
-                          실행일
-                          <input
-                            type="number"
-                            min="1"
-                            max="31"
-                            value={settingsForm.defaultIssueDay}
-                            onChange={(event) => setSettingsForm((prev) => (prev ? { ...prev, defaultIssueDay: event.target.value } : prev))}
-                          />
-                        </label>
-                        <label>
-                          실행 시각
-                          <div className="inline-time-fields">
-                            <input
-                              type="number"
-                              min="0"
-                              max="23"
-                              value={settingsForm.defaultIssueHour}
-                              onChange={(event) => setSettingsForm((prev) => (prev ? { ...prev, defaultIssueHour: event.target.value } : prev))}
-                            />
-                            <span>:</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="59"
-                              value={settingsForm.defaultIssueMinute}
-                              onChange={(event) => setSettingsForm((prev) => (prev ? { ...prev, defaultIssueMinute: event.target.value } : prev))}
-                            />
-                          </div>
-                        </label>
-                      </div>
-                      <span>기본값은 매월 26일입니다. 이 시각이 되면 메일을 자동으로 읽고, 자동 발행 고객은 바로 전자세금계산서를 발행합니다.</span>
-                    </div>
-                  </div>
-                </SetupPanel>
-              ) : null}
-
-              {activeSettingsSection === "popbill" ? (
-                <SetupPanel
-                  step={2}
-                  className="panel-settings-popbill"
-                  title="팝빌 기본값"
-                  done={settingsHealth.popbillReady && settingsHealth.operatorReady}
-                  note="고객사에서 직접 관리해야 하는 발행 기본값만 입력합니다."
-                >
-                  <div className="settings-field-stack">
-                    <section className="settings-field-group">
-                      <div className="settings-field-group-head">
-                        <strong>작업공간별 운영값</strong>
-                        <span>신규 고객 팝빌 계정 생성과 발행 처리에 쓰는 기본값입니다.</span>
-                      </div>
-                      <div className="fields two-column">
-                        <label>
-                          팝빌 사용자 ID 접두어
-                          <input
-                            value={settingsForm.popbillUserIdPrefix}
-                            onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })}
-                            placeholder="예: TEST_"
-                          />
-                          <span className="field-hint">신규 고객 팝빌 ID를 만들 때 앞에 붙는 값입니다. 예: `TEST_001` · 다른 고객사와 중복되면 저장할 수 없습니다.</span>
-                        </label>
-                        <label className="settings-field-full-width">
-                          신규 고객 기본 비밀번호
-                          <div className="password-field">
-                            <input
-                              type={revealedFields.popbillSharedPassword ? "text" : "password"}
-                              value={settingsForm.popbillSharedPassword}
-                              onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
-                              placeholder={data.settings.popbillSharedPasswordConfigured ? "변경할 때만 다시 입력" : "신규 고객 공통 비밀번호"}
-                            />
-                            <button
-                              type="button"
-                              className="password-toggle"
-                              aria-label={revealedFields.popbillSharedPassword ? "팝빌 기본 비밀번호 숨기기" : "팝빌 기본 비밀번호 보기"}
-                              onClick={() => toggleRevealField("popbillSharedPassword")}
-                            >
-                              <RevealIcon open={Boolean(revealedFields.popbillSharedPassword)} />
-                            </button>
-                          </div>
-                          <div className="field-meta-row">
-                            <span className="field-hint">
-                              {data.settings.popbillSharedPasswordConfigured
-                                ? "이미 저장된 기본 비밀번호가 있습니다. 변경하거나 확인하려면 불러오기를 누르세요."
-                                : "신규 고객 팝빌 계정을 만들 때 초기 비밀번호로 사용합니다."}
-                            </span>
-                            {data.settings.popbillSharedPasswordConfigured ? (
-                              <div className="field-action-row">
-                                <button
-                                  type="button"
-                                  className="btn-secondary field-inline-action"
-                                  disabled={busyKey !== null}
-                                  onClick={() =>
-                                    void runAction("load-popbill-shared-password", loadCurrentPopbillSharedPassword, {
-                                      reload: false
-                                    })
-                                  }
-                                >
-                                  저장된 비밀번호 불러오기
-                                </button>
-                              </div>
-                            ) : null}
-                          </div>
-                        </label>
-                        <label>
-                          운영 담당자명
-                          <input
-                            value={settingsForm.operatorContactName}
-                            onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })}
-                            placeholder="담당자 이름"
-                          />
-                        </label>
-                        <label>
-                          운영 담당자 이메일
-                          <input
-                            type="email"
-                            value={settingsForm.operatorContactEmail}
-                            onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })}
-                            placeholder="operator@example.com"
-                          />
-                        </label>
-                        <label>
-                          운영 담당자 연락처
-                          <input
-                            value={settingsForm.operatorContactTel}
-                            onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })}
-                            placeholder="01012345678"
-                          />
-                        </label>
-                      </div>
-                      <div className="helper-box full">
-                        <strong>현재 상태</strong>
-                        <span>팝빌 연결: {settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</span>
-                        <span>작업공간 운영값: {settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</span>
-                      </div>
-                    </section>
-                  </div>
-                </SetupPanel>
-              ) : null}
-
-              {activeSettingsSection === "account" ? (
-                <div className="settings-account-stack">
-                  <Panel
-                    title="비밀번호 변경"
-                    subtitle="현재 로그인한 계정의 비밀번호를 바꿉니다."
-                    actions={
-                      <button onClick={() => void runAction("change-password", changePassword, { reload: false })}>
-                        비밀번호 변경
-                      </button>
-                    }
-                  >
-                    <div className="form-grid">
-                      <label>
-                        새 비밀번호
-                        <div className="password-field">
-                          <input
-                            type={revealedFields.nextPassword ? "text" : "password"}
-                            value={passwordChangeForm.nextPassword}
-                            onChange={(event) =>
-                              setPasswordChangeForm((prev) => ({
-                                ...prev,
-                                nextPassword: event.target.value
-                              }))
-                            }
-                            placeholder="8자 이상 입력"
-                          />
-                          <button
-                            type="button"
-                            className="password-toggle"
-                            aria-label={revealedFields.nextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
-                            onClick={() => toggleRevealField("nextPassword")}
-                          >
-                            <RevealIcon open={Boolean(revealedFields.nextPassword)} />
-                          </button>
-                        </div>
-                      </label>
-                      <label>
-                        새 비밀번호 확인
-                        <div className="password-field">
-                          <input
-                            type={revealedFields.confirmPassword ? "text" : "password"}
-                            value={passwordChangeForm.confirmPassword}
-                            onChange={(event) =>
-                              setPasswordChangeForm((prev) => ({
-                                ...prev,
-                                confirmPassword: event.target.value
-                              }))
-                            }
-                            placeholder="한 번 더 입력"
-                          />
-                          <button
-                            type="button"
-                            className="password-toggle"
-                            aria-label={revealedFields.confirmPassword ? "비밀번호 확인 숨기기" : "비밀번호 확인 보기"}
-                            onClick={() => toggleRevealField("confirmPassword")}
-                          >
-                            <RevealIcon open={Boolean(revealedFields.confirmPassword)} />
-                          </button>
-                        </div>
-                        <span className="field-hint">새 비밀번호는 8자 이상으로 입력하고, 두 칸이 정확히 같아야 저장됩니다.</span>
-                      </label>
-                    </div>
-                  </Panel>
-
-                  <Panel
-                    title="작업공간 사용자 관리"
-                    subtitle={
-                      canManageOrganizationMembers
-                        ? "owner가 같은 회사 내부 사용자를 추가하거나 제거할 수 있습니다."
-                        : "현재 계정은 사용자 관리 권한이 없습니다."
-                    }
-                    actions={
-                      canManageOrganizationMembers ? (
-                        <button onClick={() => void runAction("create-organization-member", createOrganizationMember, { reload: false })}>
-                          사용자 추가
-                        </button>
-                      ) : null
-                    }
-                  >
-                    {canManageOrganizationMembers ? (
-                      <>
-                        <div className="form-grid">
-                          <label>
-                            로그인 아이디
-                            <input
-                              value={organizationMemberForm.loginId}
-                              onChange={(event) =>
-                                setOrganizationMemberForm((prev) => ({
-                                  ...prev,
-                                  loginId: event.target.value
-                                }))
-                              }
-                              placeholder="예: team01"
-                            />
-                          </label>
-                          <label>
-                            이름
-                            <input
-                              value={organizationMemberForm.displayName}
-                              onChange={(event) =>
-                                setOrganizationMemberForm((prev) => ({
-                                  ...prev,
-                                  displayName: event.target.value
-                                }))
-                              }
-                              placeholder="표시 이름"
-                            />
-                          </label>
-                          <label className="full">
-                            임시 비밀번호
-                            <div className="password-field">
-                              <input
-                                type={revealedFields.organizationMemberPassword ? "text" : "password"}
-                                value={organizationMemberForm.password}
-                                onChange={(event) =>
-                                  setOrganizationMemberForm((prev) => ({
-                                    ...prev,
-                                    password: event.target.value
-                                  }))
-                                }
-                                placeholder="기존 계정이면 비워두고, 새 계정이면 8자 이상 입력"
-                              />
-                              <button
-                                type="button"
-                                className="password-toggle"
-                                aria-label={revealedFields.organizationMemberPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
-                                onClick={() => toggleRevealField("organizationMemberPassword")}
-                              >
-                                <RevealIcon open={Boolean(revealedFields.organizationMemberPassword)} />
-                              </button>
-                            </div>
-                            <span className="field-hint">이미 존재하는 로그인 아이디면 현재 계정을 멤버로 연결하고, 처음 만드는 로그인 아이디면 임시 비밀번호가 필요합니다.</span>
-                            <span className="field-hint">같은 회사에서 쓸 로그인 아이디입니다. 영어, 숫자, `.`, `_`, `-`만 권장합니다.</span>
-                          </label>
-                        </div>
-
-                        <div className="helper-box">
-                          <strong>현재 사용자 {organizationMembers.length}명</strong>
-                          <span>소유자(owner)는 여기서 삭제할 수 없습니다.</span>
-                        </div>
-
-                        <div className="workspace-member-list">
-                          {organizationMembers.length > 0 ? (
-                            organizationMembers.map((member) => {
-                              const isCurrentUser = member.userId === data.auth.userId;
-                              const isOwner = member.role === "owner";
-                              const canRemove = !isOwner && !isCurrentUser;
-                              const canResetPassword = !isOwner;
-                              const isResetTarget =
-                                passwordResetTarget?.kind === "member" &&
-                                passwordResetTarget.membershipId === member.membershipId;
-
-                              return (
-                                <article key={member.membershipId} className="workspace-member-card">
-                                  <div className="workspace-member-card-head">
-                                    <div>
-                                      <strong>{member.displayName || member.loginId || "이름 없음"}</strong>
-                                      <span>{member.loginId || "로그인 아이디 없음"}</span>
-                                    </div>
-                                    <span className={isOwner ? "chip chip-success" : "chip"}>
-                                      {getWorkspaceMemberRoleLabel(member.role)}
-                                    </span>
-                                  </div>
-                                  <div className="workspace-member-card-meta">
-                                    <span>등록일 {formatDateTime(member.createdAt)}</span>
-                                    {isCurrentUser ? <span>현재 로그인 계정</span> : null}
-                                  </div>
-                                  <div className="workspace-member-card-actions">
-                                    {canResetPassword ? (
-                                      <button
-                                        className="btn-secondary"
-                                        disabled={busyKey !== null}
-                                        onClick={() => openMemberPasswordReset(member)}
-                                      >
-                                        임시 비밀번호 재설정
-                                      </button>
-                                    ) : null}
-                                    {canRemove ? (
-                                      <button
-                                        className="btn-secondary btn-danger"
-                                        disabled={busyKey !== null}
-                                        onClick={() => void runAction(`remove-organization-member-${member.membershipId}`, async () => void (await removeOrganizationMember(member)), { reload: false })}
-                                      >
-                                        제거
-                                      </button>
-                                    ) : (
-                                      <span className="field-hint">
-                                        {isOwner ? "owner 계정 비밀번호는 플랫폼 관리자 탭에서 재설정합니다." : "현재 로그인한 계정입니다."}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {isResetTarget ? (
-                                    <div className="helper-box-stack inline-password-reset">
-                                      <strong>{member.loginId ?? "선택한 사용자"} 임시 비밀번호 재설정</strong>
-                                      <div className="form-grid">
-                                        <label>
-                                          새 임시 비밀번호
-                                          <div className="password-field">
-                                            <input
-                                              type={revealedFields.memberResetNextPassword ? "text" : "password"}
-                                              value={passwordResetForm.nextPassword}
-                                              onChange={(event) =>
-                                                setPasswordResetForm((prev) => ({
-                                                  ...prev,
-                                                  nextPassword: event.target.value
-                                                }))
-                                              }
-                                              placeholder="8자 이상 입력"
-                                            />
-                                            <button
-                                              type="button"
-                                              className="password-toggle"
-                                              aria-label={revealedFields.memberResetNextPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
-                                              onClick={() => toggleRevealField("memberResetNextPassword")}
-                                            >
-                                              <RevealIcon open={Boolean(revealedFields.memberResetNextPassword)} />
-                                            </button>
-                                          </div>
-                                        </label>
-                                        <label>
-                                          새 임시 비밀번호 확인
-                                          <div className="password-field">
-                                            <input
-                                              type={revealedFields.memberResetConfirmPassword ? "text" : "password"}
-                                              value={passwordResetForm.confirmPassword}
-                                              onChange={(event) =>
-                                                setPasswordResetForm((prev) => ({
-                                                  ...prev,
-                                                  confirmPassword: event.target.value
-                                                }))
-                                              }
-                                              placeholder="한 번 더 입력"
-                                            />
-                                            <button
-                                              type="button"
-                                              className="password-toggle"
-                                              aria-label={revealedFields.memberResetConfirmPassword ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"}
-                                              onClick={() => toggleRevealField("memberResetConfirmPassword")}
-                                            >
-                                              <RevealIcon open={Boolean(revealedFields.memberResetConfirmPassword)} />
-                                            </button>
-                                          </div>
-                                        </label>
-                                      </div>
-                                      <div className="button-row">
-                                        <button
-                                          onClick={() =>
-                                            void runAction(
-                                              `reset-member-password-${member.membershipId}`,
-                                              submitPasswordReset,
-                                              { reload: false }
-                                            )
-                                          }
-                                        >
-                                          임시 비밀번호 저장
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn-secondary"
-                                          onClick={cancelPasswordReset}
-                                        >
-                                          취소
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : null}
-                                </article>
-                              );
-                            })
-                          ) : (
-                            <div className="empty">등록된 작업공간 사용자가 없습니다.</div>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="helper-box-stack">
-                        <strong>사용자 관리 권한 없음</strong>
-                        <span>이 작업공간의 owner만 회사 내부 사용자를 추가하거나 제거할 수 있습니다.</span>
-                      </div>
-                    )}
-                  </Panel>
-                </div>
-              ) : null}
-            </div>
-          </div>
+          <SettingsTab
+            settingsSections={settingsSections}
+            activeSettingsSection={activeSettingsSection}
+            setupPendingCount={setupPendingCount}
+            settingsAutosaveState={settingsAutosaveState}
+            settingsAutosaveLabel={settingsAutosaveLabel}
+            customerRegistrationReady={customerRegistrationReady}
+            customerCount={data.customers.length}
+            busyKey={busyKey}
+            isMailTesting={isMailTesting}
+            settingsHealth={settingsHealth}
+            settingsForm={settingsForm}
+            detectedMailProviderLabel={detectedMailProviderLabel}
+            revealedFields={revealedFields}
+            mailPasswordConfigured={data.settings.mailPasswordConfigured}
+            popbillSharedPasswordConfigured={data.settings.popbillSharedPasswordConfigured}
+            canManageOrganizationMembers={canManageOrganizationMembers}
+            organizationMembers={organizationMembers}
+            currentUserId={data.auth.userId}
+            passwordResetTarget={passwordResetTarget}
+            passwordChangeForm={passwordChangeForm}
+            passwordResetForm={passwordResetForm}
+            organizationMemberForm={organizationMemberForm}
+            setActiveSettingsSection={setActiveSettingsSection}
+            setSettingsForm={setSettingsForm}
+            setPasswordChangeForm={setPasswordChangeForm}
+            setPasswordResetForm={setPasswordResetForm}
+            setOrganizationMemberForm={setOrganizationMemberForm}
+            onMailAddressChange={handleSettingsMailAddressChange}
+            toggleRevealField={toggleRevealField}
+            refreshAllCertificateStatuses={refreshAllCertificateStatuses}
+            testMailSettings={testMailSettings}
+            loadCurrentPopbillSharedPassword={loadCurrentPopbillSharedPassword}
+            changePassword={changePassword}
+            createOrganizationMember={createOrganizationMember}
+            openMemberPasswordReset={openMemberPasswordReset}
+            removeOrganizationMember={removeOrganizationMember}
+            submitPasswordReset={submitPasswordReset}
+            cancelPasswordReset={cancelPasswordReset}
+            runAction={runAction}
+            getWorkspaceMemberRoleLabel={getWorkspaceMemberRoleLabel}
+            formatDateTime={formatDateTime}
+          />
         ) : null}
 
         {activeTab === "ops" ? (
@@ -5725,3 +4553,4 @@ export function App() {
     </>
   );
 }
+

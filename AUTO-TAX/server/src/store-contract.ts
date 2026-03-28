@@ -11,6 +11,7 @@ import type {
   LogEntry,
   MailParseStatus,
   ParsedMail,
+  PopbillEnvironment,
   PopbillState
 } from "./domain.js";
 
@@ -21,6 +22,8 @@ export interface AppStore {
   updateCustomerImportProfile(input: Pick<CustomerImportProfile, "headerRowIndex" | "fieldHeaderMap">): Promise<CustomerImportProfile>;
   listCompletedBillingMonths(): Promise<CompletedBillingMonth[]>;
   markCompletedBillingMonth(billingMonth: string): Promise<CompletedBillingMonth>;
+  getMailSyncCheckpoint(mailbox: string): Promise<number | null>;
+  updateMailSyncCheckpoint(mailbox: string, lastUid: number): Promise<void>;
   listCustomers(): Promise<Customer[]>;
   getCustomer(customerId: number): Promise<Customer | null>;
   findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null>;
@@ -68,7 +71,15 @@ export interface AppStore {
   listDrafts(): Promise<InvoiceDraft[]>;
   listInbox(): Promise<InboxMessage[]>;
   listLogs(): Promise<LogEntry[]>;
-  updateDraftStatus(draftId: number, status: DraftStatus, issueError?: string, writeDate?: string | null, popbillResult?: unknown): Promise<InvoiceDraft>;
+  updateDraftStatus(
+    draftId: number,
+    status: DraftStatus,
+    issueError?: string,
+    writeDate?: string | null,
+    popbillResult?: unknown,
+    popbillEnvironment?: PopbillEnvironment | null
+  ): Promise<InvoiceDraft>;
+  updateDraftPopbillEnvironment(draftId: number, popbillEnvironment: PopbillEnvironment): Promise<InvoiceDraft>;
   claimDraftForIssue(draftId: number): Promise<InvoiceDraft | null>;
   reopenIssuedDraftForReissue(draftId: number): Promise<InvoiceDraft>;
   markDraftRequested(draftId: number): Promise<void>;

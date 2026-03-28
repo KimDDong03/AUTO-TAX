@@ -18,6 +18,8 @@
     "build:vercel": "npm run build:web:vercel",
     "start": "node dist/server/main.js",
     "check": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit && tsc -p tsconfig.vercel.json --noEmit",
+    "test:server": "node --import tsx --test server/src/**/*.test.ts",
+    "test:e2e:smoke": "node --env-file=.env scripts/e2e-smoke.mjs",
     "rebuild:node": "node scripts/fix-popbill-package.mjs",
     "postinstall": "node scripts/fix-popbill-package.mjs"
   },
@@ -45,6 +47,7 @@
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.0",
     "concurrently": "^9.2.1",
+    "playwright": "^1.58.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^8.0.1",
