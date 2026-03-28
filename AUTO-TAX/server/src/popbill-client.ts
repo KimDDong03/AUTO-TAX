@@ -6,10 +6,136 @@ const require = createRequire(import.meta.url);
 const popbill = require("popbill");
 const MGT_KEY_TYPE_SELL = popbill.MgtKeyType?.SELL ?? "SELL";
 
+export type PopbillOperation =
+  | "join-member"
+  | "check-member"
+  | "quit-member"
+  | "cert-url"
+  | "cert-expire-date"
+  | "partner-balance"
+  | "unit-cost"
+  | "balance"
+  | "partner-charge-url"
+  | "invoice-info"
+  | "invoice-view-url"
+  | "invoice-print-url"
+  | "invoice-cancel"
+  | "invoice-issue";
+
 type CallbackResult<T> = {
   response?: T;
   error?: { code?: string | number; message?: string };
 };
+
+type PopbillErrorInfo = {
+  status: number;
+  message: string;
+};
+
+function formatPopbillCode(code: string): string {
+  return code === "POPBILL" ? "POPBILL" : `POPBILL ${code}`;
+}
+
+function appendCode(message: string, code: string): string {
+  return `${message} [${formatPopbillCode(code)}]`;
+}
+
+function matchesAny(source: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => source.includes(pattern));
+}
+
+function mapPopbillError(operation: PopbillOperation, code: string, rawMessage: string): PopbillErrorInfo {
+  const normalized = rawMessage.toLowerCase();
+
+  if (
+    code === "-99003008" ||
+    normalized.includes("연동회원으로 가입된 사업자 번호가 존재하지 않습니다") ||
+    normalized.includes("가입된 사업자 번호가 존재하지 않습니다")
+  ) {
+    return {
+      status: 409,
+      message: appendCode("팝빌 연동회원이 없습니다. 고객 팝빌 가입을 다시 진행하세요.", code)
+    };
+  }
+
+  if (
+    operation === "join-member" &&
+    matchesAny(normalized, ["회원아이디", "아이디", "중복", "사용중", "duplicate", "already", "exists"])
+  ) {
+    return {
+      status: 409,
+      message: appendCode("팝빌 회원 아이디가 이미 사용 중입니다. 다른 아이디로 다시 시도하세요.", code)
+    };
+  }
+
+  if (normalized.includes("포인트 부족")) {
+    return {
+      status: 409,
+      message: appendCode("팝빌 포인트가 부족합니다. 포인트를 충전한 뒤 다시 시도하세요.", code)
+    };
+  }
+
+  if (matchesAny(normalized, ["공동인증서", "인증서"])) {
+    return {
+      status: 409,
+      message: appendCode("공동인증서가 등록되지 않았거나 인증서 상태를 확인할 수 없습니다.", code)
+    };
+  }
+
+  if (
+    ["invoice-info", "invoice-view-url", "invoice-print-url", "invoice-cancel"].includes(operation) &&
+    matchesAny(normalized, ["문서를 찾을 수", "문서가 존재하지", "관리번호", "해당 문서", "조회된 문서", "존재하지"])
+  ) {
+    return {
+      status: 404,
+      message: appendCode(
+        "팝빌 문서를 찾지 못했습니다. 현재 연결 모드와 문서가 발행된 환경(테스트/운영)이 같은지 확인하세요.",
+        code
+      )
+    };
+  }
+
+  const fallbackByOperation: Record<PopbillOperation, string> = {
+    "join-member": "팝빌 가입에 실패했습니다.",
+    "check-member": "팝빌 가입 상태 확인에 실패했습니다.",
+    "quit-member": "팝빌 연동회원 탈퇴에 실패했습니다.",
+    "cert-url": "팝빌 공동인증서 등록 URL을 가져오지 못했습니다.",
+    "cert-expire-date": "팝빌 공동인증서 상태를 조회하지 못했습니다.",
+    "partner-balance": "팝빌 파트너 포인트를 조회하지 못했습니다.",
+    "unit-cost": "팝빌 단가를 조회하지 못했습니다.",
+    balance: "팝빌 잔액을 조회하지 못했습니다.",
+    "partner-charge-url": "팝빌 충전 페이지 URL을 가져오지 못했습니다.",
+    "invoice-info": "팝빌 문서 정보를 조회하지 못했습니다.",
+    "invoice-view-url": "팝빌 문서 보기 URL을 가져오지 못했습니다.",
+    "invoice-print-url": "팝빌 문서 인쇄 URL을 가져오지 못했습니다.",
+    "invoice-cancel": "팝빌 문서 취소에 실패했습니다.",
+    "invoice-issue": "팝빌 전자세금계산서 발행에 실패했습니다."
+  };
+
+  return {
+    status: 400,
+    message: appendCode(fallbackByOperation[operation], code)
+  };
+}
+
+export class PopbillApiError extends Error {
+  readonly code: string;
+  readonly rawMessage: string;
+  readonly operation: PopbillOperation;
+  readonly status: number;
+
+  constructor(operation: PopbillOperation, code: string | number | undefined, rawMessage: string | undefined) {
+    const normalizedCode = String(code ?? "POPBILL");
+    const normalizedRawMessage = rawMessage?.trim() || "팝빌 호출 실패";
+    const mapped = mapPopbillError(operation, normalizedCode, normalizedRawMessage);
+    super(mapped.message);
+    this.name = "PopbillApiError";
+    this.code = normalizedCode;
+    this.rawMessage = normalizedRawMessage;
+    this.operation = operation;
+    this.status = mapped.status;
+  }
+}
 
 function getService(settings: AppSettings): any {
   if (!settings.popbillLinkId || !settings.popbillSecretKey) {
@@ -31,11 +157,14 @@ function getService(settings: AppSettings): any {
   return popbill.TaxinvoiceService();
 }
 
-function promisify<T>(executor: (done: (result: CallbackResult<T>) => void) => void): Promise<T> {
+function promisify<T>(
+  operation: PopbillOperation,
+  executor: (done: (result: CallbackResult<T>) => void) => void
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     executor((result) => {
       if (result.error) {
-        reject(new Error(`[${result.error.code ?? "POPBILL"}] ${result.error.message ?? "팝빌 호출 실패"}`));
+        reject(new PopbillApiError(operation, result.error.code, result.error.message));
         return;
       }
       resolve(result.response as T);
@@ -95,7 +224,7 @@ export async function joinMember(settings: AppSettings, customer: Customer): Pro
     throw new Error("고객 팝빌 비밀번호가 없습니다. 시스템설정의 팝빌 공통 비밀번호를 저장한 뒤 고객을 다시 저장하세요.");
   }
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify("join-member", (done) => {
     service.joinMember(
       {
         LinkID: settings.popbillLinkId,
@@ -119,7 +248,7 @@ export async function joinMember(settings: AppSettings, customer: Customer): Pro
 
 export async function checkIsMember(settings: AppSettings, businessNumber: string): Promise<boolean> {
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify("check-member", (done) => {
     service.checkIsMember(
       digitsOnly(businessNumber),
       (response: unknown) => done({ response: response === true || response === "true" || response === 1 || response === "1" }),
@@ -134,7 +263,7 @@ export async function quitMember(settings: AppSettings, customer: Customer, quit
     throw new Error("팝빌 탈퇴 사유가 비어 있습니다.");
   }
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify("quit-member", (done) => {
     service.quitMember(
       digitsOnly(customer.businessNumber),
       quitReason,
@@ -148,7 +277,7 @@ export async function quitMember(settings: AppSettings, customer: Customer, quit
 export async function getTaxCertURL(settings: AppSettings, customer: Customer): Promise<string> {
   assertCustomerPopbillIdentity(customer);
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify("cert-url", (done) => {
     service.getTaxCertURL(
       digitsOnly(customer.businessNumber),
       customer.popbillUserId || "",
@@ -160,7 +289,7 @@ export async function getTaxCertURL(settings: AppSettings, customer: Customer): 
 
 export async function getPartnerBalance(settings: AppSettings, businessNumber: string): Promise<{ remainPoint: number; defUsedPoint: number }> {
   const service = getService(settings);
-  return promisify<unknown>((done) => {
+  return promisify<unknown>("partner-balance", (done) => {
     service.getPartnerBalance(
       digitsOnly(businessNumber),
       (response: unknown) => done({ response }),
@@ -174,7 +303,7 @@ export async function getPartnerBalance(settings: AppSettings, businessNumber: s
 
 export async function getTaxInvoiceUnitCost(settings: AppSettings, businessNumber: string): Promise<number> {
   const service = getService(settings);
-  return promisify<unknown>((done) => {
+  return promisify<unknown>("unit-cost", (done) => {
     service.getUnitCost(
       digitsOnly(businessNumber),
       (response: unknown) => done({ response }),
@@ -185,7 +314,7 @@ export async function getTaxInvoiceUnitCost(settings: AppSettings, businessNumbe
 
 export async function getBalance(settings: AppSettings, businessNumber: string): Promise<number> {
   const service = getService(settings);
-  return promisify<unknown>((done) => {
+  return promisify<unknown>("balance", (done) => {
     service.getBalance(
       digitsOnly(businessNumber),
       (response: unknown) => done({ response }),
@@ -196,7 +325,7 @@ export async function getBalance(settings: AppSettings, businessNumber: string):
 
 export async function getPartnerChargeURL(settings: AppSettings, businessNumber: string): Promise<string> {
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify("partner-charge-url", (done) => {
     service.getPartnerURL(
       digitsOnly(businessNumber),
       "CHRG",
@@ -209,7 +338,7 @@ export async function getPartnerChargeURL(settings: AppSettings, businessNumber:
 export async function getCertificateExpireDate(settings: AppSettings, customer: Customer): Promise<string> {
   assertCustomerPopbillIdentity(customer);
   const service = getService(settings);
-  return promisify<string>((done) => {
+  return promisify<string>("cert-expire-date", (done) => {
     service.getCertificateExpireDate(
       digitsOnly(customer.businessNumber),
       customer.popbillUserId || "",
@@ -222,7 +351,7 @@ export async function getCertificateExpireDate(settings: AppSettings, customer: 
 export async function getTaxInvoiceInfo(settings: AppSettings, customer: Customer, draft: InvoiceDraft): Promise<unknown> {
   assertCustomerPopbillIdentity(customer);
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify("invoice-info", (done) => {
     service.getInfo(
       digitsOnly(customer.businessNumber),
       MGT_KEY_TYPE_SELL,
@@ -237,7 +366,7 @@ export async function getTaxInvoiceInfo(settings: AppSettings, customer: Custome
 export async function getTaxInvoiceViewURL(settings: AppSettings, customer: Customer, draft: InvoiceDraft): Promise<string> {
   assertCustomerPopbillIdentity(customer);
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify("invoice-view-url", (done) => {
     service.getViewURL(
       digitsOnly(customer.businessNumber),
       MGT_KEY_TYPE_SELL,
@@ -252,7 +381,7 @@ export async function getTaxInvoiceViewURL(settings: AppSettings, customer: Cust
 export async function getTaxInvoicePrintURL(settings: AppSettings, customer: Customer, draft: InvoiceDraft): Promise<string> {
   assertCustomerPopbillIdentity(customer);
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify("invoice-print-url", (done) => {
     service.getPrintURL(
       digitsOnly(customer.businessNumber),
       MGT_KEY_TYPE_SELL,
@@ -267,7 +396,7 @@ export async function getTaxInvoicePrintURL(settings: AppSettings, customer: Cus
 export async function cancelTaxInvoice(settings: AppSettings, customer: Customer, draft: InvoiceDraft, memo: string): Promise<unknown> {
   assertCustomerPopbillIdentity(customer);
   const service = getService(settings);
-  return promisify((done) => {
+  return promisify("invoice-cancel", (done) => {
     service.cancelIssue(
       digitsOnly(customer.businessNumber),
       MGT_KEY_TYPE_SELL,
@@ -338,7 +467,7 @@ export async function issueTaxInvoice(
     ]
   };
 
-  return promisify((done) => {
+  return promisify("invoice-issue", (done) => {
     service.registIssue(
       digitsOnly(customer.businessNumber),
       taxinvoice,

@@ -731,6 +731,9 @@ function getWorkspaceMemberRoleLabel(role: OrganizationMemberSummary["role"]): s
 function simplifyIssueError(message: string): string {
   if (!message) return "";
 
+  const codeMatch = message.match(/\[POPBILL\s+(-?\d+)\]/i) ?? message.match(/\[(-?\d+)\]/);
+  const suffix = codeMatch?.[1] ? ` (${codeMatch[1]})` : "";
+
   const normalized = message
     .replace(/\[[^\]]+\]/g, " ")
     .replace(/\(-?\d+\)/g, " ")
@@ -740,22 +743,26 @@ function simplifyIssueError(message: string): string {
     .trim();
 
   if (normalized.includes("연동회원으로 가입된 사업자 번호가 존재하지 않습니다")) {
-    return "팝빌 가입 필요";
+    return `팝빌 가입 필요${suffix}`;
   }
 
   if (normalized.includes("포인트 부족")) {
-    return "포인트 부족";
+    return `포인트 부족${suffix}`;
   }
 
   if (normalized.includes("공동인증서") || normalized.includes("인증서")) {
-    return "인증서 확인 필요";
+    return `인증서 확인 필요${suffix}`;
   }
 
   if (normalized.includes("사업자 번호") || normalized.includes("사업자번호")) {
-    return "사업자번호 확인 필요";
+    return `사업자번호 확인 필요${suffix}`;
   }
 
-  return "오류 확인 필요";
+  if (normalized.includes("문서를 찾지 못했습니다") || normalized.includes("문서 정보를 조회하지 못했습니다")) {
+    return `문서 환경 확인 필요${suffix}`;
+  }
+
+  return `오류 확인 필요${suffix}`;
 }
 
 function getParseStatusLabel(status: string): string {

@@ -26,6 +26,7 @@ import {
   getTaxInvoicePrintURL,
   getTaxInvoiceViewURL,
   joinMember,
+  PopbillApiError,
   quitMember
 } from "./popbill-client.js";
 import { dispatchRecurringJobs, runDueJobs } from "./job-queue.js";
@@ -140,6 +141,54 @@ class HttpError extends Error {
     this.name = "HttpError";
     this.status = status;
   }
+}
+
+type ApiErrorBody = {
+  error: string;
+  errorCode?: string;
+  errorDetails?: string;
+  errorOperation?: string;
+};
+
+function buildApiErrorBody(error: unknown, fallbackMessage = "요청에 실패했습니다."): ApiErrorBody {
+  if (error instanceof PopbillApiError) {
+    return {
+      error: error.message,
+      errorCode: error.code,
+      errorDetails: error.rawMessage,
+      errorOperation: error.operation
+    };
+  }
+
+  if (error instanceof HttpError) {
+    return {
+      error: error.message
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      error: error.message
+    };
+  }
+
+  return {
+    error: fallbackMessage
+  };
+}
+
+function getErrorStatus(error: unknown, fallbackStatus = 500): number {
+  if (error instanceof PopbillApiError) {
+    return error.status;
+  }
+  if (error instanceof HttpError) {
+    return error.status;
+  }
+  return fallbackStatus;
+}
+
+function getErrorMessage(error: unknown, fallbackMessage = "작업에 실패했습니다."): string {
+  return buildApiErrorBody(error, fallbackMessage).error;
 }
 
 function isUniqueViolation(error: { code?: unknown; message?: unknown } | null | undefined, constraintName?: string) {
@@ -706,7 +755,8 @@ async function autoJoinCustomerPopbill(requestStore: AppStore, customer: Custome
         });
         return { customer: updated, status: "joined" };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "팝빌 자동 가입에 실패했습니다.";
+        const errorMessage =
+          error instanceof PopbillApiError ? error.rawMessage : error instanceof Error ? error.message : "팝빌 자동 가입에 실패했습니다.";
         const fallbackMemberState = await checkIsMember(settings, customer.businessNumber).catch(() => false);
 
         if (fallbackMemberState) {
@@ -728,7 +778,8 @@ async function autoJoinCustomerPopbill(requestStore: AppStore, customer: Custome
 
     throw new Error("팝빌 자동 가입 재시도 한도를 초과했습니다.");
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "팝빌 자동 가입에 실패했습니다.";
+    const errorMessage =
+      error instanceof PopbillApiError ? error.rawMessage : error instanceof Error ? error.message : "팝빌 자동 가입에 실패했습니다.";
     const fallbackMemberState =
       settings ? await checkIsMember(settings, customer.businessNumber).catch(() => false) : false;
 
@@ -746,7 +797,7 @@ async function autoJoinCustomerPopbill(requestStore: AppStore, customer: Custome
       customerId: customer.id,
       error: errorMessage
     });
-    return { customer: failedCustomer, status: "failed", error: errorMessage };
+    return { customer: failedCustomer, status: "failed", error: getErrorMessage(error, errorMessage) };
   }
 }
 
@@ -2966,9 +3017,12 @@ export async function createApp(store: AppStore | null, webDist: string) {
       await requestStore.createLog("info", "drafts", "수동 발행을 완료했습니다.", { draftId, customerId: customer.id });
       res.json(issued);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "수동 발행 실패";
+      const message = getErrorMessage(error, "수동 발행 실패");
       const failed = await requestStore.updateDraftStatus(draftId, "failed", message);
-      res.status(500).json(failed);
+      res.status(getErrorStatus(error, 500)).json({
+        ...buildApiErrorBody(error, message),
+        draft: failed
+      });
     }
   });
 
@@ -2996,7 +3050,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
         await issueDraftNow(requestStore, await getServerManagedSettings(requestStore), customer, claimedDraft);
         results.push({ draftId: draft.id, customerId: customer.id, status: "issued" });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "일괄 발행 실패";
+        const message = getErrorMessage(error, "일괄 발행 실패");
         await requestStore.updateDraftStatus(draft.id, "failed", message);
         results.push({ draftId: draft.id, customerId: customer.id, status: "failed", error: message });
       }
@@ -3125,6 +3179,10 @@ export async function createApp(store: AppStore | null, webDist: string) {
     });
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: error.flatten() });
+      return;
+    }
+    if (error instanceof PopbillApiError) {
+      res.status(error.status).json(buildApiErrorBody(error));
       return;
     }
     if (error instanceof HttpError) {

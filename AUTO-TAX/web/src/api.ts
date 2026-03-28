@@ -4,11 +4,17 @@ const ACTIVE_ORGANIZATION_STORAGE_KEY = "auto-tax.active-organization-id";
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly code?: string;
+  readonly details?: string;
+  readonly operation?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string, details?: string, operation?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
+    this.details = details;
+    this.operation = operation;
   }
 }
 
@@ -61,8 +67,19 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({ error: "요청 실패" }))) as { error?: string };
-    throw new ApiError(response.status, payload.error ?? "요청에 실패했습니다.");
+    const payload = (await response.json().catch(() => ({ error: "요청 실패" }))) as {
+      error?: string;
+      errorCode?: string;
+      errorDetails?: string;
+      errorOperation?: string;
+    };
+    throw new ApiError(
+      response.status,
+      payload.error ?? "요청에 실패했습니다.",
+      payload.errorCode,
+      payload.errorDetails,
+      payload.errorOperation
+    );
   }
 
   return (await response.json()) as T;
