@@ -537,7 +537,7 @@ const opsWorkspaceCreateSchema = z.object({
   ownerDisplayName: z.string().trim().default(""),
   ownerPassword: z.string().default(""),
   planCode: z.string().trim().min(1).default("starter"),
-  status: z.enum(["trial", "active", "suspended", "churned"]).default("trial")
+  status: z.enum(["trial", "active", "suspended", "churned"]).default("active")
 });
 
 const opsWorkspaceLimitUpdateSchema = z.object({
