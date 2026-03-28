@@ -18,6 +18,22 @@ export default defineConfig({
   },
   build: {
     outDir: path.resolve(webRoot, "../dist/web"),
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
+            return "react";
+          }
+          if (id.includes("node_modules/@supabase/supabase-js")) {
+            return "supabase";
+          }
+          if (id.includes("node_modules/xlsx")) {
+            return "xlsx";
+          }
+          return undefined;
+        }
+      }
+    }
   }
 });

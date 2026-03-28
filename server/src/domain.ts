@@ -1,5 +1,6 @@
 export type IssueMode = "review" | "auto";
 export type PopbillState = "pending" | "joined" | "failed";
+export type PopbillEnvironment = "test" | "production";
 export type MailParseStatus = "pending" | "parsed" | "failed" | "unmatched" | "duplicate" | "ignored";
 export type DraftStatus = "review" | "scheduled" | "issuing" | "issued" | "failed";
 
@@ -160,6 +161,7 @@ export interface InvoiceDraft {
   kepcoBizClass: string;
   recipientEmail: string;
   popbillMgtKey: string;
+  popbillEnvironment: PopbillEnvironment | null;
   popbillResultJson: string;
   createdAt: string;
   updatedAt: string;

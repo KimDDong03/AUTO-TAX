@@ -61,21 +61,29 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
   await client.connect();
 
   try {
-    const mailbox = await client.mailboxOpen(settings.imapMailbox || "INBOX");
+    const syncMailboxName = settings.imapMailbox || "INBOX";
+    const mailbox = await client.mailboxOpen(syncMailboxName);
+    const lastSyncedUid = await store.getMailSyncCheckpoint(syncMailboxName);
+    const useUidCheckpoint = lastSyncedUid !== null && lastSyncedUid > 0;
     const fromSeq = Math.max(1, mailbox.exists - 999);
-    for await (const message of client.fetch(`${fromSeq}:*`, {
+    const fetchRange = useUidCheckpoint ? `${lastSyncedUid + 1}:*` : `${fromSeq}:*`;
+    const fetchOptions = useUidCheckpoint ? { uid: true } : undefined;
+    let maxSeenUid = lastSyncedUid ?? 0;
+
+    for await (const message of client.fetch(fetchRange, {
       uid: true,
       envelope: true,
       source: true,
       internalDate: true
-    })) {
+    }, fetchOptions)) {
+      maxSeenUid = Math.max(maxSeenUid, message.uid ?? 0);
       result.scanned += 1;
       const subject = message.envelope?.subject ?? "";
       if (!isRelevantSubject(subject)) {
         continue;
       }
 
-      const messageUid = `${settings.imapMailbox}:${message.uid}`;
+      const messageUid = `${syncMailboxName}:${message.uid}`;
       if (await store.getMessageByUid(messageUid)) {
         continue;
       }
@@ -95,7 +103,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
         if (completedBillingMonthSet.has(parsedMail.billingMonth)) {
           await store.saveInboxMessage({
             messageUid,
-            mailbox: settings.imapMailbox,
+            mailbox: syncMailboxName,
             fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
             subject,
             receivedAt: receivedAtIso,
@@ -117,7 +125,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
         if (!customer) {
           await store.saveInboxMessage({
             messageUid,
-            mailbox: settings.imapMailbox,
+            mailbox: syncMailboxName,
             fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
             subject,
             receivedAt: receivedAtIso,
@@ -144,7 +152,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
         if (existingDraft) {
           await store.saveInboxMessage({
             messageUid,
-            mailbox: settings.imapMailbox,
+            mailbox: syncMailboxName,
             fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
             subject,
             receivedAt: receivedAtIso,
@@ -168,7 +176,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
 
         const inbox = await store.saveInboxMessage({
           messageUid,
-          mailbox: settings.imapMailbox,
+          mailbox: syncMailboxName,
           fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
           subject,
           receivedAt: receivedAtIso,
@@ -197,7 +205,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
         const messageText = error instanceof Error ? error.message : "파싱 실패";
         await store.saveInboxMessage({
           messageUid,
-          mailbox: settings.imapMailbox,
+          mailbox: syncMailboxName,
           fromAddress: parsedMime.from?.text || "",
           subject,
           receivedAt: receivedAtIso,
@@ -214,6 +222,10 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
         );
         result.failures += 1;
       }
+    }
+
+    if (maxSeenUid > (lastSyncedUid ?? 0)) {
+      await store.updateMailSyncCheckpoint(syncMailboxName, maxSeenUid);
     }
   } finally {
     await client.logout();

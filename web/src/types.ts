@@ -1,5 +1,6 @@
 export type IssueMode = "review" | "auto";
 export type DraftStatus = "review" | "scheduled" | "issuing" | "issued" | "failed";
+export type PopbillEnvironment = "test" | "production";
 export type OrganizationMemberRole = "owner" | "admin" | "operator" | "viewer";
 export type OrganizationStatus = "trial" | "active" | "suspended" | "churned";
 
@@ -122,6 +123,7 @@ export interface InvoiceDraft {
   kepcoBizClass: string;
   recipientEmail: string;
   popbillMgtKey: string;
+  popbillEnvironment: PopbillEnvironment | null;
   popbillResultJson: string;
   createdAt: string;
   updatedAt: string;
