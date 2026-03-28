@@ -68,6 +68,7 @@ npm run build:vercel
 - [Supabase 스키마 설계안](./docs/SUPABASE_SCHEMA_PLAN.md)
 - [Supabase 프로젝트 연결 메모](./docs/SUPABASE_PROJECT_SETUP.md)
 - [Supabase Cron 연결 메모](./docs/SUPABASE_CRON_SETUP.md)
+- [구현 상태 문서](./docs/IMPLEMENTATION_STATUS.md)
 - [공동인증서 갱신 로컬 에이전트 POC](./docs/CERTIFICATE_RENEWAL_POC.md)
 
 ## 지금 바로 채워야 하는 값
