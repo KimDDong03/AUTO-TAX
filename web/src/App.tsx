@@ -131,10 +131,32 @@ type PasswordResetTarget =
       loginId: string | null;
     };
 
+function shouldShowPopbillPrefixPlaceholder(settings: AppSettings): boolean {
+  const normalizedPrefix = settings.popbillUserIdPrefix.trim().toUpperCase();
+  const isDefaultExample = normalizedPrefix === "" || normalizedPrefix === "TEST_" || normalizedPrefix === "HAE_";
+  const hasWorkspacePopbillValues =
+    settings.popbillSharedPasswordConfigured ||
+    Boolean(settings.operatorContactName.trim() || settings.operatorContactEmail.trim() || settings.operatorContactTel.trim());
+
+  return isDefaultExample && !hasWorkspacePopbillValues;
+}
+
 type OrganizationMemberFormState = {
   loginId: string;
   displayName: string;
   password: string;
+};
+
+type PublicPricingPlanId = "beta" | "standard";
+
+type PublicPricingPlan = {
+  id: PublicPricingPlanId;
+  label: string;
+  badge: string;
+  headline: string;
+  basePrice: number;
+  includedCustomers: number;
+  overagePrice: number;
 };
 
 const baseOpsWorkspaceForm: OpsWorkspaceFormState = {
@@ -169,6 +191,47 @@ const baseOrganizationMemberForm: OrganizationMemberFormState = {
   displayName: "",
   password: ""
 };
+
+const PUBLIC_PRICING_PLANS: Record<PublicPricingPlanId, PublicPricingPlan> = {
+  beta: {
+    id: "beta",
+    label: "오픈베타 1개월",
+    badge: "OPEN BETA",
+    headline: "도입 전 시험 운영 요금",
+    basePrice: 79000,
+    includedCustomers: 50,
+    overagePrice: 900
+  },
+  standard: {
+    id: "standard",
+    label: "정식 요금",
+    badge: "STANDARD",
+    headline: "기본 월 구독 요금",
+    basePrice: 149000,
+    includedCustomers: 50,
+    overagePrice: 1400
+  }
+};
+
+const PRICING_EXAMPLE_COUNTS = [100, 200, 300];
+
+const LANDING_HERO_POINTS = [
+  {
+    label: "한전 메일",
+    value: "자동 확인",
+    description: "매월 반복 확인 시간을 줄입니다."
+  },
+  {
+    label: "전자세금계산서",
+    value: "초안 자동 생성",
+    description: "담당자는 검수와 발행에 집중합니다."
+  },
+  {
+    label: "운영 방식",
+    value: "검수 후 발행",
+    description: "안정화 후 자동 발행으로 전환할 수 있습니다."
+  }
+];
 
 const MAIL_PROVIDER_CONFIG: Record<
   MailProvider,
@@ -354,7 +417,7 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
     mailPollMinutes: String(settings.mailPollMinutes),
     mailSyncStartAt: settings.mailSyncStartAt ?? "",
     timezone: settings.timezone,
-    popbillUserIdPrefix: settings.popbillUserIdPrefix,
+    popbillUserIdPrefix: shouldShowPopbillPrefixPlaceholder(settings) ? "" : settings.popbillUserIdPrefix,
     popbillSharedPassword: "",
     operatorContactName: settings.operatorContactName,
     operatorContactEmail: settings.operatorContactEmail,
@@ -575,6 +638,56 @@ function SetupPanel(props: {
 
 function formatMoney(value: number): string {
   return new Intl.NumberFormat("ko-KR").format(value);
+}
+
+function normalizeManagedCustomerCount(value: string): number {
+  const digits = value.replace(/[^\d]/g, "");
+  return digits === "" ? 0 : Number.parseInt(digits, 10);
+}
+
+function calculatePublicPrice(planId: PublicPricingPlanId, managedCustomerCount: number) {
+  const plan = PUBLIC_PRICING_PLANS[planId];
+  const normalizedCount = Number.isFinite(managedCustomerCount) ? Math.max(0, Math.floor(managedCustomerCount)) : 0;
+  const overageCount = Math.max(0, normalizedCount - plan.includedCustomers);
+  const overagePrice = overageCount * plan.overagePrice;
+
+  return {
+    plan,
+    managedCustomerCount: normalizedCount,
+    includedCustomers: plan.includedCustomers,
+    overageCount,
+    overagePrice,
+    totalPrice: plan.basePrice + overagePrice
+  };
+}
+
+function shouldReplaceSupportRequestMessage(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed === "" || trimmed.startsWith("예상 관리 고객 수:");
+}
+
+function buildSupportRequestPrefill(planId: PublicPricingPlanId, managedCustomerCount: number): string {
+  const pricing = calculatePublicPrice(planId, managedCustomerCount);
+
+  return [
+    `예상 관리 고객 수: ${pricing.managedCustomerCount.toLocaleString("ko-KR")}곳`,
+    `희망 요금 기준: ${pricing.plan.label}`,
+    `예상 월 구독료: ${formatMoney(pricing.totalPrice)}원`,
+    "",
+    "도입 상담을 받고 싶습니다."
+  ].join("\n");
+}
+
+function scrollToElementById(id: string): void {
+  if (typeof document === "undefined") return;
+
+  const element = document.getElementById(id);
+  if (!element) return;
+
+  element.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
 }
 
 function formatDateTime(value: string | null): string {
@@ -1026,6 +1139,8 @@ export function App() {
   const [showSupportRequestForm, setShowSupportRequestForm] = useState(false);
   const [supportRequestBusy, setSupportRequestBusy] = useState(false);
   const [supportRequestForm, setSupportRequestForm] = useState<SupportRequestFormState>(baseSupportRequestForm);
+  const [pricingPlanId, setPricingPlanId] = useState<PublicPricingPlanId>("standard");
+  const [managedCustomerCountInput, setManagedCustomerCountInput] = useState("220");
   const [data, setData] = useState<BootstrapPayload | null>(null);
   const [opsConsole, setOpsConsole] = useState<OpsConsoleData | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
@@ -1050,6 +1165,8 @@ export function App() {
   const [error, setError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>({});
+  const publicManagedCustomerCount = normalizeManagedCustomerCount(managedCustomerCountInput);
+  const publicPricing = calculatePublicPrice(pricingPlanId, publicManagedCustomerCount);
 
   const loadOpsConsole = async (): Promise<OpsConsoleData> => {
     const [partnerPoints, renewalAutomation, logs, workspaces] = await Promise.all([
@@ -1329,6 +1446,27 @@ export function App() {
     }
   };
 
+  const scrollToLandingSection = (id: string) => {
+    if (typeof window === "undefined") return;
+
+    window.requestAnimationFrame(() => {
+      scrollToElementById(id);
+    });
+  };
+
+  const openSupportRequest = (prefillMessage?: string) => {
+    setShowSupportRequestForm(true);
+
+    if (prefillMessage) {
+      setSupportRequestForm((prev) => ({
+        ...prev,
+        message: shouldReplaceSupportRequestMessage(prev.message) ? prefillMessage : prev.message
+      }));
+    }
+
+    scrollToLandingSection("landing-login-card");
+  };
+
   const signIn = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
@@ -1476,6 +1614,25 @@ export function App() {
     };
   };
 
+  const buildMailSettingsSavePayload = (form: SettingsFormState) => {
+    const { normalized, payload } = buildSettingsPayload(form);
+    if (!data) {
+      return { normalized, payload };
+    }
+
+    return {
+      normalized,
+      payload: {
+        ...payload,
+        popbillUserIdPrefix: data.settings.popbillUserIdPrefix,
+        popbillSharedPassword: "",
+        operatorContactName: data.settings.operatorContactName,
+        operatorContactEmail: data.settings.operatorContactEmail,
+        operatorContactTel: data.settings.operatorContactTel
+      }
+    };
+  };
+
   const applySavedSettings = (savedSettings: AppSettings) => {
     setSettingsForm(settingsToForm(savedSettings));
     setData((prev) => (prev ? { ...prev, settings: savedSettings } : prev));
@@ -1493,7 +1650,7 @@ export function App() {
 
   const testMailSettings = async () => {
     if (!settingsForm) return;
-    const { normalized, payload } = buildSettingsPayload(settingsForm);
+    const { normalized, payload } = buildMailSettingsSavePayload(settingsForm);
     const result = await api<{
       imapOk: boolean;
       imapMessage: string;
@@ -2060,105 +2217,259 @@ export function App() {
 
   if (!authSession) {
     return (
-      <div className="auth-shell">
-        <section className="auth-card">
-          <div className="auth-copy">
-            <span className="auth-badge">AUTO-TAX</span>
-            <h1>작업공간 로그인</h1>
-            <p>플랫폼 관리자가 개통한 로그인 계정으로 로그인한 뒤 태양광 회사 작업공간을 선택해 사용합니다.</p>
-          </div>
-          <form className="auth-form" onSubmit={(event) => void signIn(event)}>
-            <label>
-              <span>로그인 계정</span>
-              <input
-                value={signInAccount}
-                onChange={(event) => setSignInAccount(event.target.value)}
-                placeholder="고객사 사용자: 로그인 아이디 / 플랫폼 관리자: 이메일"
-                autoComplete="username"
-                required
-              />
-            </label>
-            <label>
-              <span>비밀번호</span>
-              <input
-                type="password"
-                value={signInPassword}
-                onChange={(event) => setSignInPassword(event.target.value)}
-                placeholder="비밀번호 입력"
-                autoComplete="current-password"
-                required
-              />
-            </label>
-            {authNotice ? <div className="alert success">{authNotice}</div> : null}
-            {error ? <div className="alert error">{error}</div> : null}
-            <div className="auth-actions">
-              <button type="submit" disabled={authBusy}>
-                {authBusy ? "로그인 중..." : "로그인"}
+      <div className="landing-shell">
+        <header className="landing-topbar">
+          <div className="landing-topbar-inner">
+            <button type="button" className="landing-brand" onClick={() => scrollToLandingSection("landing-top")}>
+              <span className="brand-badge landing-brand-badge">AT</span>
+              <span className="landing-brand-copy">
+                <strong>AUTO-TAX</strong>
+                <span>태양광 회사 전자세금계산서 운영</span>
+              </span>
+            </button>
+            <nav className="landing-nav" aria-label="공개 페이지 탐색">
+              <button type="button" className="landing-nav-button" onClick={() => scrollToLandingSection("landing-pricing")}>
+                가격 안내
               </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setShowSupportRequestForm((prev) => !prev)}
-                disabled={supportRequestBusy}
-              >
-                {showSupportRequestForm ? "문의 닫기" : "요청 문의"}
+              <button type="button" className="landing-nav-button" onClick={() => openSupportRequest()}>
+                도입 문의
+              </button>
+            </nav>
+            <div className="landing-topbar-actions">
+              <button type="button" className="btn-secondary" onClick={() => scrollToLandingSection("landing-login-card")}>
+                로그인
               </button>
             </div>
-            <p className="field-hint">계정이 없으면 `요청 문의`에서 회사명, 담당자, 연락처를 남겨주세요.</p>
-          </form>
-          {showSupportRequestForm ? (
-            <div className="auth-form support-request-box">
-              <label>
-                <span>회사명</span>
-                <input
-                  value={supportRequestForm.companyName}
-                  onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, companyName: event.target.value }))}
-                  placeholder="회사명 입력"
-                />
-              </label>
-              <label>
-                <span>담당자명</span>
-                <input
-                  value={supportRequestForm.requesterName}
-                  onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterName: event.target.value }))}
-                  placeholder="담당자 이름"
-                />
-              </label>
-              <label>
-                <span>이메일</span>
-                <input
-                  type="email"
-                  value={supportRequestForm.requesterEmail}
-                  onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterEmail: event.target.value }))}
-                  placeholder="reply 받을 이메일"
-                />
-              </label>
-              <label>
-                <span>연락처</span>
-                <input
-                  value={supportRequestForm.requesterPhone}
-                  onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterPhone: event.target.value }))}
-                  placeholder="전화번호 또는 휴대폰"
-                />
-              </label>
-              <label>
-                <span>요청 내용</span>
-                <textarea
-                  rows={5}
-                  value={supportRequestForm.message}
-                  onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, message: event.target.value }))}
-                  placeholder="작업공간 개통 요청 내용, 필요한 기능, 문의사항을 적어주세요."
-                />
-              </label>
-              <div className="auth-actions">
-                <button type="button" onClick={() => void submitSupportRequest()} disabled={supportRequestBusy}>
-                  {supportRequestBusy ? "보내는 중..." : "보내기"}
+          </div>
+        </header>
+
+        <main className="landing-main">
+          <section className="landing-hero-grid" id="landing-top">
+            <div className="landing-hero-panel">
+              <div className="landing-hero-copy">
+                <div className="landing-badge-row">
+                  <span className="auth-badge">태양광 회사용</span>
+                  <span className="landing-inline-note">관리 고객 수 기준 월 구독형</span>
+                </div>
+                <h1>태양광 회사의 전자세금계산서 업무를 더 빠르고 정확하게</h1>
+                <p>한전 메일 확인부터 초안 작성, 검수 후 발행까지 한 화면에서 처리하는 운영 도구입니다.</p>
+              </div>
+              <div className="landing-hero-actions">
+                <button type="button" onClick={() => scrollToLandingSection("landing-pricing")}>
+                  예상 요금 확인하기
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => openSupportRequest()}>
+                  도입 문의
                 </button>
               </div>
-              <p className="field-hint">문의는 `ehdrjs0887@gmail.com`으로 접수됩니다.</p>
+              <div className="landing-proof-grid">
+                {LANDING_HERO_POINTS.map((item) => (
+                  <article key={item.label} className="landing-proof-card">
+                    <span className="landing-proof-label">{item.label}</span>
+                    <strong>{item.value}</strong>
+                    <p>{item.description}</p>
+                  </article>
+                ))}
+              </div>
             </div>
-          ) : null}
-        </section>
+
+            <aside className="landing-side-panel">
+              <section className="auth-card landing-auth-card" id="landing-login-card">
+                <div className="auth-copy">
+                  <span className="auth-badge">작업공간 로그인</span>
+                  <h2>도입 문의와 로그인</h2>
+                  <p>계정이 있으면 바로 로그인하고, 도입 전이면 아래에서 문의를 남기면 됩니다.</p>
+                </div>
+                <form className="auth-form" onSubmit={(event) => void signIn(event)}>
+                  <label>
+                    <span>로그인 계정</span>
+                    <input
+                      value={signInAccount}
+                      onChange={(event) => setSignInAccount(event.target.value)}
+                      placeholder="고객사 사용자: 로그인 아이디 / 플랫폼 관리자: 이메일"
+                      autoComplete="username"
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>비밀번호</span>
+                    <input
+                      type="password"
+                      value={signInPassword}
+                      onChange={(event) => setSignInPassword(event.target.value)}
+                      placeholder="비밀번호 입력"
+                      autoComplete="current-password"
+                      required
+                    />
+                  </label>
+                  {authNotice ? <div className="alert success">{authNotice}</div> : null}
+                  {error ? <div className="alert error">{error}</div> : null}
+                  <div className="auth-actions">
+                    <button type="submit" disabled={authBusy}>
+                      {authBusy ? "로그인 중..." : "로그인"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setShowSupportRequestForm((prev) => !prev)}
+                      disabled={supportRequestBusy}
+                    >
+                      {showSupportRequestForm ? "문의 닫기" : "도입 문의"}
+                    </button>
+                  </div>
+                  <p className="field-hint">계정이 없으면 `도입 문의`에서 회사명, 담당자, 연락처를 남겨주세요.</p>
+                </form>
+                {showSupportRequestForm ? (
+                  <div className="auth-form support-request-box">
+                    <label>
+                      <span>회사명</span>
+                      <input
+                        value={supportRequestForm.companyName}
+                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, companyName: event.target.value }))}
+                        placeholder="회사명 입력"
+                      />
+                    </label>
+                    <label>
+                      <span>담당자명</span>
+                      <input
+                        value={supportRequestForm.requesterName}
+                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterName: event.target.value }))}
+                        placeholder="담당자 이름"
+                      />
+                    </label>
+                    <label>
+                      <span>이메일</span>
+                      <input
+                        type="email"
+                        value={supportRequestForm.requesterEmail}
+                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterEmail: event.target.value }))}
+                        placeholder="reply 받을 이메일"
+                      />
+                    </label>
+                    <label>
+                      <span>연락처</span>
+                      <input
+                        value={supportRequestForm.requesterPhone}
+                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterPhone: event.target.value }))}
+                        placeholder="전화번호 또는 휴대폰"
+                      />
+                    </label>
+                    <label>
+                      <span>요청 내용</span>
+                      <textarea
+                        rows={5}
+                        value={supportRequestForm.message}
+                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, message: event.target.value }))}
+                        placeholder="작업공간 개통 요청 내용, 필요한 기능, 문의사항을 적어주세요."
+                      />
+                    </label>
+                    <div className="auth-actions">
+                      <button type="button" onClick={() => void submitSupportRequest()} disabled={supportRequestBusy}>
+                        {supportRequestBusy ? "보내는 중..." : "보내기"}
+                      </button>
+                    </div>
+                    <p className="field-hint">문의는 `ehdrjs0887@gmail.com`으로 접수됩니다.</p>
+                  </div>
+                ) : null}
+              </section>
+            </aside>
+          </section>
+
+          <section className="landing-section" id="landing-pricing">
+            <div className="landing-section-head">
+              <span className="landing-eyebrow">가격 안내</span>
+              <h2>관리 고객 수에 따라 자동 계산되는 월 구독형 요금제</h2>
+              <p>기본 50곳 포함, 초과 고객은 1곳당 추가 과금됩니다.</p>
+            </div>
+            <div className="landing-pricing-layout">
+              <div className="landing-pricing-grid">
+                {(Object.values(PUBLIC_PRICING_PLANS) as PublicPricingPlan[]).map((plan) => (
+                  <article
+                    key={plan.id}
+                    className={plan.id === pricingPlanId ? "landing-price-card landing-price-card-active" : "landing-price-card"}
+                  >
+                    <div className="landing-price-card-head">
+                      <span className="landing-price-badge">{plan.badge}</span>
+                      <h3>{plan.label}</h3>
+                    </div>
+                    <p>{plan.headline}</p>
+                    <div className="landing-price-figure">{formatMoney(plan.basePrice)}원</div>
+                    <div className="landing-price-caption">{plan.includedCustomers}곳 이하</div>
+                    <div className="landing-price-inline">
+                      <span>초과 고객 1곳당</span>
+                      <strong>{formatMoney(plan.overagePrice)}원</strong>
+                    </div>
+                    <div className="landing-price-examples">
+                      {PRICING_EXAMPLE_COUNTS.map((count) => (
+                        <div key={`${plan.id}-${count}`} className="landing-price-example-row">
+                          <span>{count.toLocaleString("ko-KR")}곳</span>
+                          <strong>{formatMoney(calculatePublicPrice(plan.id, count).totalPrice)}원</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <aside className="landing-card landing-calculator-card">
+                <div className="landing-calculator-head">
+                  <h3>예상 요금 계산기</h3>
+                  <p>관리 고객 수를 입력하면 예상 월 구독료를 바로 확인할 수 있습니다.</p>
+                </div>
+                <div className="landing-segmented" role="tablist" aria-label="요금 기준 선택">
+                  {(Object.values(PUBLIC_PRICING_PLANS) as PublicPricingPlan[]).map((plan) => (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      className={plan.id === pricingPlanId ? "active" : ""}
+                      onClick={() => setPricingPlanId(plan.id)}
+                    >
+                      {plan.label}
+                    </button>
+                  ))}
+                </div>
+                <label className="landing-form-field">
+                  <span>관리 고객 수</span>
+                  <input
+                    value={managedCustomerCountInput}
+                    onChange={(event) => setManagedCustomerCountInput(event.target.value.replace(/[^\d]/g, "").slice(0, 5))}
+                    inputMode="numeric"
+                    placeholder="예: 220"
+                  />
+                </label>
+                <div className="landing-calculator-total">
+                  <span>예상 월 구독료</span>
+                  <strong>{formatMoney(publicPricing.totalPrice)}원</strong>
+                  <p>{publicPricing.plan.label} 기준</p>
+                </div>
+                <div className="landing-breakdown-grid">
+                  <div>
+                    <span>기본 포함</span>
+                    <strong>{publicPricing.includedCustomers.toLocaleString("ko-KR")}곳</strong>
+                  </div>
+                  <div>
+                    <span>초과 고객 수</span>
+                    <strong>{publicPricing.overageCount.toLocaleString("ko-KR")}곳</strong>
+                  </div>
+                  <div>
+                    <span>초과분 금액</span>
+                    <strong>{formatMoney(publicPricing.overagePrice)}원</strong>
+                  </div>
+                </div>
+                <p className="landing-fineprint">외부 연동 서비스 정책 변경 시 요금 정책이 조정될 수 있습니다.</p>
+                <div className="landing-hero-actions landing-calculator-actions">
+                  <button type="button" onClick={() => openSupportRequest(buildSupportRequestPrefill(pricingPlanId, publicManagedCustomerCount))}>
+                    이 규모로 도입 문의
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => scrollToLandingSection("landing-login-card")}>
+                    로그인
+                  </button>
+                </div>
+              </aside>
+            </div>
+          </section>
+
+        </main>
       </div>
     );
   }
