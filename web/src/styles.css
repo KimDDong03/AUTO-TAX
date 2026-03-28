@@ -1106,6 +1106,60 @@ textarea {
   color: #c37700;
 }
 
+.app-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(12, 18, 28, 0.28);
+  backdrop-filter: blur(10px);
+}
+
+.app-dialog {
+  width: min(520px, calc(100vw - 2rem));
+  display: grid;
+  gap: 1rem;
+  padding: 1.15rem 1.2rem 1.1rem;
+  border: 1px solid rgba(229, 232, 235, 0.96);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 28px 64px rgba(15, 23, 42, 0.18),
+    0 6px 20px rgba(15, 23, 42, 0.08);
+}
+
+.app-dialog-danger {
+  border-color: rgba(255, 215, 218, 0.95);
+}
+
+.app-dialog-head {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.app-dialog-head h2 {
+  margin: 0;
+  font-size: 1.08rem;
+  line-height: 1.25;
+}
+
+.app-dialog-message {
+  margin: 0.28rem 0 0;
+  white-space: pre-line;
+  color: var(--text-subtle);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
 .stats-grid,
 .work-screen,
 .work-layout,
@@ -1331,7 +1385,50 @@ textarea {
 .panel-work-queue {
   grid-column: span 2;
   min-height: 0;
-  height: 100%;
+  height: auto;
+  align-self: start;
+}
+
+.panel-work-queue .table-wrap {
+  overflow: hidden;
+}
+
+.queue-table-shell {
+  border-radius: 24px;
+  border-color: rgba(229, 232, 235, 0.9);
+  background: linear-gradient(180deg, #fcfdff 0%, #f8fafc 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.panel-work-queue .queue-table th {
+  background: rgba(248, 250, 252, 0.96);
+  border-bottom: 1px solid rgba(229, 232, 235, 0.92);
+}
+
+.queue-empty-row td {
+  border-top: none;
+}
+
+.queue-empty-cell {
+  padding: 2.9rem 1rem 3rem;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.84rem;
+  border-top: 1px dashed rgba(217, 221, 227, 0.95);
+  background: transparent;
+}
+
+.queue-table-shell.is-empty .queue-table thead th:first-child {
+  border-top-left-radius: 24px;
+}
+
+.queue-table-shell.is-empty .queue-table thead th:last-child {
+  border-top-right-radius: 24px;
+}
+
+.queue-table-shell.is-empty .queue-table tbody tr:last-child .queue-empty-cell:first-child {
+  border-bottom-left-radius: 24px;
+  border-bottom-right-radius: 24px;
 }
 
 .panel-work-status,
@@ -1482,19 +1579,30 @@ textarea {
   gap: 0.9rem;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
+}
+
+.settings-sidebar-stack {
+  align-content: start;
+  overflow: visible;
+}
+
+.settings-detail {
+  align-content: start;
+  overflow: auto;
 }
 
 .settings-sidebar-panel {
   padding: 0.95rem;
-  height: 100%;
-  overflow: auto;
+  height: auto;
+  overflow: visible;
+  align-self: start;
 }
 
 .settings-detail > .setup-panel {
-  height: 100%;
+  height: auto;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
+  align-self: start;
 }
 
 .settings-sidebar-header {
@@ -1557,6 +1665,10 @@ textarea {
   display: grid;
   gap: 0.5rem;
   margin-top: 0.8rem;
+}
+
+.settings-sidebar-actions-passive {
+  justify-items: start;
 }
 
 .settings-sidebar-actions button {
@@ -1629,6 +1741,16 @@ textarea {
   color: var(--text);
   font-size: 0.92rem;
   font-weight: 700;
+}
+
+.settings-action-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.8rem;
+  color: var(--text-faint);
+  font-size: 0.82rem;
 }
 
 .list,
@@ -2020,6 +2142,16 @@ textarea {
 .settings-account-stack {
   display: grid;
   gap: 1rem;
+  align-content: start;
+  grid-auto-rows: max-content;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  padding-right: 0.14rem;
+}
+
+.settings-account-stack > .panel {
+  align-self: start;
 }
 
 .workspace-member-list {
@@ -2166,6 +2298,34 @@ tr + tr td {
   font-weight: 700;
 }
 
+.settings-field-full-width {
+  grid-column: 1 / -1;
+}
+
+.field-meta-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.38rem;
+}
+
+.field-meta-row .field-hint {
+  flex: 1 1 auto;
+  margin-top: 0;
+}
+
+.field-action-row {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.field-inline-action {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
 .checkbox {
   display: flex;
   align-items: center;
@@ -2259,6 +2419,7 @@ tr + tr td {
   max-height: calc(100vh - 330px);
   overflow-x: hidden;
   overflow-y: auto;
+  padding-right: 0;
 }
 
 .panel-customer-list .list,
@@ -2484,7 +2645,8 @@ tr + tr td {
   .panel-customer-list,
   .panel-customer-editor,
   .settings-sidebar-panel,
-  .settings-detail > .setup-panel {
+  .settings-detail > .setup-panel,
+  .settings-account-stack {
     height: auto;
     overflow: visible;
   }
@@ -2548,6 +2710,17 @@ tr + tr td {
     align-items: flex-start;
   }
 
+  .app-dialog {
+    width: min(100%, 420px);
+    padding: 1rem;
+    border-radius: 24px;
+  }
+
+  .app-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
   .work-layout,
   .customers-layout,
   .settings-layout,
@@ -2600,6 +2773,16 @@ tr + tr td {
   .helper-box .fields.three-column,
   .inline-time-fields {
     grid-template-columns: 1fr;
+  }
+
+  .field-meta-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .field-action-row {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .settings-step-card {
