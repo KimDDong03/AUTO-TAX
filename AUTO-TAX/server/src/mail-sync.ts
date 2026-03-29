@@ -3,7 +3,6 @@ import { simpleParser } from "mailparser";
 import type { AppSettings, InvoiceDraft } from "./domain.js";
 import { sendNotification } from "./notifier.js";
 import { parseKepcoMail } from "./parser.js";
-import { buildCompletedBillingMonthSet } from "./services/billing-month-service.js";
 import type { AppStore } from "./store-contract.js";
 
 export interface MailSyncResult {
@@ -39,16 +38,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
 
   const mode = options.mode ?? "manual";
   const scheduledAt = toIso(options.now);
-  const [manualCompletedBillingMonths, drafts, inbox] = await Promise.all([
-    store.listCompletedBillingMonths(),
-    store.listDrafts(),
-    store.listInbox()
-  ]);
-  const completedBillingMonthSet = buildCompletedBillingMonthSet({
-    manualCompletedMonths: manualCompletedBillingMonths,
-    drafts,
-    inbox
-  });
+  const completedBillingMonthSet = new Set((await store.listCompletedBillingMonths()).map((item) => item.billingMonth));
   const result: MailSyncResult = {
     scanned: 0,
     imported: 0,

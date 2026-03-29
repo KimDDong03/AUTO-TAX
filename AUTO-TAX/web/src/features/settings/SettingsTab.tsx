@@ -13,7 +13,7 @@ type SettingsTabProps = {
   customerCount: number;
   busyKey: string | null;
   isMailTesting: boolean;
-  settingsHealth: { mailReady: boolean; popbillReady: boolean; operatorReady: boolean; renewalReady: boolean };
+  settingsHealth: { mailReady: boolean; popbillReady: boolean; operatorReady: boolean };
   settingsForm: any;
   revealedFields: Record<string, boolean>;
   mailPasswordConfigured: boolean;
@@ -194,8 +194,8 @@ export function SettingsTab(props: SettingsTabProps) {
             step={2}
             className="panel-settings-popbill"
             title="팝빌 기본값"
-            done={props.settingsHealth.popbillReady && props.settingsHealth.operatorReady && props.settingsHealth.renewalReady}
-            note="고객사에서 직접 관리해야 하는 발행 기본값과 공동인증서 갱신 기본값을 입력합니다."
+            done={props.settingsHealth.popbillReady && props.settingsHealth.operatorReady}
+            note="고객사에서 직접 관리해야 하는 발행 기본값만 입력합니다."
           >
             <div className="settings-field-stack">
               <section className="settings-field-group">
@@ -250,40 +250,10 @@ export function SettingsTab(props: SettingsTabProps) {
                     <input value={props.settingsForm.operatorContactTel} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, operatorContactTel: event.target.value })} placeholder="01012345678" />
                   </label>
                 </div>
-                <div className="fields two-column">
-                  <label>
-                    공동인증서 담당 부서
-                    <input value={props.settingsForm.renewalContactDepartment} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, renewalContactDepartment: event.target.value })} placeholder="예: 세무팀" />
-                  </label>
-                  <label>
-                    공동인증서 팩스번호
-                    <input value={props.settingsForm.renewalContactFax} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, renewalContactFax: event.target.value })} placeholder="예: 0541234567" />
-                  </label>
-                  <label className="settings-field-full-width">
-                    공동인증서 발급용 비밀번호
-                    <div className="password-field">
-                      <input
-                        type={props.revealedFields.renewalIssuePassword ? "text" : "password"}
-                        value={props.settingsForm.renewalIssuePassword}
-                        onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, renewalIssuePassword: event.target.value })}
-                        placeholder="변경할 때만 다시 입력"
-                      />
-                      <button type="button" className="password-toggle" aria-label={props.revealedFields.renewalIssuePassword ? "발급용 비밀번호 숨기기" : "발급용 비밀번호 보기"} onClick={() => props.toggleRevealField("renewalIssuePassword")}>
-                        <RevealIcon open={Boolean(props.revealedFields.renewalIssuePassword)} />
-                      </button>
-                    </div>
-                    <span className="field-hint">공동인증서 갱신 신청정보의 발급용 비밀번호에 공통으로 넣을 값입니다. 비워 두면 기존 저장값을 유지합니다.</span>
-                  </label>
-                </div>
-                <div className="helper-box full">
-                  <strong>고객별 입력값</strong>
-                  <span>공동인증서 갱신에 필요한 휴대폰 번호는 고객관리에서 고객별로 입력합니다.</span>
-                </div>
                 <div className="helper-box full">
                   <strong>현재 상태</strong>
                   <span>팝빌 연결: {props.settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</span>
                   <span>작업공간 운영값: {props.settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</span>
-                  <span>공동인증서 갱신 기본값: {props.settingsHealth.renewalReady ? "준비됨" : "설정 필요"}</span>
                 </div>
               </section>
             </div>

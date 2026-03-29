@@ -6,7 +6,6 @@ import type {
   RenewalAgentStatus,
   RenewalAutomationJob,
   RenewalAutomationPayload,
-  RenewalPreflightComparisonProfile,
   RenewalBridgeProbeResult
 } from "./domain.js";
 import { nowIso } from "./utils.js";
@@ -79,20 +78,6 @@ function defaultBridgeStatus(): RenewalAgentBridgeStatus {
       orderApplySeCd: null,
       payYn: null,
       nextUrl: null,
-      renewInfoPageTitle: null,
-      renewInfoSubmitUrl: null,
-      renewInfoSubmitPathKind: null,
-      renewInfoFormFieldNames: [],
-      renewInfoMustHaveFieldNames: [],
-      renewInfoFinalNum: null,
-      renewInfoSnapshot: null,
-      renewInfoBlockingMismatchFields: [],
-      renewInfoAutoSubmitReady: null,
-      renewInfoAutoSubmitSummary: null,
-      renewInfoPaymentPreviewLoaded: null,
-      renewInfoPaymentPreviewItems: [],
-      renewInfoPaymentPreviewTotalAmount: null,
-      renewInfoPaymentPreviewHasAdditionalAgreement: null,
       actionImageUrl: null,
       actionImageAlt: null,
       externalFlowKind: null,
@@ -165,23 +150,6 @@ function cloneJob(job: RenewalAutomationJob): RenewalAutomationJob {
               orderApplySeCd: job.result.bridge.preflightProbe.orderApplySeCd,
               payYn: job.result.bridge.preflightProbe.payYn,
               nextUrl: job.result.bridge.preflightProbe.nextUrl,
-              renewInfoPageTitle: job.result.bridge.preflightProbe.renewInfoPageTitle,
-              renewInfoSubmitUrl: job.result.bridge.preflightProbe.renewInfoSubmitUrl,
-              renewInfoSubmitPathKind: job.result.bridge.preflightProbe.renewInfoSubmitPathKind,
-              renewInfoFormFieldNames: [...job.result.bridge.preflightProbe.renewInfoFormFieldNames],
-              renewInfoMustHaveFieldNames: [...job.result.bridge.preflightProbe.renewInfoMustHaveFieldNames],
-              renewInfoFinalNum: job.result.bridge.preflightProbe.renewInfoFinalNum,
-              renewInfoSnapshot: job.result.bridge.preflightProbe.renewInfoSnapshot
-                ? { ...job.result.bridge.preflightProbe.renewInfoSnapshot }
-                : null,
-              renewInfoBlockingMismatchFields: [...job.result.bridge.preflightProbe.renewInfoBlockingMismatchFields],
-              renewInfoAutoSubmitReady: job.result.bridge.preflightProbe.renewInfoAutoSubmitReady,
-              renewInfoAutoSubmitSummary: job.result.bridge.preflightProbe.renewInfoAutoSubmitSummary,
-              renewInfoPaymentPreviewLoaded: job.result.bridge.preflightProbe.renewInfoPaymentPreviewLoaded,
-              renewInfoPaymentPreviewItems: [...job.result.bridge.preflightProbe.renewInfoPaymentPreviewItems],
-              renewInfoPaymentPreviewTotalAmount: job.result.bridge.preflightProbe.renewInfoPaymentPreviewTotalAmount,
-              renewInfoPaymentPreviewHasAdditionalAgreement:
-                job.result.bridge.preflightProbe.renewInfoPaymentPreviewHasAdditionalAgreement,
               actionImageUrl: job.result.bridge.preflightProbe.actionImageUrl,
               actionImageAlt: job.result.bridge.preflightProbe.actionImageAlt,
               externalFlowKind: job.result.bridge.preflightProbe.externalFlowKind,
@@ -196,8 +164,7 @@ function cloneJob(job: RenewalAutomationJob): RenewalAutomationJob {
           },
           notes: [...job.result.notes]
         }
-      : null,
-    comparisonProfile: job.comparisonProfile ? { ...job.comparisonProfile } : null
+      : null
   };
 }
 
@@ -257,23 +224,6 @@ function cloneStatus(status: RenewalAgentStatus): RenewalAgentStatus {
         orderApplySeCd: status.bridge.preflightProbe.orderApplySeCd,
         payYn: status.bridge.preflightProbe.payYn,
         nextUrl: status.bridge.preflightProbe.nextUrl,
-        renewInfoPageTitle: status.bridge.preflightProbe.renewInfoPageTitle,
-        renewInfoSubmitUrl: status.bridge.preflightProbe.renewInfoSubmitUrl,
-        renewInfoSubmitPathKind: status.bridge.preflightProbe.renewInfoSubmitPathKind,
-        renewInfoFormFieldNames: [...status.bridge.preflightProbe.renewInfoFormFieldNames],
-        renewInfoMustHaveFieldNames: [...status.bridge.preflightProbe.renewInfoMustHaveFieldNames],
-        renewInfoFinalNum: status.bridge.preflightProbe.renewInfoFinalNum,
-        renewInfoSnapshot: status.bridge.preflightProbe.renewInfoSnapshot
-          ? { ...status.bridge.preflightProbe.renewInfoSnapshot }
-          : null,
-        renewInfoBlockingMismatchFields: [...status.bridge.preflightProbe.renewInfoBlockingMismatchFields],
-        renewInfoAutoSubmitReady: status.bridge.preflightProbe.renewInfoAutoSubmitReady,
-        renewInfoAutoSubmitSummary: status.bridge.preflightProbe.renewInfoAutoSubmitSummary,
-        renewInfoPaymentPreviewLoaded: status.bridge.preflightProbe.renewInfoPaymentPreviewLoaded,
-        renewInfoPaymentPreviewItems: [...status.bridge.preflightProbe.renewInfoPaymentPreviewItems],
-        renewInfoPaymentPreviewTotalAmount: status.bridge.preflightProbe.renewInfoPaymentPreviewTotalAmount,
-        renewInfoPaymentPreviewHasAdditionalAgreement:
-          status.bridge.preflightProbe.renewInfoPaymentPreviewHasAdditionalAgreement,
         actionImageUrl: status.bridge.preflightProbe.actionImageUrl,
         actionImageAlt: status.bridge.preflightProbe.actionImageAlt,
         externalFlowKind: status.bridge.preflightProbe.externalFlowKind,
@@ -328,15 +278,10 @@ function summarizePreflightProbeResult(job: RenewalAutomationJob, result: Renewa
   const certificateLabel = job.certificateCn?.trim() || (job.certificateIndex !== null ? `인증서 #${job.certificateIndex}` : "인증서");
   const probe = result.bridge.preflightProbe;
   if (probe.ok) {
-    const autoSubmitSuffix = probe.renewInfoAutoSubmitSummary ? ` / ${probe.renewInfoAutoSubmitSummary}` : "";
     const nextStep =
       probe.branch === "change-company" && probe.externalFlowKind === "apply-form"
         ? `순정 갱신 아님 (${probe.issueCompany ?? "-"}) -> 외부 신규신청형 ${probe.externalFlowProductName ?? "신청서"}`
-        : probe.branch === "renew-info" && probe.renewInfoPaymentPreviewTotalAmount
-          ? `${probe.nextUrl ?? probe.branch} / 예상 결제 ${probe.renewInfoPaymentPreviewTotalAmount}${autoSubmitSuffix}`
-          : probe.branch === "renew-info"
-            ? `${probe.nextUrl ?? probe.branch}${autoSubmitSuffix}`
-          : probe.nextUrl ?? probe.branch;
+        : probe.nextUrl ?? probe.branch;
     return `${certificateLabel} 갱신 경로 분석 성공: ${nextStep}`;
   }
 
@@ -494,7 +439,6 @@ export class RenewalAutomationManager {
         certificateCn: null
       }),
       error: null,
-      comparisonProfile: null,
       result: null
     };
 
@@ -536,7 +480,6 @@ export class RenewalAutomationManager {
         certificateCn
       }),
       error: null,
-      comparisonProfile: null,
       result: null
     };
 
@@ -551,7 +494,6 @@ export class RenewalAutomationManager {
     certificateCn?: string | null;
     customerId?: number | null;
     customerName?: string | null;
-    comparisonProfile?: RenewalPreflightComparisonProfile | null;
     requestedBy?: string;
   }): RenewalAutomationJob {
     this.requeueStaleClaimedJobs();
@@ -579,7 +521,6 @@ export class RenewalAutomationManager {
         certificateCn
       }),
       error: null,
-      comparisonProfile: args.comparisonProfile ? { ...args.comparisonProfile } : null,
       result: null
     };
 
@@ -662,23 +603,6 @@ export class RenewalAutomationManager {
           orderApplySeCd: result.bridge.preflightProbe.orderApplySeCd,
           payYn: result.bridge.preflightProbe.payYn,
           nextUrl: result.bridge.preflightProbe.nextUrl,
-          renewInfoPageTitle: result.bridge.preflightProbe.renewInfoPageTitle,
-          renewInfoSubmitUrl: result.bridge.preflightProbe.renewInfoSubmitUrl,
-          renewInfoSubmitPathKind: result.bridge.preflightProbe.renewInfoSubmitPathKind,
-          renewInfoFormFieldNames: [...result.bridge.preflightProbe.renewInfoFormFieldNames],
-          renewInfoMustHaveFieldNames: [...result.bridge.preflightProbe.renewInfoMustHaveFieldNames],
-          renewInfoFinalNum: result.bridge.preflightProbe.renewInfoFinalNum,
-          renewInfoSnapshot: result.bridge.preflightProbe.renewInfoSnapshot
-            ? { ...result.bridge.preflightProbe.renewInfoSnapshot }
-            : null,
-          renewInfoBlockingMismatchFields: [...result.bridge.preflightProbe.renewInfoBlockingMismatchFields],
-          renewInfoAutoSubmitReady: result.bridge.preflightProbe.renewInfoAutoSubmitReady,
-          renewInfoAutoSubmitSummary: result.bridge.preflightProbe.renewInfoAutoSubmitSummary,
-          renewInfoPaymentPreviewLoaded: result.bridge.preflightProbe.renewInfoPaymentPreviewLoaded,
-          renewInfoPaymentPreviewItems: [...result.bridge.preflightProbe.renewInfoPaymentPreviewItems],
-          renewInfoPaymentPreviewTotalAmount: result.bridge.preflightProbe.renewInfoPaymentPreviewTotalAmount,
-          renewInfoPaymentPreviewHasAdditionalAgreement:
-            result.bridge.preflightProbe.renewInfoPaymentPreviewHasAdditionalAgreement,
           actionImageUrl: result.bridge.preflightProbe.actionImageUrl,
           actionImageAlt: result.bridge.preflightProbe.actionImageAlt,
           externalFlowKind: result.bridge.preflightProbe.externalFlowKind,

@@ -38,30 +38,10 @@ export function formatItemName(billingMonth: string): string {
   return `${Number(year)}년${Number(month)}월전력`;
 }
 
-export function formatWriteDate(date: Date, timeZone?: string): string {
-  if (!timeZone) {
-    const year = date.getFullYear();
-    const month = `${date.getMonth() + 1}`.padStart(2, "0");
-    const day = `${date.getDate()}`.padStart(2, "0");
-    return `${year}${month}${day}`;
-  }
-
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  });
-  const parts = formatter.formatToParts(date);
-  const values = new Map(parts.map((part) => [part.type, part.value]));
-  const year = values.get("year");
-  const month = values.get("month");
-  const day = values.get("day");
-
-  if (!year || !month || !day) {
-    throw new Error(`작성일자를 시간대(${timeZone}) 기준으로 포맷하지 못했습니다.`);
-  }
-
+export function formatWriteDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}${month}${day}`;
 }
 

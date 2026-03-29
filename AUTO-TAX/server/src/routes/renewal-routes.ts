@@ -4,8 +4,7 @@ import { HttpError } from "../http-errors.js";
 import { RenewalAutomationManager } from "../renewal-automation.js";
 import type {
   RenewalAgentHeartbeat,
-  RenewalBridgeProbeResult,
-  RenewalPreflightComparisonProfile
+  RenewalBridgeProbeResult
 } from "../domain.js";
 import type { AppStore } from "../store-contract.js";
 import type {
@@ -26,7 +25,6 @@ async function resolveCustomerContext(
   res: Response
 ) {
   let customerName: string | null = null;
-  let comparisonProfile: RenewalPreflightComparisonProfile | null = null;
   let requestStore: AppStore | null = null;
 
   if (payload.customerId !== undefined && payload.customerId !== null) {
@@ -36,17 +34,9 @@ async function resolveCustomerContext(
       throw new HttpError(404, "고객을 찾지 못했습니다.");
     }
     customerName = customer.customerName;
-    comparisonProfile = {
-      corpName: customer.corpName,
-      businessNumber: customer.businessNumber,
-      ceoName: customer.ceoName || customer.customerName,
-      addr: customer.addr,
-      bizType: customer.bizType,
-      bizClass: customer.bizClass
-    };
   }
 
-  return { customerName, comparisonProfile, requestStore };
+  return { customerName, requestStore };
 }
 
 type RouteDeps = {
@@ -146,14 +136,13 @@ export function registerRenewalRoutes(deps: RouteDeps) {
   app.post("/api/automation/renewal-jobs/preflight", async (req, res) => {
     requirePlatformAdmin(res);
     const payload = renewalPreflightRequestSchema.parse(req.body ?? {});
-    const { customerName, comparisonProfile, requestStore } = await resolveCustomerContext(payload, { store, getRequestStore }, res);
+    const { customerName, requestStore } = await resolveCustomerContext(payload, { store, getRequestStore }, res);
 
     const job = renewalAutomation.queueRenewalPreflight({
       customerId: payload.customerId ?? null,
       customerName,
       certificateIndex: payload.certificateIndex,
       certificateCn: payload.certificateCn ?? null,
-      comparisonProfile,
       requestedBy: requireAuthContext(res).email ?? "web-ui"
     });
 

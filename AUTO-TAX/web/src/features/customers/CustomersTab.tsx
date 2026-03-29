@@ -8,7 +8,6 @@ type CustomerFormState = {
   businessNumber: string;
   corpName: string;
   addr: string;
-  mobileNumber: string;
   bizType: string;
   bizClass: string;
   issueMode: "review" | "auto";
@@ -380,11 +379,6 @@ export function CustomersTab(props: CustomersTabProps) {
                 <label>
                   세금계산서 상호
                   <input value={props.customerForm.corpName} onChange={(event) => props.setCustomerForm((prev) => ({ ...prev, corpName: event.target.value }))} />
-                </label>
-                <label>
-                  휴대폰 번호
-                  <input value={props.customerForm.mobileNumber} onChange={(event) => props.setCustomerForm((prev) => ({ ...prev, mobileNumber: event.target.value }))} placeholder="01012345678" />
-                  <span className="field-hint">공동인증서 갱신 자동화에서 고객별로 필요한 값입니다.</span>
                 </label>
                 <label>
                   업태

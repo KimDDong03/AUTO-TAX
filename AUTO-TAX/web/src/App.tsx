@@ -6,7 +6,7 @@ import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, Reveal
 import { CustomersTab } from "./features/customers/CustomersTab";
 import { InitialRegistrationTab } from "./features/initial-registration/InitialRegistrationTab";
 import { SettingsTab } from "./features/settings/SettingsTab";
-import { getSafeSession, supabase } from "./supabase";
+import { supabase } from "./supabase";
 import type {
   AppSettings,
   BootstrapPayload,
@@ -77,7 +77,6 @@ type CustomerFormState = {
   businessNumber: string;
   corpName: string;
   addr: string;
-  mobileNumber: string;
   bizType: string;
   bizClass: string;
   issueMode: "review" | "auto";
@@ -109,9 +108,6 @@ type SettingsFormState = {
   operatorContactName: string;
   operatorContactEmail: string;
   operatorContactTel: string;
-  renewalContactDepartment: string;
-  renewalContactFax: string;
-  renewalIssuePassword: string;
   schedulerEnabled: boolean;
 };
 
@@ -232,61 +228,6 @@ type BillingMonthSummary = {
   latestReceivedAt: string | null;
   completed: boolean;
 };
-
-function isBlockingBillingMonthInboxMessage(message: Pick<BootstrapPayload["inbox"][number], "parseStatus" | "parsedData" | "draftId">): boolean {
-  if (message.parseStatus === "unmatched" || message.parseStatus === "failed") {
-    return true;
-  }
-
-  if ((message.parseStatus === "parsed" || message.parseStatus === "duplicate") && message.draftId === null) {
-    return true;
-  }
-
-  return false;
-}
-
-function buildCompletedBillingMonthSet(args: {
-  manualCompletedMonths: CompletedBillingMonth[];
-  drafts: InvoiceDraft[];
-  inbox: BootstrapPayload["inbox"];
-}): Set<string> {
-  const completed = new Set(args.manualCompletedMonths.map((item) => item.billingMonth));
-  const draftsByMonth = new Map<string, InvoiceDraft[]>();
-  const blockedMonths = new Set<string>();
-
-  for (const draft of args.drafts) {
-    const monthDrafts = draftsByMonth.get(draft.billingMonth) ?? [];
-    monthDrafts.push(draft);
-    draftsByMonth.set(draft.billingMonth, monthDrafts);
-  }
-
-  for (const message of args.inbox) {
-    const billingMonth = message.parsedData?.billingMonth;
-    if (!billingMonth) {
-      continue;
-    }
-
-    if (isBlockingBillingMonthInboxMessage(message)) {
-      blockedMonths.add(billingMonth);
-    }
-  }
-
-  for (const [billingMonth, monthDrafts] of draftsByMonth) {
-    if (monthDrafts.length === 0) {
-      continue;
-    }
-
-    if (blockedMonths.has(billingMonth)) {
-      continue;
-    }
-
-    if (monthDrafts.every((draft) => draft.status === "issued")) {
-      completed.add(billingMonth);
-    }
-  }
-
-  return completed;
-}
 
 const CUSTOMER_IMPORT_FIELD_OPTIONS: Array<{ id: CustomerImportFieldId; label: string; keywords: string[] }> = [
   { id: "customerName", label: "대표자명", keywords: ["대표", "성명", "고객명", "이름"] },
@@ -634,7 +575,6 @@ const baseCustomerForm: CustomerFormState = {
   businessNumber: "",
   corpName: "",
   addr: "",
-  mobileNumber: "",
   bizType: "전기업",
   bizClass: "태양광발전(자가용PPA)",
   issueMode: "review",
@@ -656,7 +596,6 @@ function isPristineCustomerForm(form: CustomerFormState): boolean {
     form.businessNumber === "" &&
     form.corpName === "" &&
     form.addr === "" &&
-    form.mobileNumber === "" &&
     form.bizType === "" &&
     form.bizClass === "" &&
     form.issueMode === "review" &&
@@ -672,7 +611,6 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
     businessNumber: customer.businessNumber,
     corpName: customer.corpName,
     addr: customer.addr,
-    mobileNumber: customer.mobileNumber,
     bizType: customer.bizType,
     bizClass: customer.bizClass,
     issueMode: customer.issueMode,
@@ -710,9 +648,6 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
     operatorContactName: settings.operatorContactName,
     operatorContactEmail: settings.operatorContactEmail,
     operatorContactTel: settings.operatorContactTel,
-    renewalContactDepartment: settings.renewalContactDepartment,
-    renewalContactFax: settings.renewalContactFax,
-    renewalIssuePassword: "",
     schedulerEnabled: settings.schedulerEnabled
   };
 }
@@ -1171,11 +1106,6 @@ function formatRenewalPreflightSummary(agent: RenewalAgentSnapshot): string {
 
   const label = preflightProbe.certificateCn || (preflightProbe.certificateIndex ? `인증서 #${preflightProbe.certificateIndex}` : "인증서");
   if (preflightProbe.ok) {
-    const autoSubmitText = preflightProbe.renewInfoAutoSubmitSummary ? ` · ${preflightProbe.renewInfoAutoSubmitSummary}` : "";
-    const paymentPreviewText =
-      preflightProbe.branch === "renew-info" && preflightProbe.renewInfoPaymentPreviewLoaded
-        ? preflightProbe.renewInfoPaymentPreviewTotalAmount ?? "결제 미리보기 로드됨"
-        : null;
     const branchText =
       preflightProbe.branch === "change-company" && preflightProbe.externalFlowKind === "apply-form"
         ? `순정 갱신 아님 (${preflightProbe.issueCompany ?? "-"} -> 외부 신규신청)`
@@ -1183,16 +1113,16 @@ function formatRenewalPreflightSummary(agent: RenewalAgentSnapshot): string {
           ? `기관변경 필요 (${preflightProbe.issueCompany ?? "-"})`
           : preflightProbe.branch === "renew-payment"
             ? "순정 갱신 · 결제 단계"
-          : preflightProbe.branch === "password-confirm"
-            ? "순정 갱신 · 발급 직전 비밀번호 확인"
+            : preflightProbe.branch === "password-confirm"
+              ? "순정 갱신 · 발급 직전 비밀번호 확인"
             : preflightProbe.branch === "renew-info"
-              ? `순정 갱신 · 신청정보 입력${preflightProbe.renewInfoSubmitUrl ? " -> 결제확인 제출 준비" : ""}${paymentPreviewText ? ` (${paymentPreviewText})` : ""}${autoSubmitText}`
+              ? "순정 갱신 · 신청정보 입력"
               : preflightProbe.branch;
     const externalFlowText =
       preflightProbe.branch === "change-company" && preflightProbe.externalFlowKind === "apply-form"
         ? `외부 신규신청형${preflightProbe.externalFlowProductName ? ` (${preflightProbe.externalFlowProductName})` : ""}`
         : null;
-    const urlText = preflightProbe.externalFlowSubmitUrl ?? preflightProbe.renewInfoSubmitUrl ?? preflightProbe.nextUrl;
+    const urlText = preflightProbe.externalFlowSubmitUrl ?? preflightProbe.nextUrl;
     return `${label} · ${branchText}${externalFlowText ? ` · ${externalFlowText}` : ""}${urlText ? ` · ${urlText}` : ""}`;
   }
 
@@ -1225,13 +1155,7 @@ function formatRenewalPathCell(
   }
 
   if (preflightProbe.branch === "renew-info") {
-    const previewSuffix = preflightProbe.renewInfoPaymentPreviewLoaded && preflightProbe.renewInfoPaymentPreviewTotalAmount
-      ? ` · ${preflightProbe.renewInfoPaymentPreviewTotalAmount}`
-      : "";
-    const autoSubmitSuffix = preflightProbe.renewInfoAutoSubmitSummary ? ` · ${preflightProbe.renewInfoAutoSubmitSummary}` : "";
-    return preflightProbe.renewInfoSubmitUrl
-      ? `순정 갱신 · 신청정보 입력 -> 결제확인${previewSuffix}${autoSubmitSuffix}`
-      : `순정 갱신 · 신청정보 입력${previewSuffix}${autoSubmitSuffix}`;
+    return "순정 갱신 · 신청정보 입력";
   }
 
   return preflightProbe.nextUrl ?? preflightProbe.branch;
@@ -1405,13 +1329,7 @@ export function App() {
     customerImportFile !== null &&
     isCustomerImportMappingComplete(customerImportMapping) &&
     customerImportRowsPayload.length > 0;
-  const completedBillingMonthSet = data
-    ? buildCompletedBillingMonthSet({
-        manualCompletedMonths: completedBillingMonths,
-        drafts: data.drafts,
-        inbox: data.inbox
-      })
-    : new Set(completedBillingMonths.map((item) => item.billingMonth));
+  const completedBillingMonthSet = new Set(completedBillingMonths.map((item) => item.billingMonth));
   const isBillingMonthCompleted = (billingMonth?: string | null) => Boolean(billingMonth && completedBillingMonthSet.has(billingMonth));
   const getInboxDisplayParseStatus = (message: BootstrapPayload["inbox"][number]) => {
     if (message.parseStatus === "ignored") {
@@ -1558,10 +1476,10 @@ export function App() {
       applyAuthHashState(window.location.hash);
     }
 
-    void getSafeSession().then((nextSession) => {
+    void supabase.auth.getSession().then(({ data: next }) => {
       if (!mounted) return;
-      authSessionRef.current = nextSession;
-      setAuthSession(nextSession);
+      authSessionRef.current = next.session;
+      setAuthSession(next.session);
       setAuthReady(true);
     });
 
@@ -2119,7 +2037,6 @@ export function App() {
       corpName: customerForm.corpName,
       ceoName: customerForm.customerName,
       addr: resolvedAddress || customerForm.addr,
-      mobileNumber: customerForm.mobileNumber,
       bizType: customerForm.bizType,
       bizClass: customerForm.bizClass,
       issueMode: isEditing ? customerForm.issueMode : "review",
@@ -2402,9 +2319,6 @@ export function App() {
         operatorContactName: normalized.operatorContactName.trim(),
         operatorContactEmail: normalized.operatorContactEmail.trim(),
         operatorContactTel: normalized.operatorContactTel.trim(),
-        renewalContactDepartment: normalized.renewalContactDepartment.trim(),
-        renewalContactFax: normalized.renewalContactFax.trim(),
-        renewalIssuePassword: normalized.renewalIssuePassword,
         schedulerEnabled: normalized.schedulerEnabled
       }
     };
@@ -2424,10 +2338,7 @@ export function App() {
         popbillSharedPassword: "",
         operatorContactName: data.settings.operatorContactName,
         operatorContactEmail: data.settings.operatorContactEmail,
-        operatorContactTel: data.settings.operatorContactTel,
-        renewalContactDepartment: data.settings.renewalContactDepartment,
-        renewalContactFax: data.settings.renewalContactFax,
-        renewalIssuePassword: ""
+        operatorContactTel: data.settings.operatorContactTel
       }
     };
   };
@@ -2879,13 +2790,11 @@ export function App() {
   };
 
   const requestRenewalPreflight = async (
-    certificate: RenewalAgentCertificate,
-    customerId?: number | null
+    certificate: RenewalAgentCertificate
   ) => {
     const result = await api<{ id: number }>("/api/automation/renewal-jobs/preflight", {
       method: "POST",
       body: JSON.stringify({
-        customerId: customerId ?? null,
         certificateIndex: Number(certificate.index),
         certificateCn: certificate.cn || null
       })
@@ -3440,8 +3349,7 @@ export function App() {
   const settingsHealth = {
     mailReady: Boolean(data.settings.imapUser && data.settings.smtpUser && data.settings.mailPasswordConfigured),
     popbillReady: data.settings.popbillConfigured,
-    operatorReady: data.settings.operatorConfigured,
-    renewalReady: data.settings.renewalConfigured
+    operatorReady: data.settings.operatorConfigured
   };
   const unmatchedMessages = data.inbox.filter((message) => {
     const status = getInboxDisplayParseStatus(message);
@@ -3522,7 +3430,7 @@ export function App() {
   const setupChecklist = [
     { key: "gmail", label: "메일 계정 연결", done: settingsHealth.mailReady },
     { key: "popbill", label: "팝빌 연결 준비", done: settingsHealth.popbillReady },
-    { key: "operator", label: "운영 정보 준비", done: settingsHealth.operatorReady && settingsHealth.renewalReady },
+    { key: "operator", label: "운영 정보 준비", done: settingsHealth.operatorReady },
     { key: "customer", label: "고객 1명 이상 등록", done: customerRegistrationReady }
   ];
   const setupPendingCount = setupChecklist.filter((step) => !step.done).length;
@@ -3587,11 +3495,11 @@ export function App() {
     {
       id: "popbill",
       step: 2,
-      title: "팝빌 / 갱신 기본값",
-      done: settingsHealth.popbillReady && settingsHealth.operatorReady && settingsHealth.renewalReady,
-      summary: settingsHealth.popbillReady && settingsHealth.operatorReady && settingsHealth.renewalReady
-        ? "플랫폼 키 연결 및 공동인증서 갱신 기본값 준비 완료"
-        : "팝빌 연결, 운영 담당자, 갱신 기본값 확인 필요"
+      title: "팝빌 / 담당자",
+      done: settingsHealth.popbillReady && settingsHealth.operatorReady,
+      summary: settingsHealth.popbillReady && settingsHealth.operatorReady
+        ? "플랫폼 키 연결 및 작업공간 운영값 준비 완료"
+        : "팝빌 연결 또는 작업공간 운영값 확인 필요"
     },
     {
       id: "account",

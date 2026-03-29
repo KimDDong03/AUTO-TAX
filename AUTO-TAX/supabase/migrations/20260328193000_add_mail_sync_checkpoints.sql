@@ -24,7 +24,7 @@ create policy mail_sync_checkpoints_select_member
 on public.mail_sync_checkpoints
 for select
 using (
-  public.is_org_member(organization_id)
+  public.user_belongs_to_organization(organization_id)
 );
 
 drop policy if exists mail_sync_checkpoints_manage_operator on public.mail_sync_checkpoints;
@@ -32,8 +32,8 @@ create policy mail_sync_checkpoints_manage_operator
 on public.mail_sync_checkpoints
 for all
 using (
-  public.has_org_role(organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[])
+  public.user_can_operate_organization(organization_id)
 )
 with check (
-  public.has_org_role(organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[])
+  public.user_can_operate_organization(organization_id)
 );
