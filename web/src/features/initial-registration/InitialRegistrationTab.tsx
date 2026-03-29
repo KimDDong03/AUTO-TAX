@@ -353,7 +353,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
       <Panel
         className="panel-initial-months"
         title={`월별 완료 처리 ${props.billingMonthSummaries.length}개`}
-        subtitle="해당 월 초안이 모두 발행 완료되면 자동으로 완료 처리됩니다. 필요하면 과거 월만 수동 완료할 수 있습니다."
+        subtitle="이미 발행이 끝난 정산월은 완료 처리해 두면 이후 메일을 다시 올리지 않습니다."
       >
         {props.billingMonthSummaries.length > 0 ? (
           <div className="list month-completion-list">
@@ -369,7 +369,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                     </p>
                   </div>
                   {summary.completed ? (
-                    <span className="status status-ignored">완료</span>
+                    <span className="status status-ignored">완료 처리</span>
                   ) : (
                     <button
                       type="button"

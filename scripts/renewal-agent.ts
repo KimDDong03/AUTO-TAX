@@ -8,17 +8,6 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import {
-  buildRenewInfoComparison,
-  buildRenewInfoPaymentPreviewRequest,
-  parseRenewInfoFlow,
-  parseRenewInfoSnapshot,
-  parseRenewInfoPaymentPreview
-} from "../server/src/services/renewal-page-parser.js";
-import type {
-  RenewalInfoSnapshot,
-  RenewalPreflightComparisonProfile
-} from "../server/src/domain.js";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_SERVER_URL = "http://127.0.0.1:4300";
@@ -106,20 +95,6 @@ type BridgeProbeResult = {
       orderApplySeCd: string | null;
       payYn: string | null;
       nextUrl: string | null;
-      renewInfoPageTitle: string | null;
-      renewInfoSubmitUrl: string | null;
-      renewInfoSubmitPathKind: "apply" | "renew" | "unknown" | null;
-      renewInfoFormFieldNames: string[];
-      renewInfoMustHaveFieldNames: string[];
-      renewInfoFinalNum: string | null;
-      renewInfoSnapshot: RenewalInfoSnapshot | null;
-      renewInfoBlockingMismatchFields: string[];
-      renewInfoAutoSubmitReady: boolean | null;
-      renewInfoAutoSubmitSummary: string | null;
-      renewInfoPaymentPreviewLoaded: boolean | null;
-      renewInfoPaymentPreviewItems: string[];
-      renewInfoPaymentPreviewTotalAmount: string | null;
-      renewInfoPaymentPreviewHasAdditionalAgreement: boolean | null;
       actionImageUrl: string | null;
       actionImageAlt: string | null;
       externalFlowKind: "apply-form" | "unknown" | null;
@@ -154,7 +129,6 @@ type ClaimedJob = {
   customerName: string | null;
   certificateIndex: number;
   certificateCn: string | null;
-  comparisonProfile: RenewalPreflightComparisonProfile | null;
 } | null;
 
 type BridgeJsonResponse = {
@@ -180,10 +154,6 @@ type BridgeCommandResult = {
 type SelectionProbeRequest = {
   certificateIndex: number;
   certificateCn: string | null;
-};
-
-type RenewalPreflightRequest = SelectionProbeRequest & {
-  comparisonProfile?: RenewalPreflightComparisonProfile | null;
 };
 
 let cachedSignGateRuntimeConfig:
@@ -235,20 +205,6 @@ let cachedPreflightProbe: BridgeProbeResult["bridge"]["preflightProbe"] = {
   orderApplySeCd: null,
   payYn: null,
   nextUrl: null,
-  renewInfoPageTitle: null,
-  renewInfoSubmitUrl: null,
-  renewInfoSubmitPathKind: null,
-  renewInfoFormFieldNames: [],
-  renewInfoMustHaveFieldNames: [],
-  renewInfoFinalNum: null,
-  renewInfoSnapshot: null,
-  renewInfoBlockingMismatchFields: [],
-  renewInfoAutoSubmitReady: null,
-  renewInfoAutoSubmitSummary: null,
-  renewInfoPaymentPreviewLoaded: null,
-  renewInfoPaymentPreviewItems: [],
-  renewInfoPaymentPreviewTotalAmount: null,
-  renewInfoPaymentPreviewHasAdditionalAgreement: null,
   actionImageUrl: null,
   actionImageAlt: null,
   externalFlowKind: null,
@@ -438,20 +394,6 @@ function defaultPreflightProbe(): BridgeProbeResult["bridge"]["preflightProbe"] 
     orderApplySeCd: null,
     payYn: null,
     nextUrl: null,
-    renewInfoPageTitle: null,
-    renewInfoSubmitUrl: null,
-    renewInfoSubmitPathKind: null,
-    renewInfoFormFieldNames: [],
-    renewInfoMustHaveFieldNames: [],
-    renewInfoFinalNum: null,
-    renewInfoSnapshot: null,
-    renewInfoBlockingMismatchFields: [],
-    renewInfoAutoSubmitReady: null,
-    renewInfoAutoSubmitSummary: null,
-    renewInfoPaymentPreviewLoaded: null,
-    renewInfoPaymentPreviewItems: [],
-    renewInfoPaymentPreviewTotalAmount: null,
-    renewInfoPaymentPreviewHasAdditionalAgreement: null,
     actionImageUrl: null,
     actionImageAlt: null,
     externalFlowKind: null,
@@ -485,12 +427,7 @@ function cloneSelectionProbe(): BridgeProbeResult["bridge"]["selectionProbe"] {
 
 function clonePreflightProbe(): BridgeProbeResult["bridge"]["preflightProbe"] {
   return {
-    ...cachedPreflightProbe,
-    renewInfoFormFieldNames: [...cachedPreflightProbe.renewInfoFormFieldNames],
-    renewInfoMustHaveFieldNames: [...cachedPreflightProbe.renewInfoMustHaveFieldNames],
-    renewInfoSnapshot: cachedPreflightProbe.renewInfoSnapshot ? { ...cachedPreflightProbe.renewInfoSnapshot } : null,
-    renewInfoBlockingMismatchFields: [...cachedPreflightProbe.renewInfoBlockingMismatchFields],
-    renewInfoPaymentPreviewItems: [...cachedPreflightProbe.renewInfoPaymentPreviewItems]
+    ...cachedPreflightProbe
   };
 }
 
@@ -551,20 +488,15 @@ async function postRenewAjax(
 async function postRenewPage(
   cookieHeader: string,
   pathname: string,
-  formData: URLSearchParams,
-  options?: {
-    referer?: string;
-    requestedWithXmlHttpRequest?: boolean;
-  }
+  formData: URLSearchParams
 ): Promise<string> {
   const response = await fetch(`${SIGNGATE_ORIGIN}${pathname}`, {
     method: "POST",
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AUTO-TAX-Renewal-Agent/0.1",
-      Referer: options?.referer ?? SIGNGATE_RENEW_URL,
+      Referer: SIGNGATE_RENEW_URL,
       Origin: SIGNGATE_ORIGIN,
       "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      ...(options?.requestedWithXmlHttpRequest ? { "X-Requested-With": "XMLHttpRequest" } : {}),
       ...(cookieHeader ? { Cookie: cookieHeader } : {})
     },
     body: formData.toString()
@@ -770,7 +702,7 @@ function buildPreflightNextUrl(renewInfo: Record<string, unknown>): {
 async function probeRenewalPreflight(
   target: (typeof PORT_TARGETS)[number],
   signGateConfig: SignGateRuntimeConfig,
-  selectionRequest: RenewalPreflightRequest
+  selectionRequest: SelectionProbeRequest
 ): Promise<BridgeProbeResult["bridge"]["preflightProbe"]> {
   const preflightProbe = defaultPreflightProbe();
   preflightProbe.sourcePort = target.port;
@@ -847,35 +779,6 @@ async function probeRenewalPreflight(
     preflightProbe.ok = true;
     preflightProbe.branch = nextStep.branch;
     preflightProbe.nextUrl = nextStep.nextUrl;
-
-    if (nextStep.branch === "renew-info" && nextStep.nextUrl) {
-      try {
-        const renewInfoPage = await postRenewPage(cookieHeader, "/renew/stepEntrpsApplyInfoInput.sg", formData);
-        Object.assign(preflightProbe, parseRenewInfoFlow(renewInfoPage, nextStep.nextUrl));
-        Object.assign(preflightProbe, parseRenewInfoSnapshot(renewInfoPage));
-        Object.assign(
-          preflightProbe,
-          buildRenewInfoComparison(preflightProbe.renewInfoSnapshot, selectionRequest.comparisonProfile ?? null)
-        );
-        const paymentPreviewRequest = new URLSearchParams(
-          buildRenewInfoPaymentPreviewRequest(renewInfoPage, nextStep.nextUrl)
-        );
-        const paymentPreviewHtml = await postRenewPage(
-          cookieHeader,
-          "/renew/getPayInfSection.sg",
-          paymentPreviewRequest,
-          {
-            referer: nextStep.nextUrl,
-            requestedWithXmlHttpRequest: true
-          }
-        );
-        Object.assign(preflightProbe, parseRenewInfoPaymentPreview(paymentPreviewHtml));
-      } catch {
-        // The main preflight result is still valid even if the follow-up page
-        // cannot be parsed in this probe attempt.
-      }
-    }
-
     return preflightProbe;
   } catch (error) {
     preflightProbe.error = error instanceof Error ? error.message : "갱신 경로 분석 실패";
@@ -1452,7 +1355,7 @@ export async function probeLicenseAndStorage(
 export async function collectBridgeProbeResult(options?: {
   includeDetailedProbe?: boolean;
   selectionRequest?: SelectionProbeRequest | null;
-  preflightRequest?: RenewalPreflightRequest | null;
+  preflightRequest?: SelectionProbeRequest | null;
 }): Promise<BridgeProbeResult> {
   const [processStatus, portChecks, versionProbe] = await Promise.all([
     detectSecuKitProcesses(),
@@ -1496,12 +1399,7 @@ export async function collectBridgeProbeResult(options?: {
           PORT_TARGETS[0]!;
         preflightProbe = await probeRenewalPreflight(preflightTarget, signGateConfig, options.preflightRequest);
         cachedPreflightProbe = {
-          ...preflightProbe,
-          renewInfoFormFieldNames: [...preflightProbe.renewInfoFormFieldNames],
-          renewInfoMustHaveFieldNames: [...preflightProbe.renewInfoMustHaveFieldNames],
-          renewInfoSnapshot: preflightProbe.renewInfoSnapshot ? { ...preflightProbe.renewInfoSnapshot } : null,
-          renewInfoBlockingMismatchFields: [...preflightProbe.renewInfoBlockingMismatchFields],
-          renewInfoPaymentPreviewItems: [...preflightProbe.renewInfoPaymentPreviewItems]
+          ...preflightProbe
         };
       }
       cachedDetailedBridgeStatus = {
@@ -1547,12 +1445,7 @@ export async function collectBridgeProbeResult(options?: {
           error: message
         };
         cachedPreflightProbe = {
-          ...preflightProbe,
-          renewInfoFormFieldNames: [...preflightProbe.renewInfoFormFieldNames],
-          renewInfoMustHaveFieldNames: [...preflightProbe.renewInfoMustHaveFieldNames],
-          renewInfoSnapshot: null,
-          renewInfoBlockingMismatchFields: [...preflightProbe.renewInfoBlockingMismatchFields],
-          renewInfoPaymentPreviewItems: [...preflightProbe.renewInfoPaymentPreviewItems]
+          ...preflightProbe
         };
       }
       cachedDetailedBridgeStatus = {
@@ -1605,7 +1498,7 @@ export async function collectBridgeProbeResult(options?: {
     notes.push(
       preflightProbe.branch === "change-company" && preflightProbe.externalFlowKind === "apply-form"
         ? `갱신 경로 분석 성공: 순정 갱신 아님 -> ${preflightProbe.issueCompany ?? "-"} -> 외부 신규신청형 ${preflightProbe.externalFlowProductName ?? "신청서"}`
-        : `갱신 경로 분석 성공: ${preflightProbe.branch}${preflightProbe.nextUrl ? ` -> ${preflightProbe.nextUrl}` : ""}${preflightProbe.branch === "renew-info" && preflightProbe.renewInfoPaymentPreviewTotalAmount ? ` / 예상 결제 ${preflightProbe.renewInfoPaymentPreviewTotalAmount}` : ""}${preflightProbe.renewInfoAutoSubmitSummary ? ` / ${preflightProbe.renewInfoAutoSubmitSummary}` : ""}`
+        : `갱신 경로 분석 성공: ${preflightProbe.branch}${preflightProbe.nextUrl ? ` -> ${preflightProbe.nextUrl}` : ""}`
     );
   } else if (preflightProbe.error || preflightProbe.message) {
     notes.push(`갱신 경로 분석 실패: ${preflightProbe.error ?? preflightProbe.message ?? "원인 미상"}`);
@@ -1762,13 +1655,12 @@ export async function runRenewalAgentLoop(): Promise<void> {
             includeDetailedProbe: true,
             preflightRequest: {
               certificateIndex: job.certificateIndex,
-              certificateCn: job.certificateCn,
-              comparisonProfile: job.comparisonProfile
+              certificateCn: job.certificateCn
             }
           });
           await completeJob(serverUrl, agentId, job.id, result, secret);
           console.log(
-            `[renewal-agent] job ${job.id} renewal preflight: ${result.bridge.preflightProbe.branch}${result.bridge.preflightProbe.nextUrl ? ` -> ${result.bridge.preflightProbe.nextUrl}` : ""}${result.bridge.preflightProbe.renewInfoAutoSubmitSummary ? ` / ${result.bridge.preflightProbe.renewInfoAutoSubmitSummary}` : ""}`
+            `[renewal-agent] job ${job.id} renewal preflight: ${result.bridge.preflightProbe.branch}${result.bridge.preflightProbe.nextUrl ? ` -> ${result.bridge.preflightProbe.nextUrl}` : ""}`
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : "갱신 경로 분석 실패";

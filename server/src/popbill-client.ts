@@ -95,13 +95,6 @@ function mapPopbillError(operation: PopbillOperation, code: string, rawMessage: 
     };
   }
 
-  if (operation === "invoice-cancel" && code === "-11002030") {
-    return {
-      status: 409,
-      message: appendCode("팝빌 문서가 이미 취소되었거나 현재 상태에서는 취소할 수 없습니다.", code)
-    };
-  }
-
   const fallbackByOperation: Record<PopbillOperation, string> = {
     "join-member": "팝빌 가입에 실패했습니다.",
     "check-member": "팝빌 가입 상태 확인에 실패했습니다.",
@@ -424,7 +417,7 @@ export async function issueTaxInvoice(
 ): Promise<unknown> {
   assertCustomerPopbillIdentity(customer);
   const service = getService(settings);
-  const formattedWriteDate = formatWriteDate(writeDate, settings.timezone);
+  const formattedWriteDate = formatWriteDate(writeDate);
 
   const taxinvoice = {
     writeDate: formattedWriteDate,

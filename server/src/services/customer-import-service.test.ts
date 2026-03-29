@@ -51,7 +51,6 @@ test("commitCustomerImport saves importable rows and reports blocked or failed r
         issueHour: null,
         issueMinute: null,
         memo: "",
-        mobileNumber: "",
         plantNames: [],
         matchAddresses: [String(input.addr)],
         createdAt: "2026-03-28T00:00:00.000Z",
@@ -118,7 +117,6 @@ test("commitCustomerImport saves importable rows and reports blocked or failed r
   assert.equal(savedPayloads.length, 2);
   assert.equal(savedPayloads[0]?.bizType, "전기업");
   assert.equal(savedPayloads[0]?.bizClass, "태양광발전(자가용PPA)");
-  assert.equal(savedPayloads[0]?.mobileNumber, "");
   assert.equal(logs.length, 1);
   assert.equal(logs[0]?.scope, "customer-import");
 });

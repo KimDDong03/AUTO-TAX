@@ -2,10 +2,9 @@ import type { Express } from "express";
 import { issueDraftNow } from "../automation.js";
 import type { AppSettings, DraftStatus, InvoiceDraft } from "../domain.js";
 import type { ApiErrorBody } from "../http-errors.js";
-import { getTaxInvoiceInfo, getTaxInvoicePrintURL, getTaxInvoiceViewURL } from "../popbill-client.js";
+import { cancelTaxInvoice, getTaxInvoiceInfo, getTaxInvoicePrintURL, getTaxInvoiceViewURL } from "../popbill-client.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";
-import { cancelIssuedDraftWithRecovery } from "../services/draft-cancel-service.js";
 
 type RouteDeps = {
   app: Express;
@@ -147,38 +146,15 @@ export function registerDraftRoutes(deps: RouteDeps) {
 
     const settings = await getServerManagedSettings(requestStore);
     await assertDraftPopbillEnvironment(settings, draft);
-    const cancelResult = await cancelIssuedDraftWithRecovery(settings, customer, draft, "AUTO-TAX 재발행 테스트 취소");
-    let reopened: InvoiceDraft;
-    try {
-      reopened = await requestStore.reopenIssuedDraftForReissue(draftId);
-    } catch (error) {
-      const syncError = new Error("팝빌 취소는 완료됐지만 재발행 대기 상태 복원에 실패했습니다. 잠시 후 다시 시도하세요.") as Error & {
-        status?: number;
-      };
-      syncError.status = 502;
-      throw Object.assign(syncError, { cause: error });
-    }
-
-    await requestStore.createLog(
-      cancelResult.status === "already-canceled" ? "info" : "warn",
-      "drafts",
-      cancelResult.status === "already-canceled"
-        ? "팝빌에서 이미 취소된 발행 건을 확인해 재발행 대기로 복구했습니다."
-        : "발행 완료 건을 취소하고 검수 대기로 되돌렸습니다.",
-      {
-        draftId,
-        customerId: customer.id,
-        previousMgtKey: draft.popbillMgtKey,
-        nextMgtKey: reopened.popbillMgtKey,
-        recoveredFromAlreadyCanceled: cancelResult.status === "already-canceled"
-      }
-    );
-    res.json({
-      ok: true,
-      response: cancelResult.response,
-      draft: reopened,
-      recovered: cancelResult.status === "already-canceled"
+    const response = await cancelTaxInvoice(settings, customer, draft, "AUTO-TAX 재발행 테스트 취소");
+    const reopened = await requestStore.reopenIssuedDraftForReissue(draftId);
+    await requestStore.createLog("warn", "drafts", "발행 완료 건을 취소하고 검수 대기로 되돌렸습니다.", {
+      draftId,
+      customerId: customer.id,
+      previousMgtKey: draft.popbillMgtKey,
+      nextMgtKey: reopened.popbillMgtKey
     });
+    res.json({ ok: true, response, draft: reopened });
   });
 
   app.get("/api/drafts/:id/popbill/info", async (req, res) => {
