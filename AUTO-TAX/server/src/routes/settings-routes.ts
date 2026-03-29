@@ -38,6 +38,9 @@ const settingsSchema = z.object({
   operatorContactName: z.string(),
   operatorContactEmail: z.string(),
   operatorContactTel: z.string(),
+  renewalContactDepartment: z.string(),
+  renewalContactFax: z.string(),
+  renewalIssuePassword: z.string(),
   schedulerEnabled: z.boolean()
 });
 

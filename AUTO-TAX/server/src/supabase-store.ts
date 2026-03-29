@@ -114,6 +114,9 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     operatorContactName: asString(integrationRow.operator_contact_name),
     operatorContactEmail: asString(integrationRow.operator_contact_email),
     operatorContactTel: asString(integrationRow.operator_contact_tel),
+    renewalContactDepartment: asString(integrationRow.renewal_contact_department),
+    renewalContactFax: asString(integrationRow.renewal_contact_fax),
+    renewalIssuePassword: decryptSecret(asString(integrationRow.renewal_issue_password_encrypted)),
     schedulerEnabled: asBoolean(settingsRow.scheduler_enabled, true),
     certLastCheckedAt: asNullableString(settingsRow.cert_last_checked_at),
     certAlertLastSentAt: asNullableString(settingsRow.cert_alert_last_sent_at),
@@ -198,6 +201,16 @@ function isMissingMailSyncCheckpointsTableError(error: unknown): boolean {
   );
 }
 
+function isMissingInvoiceDraftPopbillEnvironmentColumnError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : asString(error).toLowerCase();
+
+  return (
+    message.includes("invoice_drafts") &&
+    message.includes("popbill_environment") &&
+    (message.includes("schema cache") || message.includes("column") || message.includes("does not exist"))
+  );
+}
+
 function mapCustomer(row: Row, plantNames: string[], matchAddresses: string[]): Customer {
   const customerName = asString(row.customer_name);
   return {
@@ -219,6 +232,7 @@ function mapCustomer(row: Row, plantNames: string[], matchAddresses: string[]): 
     issueHour: row.issue_hour === null ? null : asNumber(row.issue_hour),
     issueMinute: row.issue_minute === null ? null : asNumber(row.issue_minute),
     memo: asString(row.memo),
+    mobileNumber: asString(row.mobile_number),
     plantNames,
     matchAddresses,
     createdAt: asString(row.created_at, nowIso()),
@@ -414,6 +428,30 @@ export class SupabaseStore implements AppStore {
       throw new Error("Supabase 조직이 초기화되지 않았습니다.");
     }
     return this.organizationId;
+  }
+
+  private async updateInvoiceDraftRow(
+    draftRowId: string,
+    payload: Record<string, unknown>,
+    label: string
+  ): Promise<void> {
+    try {
+      await assertNoError(
+        label,
+        this.client.from("invoice_drafts").update(payload).eq("id", draftRowId)
+      );
+    } catch (error) {
+      if (!("popbill_environment" in payload) || !isMissingInvoiceDraftPopbillEnvironmentColumnError(error)) {
+        throw error;
+      }
+
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.popbill_environment;
+      await assertNoError(
+        label,
+        this.client.from("invoice_drafts").update(fallbackPayload).eq("id", draftRowId)
+      );
+    }
   }
 
   private async getSettingsRows(): Promise<{ settingsRow: Row; integrationRow: Row }> {
@@ -742,6 +780,10 @@ export class SupabaseStore implements AppStore {
       input.popbillSharedPassword !== undefined
         ? (input.popbillSharedPassword.trim() === "" ? current.popbillSharedPassword : input.popbillSharedPassword)
         : current.popbillSharedPassword;
+    const nextRenewalIssuePassword =
+      input.renewalIssuePassword !== undefined
+        ? (input.renewalIssuePassword.trim() === "" ? current.renewalIssuePassword : input.renewalIssuePassword)
+        : current.renewalIssuePassword;
     const next: AppSettings = {
       ...current,
       ...input,
@@ -749,6 +791,7 @@ export class SupabaseStore implements AppStore {
       smtpPass: nextSmtpPass,
       popbillUserIdPrefix: nextPopbillUserIdPrefix,
       popbillSharedPassword: nextPopbillSharedPassword,
+      renewalIssuePassword: nextRenewalIssuePassword,
       notificationEmails: input.notificationEmails ?? current.notificationEmails,
       updatedAt: nowIso()
     };
@@ -802,7 +845,10 @@ export class SupabaseStore implements AppStore {
           popbill_shared_password_encrypted: encryptSecret(next.popbillSharedPassword),
           operator_contact_name: next.operatorContactName,
           operator_contact_email: next.operatorContactEmail,
-          operator_contact_tel: next.operatorContactTel
+          operator_contact_tel: next.operatorContactTel,
+          renewal_contact_department: next.renewalContactDepartment,
+          renewal_contact_fax: next.renewalContactFax,
+          renewal_issue_password_encrypted: encryptSecret(next.renewalIssuePassword)
         },
         { onConflict: "organization_id" }
       )
@@ -945,6 +991,7 @@ export class SupabaseStore implements AppStore {
             issue_hour: input.issueHour,
             issue_minute: input.issueMinute,
             memo: input.memo,
+            mobile_number: input.mobileNumber.trim(),
             updated_at: timestamp
           })
           .eq("id", asString(current.id))
@@ -993,7 +1040,8 @@ export class SupabaseStore implements AppStore {
             issue_day: input.issueDay,
             issue_hour: input.issueHour,
             issue_minute: input.issueMinute,
-            memo: input.memo
+            memo: input.memo,
+            mobile_number: input.mobileNumber.trim()
           })
           .select("*")
           .single()
@@ -1454,10 +1502,7 @@ export class SupabaseStore implements AppStore {
       payload.popbill_environment = popbillEnvironment;
     }
 
-    await assertNoError(
-      "초안 상태 저장 실패",
-      this.client.from("invoice_drafts").update(payload).eq("id", asString(draftRow.id))
-    );
+    await this.updateInvoiceDraftRow(asString(draftRow.id), payload, "초안 상태 저장 실패");
 
     const draft = await this.getDraft(draftId);
     if (!draft) {
@@ -1472,15 +1517,13 @@ export class SupabaseStore implements AppStore {
       throw new Error("초안을 찾지 못했습니다.");
     }
 
-    await assertNoError(
-      "초안 팝빌 환경 저장 실패",
-      this.client
-        .from("invoice_drafts")
-        .update({
-          popbill_environment: popbillEnvironment,
-          updated_at: nowIso()
-        })
-        .eq("id", asString(draftRow.id))
+    await this.updateInvoiceDraftRow(
+      asString(draftRow.id),
+      {
+        popbill_environment: popbillEnvironment,
+        updated_at: nowIso()
+      },
+      "초안 팝빌 환경 저장 실패"
     );
 
     const updated = await this.getDraft(draftId);
@@ -1528,23 +1571,21 @@ export class SupabaseStore implements AppStore {
     }
 
     const nextMgtKey = nextDraftMgtKey(draft.popbillMgtKey, draft.customerId, draft.billingMonth, draft.sourceMessageId);
-    await assertNoError(
-      "재발행 대기 상태 복원 실패",
-      this.client
-        .from("invoice_drafts")
-        .update({
-          status: "review",
-          scheduled_for: null,
-          issue_requested_at: null,
-          issued_at: null,
-          issue_error: "",
-          write_date: null,
-          popbill_result_json: null,
-          popbill_environment: null,
-          popbill_mgt_key: nextMgtKey,
-          updated_at: nowIso()
-        })
-        .eq("id", asString(draftRow.id))
+    await this.updateInvoiceDraftRow(
+      asString(draftRow.id),
+      {
+        status: "review",
+        scheduled_for: null,
+        issue_requested_at: null,
+        issued_at: null,
+        issue_error: "",
+        write_date: null,
+        popbill_result_json: null,
+        popbill_environment: null,
+        popbill_mgt_key: nextMgtKey,
+        updated_at: nowIso()
+      },
+      "재발행 대기 상태 복원 실패"
     );
 
     const reopened = await this.getDraft(draftId);

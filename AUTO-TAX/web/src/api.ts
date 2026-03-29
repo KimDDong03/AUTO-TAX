@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { getSafeSession } from "./supabase";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "auto-tax.active-organization-id";
 
@@ -48,9 +48,7 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
 
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
+  const session = await getSafeSession();
 
   if (session?.access_token) {
     headers.set("Authorization", `Bearer ${session.access_token}`);
