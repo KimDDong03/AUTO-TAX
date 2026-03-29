@@ -100,6 +100,9 @@ type ClientAppSettings = Pick<
   | "operatorContactName"
   | "operatorContactEmail"
   | "operatorContactTel"
+  | "renewalContactDepartment"
+  | "renewalContactFax"
+  | "renewalIssuePassword"
   | "schedulerEnabled"
   | "certLastCheckedAt"
   | "certAlertLastSentAt"
@@ -110,6 +113,7 @@ type ClientAppSettings = Pick<
   popbillConfigured: boolean;
   popbillSharedPasswordConfigured: boolean;
   operatorConfigured: boolean;
+  renewalConfigured: boolean;
 };
 
 type RateLimitEntry = {
@@ -321,6 +325,9 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
     operatorContactName: settings.operatorContactName,
     operatorContactEmail: settings.operatorContactEmail,
     operatorContactTel: settings.operatorContactTel,
+    renewalContactDepartment: settings.renewalContactDepartment,
+    renewalContactFax: settings.renewalContactFax,
+    renewalIssuePassword: "",
     schedulerEnabled: settings.schedulerEnabled,
     certLastCheckedAt: settings.certLastCheckedAt,
     certAlertLastSentAt: settings.certAlertLastSentAt,
@@ -335,6 +342,14 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
       settings.operatorContactName &&
       settings.operatorContactEmail &&
       settings.operatorContactTel
+    ),
+    renewalConfigured: Boolean(
+      settings.operatorContactName &&
+      settings.operatorContactEmail &&
+      settings.operatorContactTel &&
+      settings.renewalContactDepartment &&
+      settings.renewalContactFax &&
+      settings.renewalIssuePassword
     )
   };
 }
@@ -379,6 +394,9 @@ function createEmptySettings(): AppSettings {
     operatorContactName: "",
     operatorContactEmail: "",
     operatorContactTel: "",
+    renewalContactDepartment: "",
+    renewalContactFax: "",
+    renewalIssuePassword: "",
     schedulerEnabled: true,
     certLastCheckedAt: null,
     certAlertLastSentAt: null,
@@ -424,6 +442,7 @@ const customerSchema = z.object({
   issueHour: z.number().int().min(0).max(23).nullable().optional().default(null),
   issueMinute: z.number().int().min(0).max(59).nullable().optional().default(null),
   memo: z.string().default(""),
+  mobileNumber: z.string().default(""),
   plantNames: z.array(z.string().min(1)).default([]),
   matchAddresses: z.array(z.string().min(1)).default([])
 });
@@ -443,6 +462,7 @@ function normalizeCustomerInput(payload: z.infer<typeof customerSchema>): Custom
     issueHour: payload.issueHour,
     issueMinute: payload.issueMinute,
     memo: payload.memo,
+    mobileNumber: payload.mobileNumber,
     plantNames: payload.plantNames,
     matchAddresses: payload.matchAddresses
   };
@@ -534,6 +554,36 @@ const renewalAgentBridgeSchema = z.object({
     orderApplySeCd: z.string().nullable(),
     payYn: z.string().nullable(),
     nextUrl: z.string().nullable(),
+    renewInfoPageTitle: z.string().nullable(),
+    renewInfoSubmitUrl: z.string().nullable(),
+    renewInfoSubmitPathKind: z.union([z.literal("apply"), z.literal("renew"), z.literal("unknown")]).nullable(),
+    renewInfoFormFieldNames: z.array(z.string()),
+    renewInfoMustHaveFieldNames: z.array(z.string()),
+    renewInfoFinalNum: z.string().nullable(),
+    renewInfoSnapshot: z.object({
+      companyName: z.string().nullable(),
+      businessNumber: z.string().nullable(),
+      ceoName: z.string().nullable(),
+      bizType: z.string().nullable(),
+      bizClass: z.string().nullable(),
+      businessFieldCode: z.string().nullable(),
+      postalCode: z.string().nullable(),
+      baseAddress: z.string().nullable(),
+      detailAddress: z.string().nullable(),
+      contactName: z.string().nullable(),
+      contactDepartment: z.string().nullable(),
+      contactEmail: z.string().nullable(),
+      contactTel: z.string().nullable(),
+      contactFax: z.string().nullable(),
+      contactMobile: z.string().nullable()
+    }).nullable(),
+    renewInfoBlockingMismatchFields: z.array(z.string()),
+    renewInfoAutoSubmitReady: z.boolean().nullable(),
+    renewInfoAutoSubmitSummary: z.string().nullable(),
+    renewInfoPaymentPreviewLoaded: z.boolean().nullable(),
+    renewInfoPaymentPreviewItems: z.array(z.string()),
+    renewInfoPaymentPreviewTotalAmount: z.string().nullable(),
+    renewInfoPaymentPreviewHasAdditionalAgreement: z.boolean().nullable(),
     actionImageUrl: z.string().nullable(),
     actionImageAlt: z.string().nullable(),
     externalFlowKind: z.union([z.literal("apply-form"), z.literal("unknown")]).nullable(),

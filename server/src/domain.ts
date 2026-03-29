@@ -35,6 +35,9 @@ export interface AppSettings {
   operatorContactName: string;
   operatorContactEmail: string;
   operatorContactTel: string;
+  renewalContactDepartment: string;
+  renewalContactFax: string;
+  renewalIssuePassword: string;
   schedulerEnabled: boolean;
   certLastCheckedAt: string | null;
   certAlertLastSentAt: string | null;
@@ -61,6 +64,7 @@ export interface Customer {
   issueHour: number | null;
   issueMinute: number | null;
   memo: string;
+  mobileNumber: string;
   plantNames: string[];
   matchAddresses: string[];
   createdAt: string;
@@ -80,6 +84,7 @@ export interface CustomerInput {
   issueHour: number | null;
   issueMinute: number | null;
   memo: string;
+  mobileNumber: string;
   plantNames: string[];
   matchAddresses: string[];
 }
@@ -253,6 +258,33 @@ export interface RenewalBridgeSelectionProbe {
   error: string | null;
 }
 
+export interface RenewalInfoSnapshot {
+  companyName: string | null;
+  businessNumber: string | null;
+  ceoName: string | null;
+  bizType: string | null;
+  bizClass: string | null;
+  businessFieldCode: string | null;
+  postalCode: string | null;
+  baseAddress: string | null;
+  detailAddress: string | null;
+  contactName: string | null;
+  contactDepartment: string | null;
+  contactEmail: string | null;
+  contactTel: string | null;
+  contactFax: string | null;
+  contactMobile: string | null;
+}
+
+export interface RenewalPreflightComparisonProfile {
+  corpName: string;
+  businessNumber: string;
+  ceoName: string;
+  addr: string;
+  bizType: string;
+  bizClass: string;
+}
+
 export interface RenewalBridgePreflightProbe {
   ok: boolean;
   sourcePort: number | null;
@@ -270,6 +302,20 @@ export interface RenewalBridgePreflightProbe {
   orderApplySeCd: string | null;
   payYn: string | null;
   nextUrl: string | null;
+  renewInfoPageTitle: string | null;
+  renewInfoSubmitUrl: string | null;
+  renewInfoSubmitPathKind: "apply" | "renew" | "unknown" | null;
+  renewInfoFormFieldNames: string[];
+  renewInfoMustHaveFieldNames: string[];
+  renewInfoFinalNum: string | null;
+  renewInfoSnapshot: RenewalInfoSnapshot | null;
+  renewInfoBlockingMismatchFields: string[];
+  renewInfoAutoSubmitReady: boolean | null;
+  renewInfoAutoSubmitSummary: string | null;
+  renewInfoPaymentPreviewLoaded: boolean | null;
+  renewInfoPaymentPreviewItems: string[];
+  renewInfoPaymentPreviewTotalAmount: string | null;
+  renewInfoPaymentPreviewHasAdditionalAgreement: boolean | null;
   actionImageUrl: string | null;
   actionImageAlt: string | null;
   externalFlowKind: "apply-form" | "unknown" | null;
@@ -326,6 +372,7 @@ export interface RenewalAutomationJob {
   claimedBy: string | null;
   summary: string;
   error: string | null;
+  comparisonProfile: RenewalPreflightComparisonProfile | null;
   result: RenewalBridgeProbeResult | null;
 }
 

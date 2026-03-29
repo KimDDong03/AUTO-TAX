@@ -1,5 +1,6 @@
 import type { InvoiceDraft, MailParseStatus } from "./domain.js";
 import { parseKepcoMail } from "./parser.js";
+import { buildCompletedBillingMonthSet } from "./services/billing-month-service.js";
 import type { AppStore } from "./store-contract.js";
 
 export async function reprocessInboxMessage(
@@ -28,7 +29,11 @@ export async function reprocessInboxMessage(
 
   try {
     const parsedMail = parseKepcoMail(message.textBody || message.rawSource);
-    const completedBillingMonthSet = new Set((await store.listCompletedBillingMonths()).map((item) => item.billingMonth));
+    const completedBillingMonthSet = buildCompletedBillingMonthSet({
+      manualCompletedMonths: await store.listCompletedBillingMonths(),
+      drafts: await store.listDrafts(),
+      inbox: await store.listInbox()
+    });
 
     if (completedBillingMonthSet.has(parsedMail.billingMonth)) {
       await store.updateInboxMatchResult({
