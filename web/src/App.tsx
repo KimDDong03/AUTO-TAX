@@ -3120,26 +3120,28 @@ export function App() {
     };
 
     if (customerForm.id) {
-      await api(`/api/customers/${customerForm.id}`, {
+      const savedCustomer = await api<CustomerSaveResponse>(`/api/customers/${customerForm.id}`, {
         method: "PUT",
         body: JSON.stringify(payload)
       });
+      setCreatingCustomer(false);
+      setCustomerDetailTab("info");
+      setCustomerForm(customerToForm(savedCustomer));
+      setCustomerAddressResolveMessage("");
+      customerAddressLookupRef.current = "";
+      return;
     } else {
-      await api("/api/customers", {
+      const savedCustomer = await api<CustomerSaveResponse>("/api/customers", {
         method: "POST",
         body: JSON.stringify(payload)
       });
-    }
-
-    if (isEditing) {
       setCreatingCustomer(false);
+      setCustomerDetailTab("info");
+      setCustomerForm(customerToForm(savedCustomer));
+      setCustomerAddressResolveMessage("");
+      customerAddressLookupRef.current = "";
       return;
     }
-
-    setCreatingCustomer(true);
-    setCustomerForm(createCustomerFormDefaults());
-    setCustomerAddressResolveMessage("");
-    customerAddressLookupRef.current = "";
   };
 
   const applyCustomerImportHeaderRow = (nextHeaderRowIndex: number) => {
