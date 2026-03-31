@@ -1,8 +1,10 @@
 import type { Express, Request, Response } from "express";
 import type { z } from "zod";
+import { z as zod } from "zod";
 import type { AppSettings, Customer, CustomerInput } from "../domain.js";
 import type { CertificateRefreshResult } from "../certificate-monitor.js";
 import { checkIsMember, getCertificateExpireDate, getTaxCertURL, quitMember } from "../popbill-client.js";
+import { RenewalAutomationManager } from "../renewal-automation.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";
 import type { AutoJoinCustomerResult } from "../services/popbill-customer-service.js";
@@ -18,6 +20,7 @@ type RouteDeps = {
   autoJoinCustomerPopbill: (requestStore: AppStore, customer: Customer) => Promise<AutoJoinCustomerResult>;
   toClientCustomer: (customer: Customer) => Customer;
   refreshAllCertificateStatuses: (requestStore: AppStore) => Promise<CertificateRefreshResult>;
+  renewalAutomation: RenewalAutomationManager;
 };
 
 export function registerCustomerPopbillRoutes(deps: RouteDeps) {
@@ -31,12 +34,71 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     normalizeCustomerInput,
     autoJoinCustomerPopbill,
     toClientCustomer,
-    refreshAllCertificateStatuses
+    refreshAllCertificateStatuses,
+    renewalAutomation
   } = deps;
+
+  const customerCertificateSchema = zod.object({
+    customerId: zod.number().int().positive(),
+    certificateKind: zod.enum(["electronic_tax", "general_personal", "general_business", "unknown"]),
+    certificateName: zod.string().trim().min(1),
+    certificateUsageName: zod.string().trim().default(""),
+    issuerName: zod.string().trim().default(""),
+    serial: zod.string().trim().nullable().optional().default(null),
+    userDN: zod.string().trim().nullable().optional().default(null),
+    oid: zod.string().trim().nullable().optional().default(null),
+    expireDate: zod.string().trim().nullable().optional().default(null),
+    certDirPath: zod.string().trim().nullable().optional().default(null),
+    certificatePassword: zod.string().trim().optional(),
+    isPrimary: zod.boolean().optional().default(false),
+    linkSource: zod.enum(["auto", "manual"]).optional().default("manual")
+  });
 
   app.get("/api/customers", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
     res.json((await requestStore.listCustomers()).map(toClientCustomer));
+  });
+
+  app.get("/api/customer-certificates", async (_req, res) => {
+    const requestStore = getRequestStore(res, store);
+    res.json(await requestStore.listCustomerCertificates());
+  });
+
+  app.post("/api/customer-certificates/link", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const payload = customerCertificateSchema.parse(req.body ?? {});
+    const certificate = await requestStore.upsertCustomerCertificate(payload);
+    await requestStore.createLog("info", "customer-certificates", "고객 공동인증서를 연결했습니다.", {
+      customerId: certificate.customerId,
+      certificateId: certificate.id,
+      certificateKind: certificate.certificateKind,
+      certificateName: certificate.certificateName,
+      linkSource: certificate.linkSource
+    });
+    res.status(201).json(certificate);
+  });
+
+  app.get("/api/customer-certificates/:id/password", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const certificateId = Number(req.params.id);
+    const password = await requestStore.getCustomerCertificatePassword(certificateId);
+    await requestStore.createLog("warn", "customer-certificates", "고객 공동인증서 비밀번호를 조회했습니다.", {
+      certificateId
+    });
+    res.json({ password });
+  });
+
+  app.delete("/api/customer-certificates/:id", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const certificateId = Number(req.params.id);
+    await requestStore.deleteCustomerCertificate(certificateId);
+    await requestStore.createLog("warn", "customer-certificates", "고객 공동인증서 연결을 해제했습니다.", {
+      certificateId
+    });
+    res.json({ ok: true });
   });
 
   app.post("/api/customers", async (req, res) => {
@@ -217,6 +279,17 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     const expireDate = await getCertificateExpireDate(await getServerManagedSettings(requestStore), customer);
     const updated = await requestStore.updateCustomerPopbillState(customerId, customer.popbillState, true, expireDate);
     await requestStore.createLog("info", "popbill", "인증서 만료일을 갱신했습니다.", { customerId, expireDate });
+    if (!customer.popbillCertRegistered && updated.popbillCertRegistered) {
+      const job = await renewalAutomation.queueBridgeProbe({
+        customerId,
+        customerName: updated.customerName,
+        requestedBy: "cert-status-auto"
+      });
+      await requestStore.createLog("info", "renewal-agent", "인증서 등록 직후 업태/업종 자동 분석 작업을 큐에 추가했습니다.", {
+        customerId,
+        jobId: job.id
+      });
+    }
     res.json(toClientCustomer(updated));
   });
 

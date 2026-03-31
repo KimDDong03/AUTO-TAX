@@ -1,0 +1,156 @@
+import type {
+  RenewalBridgeProbeResult,
+  RenewalPreflightComparisonProfile,
+  RenewalPreflightSubmissionProfile
+} from "./types";
+
+export const LOCAL_RENEWAL_HELPER_URL = "http://127.0.0.1:35119";
+
+type LocalRenewalHelperHealthResponse = {
+  ok: true;
+  version: string;
+  status: {
+    processDetected: boolean;
+    bridgeSummary: "ok" | "partial" | "down" | "unknown";
+    notes: string[];
+  };
+};
+
+type LocalRenewalHelperProbeResponse = {
+  ok: true;
+  version: string;
+  result: RenewalBridgeProbeResult;
+};
+
+type LocalRenewalPaymentOpenResponse = {
+  ok: true;
+  version: string;
+  result: {
+    outcome: "opened";
+    browserChannel: string;
+    pageUrl: string;
+    message: string;
+  };
+};
+
+type LocalPopbillCertificateRegistrationResponse = {
+  ok: true;
+  version: string;
+  result: {
+    outcome: "registered" | "already-registered";
+    browserChannel: string;
+    certificateCn: string;
+    localBridgeBaseUrl: string | null;
+    message: string;
+  };
+};
+
+export type LocalRenewalHelperStatus = {
+  online: boolean;
+  version: string | null;
+  message: string;
+};
+
+function buildHelperUnavailableMessage(): string {
+  return "로컬 헬퍼가 실행 중이지 않습니다. 고객 PC에서 로컬 헬퍼를 먼저 실행하세요.";
+}
+
+async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers ?? {});
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${LOCAL_RENEWAL_HELPER_URL}${pathname}`, {
+      ...init,
+      headers
+    });
+  } catch {
+    throw new Error(buildHelperUnavailableMessage());
+  }
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({ error: "로컬 헬퍼 요청에 실패했습니다." }))) as {
+      error?: string;
+    };
+    throw new Error(payload.error ?? `로컬 헬퍼 HTTP ${response.status}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function getLocalRenewalHelperStatus(): Promise<LocalRenewalHelperStatus> {
+  try {
+    const payload = await localRenewalHelperRequest<LocalRenewalHelperHealthResponse>("/health", {
+      method: "GET"
+    });
+    return {
+      online: true,
+      version: payload.version,
+      message: payload.status.notes[0] ?? "로컬 헬퍼가 준비되었습니다."
+    };
+  } catch (error) {
+    return {
+      online: false,
+      version: null,
+      message: error instanceof Error ? error.message : buildHelperUnavailableMessage()
+    };
+  }
+}
+
+export async function requestLocalRenewalBridgeProbe() {
+  return await localRenewalHelperRequest<LocalRenewalHelperProbeResponse>("/api/bridge-probe", {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
+export async function requestLocalRenewalPreflight(payload: {
+  certificateIndex: number;
+  certificateCn?: string | null;
+  certificatePassword?: string | null;
+}) {
+  return await localRenewalHelperRequest<LocalRenewalHelperProbeResponse>("/api/preflight", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function requestLocalRenewalPreparePayment(payload: {
+  certificateIndex: number;
+  certificateCn?: string | null;
+  certificatePassword?: string | null;
+  comparisonProfile?: RenewalPreflightComparisonProfile | null;
+  submissionProfile?: RenewalPreflightSubmissionProfile | null;
+}) {
+  return await localRenewalHelperRequest<LocalRenewalHelperProbeResponse>("/api/renewal/prepare-payment", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function requestLocalRenewalOpenPayment(payload: {
+  certificateIndex: number;
+  certificateCn?: string | null;
+  certificatePassword?: string | null;
+  comparisonProfile?: RenewalPreflightComparisonProfile | null;
+  submissionProfile?: RenewalPreflightSubmissionProfile | null;
+}) {
+  return await localRenewalHelperRequest<LocalRenewalPaymentOpenResponse>("/api/renewal/open-payment", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function requestLocalPopbillCertificateRegistration(payload: {
+  certificateRegistrationUrl: string;
+  certificateCn: string;
+  certificatePassword: string;
+}) {
+  return await localRenewalHelperRequest<LocalPopbillCertificateRegistrationResponse>("/api/popbill/certificate-registration", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}

@@ -1,17 +1,36 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api, setActiveOrganizationId } from "./api";
 import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, SetupPanel, StatCard } from "./components/ui";
+import { CertificatesTab } from "./features/certificates/CertificatesTab";
 import { CustomersTab } from "./features/customers/CustomersTab";
 import { InitialRegistrationTab } from "./features/initial-registration/InitialRegistrationTab";
+import {
+  downloadCustomerOnboardingTemplate,
+  parseCustomerOnboardingWorkbook,
+  type CustomerOnboardingCommitResponse,
+  type CustomerOnboardingPreviewResponse,
+  type CustomerOnboardingTemplateWorkbookInput,
+  type CustomerOnboardingWorkbookInput
+} from "./features/initial-registration/customer-onboarding-workbook";
 import { SettingsTab } from "./features/settings/SettingsTab";
+import {
+  getLocalRenewalHelperStatus,
+  requestLocalPopbillCertificateRegistration,
+  requestLocalRenewalBridgeProbe,
+  requestLocalRenewalOpenPayment,
+  requestLocalRenewalPreparePayment,
+  requestLocalRenewalPreflight
+} from "./local-renewal-helper";
 import { supabase } from "./supabase";
 import type {
   AppSettings,
   BootstrapPayload,
   CompletedBillingMonth,
   Customer,
+  CustomerCertificate,
+  CustomerCertificateKind,
   CustomerImportProfile,
   InvoiceDraft,
   LogEntry,
@@ -20,21 +39,74 @@ import type {
   OpsWorkspaceLimitUpdateResponse,
   OpsWorkspaceSummary,
   PartnerPointsPayload,
+  RenewalBridgePreflightProbe,
+  RenewalInfoSnapshot,
   RenewalAutomationPayload
 } from "./types";
 
-type TabId = "work" | "customers" | "initial" | "settings" | "ops";
+type TabId = "work" | "customers" | "certificates" | "initial" | "settings" | "ops";
 type SettingsSectionId = "gmail" | "popbill" | "account";
 type CustomerDetailTabId = "info" | "history";
+type CustomerListFilter = "all" | "blocked" | "expiring" | "unjoined";
 type MailProvider = "gmail" | "naver" | "daum";
 type RenewalAgentSnapshot = RenewalAutomationPayload["agent"];
 type RenewalAgentCertificate = RenewalAgentSnapshot["bridge"]["storageProbe"]["certificates"][number];
 type RenewalJob = RenewalAutomationPayload["jobs"][number];
+type CustomerRenewalAssistantData = {
+  agentOnline: boolean;
+  helperVersion: string | null;
+  helperMessage: string;
+  helperCheckedAt: string | null;
+  jobs: RenewalJob[];
+  certificates: RenewalAgentCertificate[];
+};
+type CustomerRenewalCandidateView = {
+  customerId: number;
+  customerName: string;
+  corpName: string;
+  certificateCn: string;
+  certificateExpireDate: string | null;
+  certificateUsage: string;
+  statusText: string;
+  statusTone: "success" | "warn" | "danger" | "default";
+  paymentAmount: string | null;
+  canOpenPayment: boolean;
+};
+type CustomerCertificateCandidateView = {
+  key: string;
+  certificateIndex: string;
+  certificateCn: string;
+  certificateKind: CustomerCertificateKind;
+  certificateUsage: string;
+  issuerName: string;
+  certificateExpireDate: string | null;
+  linkedCertificateId: number | null;
+  linkedCustomerId: number | null;
+  linkedCustomerLabel: string | null;
+  linkSource: CustomerCertificate["linkSource"] | null;
+  suggestedCustomerId: number | null;
+  suggestedCustomerLabel: string | null;
+  suggestionCount: number;
+  statusText: string;
+  statusTone: "success" | "warn" | "danger" | "default";
+  paymentAmount: string | null;
+  canOpenPayment: boolean;
+};
+type CustomerSaveResponse = Customer & {
+  autoJoinStatus?: "already-joined" | "linked-existing-member" | "joined" | "linked-after-duplicate-check" | "failed";
+  autoJoinError?: string | null;
+};
 type OpsConsoleData = {
   partnerPoints: PartnerPointsPayload;
   renewalAutomation: RenewalAutomationPayload;
   logs: LogEntry[];
   workspaces: OpsWorkspaceSummary[];
+};
+type CustomerOnboardingResolutionResult = {
+  workbook: CustomerOnboardingWorkbookInput;
+  resolvedCertificateCount: number;
+  skippedCertificateCount: number;
+  errors: string[];
 };
 
 type InternalJobDispatchResponse = {
@@ -53,6 +125,10 @@ type InternalJobRunResponse = {
   completed: number;
   failed: number;
 };
+
+function shouldLoadMailboxData(activeTab: TabId, customerDetailTab: CustomerDetailTabId): boolean {
+  return activeTab === "work" || activeTab === "initial" || (activeTab === "customers" && customerDetailTab === "history");
+}
 
 type OpsWorkspaceFormState = {
   organizationName: string;
@@ -82,6 +158,7 @@ type CustomerFormState = {
   issueMode: "review" | "auto";
   popbillUserId: string;
   popbillPassword: string;
+  renewalContactMobile: string;
   memo: string;
 };
 
@@ -108,6 +185,10 @@ type SettingsFormState = {
   operatorContactName: string;
   operatorContactEmail: string;
   operatorContactTel: string;
+  renewalContactDepartment: string;
+  renewalContactFax: string;
+  renewalCertificatePassword: string;
+  renewalIssuePassword: string;
   schedulerEnabled: boolean;
 };
 
@@ -353,6 +434,35 @@ function isCustomerImportMappingComplete(mapping: CustomerImportMapping): boolea
   return Object.values(mapping).every((value) => value !== "");
 }
 
+async function mapWithConcurrency<T, TResult>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<TResult>
+): Promise<TResult[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<TResult>(items.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+
+      results[currentIndex] = await mapper(items[currentIndex] as T, currentIndex);
+    }
+  };
+
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+  return results;
+}
+
 function createQuickRegisterForm(message?: BootstrapPayload["inbox"][number] | null): QuickRegisterFormState {
   return {
     messageId: message?.id ?? null,
@@ -512,7 +622,7 @@ const MAIL_PROVIDER_CONFIG: Record<
 
 function getTabFromHash(hash: string): TabId | null {
   const value = hash.replace(/^#/, "");
-  return value === "customers" || value === "initial" || value === "settings" || value === "work" || value === "ops" ? value : null;
+  return value === "customers" || value === "certificates" || value === "initial" || value === "settings" || value === "work" || value === "ops" ? value : null;
 }
 
 function getHashParams(hash: string): URLSearchParams {
@@ -580,6 +690,7 @@ const baseCustomerForm: CustomerFormState = {
   issueMode: "review",
   popbillUserId: "",
   popbillPassword: "",
+  renewalContactMobile: "",
   memo: ""
 };
 
@@ -596,9 +707,10 @@ function isPristineCustomerForm(form: CustomerFormState): boolean {
     form.businessNumber === "" &&
     form.corpName === "" &&
     form.addr === "" &&
-    form.bizType === "" &&
-    form.bizClass === "" &&
+    form.bizType === baseCustomerForm.bizType &&
+    form.bizClass === baseCustomerForm.bizClass &&
     form.issueMode === "review" &&
+    form.renewalContactMobile === "" &&
     form.memo === ""
   );
 }
@@ -616,6 +728,7 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
     issueMode: customer.issueMode,
     popbillUserId: customer.popbillUserId,
     popbillPassword: customer.popbillPassword,
+    renewalContactMobile: customer.renewalContactMobile,
     memo: customer.memo
   };
 }
@@ -648,6 +761,10 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
     operatorContactName: settings.operatorContactName,
     operatorContactEmail: settings.operatorContactEmail,
     operatorContactTel: settings.operatorContactTel,
+    renewalContactDepartment: settings.renewalContactDepartment,
+    renewalContactFax: settings.renewalContactFax,
+    renewalCertificatePassword: "",
+    renewalIssuePassword: "",
     schedulerEnabled: settings.schedulerEnabled
   };
 }
@@ -904,6 +1021,63 @@ function getCustomerIssueReadiness(customer: Customer): {
   };
 }
 
+function matchesCustomerListFilter(customer: Customer, filter: CustomerListFilter): boolean {
+  const readiness = getCustomerIssueReadiness(customer);
+  if (filter === "blocked") {
+    return !readiness.canIssueNow;
+  }
+
+  if (filter === "expiring") {
+    const days = getDaysUntilDate(customer.popbillCertExpireDate);
+    return days !== null && days >= 0 && days <= 30;
+  }
+
+  if (filter === "unjoined") {
+    return customer.popbillState !== "joined" || !customer.popbillCertRegistered;
+  }
+
+  return true;
+}
+
+function compareCustomersForList(left: Customer, right: Customer): number {
+  const leftReadiness = getCustomerIssueReadiness(left);
+  const rightReadiness = getCustomerIssueReadiness(right);
+  const leftDays = getDaysUntilDate(left.popbillCertExpireDate);
+  const rightDays = getDaysUntilDate(right.popbillCertExpireDate);
+  const leftPriority =
+    left.popbillState !== "joined" || !left.popbillCertRegistered
+      ? 0
+      : leftDays !== null && leftDays < 0
+        ? 1
+        : leftDays !== null && leftDays <= 30
+          ? 2
+          : !leftReadiness.canIssueNow
+            ? 3
+            : 4;
+  const rightPriority =
+    right.popbillState !== "joined" || !right.popbillCertRegistered
+      ? 0
+      : rightDays !== null && rightDays < 0
+        ? 1
+        : rightDays !== null && rightDays <= 30
+          ? 2
+          : !rightReadiness.canIssueNow
+            ? 3
+            : 4;
+
+  if (leftPriority !== rightPriority) {
+    return leftPriority - rightPriority;
+  }
+
+  const normalizedLeftDays = leftDays ?? Number.MAX_SAFE_INTEGER;
+  const normalizedRightDays = rightDays ?? Number.MAX_SAFE_INTEGER;
+  if (normalizedLeftDays !== normalizedRightDays) {
+    return normalizedLeftDays - normalizedRightDays;
+  }
+
+  return left.customerName.localeCompare(right.customerName, "ko");
+}
+
 function getDaysUntilDate(value: string | null): number | null {
   if (!value) return null;
   const compact = value.replace(/\D/g, "");
@@ -1072,6 +1246,54 @@ function formatRenewalStorageSummary(agent: RenewalAgentSnapshot): string {
   return `${storageProbe.certificateCount}건 · ${preview}${suffix}`;
 }
 
+function isElectronicTaxCertificate(certificate: RenewalAgentCertificate): boolean {
+  return certificate.usageToName.includes("전자세금");
+}
+
+function deriveCustomerCertificateKind(certificate: Pick<RenewalAgentCertificate, "usageToName">): CustomerCertificateKind {
+  const usageName = certificate.usageToName.trim();
+  if (usageName.includes("전자세금")) {
+    return "electronic_tax";
+  }
+  if (usageName.includes("개인") && usageName.includes("범용")) {
+    return "general_personal";
+  }
+  if (usageName.includes("사업자") && usageName.includes("범용")) {
+    return "general_business";
+  }
+  return "unknown";
+}
+
+function normalizeCustomerCertificateFingerprint(value: string | null | undefined): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function matchesStoredCustomerCertificate(
+  storedCertificate: CustomerCertificate,
+  certificate: RenewalAgentCertificate
+): boolean {
+  const certificateSerial = normalizeCustomerCertificateFingerprint(certificate.serial);
+  const storedSerial = normalizeCustomerCertificateFingerprint(storedCertificate.serial);
+  if (certificateSerial && storedSerial) {
+    return certificateSerial === storedSerial;
+  }
+
+  const certificateUserDn = normalizeCustomerCertificateFingerprint(certificate.userDN);
+  const storedUserDn = normalizeCustomerCertificateFingerprint(storedCertificate.userDN);
+  if (certificateUserDn && storedUserDn) {
+    return certificateUserDn === storedUserDn;
+  }
+
+  const usageName = normalizeCustomerRenewalName(storedCertificate.certificateUsageName);
+  const localUsageName = normalizeCustomerRenewalName(certificate.usageToName);
+
+  return (
+    storedCertificate.certificateKind === deriveCustomerCertificateKind(certificate) &&
+    normalizeCustomerRenewalName(storedCertificate.certificateName) === normalizeCustomerRenewalName(certificate.cn) &&
+    (usageName === "" || localUsageName === "" || usageName === localUsageName)
+  );
+}
+
 function formatRenewalSelectionSummary(agent: RenewalAgentSnapshot): string {
   const selectionProbe = agent.bridge.selectionProbe;
   if (
@@ -1123,21 +1345,52 @@ function formatRenewalPreflightSummary(agent: RenewalAgentSnapshot): string {
         ? `외부 신규신청형${preflightProbe.externalFlowProductName ? ` (${preflightProbe.externalFlowProductName})` : ""}`
         : null;
     const urlText = preflightProbe.externalFlowSubmitUrl ?? preflightProbe.nextUrl;
-    return `${label} · ${branchText}${externalFlowText ? ` · ${externalFlowText}` : ""}${urlText ? ` · ${urlText}` : ""}`;
+    const autoSubmitText = preflightProbe.renewInfoAutoSubmitSummary;
+    const submitReadyText =
+      preflightProbe.renewInfoSubmitSummary &&
+      preflightProbe.renewInfoSubmitSummary !== autoSubmitText
+        ? preflightProbe.renewInfoSubmitSummary
+        : null;
+    return `${label} · ${branchText}${externalFlowText ? ` · ${externalFlowText}` : ""}${autoSubmitText ? ` · ${autoSubmitText}` : ""}${submitReadyText ? ` · ${submitReadyText}` : ""}${urlText ? ` · ${urlText}` : ""}`;
   }
 
   return `${label} · ${preflightProbe.error ?? preflightProbe.message ?? "분석 실패"}`;
 }
 
-function formatRenewalPathCell(
+function getLatestRenewalPreflightProbeForCertificate(
   certificate: RenewalAgentCertificate,
-  agent: RenewalAgentSnapshot
-): string {
-  const preflightProbe = agent.bridge.preflightProbe;
-  if (preflightProbe.certificateIndex !== certificate.index) {
-    return "-";
+  jobs: RenewalJob[],
+  agent?: RenewalAgentSnapshot | null
+) {
+  const latestJobProbe = jobs.find((job) => {
+    if (job.type !== "renewal-preflight" || job.status !== "completed" || !job.result) {
+      return false;
+    }
+
+    return matchesRenewalCertificate(certificate, job);
+  })?.result?.bridge.preflightProbe;
+
+  if (latestJobProbe) {
+    return latestJobProbe;
   }
 
+  const preflightProbe = agent?.bridge.preflightProbe;
+  if (!preflightProbe || !matchesRenewalCertificate(certificate, preflightProbe)) {
+    return null;
+  }
+
+  return preflightProbe;
+}
+
+function formatRenewalPathCell(
+  certificate: RenewalAgentCertificate,
+  jobs: RenewalJob[],
+  agent?: RenewalAgentSnapshot | null
+): string {
+  const preflightProbe = getLatestRenewalPreflightProbeForCertificate(certificate, jobs, agent);
+  if (!preflightProbe) {
+    return "-";
+  }
   if (!preflightProbe.ok) {
     return preflightProbe.error ?? preflightProbe.message ?? "분석 실패";
   }
@@ -1147,18 +1400,38 @@ function formatRenewalPathCell(
   }
 
   if (preflightProbe.branch === "renew-payment") {
-    return "순정 갱신 · 결제 단계";
+    return "순정 갱신 · 이미 결제 단계";
   }
 
   if (preflightProbe.branch === "password-confirm") {
-    return "순정 갱신 · 발급 직전";
+    return "순정 갱신 · 이미 발급 직전";
   }
 
   if (preflightProbe.branch === "renew-info") {
-    return "순정 갱신 · 신청정보 입력";
+    const summaryParts = [
+      preflightProbe.renewInfoAutoSubmitSummary,
+      preflightProbe.renewInfoSubmitSummary
+    ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+    return summaryParts.length > 0
+      ? `순정 갱신 · 신청정보 입력 · ${summaryParts.join(" · ")}`
+      : "순정 갱신 · 신청정보 입력";
   }
 
   return preflightProbe.nextUrl ?? preflightProbe.branch;
+}
+
+function formatCustomerDraftStatus(certificate: RenewalAgentCertificate, jobs: RenewalJob[]): string {
+  const preflightProbe = getLatestRenewalPreflightProbeForCertificate(certificate, jobs, null);
+  if (!preflightProbe) {
+    return "정보 읽기 전";
+  }
+  if (!preflightProbe.ok) {
+    return preflightProbe.error ?? preflightProbe.message ?? "정보 읽기 실패";
+  }
+  if (preflightProbe.renewInfoSnapshot) {
+    return "고객 초안 정보 읽음";
+  }
+  return "고객 초안 정보 없음";
 }
 
 function formatRenewalJobStatusLabel(status: RenewalJob["status"]): string {
@@ -1180,6 +1453,88 @@ function formatRenewalJobLabel(job: RenewalJob): string {
   return job.customerName ?? "인증서 목록 진단";
 }
 
+let localRenewalJobSeed = Date.now();
+
+function nextLocalRenewalJobId(): number {
+  localRenewalJobSeed += 1;
+  return localRenewalJobSeed;
+}
+
+function buildLocalRenewalBridgeJob(
+  result: RenewalAutomationPayload["jobs"][number]["result"],
+  visibleCertificateCount?: number
+): RenewalJob {
+  const requestedAt = new Date().toISOString();
+  const storageProbe = result?.bridge.storageProbe;
+  const storageOk = storageProbe?.ok === true;
+  const hasVisibleCertificateCount = typeof visibleCertificateCount === "number";
+  const summary = !storageOk
+    ? "공동인증서 불러오기에 실패했습니다."
+    : hasVisibleCertificateCount
+      ? visibleCertificateCount > 0
+        ? `전자세금용 공동인증서 ${visibleCertificateCount}건을 불러왔습니다.`
+        : "전자세금용 공동인증서를 찾지 못했습니다."
+      : `공동인증서 ${storageProbe.certificateCount}건을 불러왔습니다.`;
+
+  return {
+    id: nextLocalRenewalJobId(),
+    type: "bridge-probe",
+    status: storageOk ? "completed" : "failed",
+    customerId: null,
+    customerName: "공동인증서 목록",
+    certificateIndex: null,
+    certificateCn: null,
+    requestedAt,
+    claimedAt: requestedAt,
+    finishedAt: requestedAt,
+    requestedBy: "localhost-helper",
+    claimedBy: "localhost-helper",
+    summary,
+    error: storageOk ? null : storageProbe?.error ?? result?.notes[0] ?? "공동인증서 불러오기에 실패했습니다.",
+    result
+  };
+}
+
+function buildLocalRenewalPreflightJob(
+  certificate: RenewalAgentCertificate,
+  result: RenewalAutomationPayload["jobs"][number]["result"]
+): RenewalJob {
+  const requestedAt = new Date().toISOString();
+  const preflightProbe = result?.bridge.preflightProbe;
+  const certificateLabel = certificate.cn || `인증서 #${certificate.index}`;
+  const summary =
+    preflightProbe?.ok === true
+      ? preflightProbe.renewInfoSnapshot
+        ? `${certificateLabel} 고객 초안 정보를 읽었습니다.`
+        : `${certificateLabel} 고객 초안 정보를 읽지 못했습니다.`
+      : `${certificateLabel} 정보 읽기에 실패했습니다.`;
+  const error =
+    preflightProbe?.ok === true
+      ? null
+      : preflightProbe?.error ??
+        result?.bridge.selectionProbe.error ??
+        preflightProbe?.message ??
+        "공동인증서 정보 읽기에 실패했습니다.";
+
+  return {
+    id: nextLocalRenewalJobId(),
+    type: "renewal-preflight",
+    status: preflightProbe?.ok === true ? "completed" : "failed",
+    customerId: null,
+    customerName: null,
+    certificateIndex: Number(certificate.index),
+    certificateCn: certificate.cn || null,
+    requestedAt,
+    claimedAt: requestedAt,
+    finishedAt: requestedAt,
+    requestedBy: "localhost-helper",
+    claimedBy: "localhost-helper",
+    summary,
+    error,
+    result
+  };
+}
+
 function getDraftConfirmNumber(draft: InvoiceDraft): string | null {
   if (!draft.popbillResultJson) return null;
 
@@ -1190,6 +1545,410 @@ function getDraftConfirmNumber(draft: InvoiceDraft): string | null {
   } catch {
     return null;
   }
+}
+
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function normalizeRenewalCertificateKey(value: string | number | null | undefined): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function matchesRenewalCertificate(
+  certificate: RenewalAgentCertificate,
+  target: {
+    certificateIndex?: string | number | null;
+    certificateCn?: string | null;
+  }
+): boolean {
+  const certificateIndex = normalizeRenewalCertificateKey(certificate.index);
+  const targetIndex = normalizeRenewalCertificateKey(target.certificateIndex);
+  if (certificateIndex !== "" && targetIndex !== "") {
+    return certificateIndex === targetIndex;
+  }
+
+  const certificateCn = normalizeRenewalCertificateKey(certificate.cn);
+  const targetCn = normalizeRenewalCertificateKey(target.certificateCn);
+  return certificateCn !== "" && targetCn !== "" && certificateCn === targetCn;
+}
+
+function normalizeCustomerRenewalName(value: string | null | undefined): string {
+  return String(value ?? "")
+    .replace(/\s+/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeCustomerRenewalAddress(value: string | null | undefined): string {
+  return String(value ?? "")
+    .replace(/\s+/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function matchesCustomerRenewalCertificateName(
+  certificate: RenewalAgentCertificate,
+  customer: Customer
+): boolean {
+  const certificateName = normalizeCustomerRenewalName(certificate.cn);
+  if (!certificateName) {
+    return false;
+  }
+
+  return certificateName === normalizeCustomerRenewalName(customer.corpName) || certificateName === normalizeCustomerRenewalName(customer.customerName);
+}
+
+function selectCustomerRenewalCertificate(
+  certificates: RenewalAgentCertificate[],
+  customer: Customer
+): RenewalAgentCertificate | null {
+  const directMatches = certificates.filter((certificate) => matchesCustomerRenewalCertificateName(certificate, customer));
+  const preferredMatches = directMatches.filter(isElectronicTaxCertificate);
+
+  if (preferredMatches.length === 1) {
+    return preferredMatches[0] ?? null;
+  }
+  if (preferredMatches.length > 1) {
+    return null;
+  }
+  if (directMatches.length === 1) {
+    return directMatches[0] ?? null;
+  }
+
+  return null;
+}
+
+function getLocalCertificateKey(certificate: RenewalAgentCertificate): string {
+  const serial = normalizeCustomerCertificateFingerprint(certificate.serial);
+  if (serial) {
+    return `serial:${serial}`;
+  }
+
+  const userDN = normalizeCustomerCertificateFingerprint(certificate.userDN);
+  if (userDN) {
+    return `dn:${userDN}`;
+  }
+
+  return `index:${normalizeRenewalCertificateKey(certificate.index)}:${normalizeCustomerRenewalName(certificate.cn)}:${normalizeCustomerRenewalName(certificate.usageToName)}`;
+}
+
+function findStoredCustomerCertificateForLocalCertificate(
+  certificate: RenewalAgentCertificate,
+  customerCertificates: CustomerCertificate[]
+): CustomerCertificate | null {
+  const matches = customerCertificates.filter((storedCertificate) => matchesStoredCustomerCertificate(storedCertificate, certificate));
+  if (matches.length === 1) {
+    return matches[0] ?? null;
+  }
+  const primaryMatch = matches.find((storedCertificate) => storedCertificate.isPrimary);
+  return primaryMatch ?? matches[0] ?? null;
+}
+
+function getStoredCustomerCertificateKey(storedCertificate: CustomerCertificate): string {
+  return `stored:${storedCertificate.id}`;
+}
+
+function parseStoredCustomerCertificateKey(value: string): number | null {
+  if (!value.startsWith("stored:")) {
+    return null;
+  }
+
+  const parsed = Number(value.slice("stored:".length));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function findLocalCertificateForStoredCustomerCertificate(
+  storedCertificate: CustomerCertificate,
+  certificates: RenewalAgentCertificate[]
+): RenewalAgentCertificate | null {
+  const matches = certificates.filter((certificate) => matchesStoredCustomerCertificate(storedCertificate, certificate));
+  if (matches.length === 1) {
+    return matches[0] ?? null;
+  }
+
+  const primaryMatch = matches.find((certificate) => isElectronicTaxCertificate(certificate));
+  return primaryMatch ?? matches[0] ?? null;
+}
+
+function findCandidateCustomersForCertificate(
+  certificate: RenewalAgentCertificate,
+  customers: Customer[]
+): Customer[] {
+  const certificateName = normalizeCustomerRenewalName(certificate.cn);
+  if (!certificateName) {
+    return [];
+  }
+
+  const kind = deriveCustomerCertificateKind(certificate);
+  if (kind === "general_personal" || kind === "general_business") {
+    return [];
+  }
+
+  const matches = customers.filter((customer) => {
+    const matchesCorpName = certificateName === normalizeCustomerRenewalName(customer.corpName);
+    const matchesCustomerName = certificateName === normalizeCustomerRenewalName(customer.customerName);
+
+    return matchesCorpName || matchesCustomerName;
+  });
+
+  return matches;
+}
+
+function isRenewalPaymentReady(
+  preflightProbe: RenewalBridgePreflightProbe | null
+): boolean {
+  if (!preflightProbe?.ok) {
+    return false;
+  }
+
+  return preflightProbe.branch === "renew-payment" || preflightProbe.renewInfoSubmitResultBranch === "renew-payment";
+}
+
+function formatCustomerRenewalStatus(
+  preflightProbe: RenewalBridgePreflightProbe | null
+): Pick<CustomerRenewalCandidateView, "statusText" | "statusTone" | "paymentAmount" | "canOpenPayment"> {
+  if (!preflightProbe) {
+    return {
+      statusText: "갱신 전",
+      statusTone: "default",
+      paymentAmount: null,
+      canOpenPayment: false
+    };
+  }
+
+  const paymentAmount = preflightProbe.renewInfoPaymentPreviewTotalAmount ?? null;
+  if (!preflightProbe.ok) {
+    return {
+      statusText: preflightProbe.error ?? preflightProbe.message ?? "갱신 준비 실패",
+      statusTone: "danger",
+      paymentAmount,
+      canOpenPayment: false
+    };
+  }
+
+  if (isRenewalPaymentReady(preflightProbe)) {
+    return {
+      statusText:
+        preflightProbe.renewInfoSubmitResultBranch === "renew-payment"
+          ? "갱신 신청 완료 · 결제 대기"
+          : "이미 결제 단계",
+      statusTone: "success",
+      paymentAmount,
+      canOpenPayment: true
+    };
+  }
+
+  if (preflightProbe.renewInfoSubmitAttempted) {
+    return {
+      statusText:
+        preflightProbe.renewInfoSubmitResultError ??
+        preflightProbe.renewInfoSubmitResultSummary ??
+        preflightProbe.renewInfoSubmitSummary ??
+        preflightProbe.renewInfoAutoSubmitSummary ??
+        "갱신 신청정보 제출 결과 확인 필요",
+      statusTone: preflightProbe.renewInfoSubmitResultError ? "danger" : "warn",
+      paymentAmount,
+      canOpenPayment: false
+    };
+  }
+
+  if (preflightProbe.branch === "renew-info") {
+    return {
+      statusText:
+        preflightProbe.renewInfoSubmitSummary ??
+        preflightProbe.renewInfoAutoSubmitSummary ??
+        "신청정보 입력 단계",
+      statusTone:
+        preflightProbe.renewInfoSubmitReady === false || preflightProbe.renewInfoAutoSubmitReady === false
+          ? "warn"
+          : "success",
+      paymentAmount,
+      canOpenPayment: false
+    };
+  }
+
+  if (preflightProbe.branch === "change-company") {
+    return {
+      statusText:
+        preflightProbe.externalFlowKind === "apply-form"
+          ? `순정 갱신 아님 · ${preflightProbe.externalFlowProductName ?? "외부 신규신청"}`
+          : `기관변경 필요 · ${preflightProbe.issueCompany ?? "-"}`,
+      statusTone: "danger",
+      paymentAmount,
+      canOpenPayment: false
+    };
+  }
+
+  if (preflightProbe.branch === "password-confirm") {
+    return {
+      statusText: "이미 발급 직전 단계",
+      statusTone: "warn",
+      paymentAmount,
+      canOpenPayment: false
+    };
+  }
+
+  return {
+    statusText: preflightProbe.nextUrl ?? preflightProbe.branch,
+    statusTone: "default",
+    paymentAmount,
+    canOpenPayment: false
+  };
+}
+
+function getRenewalSnapshotAddress(snapshot: RenewalInfoSnapshot): string {
+  const baseAddress = snapshot.baseAddress?.trim() ?? "";
+  const detailAddress = snapshot.detailAddress?.trim() ?? "";
+  if (baseAddress) {
+    return baseAddress;
+  }
+  return [baseAddress, detailAddress].filter(Boolean).join(" ").trim();
+}
+
+function getRenewalSnapshotMatchName(
+  certificate: RenewalAgentCertificate,
+  snapshot: RenewalInfoSnapshot | null | undefined
+): string {
+  return (
+    snapshot?.companyName?.trim() ||
+    snapshot?.ceoName?.trim() ||
+    certificate.cn?.trim() ||
+    ""
+  );
+}
+
+function matchesCustomerCertificateAutoLinkFromSnapshot(
+  certificate: RenewalAgentCertificate,
+  snapshot: RenewalInfoSnapshot | null | undefined,
+  customer: Pick<Customer, "customerName" | "corpName" | "addr">
+): boolean {
+  if (!snapshot) {
+    return false;
+  }
+
+  const matchName = normalizeCustomerRenewalName(getRenewalSnapshotMatchName(certificate, snapshot));
+  const matchAddress = normalizeCustomerRenewalAddress(getRenewalSnapshotAddress(snapshot));
+  if (!matchName || !matchAddress) {
+    return false;
+  }
+
+  const kind = deriveCustomerCertificateKind(certificate);
+  const matchesCustomerName = matchName === normalizeCustomerRenewalName(customer.customerName);
+  const matchesCorpName = matchName === normalizeCustomerRenewalName(customer.corpName);
+  const matchesAddress = matchAddress === normalizeCustomerRenewalAddress(customer.addr);
+
+  if (!matchesAddress) {
+    return false;
+  }
+
+  if (kind === "general_personal") {
+    return matchesCustomerName;
+  }
+
+  return matchesCorpName || matchesCustomerName;
+}
+
+function buildCustomerDraftFromRenewalSnapshot(
+  certificate: RenewalAgentCertificate,
+  snapshot: RenewalInfoSnapshot
+): CustomerFormState {
+  const companyName = snapshot.companyName?.trim() || certificate.cn.trim();
+  const customerName = snapshot.ceoName?.trim() || companyName;
+
+  return {
+    ...createCustomerFormDefaults(),
+    customerName,
+    businessNumber: snapshot.businessNumber?.trim() ?? "",
+    corpName: companyName,
+    addr: getRenewalSnapshotAddress(snapshot),
+    bizType: snapshot.bizType?.trim() || baseCustomerForm.bizType,
+    bizClass: snapshot.bizClass?.trim() || baseCustomerForm.bizClass,
+    renewalContactMobile: snapshot.contactMobile?.trim() ?? ""
+  };
+}
+
+function buildCustomerCreatePayloadFromRenewalSnapshot(
+  certificate: RenewalAgentCertificate,
+  snapshot: RenewalInfoSnapshot
+) {
+  const draft = buildCustomerDraftFromRenewalSnapshot(certificate, snapshot);
+  const normalizedAddress = draft.addr.trim();
+  return {
+    customerName: draft.customerName.trim(),
+    businessNumber: draft.businessNumber.trim(),
+    corpName: draft.corpName.trim(),
+    ceoName: draft.customerName.trim(),
+    addr: normalizedAddress,
+    bizType: draft.bizType.trim(),
+    bizClass: draft.bizClass.trim(),
+    issueMode: "review" as const,
+    issueDay: null,
+    issueHour: null,
+    issueMinute: null,
+    renewalContactMobile: draft.renewalContactMobile.trim(),
+    memo: "",
+    plantNames: [],
+    matchAddresses: normalizedAddress ? [normalizedAddress] : []
+  };
+}
+
+function getCustomerOnboardingTemplateCertificateLabel(row: {
+  certificateIndex: string;
+  certificateName: string;
+}) {
+  return row.certificateName.trim() || (row.certificateIndex.trim() ? `인증서 #${row.certificateIndex.trim()}` : "인증서");
+}
+
+function matchesCustomerOnboardingTemplateCertificate(
+  certificate: {
+    certificateIndex: string;
+    certificateName: string;
+  },
+  plant: {
+    certificateIndex: string;
+    certificateName: string;
+  }
+) {
+  const certificateIndex = normalizeRenewalCertificateKey(certificate.certificateIndex);
+  const plantIndex = normalizeRenewalCertificateKey(plant.certificateIndex);
+  if (certificateIndex && plantIndex) {
+    return certificateIndex === plantIndex;
+  }
+
+  const certificateName = normalizeRenewalCertificateKey(certificate.certificateName);
+  const plantName = normalizeRenewalCertificateKey(plant.certificateName);
+  return Boolean(certificateName && plantName && certificateName === plantName);
+}
+
+function getCustomerDraftSnapshotForCertificate(
+  certificate: RenewalAgentCertificate,
+  agent: RenewalAgentSnapshot | null,
+  jobs: RenewalJob[]
+): RenewalInfoSnapshot | null {
+  const latestJobSnapshot = jobs.find((job) => {
+    if (job.type !== "renewal-preflight" || job.status !== "completed" || !job.result) {
+      return false;
+    }
+
+    const probe = job.result.bridge.preflightProbe;
+    return probe.ok && probe.renewInfoSnapshot !== null && matchesRenewalCertificate(certificate, job);
+  })?.result?.bridge.preflightProbe.renewInfoSnapshot;
+
+  if (latestJobSnapshot) {
+    return latestJobSnapshot;
+  }
+
+  if (!agent) {
+    return null;
+  }
+
+  const probe = agent.bridge.preflightProbe;
+  if (!probe.ok || !probe.renewInfoSnapshot || !matchesRenewalCertificate(certificate, probe)) {
+    return null;
+  }
+
+  return probe.renewInfoSnapshot;
 }
 
 function inferMailProvider(settings: Pick<AppSettings, "imapHost" | "smtpHost">): MailProvider {
@@ -1271,13 +2030,14 @@ export function App() {
   const [managedCustomerCountInput, setManagedCustomerCountInput] = useState("220");
   const [data, setData] = useState<BootstrapPayload | null>(null);
   const [opsConsole, setOpsConsole] = useState<OpsConsoleData | null>(null);
+  const [customerRenewalAssistant, setCustomerRenewalAssistant] = useState<CustomerRenewalAssistantData | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     return getTabFromHash(hash) ?? "work";
   });
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
   const [creatingCustomer, setCreatingCustomer] = useState(false);
-  const [customerListFilter, setCustomerListFilter] = useState<"all" | "blocked">("all");
+  const [customerListFilter, setCustomerListFilter] = useState<CustomerListFilter>("all");
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [customerDetailTab, setCustomerDetailTab] = useState<CustomerDetailTabId>("info");
   const [workFeedTab, setWorkFeedTab] = useState<"inbox" | "issued">("inbox");
@@ -1301,24 +2061,39 @@ export function App() {
   const [completedBillingMonths, setCompletedBillingMonths] = useState<CompletedBillingMonth[]>([]);
   const [customerImportError, setCustomerImportError] = useState("");
   const [customerImportNotice, setCustomerImportNotice] = useState("");
+  const [customerOnboardingFileName, setCustomerOnboardingFileName] = useState("");
+  const [customerOnboardingWorkbook, setCustomerOnboardingWorkbook] = useState<CustomerOnboardingWorkbookInput | null>(null);
+  const [customerOnboardingPreview, setCustomerOnboardingPreview] = useState<CustomerOnboardingPreviewResponse | null>(null);
+  const [customerOnboardingNotice, setCustomerOnboardingNotice] = useState("");
+  const [customerOnboardingError, setCustomerOnboardingError] = useState("");
   const [quickRegisterForm, setQuickRegisterForm] = useState<QuickRegisterFormState>(createQuickRegisterForm());
   const [quickRegisterNotice, setQuickRegisterNotice] = useState("");
   const [quickRegisterError, setQuickRegisterError] = useState("");
   const [completedBillingNotice, setCompletedBillingNotice] = useState("");
   const [customerCertNotice, setCustomerCertNotice] = useState("");
-  const [pendingCertSyncCustomerId, setPendingCertSyncCustomerId] = useState<number | null>(null);
+  const [mailboxDataLoading, setMailboxDataLoading] = useState(false);
+  const [mailboxDataLoaded, setMailboxDataLoaded] = useState(false);
+  const [pendingCertSyncCustomerIds, setPendingCertSyncCustomerIds] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>({});
   const settingsAutosaveBaselineRef = useRef("");
   const appDialogResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const customerAddressLookupRef = useRef("");
+  const customerRenewalPasswordRef = useRef("");
+  const customerRenewalIssuePasswordRef = useRef("");
+  const customerCertificatePasswordCacheRef = useRef<Record<number, string>>({});
+  const customerRenewalAutoLoadedRef = useRef(false);
+  const customerRenewalAutoLoadedOrganizationRef = useRef<string | null>(null);
   const customerNameInputRef = useRef<HTMLInputElement | null>(null);
   const certSyncInFlightRef = useRef(false);
+  const mailboxLoadInFlightRef = useRef(false);
+  const mailboxLoadedOrganizationRef = useRef<string | null>(null);
   const authSessionRef = useRef<Session | null>(null);
   const activeLoadTokenRef = useRef(0);
   const publicManagedCustomerCount = normalizeManagedCustomerCount(managedCustomerCountInput);
   const publicPricing = calculatePublicPrice(pricingPlanId, publicManagedCustomerCount);
+  const deferredCustomerSearchQuery = useDeferredValue(customerSearchQuery);
   const customerImportHeaderOptions = customerImportFile
     ? buildCustomerImportColumnOptions(customerImportFile.rows, customerImportHeaderRowIndex)
     : [];
@@ -1367,6 +2142,74 @@ export function App() {
     };
   };
 
+  const loadCustomerRenewalAssistant = async (
+    current?: CustomerRenewalAssistantData | null
+  ): Promise<CustomerRenewalAssistantData> => {
+    const status = await getLocalRenewalHelperStatus();
+    return {
+      agentOnline: status.online,
+      helperVersion: status.version,
+      helperMessage: status.message,
+      helperCheckedAt: new Date().toISOString(),
+      jobs: current?.jobs ?? [],
+      certificates: current?.certificates ?? []
+    };
+  };
+
+  const loadMailboxData = async (options?: { force?: boolean }) => {
+    const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
+    if (!activeOrganizationId) {
+      setMailboxDataLoaded(false);
+      setMailboxDataLoading(false);
+      mailboxLoadedOrganizationRef.current = null;
+      return;
+    }
+
+    if (!options?.force && mailboxLoadedOrganizationRef.current === activeOrganizationId) {
+      setMailboxDataLoaded(true);
+      return;
+    }
+
+    if (mailboxLoadInFlightRef.current) {
+      return;
+    }
+
+    mailboxLoadInFlightRef.current = true;
+    setMailboxDataLoading(true);
+    try {
+      const [inbox, drafts] = await Promise.all([
+        api<BootstrapPayload["inbox"]>("/api/inbox"),
+        api<BootstrapPayload["drafts"]>("/api/drafts")
+      ]);
+      setData((prev) =>
+        prev && prev.auth.activeOrganizationId === activeOrganizationId
+          ? {
+              ...prev,
+              inbox,
+              drafts
+            }
+          : prev
+      );
+      mailboxLoadedOrganizationRef.current = activeOrganizationId;
+      setMailboxDataLoaded(true);
+    } finally {
+      mailboxLoadInFlightRef.current = false;
+      setMailboxDataLoading(false);
+    }
+  };
+
+  const buildIdleCustomerRenewalAssistant = (
+    current?: CustomerRenewalAssistantData | null
+  ): CustomerRenewalAssistantData => ({
+    agentOnline: current?.agentOnline ?? false,
+    helperVersion: current?.helperVersion ?? null,
+    helperMessage:
+      current?.helperMessage || "공동인증서 불러오기 또는 새로고침을 누르면 로컬 헬퍼 연결을 확인합니다.",
+    helperCheckedAt: current?.helperCheckedAt ?? null,
+    jobs: current?.jobs ?? [],
+    certificates: current?.certificates ?? []
+  });
+
   const loadOrganizationMembers = async (payload: BootstrapPayload, loadToken: number) => {
     if (payload.auth.activeOrganizationRole !== "owner") {
       setOrganizationMembers([]);
@@ -1386,19 +2229,36 @@ export function App() {
     ensureActiveLoad(loadToken);
     const nextOpsConsole = payload.auth.isPlatformAdmin ? await loadOpsConsole() : null;
     ensureActiveLoad(loadToken);
-    const [nextImportProfile, nextCompletedBillingMonths] = payload.auth.activeOrganizationId
-      ? await Promise.all([
-          api<{ profile: CustomerImportProfile | null }>("/api/customer-import/profile").then((response) => response.profile),
-          api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
-        ])
-      : [null, []];
+    const nextCompletedBillingMonths = payload.auth.activeOrganizationId
+      ? await api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
+      : [];
     ensureActiveLoad(loadToken);
+    const nextCustomerRenewalAssistant =
+      payload.auth.activeOrganizationId && payload.auth.activeOrganizationRole !== "viewer"
+        ? buildIdleCustomerRenewalAssistant(customerRenewalAssistant)
+        : null;
     setError("");
     setActiveOrganizationId(payload.auth.activeOrganizationId);
     const nextSettingsForm = settingsToForm(payload.settings);
-    setData(payload);
+    const nextActiveOrganizationId = payload.auth.activeOrganizationId ?? null;
+    const mailboxDataStillValid = mailboxLoadedOrganizationRef.current === nextActiveOrganizationId;
+    const nextPayload =
+      mailboxDataStillValid && data?.auth.activeOrganizationId === nextActiveOrganizationId
+        ? {
+            ...payload,
+            inbox: data.inbox,
+            drafts: data.drafts
+          }
+        : payload;
+    setData(nextPayload);
+    setMailboxDataLoaded(mailboxDataStillValid);
+    if (!mailboxDataStillValid) {
+      mailboxLoadedOrganizationRef.current = null;
+      setMailboxDataLoading(false);
+    }
+    customerCertificatePasswordCacheRef.current = {};
     setOpsConsole(nextOpsConsole);
-    setCustomerImportProfile(nextImportProfile);
+    setCustomerRenewalAssistant(nextCustomerRenewalAssistant);
     setCompletedBillingMonths(nextCompletedBillingMonths);
     setWorkspaceLimitEdits(
       nextOpsConsole
@@ -1585,13 +2445,14 @@ export function App() {
     if (!data || activeTab !== "customers" || creatingCustomer) return;
     const normalizedSearch = customerSearchQuery.trim().toLocaleLowerCase("ko-KR");
     const visibleCustomers = data.customers.filter((customer) => {
-      const matchesFilter = customerListFilter === "blocked" ? !getCustomerIssueReadiness(customer).canIssueNow : true;
+      const matchesFilter = matchesCustomerListFilter(customer, customerListFilter);
       const matchesSearch =
         normalizedSearch === "" ||
         customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedSearch) ||
-        customer.corpName.toLocaleLowerCase("ko-KR").includes(normalizedSearch);
+        customer.corpName.toLocaleLowerCase("ko-KR").includes(normalizedSearch) ||
+        customer.businessNumber.toLocaleLowerCase("ko-KR").includes(normalizedSearch);
       return matchesFilter && matchesSearch;
-    });
+    }).sort(compareCustomersForList);
 
     if (visibleCustomers.length === 0) {
       if (customerForm.id !== null) {
@@ -1610,6 +2471,24 @@ export function App() {
       setCustomerForm(customerToForm(visibleCustomers[0]));
     }
   }, [activeTab, creatingCustomer, customerForm, customerListFilter, customerSearchQuery, data]);
+
+  useEffect(() => {
+    if (!data?.auth.activeOrganizationId) {
+      return;
+    }
+
+    if (!shouldLoadMailboxData(activeTab, customerDetailTab)) {
+      return;
+    }
+
+    if (mailboxLoadedOrganizationRef.current === data.auth.activeOrganizationId || mailboxLoadInFlightRef.current) {
+      return;
+    }
+
+    void loadMailboxData().catch((mailboxError) => {
+      setError(mailboxError instanceof Error ? mailboxError.message : "메일 데이터를 불러오지 못했습니다.");
+    });
+  }, [activeTab, customerDetailTab, data?.auth.activeOrganizationId]);
 
   useEffect(() => {
     if (!data || activeTab !== "initial") return;
@@ -1642,37 +2521,140 @@ export function App() {
 
   useEffect(() => {
     setCustomerCertNotice("");
-    setPendingCertSyncCustomerId(null);
+    setPendingCertSyncCustomerIds([]);
   }, [creatingCustomer, customerForm.id]);
 
   useEffect(() => {
-    if (activeTab !== "customers" || pendingCertSyncCustomerId === null) {
+    if (activeTab !== "initial") {
+      return;
+    }
+
+    const hasPendingRenewalJobs = customerRenewalAssistant?.jobs.some(
+      (job) => job.status === "queued" || job.status === "claimed"
+    );
+    if (!hasPendingRenewalJobs) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void refreshCustomerRenewalAssistant().catch(() => undefined);
+    }, 3000);
+
+    return () => window.clearTimeout(timer);
+  }, [activeTab, customerRenewalAssistant]);
+
+  useEffect(() => {
+    if (activeTab !== "certificates") {
+      customerRenewalAutoLoadedRef.current = false;
+      customerRenewalAutoLoadedOrganizationRef.current = null;
+      return;
+    }
+
+    const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
+    if (!activeOrganizationId || data?.auth.activeOrganizationRole === "viewer") {
+      customerRenewalAutoLoadedRef.current = false;
+      customerRenewalAutoLoadedOrganizationRef.current = null;
+      return;
+    }
+
+    if (customerRenewalAutoLoadedOrganizationRef.current !== activeOrganizationId) {
+      customerRenewalAutoLoadedOrganizationRef.current = activeOrganizationId;
+      customerRenewalAutoLoadedRef.current = false;
+    }
+
+    if (!customerRenewalAssistant || customerRenewalAutoLoadedRef.current) {
+      return;
+    }
+
+    customerRenewalAutoLoadedRef.current = true;
+    void (async () => {
+      let assistantSnapshot = customerRenewalAssistant;
+
+      if (!assistantSnapshot.agentOnline) {
+        setCustomerRenewalAssistant((prev) =>
+          prev
+            ? {
+                ...prev,
+                helperMessage: "로컬 헬퍼 연결을 확인하는 중입니다..."
+              }
+            : prev
+        );
+        assistantSnapshot = await loadCustomerRenewalAssistant(assistantSnapshot);
+        setCustomerRenewalAssistant(assistantSnapshot);
+      }
+    })().catch(() => {
+      customerRenewalAutoLoadedRef.current = false;
+    });
+  }, [activeTab, customerRenewalAssistant, data?.auth.activeOrganizationId, data?.auth.activeOrganizationRole]);
+
+  useEffect(() => {
+    if (activeTab !== "settings" || activeSettingsSection !== "popbill") {
+      return;
+    }
+
+    if (!data?.auth.activeOrganizationId || data.auth.activeOrganizationRole === "viewer") {
+      return;
+    }
+
+    if (customerRenewalAssistant?.helperCheckedAt) {
+      return;
+    }
+
+    void refreshCustomerRenewalAssistant().catch(() => undefined);
+  }, [
+    activeTab,
+    activeSettingsSection,
+    customerRenewalAssistant?.helperCheckedAt,
+    data?.auth.activeOrganizationId,
+    data?.auth.activeOrganizationRole
+  ]);
+
+  useEffect(() => {
+    if (pendingCertSyncCustomerIds.length === 0) {
       return;
     }
 
     let disposed = false;
     const tryRefreshCertificateStatus = async () => {
-      if (disposed || certSyncInFlightRef.current) {
+      if (disposed || certSyncInFlightRef.current || pendingCertSyncCustomerIds.length === 0) {
         return;
       }
 
       certSyncInFlightRef.current = true;
       try {
-        await api(`/api/customers/${pendingCertSyncCustomerId}/popbill/cert-status`, {
-          method: "POST"
-        });
-        await load();
-        if (!disposed) {
-          setCustomerCertNotice("인증서 상태를 자동으로 다시 확인했습니다.");
+        let refreshedCount = 0;
+        let failedCount = 0;
+
+        for (const customerId of pendingCertSyncCustomerIds) {
+          try {
+            await api(`/api/customers/${customerId}/popbill/cert-status`, {
+              method: "POST"
+            });
+            refreshedCount += 1;
+          } catch {
+            failedCount += 1;
+          }
         }
-      } catch {
+
+        if (refreshedCount > 0) {
+          await load();
+        }
+
         if (!disposed) {
-          setCustomerCertNotice("인증서 등록 후 상태를 아직 확인하지 못했습니다. 완료 후 다시 이 화면으로 돌아오거나 만료일 확인을 눌러주세요.");
+          if (refreshedCount > 0 && failedCount === 0) {
+            setCustomerCertNotice(
+              refreshedCount === 1 ? "인증서 상태를 자동으로 다시 확인했습니다." : `인증서 상태 ${refreshedCount}건을 자동으로 다시 확인했습니다.`
+            );
+          } else if (refreshedCount > 0) {
+            setCustomerCertNotice(`인증서 상태 ${refreshedCount}건을 확인했고 ${failedCount}건은 아직 확인하지 못했습니다.`);
+          } else {
+            setCustomerCertNotice("인증서 등록 후 상태를 아직 확인하지 못했습니다. 완료 후 다시 이 화면으로 돌아오거나 만료일 확인을 눌러주세요.");
+          }
         }
       } finally {
         certSyncInFlightRef.current = false;
         if (!disposed) {
-          setPendingCertSyncCustomerId(null);
+          setPendingCertSyncCustomerIds([]);
         }
       }
     };
@@ -1694,7 +2676,7 @@ export function App() {
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [activeTab, pendingCertSyncCustomerId]);
+  }, [pendingCertSyncCustomerIds]);
 
   useEffect(() => {
     if (activeTab !== "customers") {
@@ -1852,6 +2834,9 @@ export function App() {
       await action();
       if (options?.reload !== false) {
         await load();
+        if (shouldLoadMailboxData(activeTab, customerDetailTab)) {
+          await loadMailboxData({ force: true });
+        }
       }
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "작업에 실패했습니다.");
@@ -2043,6 +3028,7 @@ export function App() {
       issueDay: null,
       issueHour: null,
       issueMinute: null,
+      renewalContactMobile: customerForm.renewalContactMobile,
       memo: customerForm.memo,
       plantNames: [],
       matchAddresses: normalizedAddress ? [normalizedAddress] : []
@@ -2209,6 +3195,504 @@ export function App() {
     setCustomerImportPreview(followUpPreview);
   };
 
+  const resolveCustomerOnboardingTemplateWorkbook = async (
+    templateWorkbook: CustomerOnboardingTemplateWorkbookInput
+  ): Promise<CustomerOnboardingResolutionResult> => {
+    const onboardingPreflightConcurrency = 6;
+    const sharedPassword = await resolveCustomerRenewalPassword({ promptIfMissing: false });
+    const bridgeProbe = await requestLocalRenewalBridgeProbe();
+    const availableCertificates = bridgeProbe.result.bridge.storageProbe.ok ? bridgeProbe.result.bridge.storageProbe.certificates : [];
+    const errors: string[] = [];
+    const existingCustomers = data?.customers ?? [];
+    const existingCustomerCertificates = data?.customerCertificates ?? [];
+    const customersByBusinessNumber = new Map<
+      string,
+      {
+        rowIndex: number;
+        customerName: string;
+        businessNumber: string;
+        corpName: string;
+        addr: string;
+        bizType: string;
+        bizClass: string;
+        renewalContactMobile: string;
+        memo: string;
+        fallbackAddress: string;
+        plantNames: Set<string>;
+        matchAddresses: Set<string>;
+        certificateRows: CustomerOnboardingWorkbookInput["certificates"];
+      }
+    >();
+    const existingCustomersByBusinessNumber = new Map(
+      existingCustomers.map((customer) => [digitsOnly(customer.businessNumber), customer] as const)
+    );
+    const existingCustomersById = new Map(existingCustomers.map((customer) => [customer.id, customer] as const));
+    let resolvedCertificateCount = 0;
+    let skippedCertificateCount = 0;
+
+    const resolvedTemplateCertificates: Array<{
+      row: CustomerOnboardingTemplateWorkbookInput["certificates"][number];
+      matchedCertificate: RenewalAgentCertificate;
+      certificateLabel: string;
+      effectivePassword: string;
+      certificateKind: CustomerCertificateKind;
+    }> = [];
+
+    const ensureWorkbookCustomerEntry = (
+      businessNumber: string,
+      options: {
+        rowIndex: number;
+        customerName: string;
+        corpName: string;
+        addr: string;
+        bizType: string;
+        bizClass: string;
+        renewalContactMobile: string;
+        fallbackAddress: string;
+      }
+    ) => {
+      const existingEntry = customersByBusinessNumber.get(businessNumber);
+      if (existingEntry) {
+        if (!existingEntry.renewalContactMobile && options.renewalContactMobile.trim()) {
+          existingEntry.renewalContactMobile = options.renewalContactMobile.trim();
+        }
+        return existingEntry;
+      }
+
+      const createdEntry = {
+        rowIndex: options.rowIndex,
+        customerName: options.customerName.trim(),
+        businessNumber,
+        corpName: options.corpName.trim(),
+        addr: options.addr.trim(),
+        bizType: options.bizType.trim(),
+        bizClass: options.bizClass.trim(),
+        renewalContactMobile: options.renewalContactMobile.trim(),
+        memo: "",
+        fallbackAddress: options.fallbackAddress.trim(),
+        plantNames: new Set<string>(),
+        matchAddresses: new Set<string>(),
+        certificateRows: []
+      };
+      customersByBusinessNumber.set(businessNumber, createdEntry);
+      return createdEntry;
+    };
+
+    const applyMatchedPlantRowsToEntry = (
+      certificateRow: CustomerOnboardingTemplateWorkbookInput["certificates"][number],
+      entry: ReturnType<typeof ensureWorkbookCustomerEntry>
+    ) => {
+      for (const plantRow of templateWorkbook.plants.filter((plant) =>
+        matchesCustomerOnboardingTemplateCertificate(certificateRow, plant)
+      )) {
+        const matchAddress = plantRow.matchAddress.trim();
+        if (!matchAddress) {
+          continue;
+        }
+
+        entry.matchAddresses.add(matchAddress);
+        entry.plantNames.add(plantRow.plantName.trim() || certificateRow.certificateName.trim() || entry.corpName);
+      }
+    };
+
+    const findAutoLinkBusinessNumber = async (
+      certificate: RenewalAgentCertificate,
+      certificatePassword: string
+    ) => {
+      const response = await requestLocalRenewalPreflight({
+        certificateIndex: Number(certificate.index),
+        certificateCn: certificate.cn || null,
+        certificatePassword
+      });
+      const snapshot = response.result.bridge.preflightProbe?.renewInfoSnapshot;
+      if (!response.result.bridge.preflightProbe?.ok || !snapshot) {
+        return null;
+      }
+
+      const candidateBusinessNumbers = new Set<string>();
+      for (const customer of data?.customers ?? []) {
+        if (!matchesCustomerCertificateAutoLinkFromSnapshot(certificate, snapshot, customer)) {
+          continue;
+        }
+        const businessNumber = digitsOnly(customer.businessNumber);
+        if (businessNumber) {
+          candidateBusinessNumbers.add(businessNumber);
+        }
+      }
+
+      for (const entry of customersByBusinessNumber.values()) {
+        if (matchesCustomerCertificateAutoLinkFromSnapshot(certificate, snapshot, entry)) {
+          candidateBusinessNumbers.add(entry.businessNumber);
+        }
+      }
+
+      if (candidateBusinessNumbers.size !== 1) {
+        return null;
+      }
+
+      return Array.from(candidateBusinessNumbers)[0] ?? null;
+    };
+
+    for (const certificateRow of templateWorkbook.certificates) {
+      const certificateLabel = getCustomerOnboardingTemplateCertificateLabel(certificateRow);
+      const matchedCertificate =
+        availableCertificates.find((certificate) =>
+          matchesRenewalCertificate(certificate, {
+            certificateIndex: certificateRow.certificateIndex,
+            certificateCn: certificateRow.certificateName
+          })
+        ) ??
+        availableCertificates.find(
+          (certificate) =>
+            normalizeRenewalCertificateKey(certificate.cn) === normalizeRenewalCertificateKey(certificateRow.certificateName)
+        ) ??
+        null;
+
+      if (!matchedCertificate) {
+        errors.push(`공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 이 PC에서 같은 공동인증서를 다시 찾지 못했습니다.`);
+        skippedCertificateCount += 1;
+        continue;
+      }
+
+      const effectivePassword = certificateRow.certificatePassword.trim() || sharedPassword;
+      if (!effectivePassword) {
+        errors.push(`공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 인증서 비밀번호를 입력하세요. 비워둘 경우 시스템 설정의 공통 비밀번호가 필요합니다.`);
+        skippedCertificateCount += 1;
+        continue;
+      }
+
+      resolvedTemplateCertificates.push({
+        row: certificateRow,
+        matchedCertificate: matchedCertificate as RenewalAgentCertificate,
+        certificateLabel,
+        effectivePassword,
+        certificateKind: deriveCustomerCertificateKind(matchedCertificate as RenewalAgentCertificate)
+      });
+    }
+
+    const electronicTaxResults = await mapWithConcurrency(
+      resolvedTemplateCertificates.filter((item) => item.certificateKind === "electronic_tax"),
+      onboardingPreflightConcurrency,
+      async (resolvedCertificate) => {
+        const { row: certificateRow, matchedCertificate, certificateLabel, effectivePassword } = resolvedCertificate;
+        const linkedStoredCertificate = findStoredCustomerCertificateForLocalCertificate(
+          matchedCertificate,
+          existingCustomerCertificates
+        );
+        const linkedCustomer = linkedStoredCertificate
+          ? existingCustomersById.get(linkedStoredCertificate.customerId) ?? null
+          : null;
+
+        if (linkedCustomer) {
+          return {
+            ok: true as const,
+            certificateRow,
+            matchedCertificate,
+            businessNumber: digitsOnly(linkedCustomer.businessNumber),
+            customerName: linkedCustomer.customerName,
+            corpName: linkedCustomer.corpName,
+            addr: linkedCustomer.addr,
+            bizType: linkedCustomer.bizType,
+            bizClass: linkedCustomer.bizClass,
+            renewalContactMobile: linkedCustomer.renewalContactMobile
+          };
+        }
+
+        const response = await requestLocalRenewalPreflight({
+          certificateIndex: Number(matchedCertificate.index),
+          certificateCn: matchedCertificate.cn || certificateRow.certificateName || null,
+          certificatePassword: effectivePassword
+        });
+        const preflightProbe = response.result.bridge.preflightProbe;
+        const snapshot = preflightProbe?.renewInfoSnapshot;
+        if (!preflightProbe?.ok || !snapshot) {
+          return {
+            ok: false as const,
+            message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): ${
+              preflightProbe?.error ?? preflightProbe?.message ?? "사업자 정보를 읽지 못했습니다."
+            }`
+          };
+        }
+
+        const basePayload = buildCustomerCreatePayloadFromRenewalSnapshot(
+          {
+            index: String(matchedCertificate.index),
+            cn: matchedCertificate.cn || certificateRow.certificateName || certificateLabel
+          } as RenewalAgentCertificate,
+          snapshot
+        );
+        const businessNumber = digitsOnly(basePayload.businessNumber);
+        if (!businessNumber) {
+          return {
+            ok: false as const,
+            message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 사업자번호를 읽지 못했습니다.`
+          };
+        }
+
+        return {
+          ok: true as const,
+          certificateRow,
+          matchedCertificate,
+          businessNumber,
+          customerName: basePayload.customerName,
+          corpName: basePayload.corpName,
+          addr: basePayload.addr,
+          bizType: basePayload.bizType,
+          bizClass: basePayload.bizClass,
+          renewalContactMobile: basePayload.renewalContactMobile
+        };
+      }
+    );
+
+    for (const result of electronicTaxResults) {
+      if (!result.ok) {
+        errors.push(result.message);
+        skippedCertificateCount += 1;
+        continue;
+      }
+
+      const entry = ensureWorkbookCustomerEntry(result.businessNumber, {
+        rowIndex: result.certificateRow.rowIndex,
+        customerName: result.customerName,
+        corpName: result.corpName,
+        addr: result.addr,
+        bizType: result.bizType,
+        bizClass: result.bizClass,
+        renewalContactMobile: result.renewalContactMobile,
+        fallbackAddress: result.addr
+      });
+
+      applyMatchedPlantRowsToEntry(result.certificateRow, entry);
+      entry.certificateRows.push({
+        rowIndex: result.certificateRow.rowIndex,
+        businessNumber: result.businessNumber,
+        certificateKind: "electronic_tax",
+        certificateName:
+          result.matchedCertificate.cn?.trim() || result.certificateRow.certificateName.trim() || entry.corpName,
+        certificateUsageName: "전자세금용",
+        issuerName: result.certificateRow.issuerName.trim() || result.matchedCertificate.issuerToName.trim(),
+        certificatePassword: result.certificateRow.certificatePassword.trim(),
+        isPrimary: entry.certificateRows.length === 0
+      });
+      resolvedCertificateCount += 1;
+    }
+
+    const generalCertificateResults = await mapWithConcurrency(
+      resolvedTemplateCertificates.filter((item) => item.certificateKind !== "electronic_tax"),
+      onboardingPreflightConcurrency,
+      async (resolvedCertificate) => {
+        const { row: certificateRow, matchedCertificate, certificateLabel, effectivePassword, certificateKind } =
+          resolvedCertificate;
+        const linkedStoredCertificate = findStoredCustomerCertificateForLocalCertificate(
+          matchedCertificate,
+          existingCustomerCertificates
+        );
+        const linkedCustomer = linkedStoredCertificate
+          ? existingCustomersById.get(linkedStoredCertificate.customerId) ?? null
+          : null;
+        const linkedBusinessNumber =
+          digitsOnly(certificateRow.linkBusinessNumber) ||
+          digitsOnly(linkedCustomer?.businessNumber ?? "") ||
+          (await findAutoLinkBusinessNumber(matchedCertificate, effectivePassword)) ||
+          "";
+
+        if (!linkedBusinessNumber) {
+          return {
+            ok: false as const,
+            message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 같은 이름과 주소의 고객을 자동으로 찾지 못했습니다. \`연결할 사업자번호\`를 적어주세요.`
+          };
+        }
+
+        return {
+          ok: true as const,
+          certificateRow,
+          matchedCertificate,
+          certificateKind,
+          linkedBusinessNumber
+        };
+      }
+    );
+
+    for (const result of generalCertificateResults) {
+      if (!result.ok) {
+        errors.push(result.message);
+        skippedCertificateCount += 1;
+        continue;
+      }
+
+      const existingCustomer = existingCustomersByBusinessNumber.get(result.linkedBusinessNumber) ?? null;
+      const entry =
+        customersByBusinessNumber.get(result.linkedBusinessNumber) ??
+        (existingCustomer
+          ? ensureWorkbookCustomerEntry(result.linkedBusinessNumber, {
+              rowIndex: result.certificateRow.rowIndex,
+              customerName: existingCustomer.customerName,
+              corpName: existingCustomer.corpName,
+              addr: existingCustomer.addr,
+              bizType: existingCustomer.bizType,
+              bizClass: existingCustomer.bizClass,
+              renewalContactMobile: existingCustomer.renewalContactMobile,
+              fallbackAddress: existingCustomer.addr
+            })
+          : null);
+
+      if (!entry) {
+        errors.push(
+          `공동인증서 ${result.certificateRow.rowIndex}행 (${result.certificateRow.certificateName || result.matchedCertificate.cn || "공동인증서"}): 연결할 사업자번호 ${result.linkedBusinessNumber} 고객을 찾지 못했습니다.`
+        );
+        skippedCertificateCount += 1;
+        continue;
+      }
+
+      entry.certificateRows.push({
+        rowIndex: result.certificateRow.rowIndex,
+        businessNumber: result.linkedBusinessNumber,
+        certificateKind: result.certificateKind,
+        certificateName:
+          result.matchedCertificate.cn?.trim() || result.certificateRow.certificateName.trim() || entry.corpName,
+        certificateUsageName: result.matchedCertificate.usageToName?.trim() || result.certificateRow.usageName.trim(),
+        issuerName: result.certificateRow.issuerName.trim() || result.matchedCertificate.issuerToName.trim(),
+        certificatePassword: result.certificateRow.certificatePassword.trim(),
+        isPrimary: false
+      });
+      resolvedCertificateCount += 1;
+    }
+
+    const workbook: CustomerOnboardingWorkbookInput = {
+      customers: [],
+      plants: [],
+      certificates: []
+    };
+
+    for (const entry of customersByBusinessNumber.values()) {
+      const matchAddresses =
+        entry.matchAddresses.size > 0
+          ? Array.from(entry.matchAddresses)
+          : entry.fallbackAddress
+            ? [entry.fallbackAddress]
+            : [];
+
+      workbook.customers.push({
+        rowIndex: entry.rowIndex,
+        customerName: entry.customerName,
+        businessNumber: entry.businessNumber,
+        corpName: entry.corpName,
+        addr: entry.addr,
+        bizType: entry.bizType,
+        bizClass: entry.bizClass,
+        renewalContactMobile: entry.renewalContactMobile,
+        memo: entry.memo
+      });
+      workbook.plants.push(
+        ...Array.from(matchAddresses).map((matchAddress, index) => ({
+          rowIndex: entry.rowIndex * 100 + index,
+          businessNumber: entry.businessNumber,
+          plantName: Array.from(entry.plantNames)[index] ?? entry.corpName,
+          matchAddress
+        }))
+      );
+      workbook.certificates.push(...entry.certificateRows);
+    }
+
+    return {
+      workbook,
+      resolvedCertificateCount,
+      skippedCertificateCount,
+      errors
+    };
+  };
+
+  const downloadCustomerOnboardingImportTemplate = async () => {
+    const [XLSX, response] = await Promise.all([loadXlsxModule(), requestLocalRenewalBridgeProbe()]);
+    const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
+    const certificates = allCertificates;
+
+    if (certificates.length === 0) {
+      throw new Error("이 PC에서 공동인증서를 찾지 못했습니다.");
+    }
+
+    downloadCustomerOnboardingTemplate(XLSX, certificates);
+    setCustomerOnboardingNotice(
+      `공동인증서 ${certificates.length}건 기준으로 양식을 다운로드했습니다. 전자세금용은 고객 생성에 쓰고, 범용 공동인증서는 같은 이름과 주소의 고객이면 자동 연결되며, 아니면 연결할 사업자번호를 적으면 됩니다.`
+    );
+    setCustomerOnboardingError("");
+  };
+
+  const handleCustomerOnboardingFileChange = async (file: File | null) => {
+    if (!file) {
+      setCustomerOnboardingFileName("");
+      setCustomerOnboardingWorkbook(null);
+      setCustomerOnboardingPreview(null);
+      setCustomerOnboardingNotice("");
+      setCustomerOnboardingError("");
+      return;
+    }
+
+    try {
+      const XLSX = await loadXlsxModule();
+      const parsed = await parseCustomerOnboardingWorkbook(XLSX, file);
+      const resolved = await resolveCustomerOnboardingTemplateWorkbook(parsed.workbook);
+      setCustomerOnboardingFileName(parsed.fileName);
+      setCustomerOnboardingWorkbook(resolved.workbook);
+
+      if (resolved.workbook.customers.length === 0) {
+        setCustomerOnboardingPreview(null);
+        setCustomerOnboardingNotice(`${parsed.fileName}에서 고객으로 읽을 수 있는 전자세금용 공동인증서가 없습니다.`);
+        setCustomerOnboardingError(resolved.errors.join("\n"));
+        return;
+      }
+
+      const preview = await api<CustomerOnboardingPreviewResponse>("/api/customer-onboarding/preview", {
+        method: "POST",
+        body: JSON.stringify(resolved.workbook)
+      });
+      setCustomerOnboardingPreview(preview);
+      setCustomerOnboardingNotice(
+        `${parsed.fileName} 업로드 확인을 마쳤습니다. 전자세금용 공동인증서 ${resolved.resolvedCertificateCount}건에서 사업자 정보를 읽었습니다.${
+          resolved.skippedCertificateCount > 0 ? ` 읽지 못한 인증서 ${resolved.skippedCertificateCount}건은 아래에서 확인하세요.` : ""
+        }`
+      );
+      setCustomerOnboardingError(resolved.errors.join("\n"));
+    } catch (importError) {
+      setCustomerOnboardingFileName("");
+      setCustomerOnboardingWorkbook(null);
+      setCustomerOnboardingPreview(null);
+      setCustomerOnboardingNotice("");
+      setCustomerOnboardingError(importError instanceof Error ? importError.message : "엑셀 양식을 읽지 못했습니다.");
+    }
+  };
+
+  const commitCustomerOnboardingWorkbook = async () => {
+    if (!customerOnboardingWorkbook || !customerOnboardingPreview) {
+      setCustomerOnboardingError("먼저 초기 등록 엑셀 파일을 업로드하세요.");
+      return;
+    }
+
+    const importableCount = customerOnboardingPreview.createCount + customerOnboardingPreview.updateCount;
+    if (importableCount === 0) {
+      setCustomerOnboardingError("가져올 수 있는 고객이 없습니다.");
+      return;
+    }
+
+    setCustomerOnboardingError("");
+    const result = await api<CustomerOnboardingCommitResponse>("/api/customer-onboarding/commit", {
+      method: "POST",
+      body: JSON.stringify(customerOnboardingWorkbook)
+    });
+
+    const summary = `가져오기 완료 · 신규 ${result.createdCount}건 / 갱신 ${result.updatedCount}건 / 인증서 ${result.linkedCertificateCount}건`;
+    const warningSummary =
+      result.warnings.length > 0 ? `\n경고 ${result.warnings.length}건은 아래 메시지에서 확인하세요.` : "";
+    setCustomerOnboardingNotice(summary + warningSummary);
+
+    const failedMessages = result.failedRows.map((row) => `${row.rowIndex}행: ${row.message}`);
+    const warningMessages = result.warnings.map((warning) => `${warning.rowIndex}행: ${warning.message}`);
+    setCustomerOnboardingError([...failedMessages, ...warningMessages].join("\n"));
+
+    await load();
+    setCustomerOnboardingPreview(null);
+  };
+
   const selectQuickRegisterMessage = (messageId: number) => {
     const message = quickRegisterMessages.find((item) => item.id === messageId) ?? null;
     setQuickRegisterForm(createQuickRegisterForm(message));
@@ -2319,6 +3803,10 @@ export function App() {
         operatorContactName: normalized.operatorContactName.trim(),
         operatorContactEmail: normalized.operatorContactEmail.trim(),
         operatorContactTel: normalized.operatorContactTel.trim(),
+        renewalContactDepartment: normalized.renewalContactDepartment.trim(),
+        renewalContactFax: normalized.renewalContactFax.trim(),
+        renewalCertificatePassword: normalized.renewalCertificatePassword,
+        renewalIssuePassword: normalized.renewalIssuePassword,
         schedulerEnabled: normalized.schedulerEnabled
       }
     };
@@ -2338,7 +3826,11 @@ export function App() {
         popbillSharedPassword: "",
         operatorContactName: data.settings.operatorContactName,
         operatorContactEmail: data.settings.operatorContactEmail,
-        operatorContactTel: data.settings.operatorContactTel
+        operatorContactTel: data.settings.operatorContactTel,
+        renewalContactDepartment: data.settings.renewalContactDepartment,
+        renewalContactFax: data.settings.renewalContactFax,
+        renewalCertificatePassword: "",
+        renewalIssuePassword: ""
       }
     };
   };
@@ -2393,6 +3885,54 @@ export function App() {
     setSettingsAutosaveState("saved");
     setSettingsForm(nextForm);
     setRevealedFields((prev) => ({ ...prev, popbillSharedPassword: true }));
+  };
+
+  const fetchStoredRenewalCertificatePassword = async () => {
+    const result = await api<{ password: string }>("/api/settings/renewal-certificate-password");
+    return result.password.trim();
+  };
+
+  const fetchStoredRenewalIssuePassword = async () => {
+    const result = await api<{ password: string }>("/api/settings/renewal-issue-password");
+    return result.password.trim();
+  };
+
+  const fetchStoredCustomerCertificatePassword = async (certificateId: number) => {
+    const cachedPassword = customerCertificatePasswordCacheRef.current[certificateId]?.trim();
+    if (cachedPassword) {
+      return cachedPassword;
+    }
+
+    const result = await api<{ password: string }>(`/api/customer-certificates/${certificateId}/password`);
+    const password = result.password.trim();
+    if (password) {
+      customerCertificatePasswordCacheRef.current = {
+        ...customerCertificatePasswordCacheRef.current,
+        [certificateId]: password
+      };
+    }
+    return password;
+  };
+
+  const loadCurrentRenewalCertificatePassword = async () => {
+    if (!settingsForm) return;
+    const password = await fetchStoredRenewalCertificatePassword();
+    customerRenewalPasswordRef.current = password;
+    const nextForm = { ...settingsForm, renewalCertificatePassword: password };
+    settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
+    setSettingsAutosaveState("saved");
+    setSettingsForm(nextForm);
+    setRevealedFields((prev) => ({ ...prev, renewalCertificatePassword: true }));
+  };
+
+  const loadCurrentRenewalIssuePassword = async () => {
+    if (!settingsForm) return;
+    const password = await fetchStoredRenewalIssuePassword();
+    const nextForm = { ...settingsForm, renewalIssuePassword: password };
+    settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
+    setSettingsAutosaveState("saved");
+    setSettingsForm(nextForm);
+    setRevealedFields((prev) => ({ ...prev, renewalIssuePassword: true }));
   };
 
   const testMailSettings = async () => {
@@ -2792,18 +4332,834 @@ export function App() {
   const requestRenewalPreflight = async (
     certificate: RenewalAgentCertificate
   ) => {
+    const customers = data?.customers ?? [];
+    const normalizedCn = certificate.cn.trim();
+    const matchingCustomers = normalizedCn === ""
+      ? []
+      : customers.filter((customer) => {
+          const corpName = customer.corpName.trim();
+          const customerName = customer.customerName.trim();
+          return corpName === normalizedCn || customerName === normalizedCn;
+        });
+    const matchedCustomerId = matchingCustomers.length === 1 ? matchingCustomers[0]?.id ?? null : null;
     const result = await api<{ id: number }>("/api/automation/renewal-jobs/preflight", {
       method: "POST",
       body: JSON.stringify({
+        customerId: matchedCustomerId,
         certificateIndex: Number(certificate.index),
         certificateCn: certificate.cn || null
       })
     });
 
     await showAppAlert(
-      `갱신 경로 분석 작업을 큐에 추가했습니다.\n작업번호: ${result.id}\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 분석됩니다.`,
+      `갱신 경로 분석 작업을 큐에 추가했습니다.\n작업번호: ${result.id}${matchedCustomerId ? `\n고객 기준 비교: ${matchingCustomers[0]?.customerName ?? "-"}` : ""}\n완료 후에는 고객관리 탭에서 고객 초안을 만들 수 있습니다.\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 분석됩니다.`,
       {
         title: "갱신 경로 분석 작업 추가",
+        tone: "success"
+      }
+    );
+  };
+
+  const refreshCustomerRenewalAssistant = async () => {
+    if (!data?.auth.activeOrganizationId || data.auth.activeOrganizationRole === "viewer") {
+      setCustomerRenewalAssistant(null);
+      return;
+    }
+
+    const status = await getLocalRenewalHelperStatus();
+    setCustomerRenewalAssistant((prev) => ({
+      agentOnline: status.online,
+      helperVersion: status.version,
+      helperMessage: status.message,
+      helperCheckedAt: new Date().toISOString(),
+      jobs: prev?.jobs ?? [],
+      certificates: prev?.certificates ?? []
+    }));
+  };
+
+  const resolveCustomerRenewalPassword = async (options?: { promptIfMissing?: boolean; linkedCertificateId?: number | null }) => {
+    if (options?.linkedCertificateId) {
+      const storedCertificatePassword = await fetchStoredCustomerCertificatePassword(options.linkedCertificateId);
+      if (storedCertificatePassword) {
+        customerRenewalPasswordRef.current = storedCertificatePassword;
+        return storedCertificatePassword;
+      }
+    }
+
+    const formPassword = settingsForm?.renewalCertificatePassword.trim() ?? "";
+    if (formPassword) {
+      customerRenewalPasswordRef.current = formPassword;
+      return formPassword;
+    }
+
+    if (data?.settings.renewalCertificatePasswordConfigured) {
+      const storedPassword = await fetchStoredRenewalCertificatePassword();
+      if (storedPassword) {
+        customerRenewalPasswordRef.current = storedPassword;
+        return storedPassword;
+      }
+    }
+
+    const cachedPassword = customerRenewalPasswordRef.current.trim();
+    if (cachedPassword) {
+      return cachedPassword;
+    }
+
+    if (!options?.promptIfMissing) {
+      return "";
+    }
+
+    const promptedPassword =
+      window
+        .prompt(
+          "공동인증서 비밀번호를 입력하세요.\n이 값은 현재 브라우저 탭 메모리에만 유지됩니다.",
+          ""
+        )
+        ?.trim() || "";
+    if (promptedPassword) {
+      customerRenewalPasswordRef.current = promptedPassword;
+    }
+    return promptedPassword;
+  };
+
+  const resolveCustomerRenewalIssuePassword = async () => {
+    const cachedPassword = customerRenewalIssuePasswordRef.current.trim();
+    if (cachedPassword) {
+      return cachedPassword;
+    }
+
+    const formPassword = settingsForm?.renewalIssuePassword.trim() ?? "";
+    if (formPassword) {
+      customerRenewalIssuePasswordRef.current = formPassword;
+      return formPassword;
+    }
+
+    if (data?.settings.renewalIssuePasswordConfigured) {
+      const storedPassword = await fetchStoredRenewalIssuePassword();
+      if (storedPassword) {
+        customerRenewalIssuePasswordRef.current = storedPassword;
+        return storedPassword;
+      }
+    }
+
+    return "";
+  };
+
+  const createCustomerFromRenewalSnapshot = async (
+    certificate: RenewalAgentCertificate,
+    snapshot: RenewalInfoSnapshot
+  ) => {
+    const payload = buildCustomerCreatePayloadFromRenewalSnapshot(certificate, snapshot);
+    if (
+      !payload.customerName ||
+      !payload.businessNumber ||
+      !payload.corpName ||
+      !payload.addr ||
+      !payload.bizType ||
+      !payload.bizClass
+    ) {
+      throw new Error("고객 생성에 필요한 사업자 기본값이 부족합니다.");
+    }
+
+    return await api<CustomerSaveResponse>("/api/customers", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  };
+
+  const queuePendingCustomerCertificateSync = (customerIds: number[]) => {
+    if (customerIds.length === 0) {
+      return;
+    }
+
+    setPendingCertSyncCustomerIds((prev) => {
+      const next = new Set(prev);
+      customerIds.forEach((customerId) => next.add(customerId));
+      return Array.from(next);
+    });
+  };
+
+  const getCustomerCertificateRegistrationUrl = async (customerId: number) => {
+    const result = await api<{ url: string }>(`/api/customers/${customerId}/popbill/cert-url`, {
+      method: "POST"
+    });
+    return result.url;
+  };
+
+  const linkCustomerCertificate = async (
+    customerId: number,
+    certificate: RenewalAgentCertificate,
+    options?: { linkSource?: CustomerCertificate["linkSource"] }
+  ) => {
+    return await api<CustomerCertificate>("/api/customer-certificates/link", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId,
+        certificateKind: deriveCustomerCertificateKind(certificate),
+        certificateName: certificate.cn || "",
+        certificateUsageName: certificate.usageToName || "",
+        issuerName: certificate.issuerToName || "",
+        serial: certificate.serial || null,
+        userDN: certificate.userDN || null,
+        oid: certificate.oid || null,
+        expireDate: certificate.todate || certificate.detailValidateTo || null,
+        certDirPath: certificate.certDirPath || null,
+        isPrimary: deriveCustomerCertificateKind(certificate) === "electronic_tax",
+        linkSource: options?.linkSource ?? "manual"
+      })
+    });
+  };
+
+  const unlinkCustomerCertificate = async (certificateId: number) => {
+    await api(`/api/customer-certificates/${certificateId}`, {
+      method: "DELETE"
+    });
+  };
+
+  const syncCustomerRenewalCertificates = async (options?: { showAlert?: boolean }) => {
+    const showAlert = options?.showAlert ?? true;
+    const response = await requestLocalRenewalBridgeProbe();
+    const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
+    const bridgeJob = buildLocalRenewalBridgeJob(response.result, allCertificates.length);
+    const helperMessage = bridgeJob.error ?? bridgeJob.summary;
+
+    setCustomerRenewalAssistant((prev) => ({
+      ...(prev ?? {}),
+      agentOnline: true,
+      helperVersion: response.version,
+      helperMessage,
+      helperCheckedAt: new Date().toISOString(),
+      jobs: [bridgeJob, ...(prev?.jobs ?? [])],
+      certificates: allCertificates
+    }));
+
+    if (showAlert) {
+      await showAppAlert(
+        allCertificates.length > 0
+          ? `공동인증서 ${allCertificates.length}건을 불러왔습니다.\n공동인증서 탭에서 고객 연결과 갱신을 진행할 수 있습니다.`
+          : bridgeJob.error ?? "공동인증서를 불러오지 못했습니다.",
+        {
+          title: "공동인증서 읽기",
+          tone: allCertificates.length > 0 ? "success" : "danger"
+        }
+      );
+    }
+
+    return allCertificates;
+  };
+
+  const loadCustomerRenewalCertificates = async () => {
+    await syncCustomerRenewalCertificates({ showAlert: true });
+  };
+
+  const resolveLinkedCustomerCertificateForAction = async (certificateIndex: string) => {
+    const storedCertificateId = parseStoredCustomerCertificateKey(certificateIndex);
+    if (storedCertificateId !== null) {
+      const linkedCertificate = (data?.customerCertificates ?? []).find((entry) => entry.id === storedCertificateId) ?? null;
+      if (!linkedCertificate) {
+        throw new Error("저장된 공동인증서 연결 정보를 다시 찾지 못했습니다.");
+      }
+
+      let certificate = findLocalCertificateForStoredCustomerCertificate(
+        linkedCertificate,
+        customerRenewalAssistant?.certificates ?? []
+      );
+      if (!certificate) {
+        const refreshedCertificates = await syncCustomerRenewalCertificates({ showAlert: false });
+        certificate = findLocalCertificateForStoredCustomerCertificate(linkedCertificate, refreshedCertificates);
+      }
+
+      if (!certificate) {
+        throw new Error("이 PC에서 저장된 공동인증서를 다시 찾지 못했습니다. 공동인증서 읽기를 다시 실행하세요.");
+      }
+
+      return {
+        certificate,
+        linkedCertificate
+      };
+    }
+
+    const certificate = getLocalCustomerCertificateByIndex(certificateIndex);
+    if (!certificate) {
+      throw new Error("이 PC에서 선택한 공동인증서를 다시 찾지 못했습니다.");
+    }
+
+    const linkedCertificate = findStoredCustomerCertificateForLocalCertificate(certificate, data?.customerCertificates ?? []);
+    if (!linkedCertificate) {
+      throw new Error("먼저 이 공동인증서를 고객과 연결하세요.");
+    }
+
+    return {
+      certificate,
+      linkedCertificate
+    };
+  };
+
+  const requestCustomerRenewalBridgeProbe = async () => {
+    const response = await requestLocalRenewalBridgeProbe();
+    const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
+    const certificates = allCertificates.filter(isElectronicTaxCertificate);
+    let bridgeJob = buildLocalRenewalBridgeJob(response.result, certificates.length);
+    let jobs: RenewalJob[] = [bridgeJob];
+    let helperMessage = bridgeJob.error ?? bridgeJob.summary;
+    let alertTitle = "공동인증서 불러오기";
+    let alertTone: AppDialogTone = certificates.length > 0 ? "success" : allCertificates.length > 0 ? "warn" : "danger";
+    let alertMessage =
+      certificates.length > 0
+        ? `전자세금용 공동인증서 ${certificates.length}건을 불러왔습니다.\n원하는 인증서에서 정보 읽기를 누르면 고객 초안을 바로 만들 수 있습니다.`
+        : allCertificates.length > 0
+          ? "전자세금용 공동인증서를 찾지 못했습니다.\n고객 초안 만들기에는 전자세금용 공동인증서만 표시합니다."
+          : bridgeJob.error ?? "공동인증서를 불러오지 못했습니다.";
+
+    if (certificates.length > 0) {
+      const sharedPassword = await resolveCustomerRenewalPassword({ promptIfMissing: false });
+      if (sharedPassword) {
+        const existingBusinessNumbers = new Set(
+          (data?.customers ?? [])
+            .map((customer) => digitsOnly(customer.businessNumber))
+            .filter(Boolean)
+        );
+        const createdCustomerEntries: Array<{ customer: Customer; certificate: RenewalAgentCertificate }> = [];
+        const preflightJobs: RenewalJob[] = [];
+        const failedDetails: string[] = [];
+        const certificateRegistrationCompletedNames: string[] = [];
+        const certificateRegistrationAlreadyRegisteredNames: string[] = [];
+        const certificateRegistrationSkippedNames: string[] = [];
+        const certificateRegistrationFailedDetails: string[] = [];
+        const certificateRegistrationRefreshFailedDetails: string[] = [];
+        const certificateLinkFailedDetails: string[] = [];
+        let existingCount = 0;
+        let missingDataCount = 0;
+        let refreshedCertificateStatusCount = 0;
+
+        for (const certificate of certificates) {
+          try {
+            const preflightResponse = await requestLocalRenewalPreflight({
+              certificateIndex: Number(certificate.index),
+              certificateCn: certificate.cn || null,
+              certificatePassword: sharedPassword
+            });
+            const preflightJob = buildLocalRenewalPreflightJob(certificate, preflightResponse.result);
+            preflightJobs.unshift(preflightJob);
+
+            if (preflightJob.error) {
+              failedDetails.push(`${certificate.cn || `인증서 #${certificate.index}`}: ${preflightJob.error}`);
+              continue;
+            }
+
+            const snapshot = preflightResponse.result.bridge.preflightProbe.renewInfoSnapshot;
+            if (!snapshot) {
+              missingDataCount += 1;
+              continue;
+            }
+
+            const businessNumber = digitsOnly(snapshot.businessNumber ?? "");
+            if (!businessNumber) {
+              missingDataCount += 1;
+              continue;
+            }
+
+            if (existingBusinessNumbers.has(businessNumber)) {
+              existingCount += 1;
+              continue;
+            }
+
+            const createdCustomer = await createCustomerFromRenewalSnapshot(certificate, snapshot);
+            createdCustomerEntries.push({ customer: createdCustomer, certificate });
+            try {
+              await linkCustomerCertificate(createdCustomer.id, certificate, { linkSource: "auto" });
+            } catch (error) {
+              certificateLinkFailedDetails.push(
+                `${createdCustomer.customerName}: ${error instanceof Error ? error.message : "공동인증서 연결 실패"}`
+              );
+            }
+            existingBusinessNumbers.add(digitsOnly(createdCustomer.businessNumber));
+          } catch (error) {
+            failedDetails.push(
+              `${certificate.cn || `인증서 #${certificate.index}`}: ${error instanceof Error ? error.message : "고객 생성 실패"}`
+            );
+          }
+        }
+
+        const createdCustomers = createdCustomerEntries.map((entry) => entry.customer);
+        const createdCount = createdCustomers.length;
+        const failedCount = failedDetails.length;
+
+        for (const entry of createdCustomerEntries) {
+          const createdCustomer = entry.customer;
+          if (createdCustomer.popbillState !== "joined") {
+            certificateRegistrationSkippedNames.push(
+              `${createdCustomer.customerName}: ${createdCustomer.popbillState === "failed" ? "팝빌 가입 실패" : "팝빌 가입 미완료"}`
+            );
+            continue;
+          }
+
+          try {
+            const certRegistrationUrl = await getCustomerCertificateRegistrationUrl(createdCustomer.id);
+            const registrationResponse = await requestLocalPopbillCertificateRegistration({
+              certificateRegistrationUrl: certRegistrationUrl,
+              certificateCn: entry.certificate.cn || createdCustomer.customerName,
+              certificatePassword: sharedPassword
+            });
+            if (registrationResponse.result.outcome === "already-registered") {
+              certificateRegistrationAlreadyRegisteredNames.push(createdCustomer.customerName);
+            } else {
+              certificateRegistrationCompletedNames.push(createdCustomer.customerName);
+            }
+
+            try {
+              await refreshSingleCustomerCertificateStatus(createdCustomer.id);
+              refreshedCertificateStatusCount += 1;
+            } catch (error) {
+              certificateRegistrationRefreshFailedDetails.push(
+                `${createdCustomer.customerName}: ${error instanceof Error ? error.message : "인증서 상태 반영 실패"}`
+              );
+            }
+          } catch (error) {
+            certificateRegistrationFailedDetails.push(
+              `${createdCustomer.customerName}: ${error instanceof Error ? error.message : "팝빌 인증서 자동 등록 실패"}`
+            );
+          }
+        }
+
+        const summaryParts = [
+          `전자세금용 공동인증서 ${certificates.length}건 처리`,
+          `고객 생성 ${createdCount}건`,
+          existingCount > 0 ? `기존 고객 ${existingCount}건` : null,
+          missingDataCount > 0 ? `정보 부족 ${missingDataCount}건` : null,
+          failedCount > 0 ? `실패 ${failedCount}건` : null,
+          certificateRegistrationCompletedNames.length > 0 ? `팝빌 인증서 자동 등록 ${certificateRegistrationCompletedNames.length}건` : null,
+          certificateRegistrationAlreadyRegisteredNames.length > 0
+            ? `이미 등록된 인증서 ${certificateRegistrationAlreadyRegisteredNames.length}건`
+            : null
+        ].filter((value): value is string => Boolean(value));
+        const batchSummary = summaryParts.join(" · ");
+
+        bridgeJob = {
+          ...bridgeJob,
+          summary: batchSummary,
+          error: failedCount > 0 && createdCount === 0 && existingCount === 0 ? failedDetails[0] ?? bridgeJob.error : null
+        };
+        jobs = [bridgeJob, ...preflightJobs];
+        helperMessage = bridgeJob.error ?? batchSummary;
+        alertTitle = "전자세금용 공동인증서 고객 생성";
+        alertTone =
+          failedCount > 0
+            ? createdCount > 0 || existingCount > 0
+              ? "warn"
+              : "danger"
+            : "success";
+
+        if (createdCustomers.length > 0 || refreshedCertificateStatusCount > 0) {
+          try {
+            await load();
+          } catch (error) {
+            certificateRegistrationRefreshFailedDetails.push(
+              `자동 새로고침 실패: ${error instanceof Error ? error.message : "새로고침 실패"}`
+            );
+          }
+        }
+
+        alertMessage = `${batchSummary}${
+          failedDetails.length > 0 ? `\n\n실패 내역\n${failedDetails.slice(0, 5).join("\n")}` : ""
+        }${
+          certificateRegistrationCompletedNames.length > 0
+            ? `\n\n팝빌 인증서 자동 등록 완료\n${certificateRegistrationCompletedNames.slice(0, 5).join("\n")}`
+            : ""
+        }${
+          certificateRegistrationSkippedNames.length > 0
+            ? `\n\n인증서 등록 건너뜀\n${certificateRegistrationSkippedNames.slice(0, 5).join("\n")}`
+            : ""
+        }${
+          certificateRegistrationAlreadyRegisteredNames.length > 0
+            ? `\n\n이미 등록된 인증서\n${certificateRegistrationAlreadyRegisteredNames.slice(0, 5).join("\n")}`
+            : ""
+        }${
+          certificateRegistrationFailedDetails.length > 0
+            ? `\n\n팝빌 인증서 자동 등록 실패\n${certificateRegistrationFailedDetails.slice(0, 5).join("\n")}\n실패한 고객은 고객관리에서 인증서 등록을 다시 시도하면 됩니다.`
+            : ""
+        }${
+          certificateLinkFailedDetails.length > 0
+            ? `\n\n공동인증서 연결 실패\n${certificateLinkFailedDetails.slice(0, 5).join("\n")}`
+            : ""
+        }${
+          certificateRegistrationRefreshFailedDetails.length > 0
+            ? `\n\n등록 후 상태 반영 실패\n${certificateRegistrationRefreshFailedDetails.slice(0, 5).join("\n")}`
+            : ""
+        }`;
+
+        if (createdCustomers.length > 0 && refreshedCertificateStatusCount === 0) {
+          setData((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  customers: [...prev.customers, ...createdCustomers],
+                  counts: {
+                    ...prev.counts,
+                    customers: prev.counts.customers + createdCustomers.length
+                  }
+                }
+              : prev
+          );
+        }
+      } else {
+        alertMessage = `전자세금용 공동인증서 ${certificates.length}건을 불러왔습니다.\n고객 생성이나 정보 읽기를 진행하려면 인증서별 비밀번호가 필요합니다.`;
+      }
+    }
+
+    setCustomerRenewalAssistant((prev) => ({
+      ...(prev ?? {}),
+      agentOnline: true,
+      helperVersion: response.version,
+      helperMessage,
+      helperCheckedAt: new Date().toISOString(),
+      jobs,
+      certificates
+    }));
+    await showAppAlert(alertMessage, {
+      title: alertTitle,
+      tone: alertTone
+    });
+  };
+
+  const requestCustomerRenewalPreflight = async (certificate: RenewalAgentCertificate) => {
+    const inputPassword = await resolveCustomerRenewalPassword({ promptIfMissing: true });
+    if (!inputPassword) {
+      throw new Error("공동인증서 비밀번호 입력이 필요합니다.");
+    }
+
+    customerRenewalPasswordRef.current = inputPassword;
+    const response = await requestLocalRenewalPreflight({
+      certificateIndex: Number(certificate.index),
+      certificateCn: certificate.cn || null,
+      certificatePassword: inputPassword
+    });
+    const preflightJob = buildLocalRenewalPreflightJob(certificate, response.result);
+    setCustomerRenewalAssistant((prev) => ({
+      ...(prev ?? {}),
+      agentOnline: true,
+      helperVersion: response.version,
+      helperMessage: preflightJob.error ?? preflightJob.summary,
+      helperCheckedAt: new Date().toISOString(),
+      jobs: [preflightJob, ...(prev?.jobs ?? [])],
+      certificates: prev?.certificates ?? []
+    }));
+
+    if (preflightJob.error) {
+      customerRenewalPasswordRef.current = "";
+      throw new Error(preflightJob.error);
+    }
+
+    await showAppAlert(
+      `공동인증서 정보 읽기를 완료했습니다.\n${preflightJob.summary}\n완료되면 이 카드에서 고객 초안을 바로 열 수 있습니다.`,
+      {
+        title: "고객 초안 정보 읽기",
+        tone: "success"
+      }
+    );
+  };
+
+  const getCustomerRenewalCertificateForCustomer = (customerId: number) => {
+    const customer = (data?.customers ?? []).find((entry) => entry.id === customerId) ?? null;
+    if (!customer) {
+      return { customer: null, certificate: null };
+    }
+
+    const certificate = selectCustomerRenewalCertificate(
+      (customerRenewalAssistant?.certificates ?? []).filter(isElectronicTaxCertificate),
+      customer
+    );
+
+    return { customer, certificate };
+  };
+
+  const getLocalCustomerCertificateByIndex = (certificateIndex: string) =>
+    (customerRenewalAssistant?.certificates ?? []).find(
+      (certificate) => normalizeRenewalCertificateKey(certificate.index) === normalizeRenewalCertificateKey(certificateIndex)
+    ) ?? null;
+
+  const getCustomerById = (customerId: number) =>
+    (data?.customers ?? []).find((entry) => entry.id === customerId) ?? null;
+
+  const getCustomerRenewalProbeForCertificate = (certificate: RenewalAgentCertificate | null) => {
+    if (!certificate) {
+      return null;
+    }
+
+    return getLatestRenewalPreflightProbeForCertificate(
+      certificate,
+      customerRenewalAssistant?.jobs ?? [],
+      null
+    );
+  };
+
+  const buildCustomerRenewalSubmissionProfile = async (customer: Customer) => {
+    const issuePassword = await resolveCustomerRenewalIssuePassword();
+    return {
+      contactName: settingsForm?.operatorContactName?.trim() ?? data?.settings.operatorContactName?.trim() ?? "",
+      contactDepartment: "",
+      contactEmail: settingsForm?.operatorContactEmail?.trim() ?? data?.settings.operatorContactEmail?.trim() ?? "",
+      contactTel: settingsForm?.operatorContactTel?.trim() ?? data?.settings.operatorContactTel?.trim() ?? "",
+      contactFax: "",
+      contactMobile: customer.renewalContactMobile.trim(),
+      issuePassword
+    };
+  };
+
+  const buildCustomerRenewalComparisonProfile = (customer: Customer) => ({
+    corpName: customer.corpName,
+    businessNumber: customer.businessNumber,
+    ceoName: customer.ceoName,
+    addr: customer.addr,
+    bizType: customer.bizType,
+    bizClass: customer.bizClass
+  });
+
+  const prepareCustomerRenewal = async (
+    customerId: number,
+    options?: { showAlert?: boolean; certificatePassword?: string; certificateOverride?: RenewalAgentCertificate | null }
+  ) => {
+    const customer = getCustomerById(customerId);
+    const certificate = options?.certificateOverride ?? getCustomerRenewalCertificateForCustomer(customerId).certificate;
+    if (!customer || !certificate) {
+      throw new Error("이 PC에서 고객과 매칭되는 공동인증서를 찾지 못했습니다.");
+    }
+
+    const linkedCertificate = findStoredCustomerCertificateForLocalCertificate(certificate, data?.customerCertificates ?? []);
+    const inputPassword =
+      options?.certificatePassword ??
+      (await resolveCustomerRenewalPassword({
+        promptIfMissing: true,
+        linkedCertificateId: linkedCertificate?.id ?? null
+      }));
+    if (!inputPassword) {
+      throw new Error("공동인증서 비밀번호 입력이 필요합니다.");
+    }
+
+    const response = await requestLocalRenewalPreparePayment({
+      certificateIndex: Number(certificate.index),
+      certificateCn: certificate.cn || null,
+      certificatePassword: inputPassword,
+      comparisonProfile: buildCustomerRenewalComparisonProfile(customer),
+      submissionProfile: await buildCustomerRenewalSubmissionProfile(customer)
+    });
+
+    const preflightJob = buildLocalRenewalPreflightJob(certificate, response.result);
+    const preflightProbe = response.result.bridge.preflightProbe;
+    const status = formatCustomerRenewalStatus(preflightProbe);
+
+    setCustomerRenewalAssistant((prev) => ({
+      ...(prev ?? {}),
+      agentOnline: true,
+      helperVersion: response.version,
+      helperMessage: status.statusText,
+      helperCheckedAt: new Date().toISOString(),
+      jobs: [preflightJob, ...(prev?.jobs ?? [])],
+      certificates: prev?.certificates ?? []
+    }));
+
+    if (!preflightProbe.ok) {
+      throw new Error(preflightProbe.error ?? preflightProbe.message ?? "갱신 준비에 실패했습니다.");
+    }
+
+    if (!isRenewalPaymentReady(preflightProbe)) {
+      throw new Error(
+        preflightProbe.renewInfoSubmitResultError ??
+          preflightProbe.renewInfoSubmitResultSummary ??
+          (preflightProbe.renewInfoSubmitReady === true
+            ? "갱신 신청정보 자동 제출이 결제 단계까지 완료되지 않았습니다."
+            : status.statusText)
+      );
+    }
+
+    if (options?.showAlert !== false) {
+      await showAppAlert(
+        `${customer.customerName} 고객 갱신 준비를 완료했습니다.\n이제 \`결제하기\`를 누르면 SignGate 결제 창이 열립니다.`,
+        {
+          title: "갱신 준비 완료",
+          tone: "success"
+        }
+      );
+    }
+
+    return preflightProbe;
+  };
+
+  const openCustomerRenewalPayment = async (
+    customerId: number,
+    options?: {
+      certificatePassword?: string;
+      skipReadyCheck?: boolean;
+      certificateOverride?: RenewalAgentCertificate | null;
+      showAlert?: boolean;
+    }
+  ) => {
+    const customer = getCustomerById(customerId);
+    const certificate = options?.certificateOverride ?? getCustomerRenewalCertificateForCustomer(customerId).certificate;
+    if (!customer || !certificate) {
+      throw new Error("이 PC에서 고객과 매칭되는 공동인증서를 찾지 못했습니다.");
+    }
+
+    const preflightProbe = getCustomerRenewalProbeForCertificate(certificate);
+    if (!options?.skipReadyCheck && !isRenewalPaymentReady(preflightProbe)) {
+      throw new Error("먼저 갱신 준비를 완료하세요.");
+    }
+
+    const linkedCertificate = findStoredCustomerCertificateForLocalCertificate(certificate, data?.customerCertificates ?? []);
+    const inputPassword =
+      options?.certificatePassword ??
+      (await resolveCustomerRenewalPassword({
+        promptIfMissing: true,
+        linkedCertificateId: linkedCertificate?.id ?? null
+      }));
+    if (!inputPassword) {
+      throw new Error("공동인증서 비밀번호 입력이 필요합니다.");
+    }
+
+    const response = await requestLocalRenewalOpenPayment({
+      certificateIndex: Number(certificate.index),
+      certificateCn: certificate.cn || null,
+      certificatePassword: inputPassword,
+      comparisonProfile: buildCustomerRenewalComparisonProfile(customer),
+      submissionProfile: await buildCustomerRenewalSubmissionProfile(customer)
+    });
+
+    setCustomerRenewalAssistant((prev) => ({
+      ...(prev ?? {}),
+      agentOnline: true,
+      helperVersion: response.version,
+      helperMessage: response.result.message,
+      helperCheckedAt: new Date().toISOString(),
+      jobs: prev?.jobs ?? [],
+      certificates: prev?.certificates ?? []
+    }));
+
+    if (options?.showAlert !== false) {
+      await showAppAlert(
+        `${customer.customerName} 고객의 SignGate 갱신 결제 창을 열었습니다.\n열린 창에서 결제수단을 선택하고 결제를 마무리하세요.`,
+        {
+          title: "결제 창 열기",
+          tone: "success"
+        }
+      );
+    }
+  };
+
+  const startCustomerRenewal = async (
+    customerId: number,
+    options?: { certificateOverride?: RenewalAgentCertificate | null }
+  ) => {
+    const customer = getCustomerById(customerId);
+    const certificate = options?.certificateOverride ?? getCustomerRenewalCertificateForCustomer(customerId).certificate;
+    if (!customer || !certificate) {
+      throw new Error("이 PC에서 고객과 매칭되는 공동인증서를 찾지 못했습니다.");
+    }
+
+    const linkedCertificate = findStoredCustomerCertificateForLocalCertificate(certificate, data?.customerCertificates ?? []);
+    const inputPassword = await resolveCustomerRenewalPassword({
+      promptIfMissing: true,
+      linkedCertificateId: linkedCertificate?.id ?? null
+    });
+    if (!inputPassword) {
+      throw new Error("공동인증서 비밀번호 입력이 필요합니다.");
+    }
+
+    let preflightProbe = getCustomerRenewalProbeForCertificate(certificate);
+    if (!isRenewalPaymentReady(preflightProbe)) {
+      preflightProbe = await prepareCustomerRenewal(customerId, {
+        showAlert: false,
+        certificatePassword: inputPassword,
+        certificateOverride: certificate
+      });
+    }
+
+    if (!isRenewalPaymentReady(preflightProbe)) {
+      const status = formatCustomerRenewalStatus(preflightProbe);
+      throw new Error(status.statusText);
+    }
+
+    await openCustomerRenewalPayment(customerId, {
+      certificatePassword: inputPassword,
+      skipReadyCheck: true,
+      certificateOverride: certificate
+    });
+  };
+
+  const linkLocalCertificateToCustomer = async (certificateIndex: string, customerId: number) => {
+    const certificate = getLocalCustomerCertificateByIndex(certificateIndex);
+    if (!certificate) {
+      throw new Error("이 PC에서 선택한 공동인증서를 다시 찾지 못했습니다.");
+    }
+
+    await linkCustomerCertificate(customerId, certificate, { linkSource: "manual" });
+  };
+
+  const prepareLinkedCustomerCertificateRenewal = async (
+    certificateIndex: string,
+    options?: { showAlert?: boolean }
+  ) => {
+    const { certificate, linkedCertificate } = await resolveLinkedCustomerCertificateForAction(certificateIndex);
+
+    await prepareCustomerRenewal(linkedCertificate.customerId, {
+      showAlert: options?.showAlert,
+      certificateOverride: certificate
+    });
+  };
+
+  const openLinkedCustomerCertificatePayment = async (
+    certificateIndex: string,
+    options?: { showAlert?: boolean }
+  ) => {
+    const { certificate, linkedCertificate } = await resolveLinkedCustomerCertificateForAction(certificateIndex);
+
+    await openCustomerRenewalPayment(linkedCertificate.customerId, {
+      showAlert: options?.showAlert,
+      certificateOverride: certificate
+    });
+  };
+
+  const openCustomerDraftFromUserCertificate = async (certificate: RenewalAgentCertificate) => {
+    if (!hasActiveWorkspace) {
+      throw new Error("먼저 고객을 등록할 작업공간을 선택하세요.");
+    }
+
+    const snapshot = getCustomerDraftSnapshotForCertificate(certificate, null, customerRenewalAssistant?.jobs ?? []);
+    if (!snapshot) {
+      throw new Error("먼저 이 인증서로 정보 읽기를 실행해 고객 기본값을 읽어오세요.");
+    }
+
+    const businessNumber = digitsOnly(snapshot.businessNumber ?? "");
+    const existingCustomer =
+      businessNumber === ""
+        ? null
+        : (data?.customers ?? []).find((customer) => digitsOnly(customer.businessNumber) === businessNumber) ?? null;
+
+    setCustomerSearchQuery("");
+    setCustomerListFilter("all");
+    setCustomerDetailTab("info");
+    setActiveTab("customers");
+    setCustomerAddressResolveMessage("");
+    customerAddressLookupRef.current = "";
+
+    if (existingCustomer) {
+      setCreatingCustomer(false);
+      setCustomerForm(customerToForm(existingCustomer));
+      await showAppAlert(
+        `같은 사업자번호로 등록된 고객이 이미 있어서 기존 고객을 열었습니다.\n고객: ${existingCustomer.customerName}`,
+        {
+          title: "기존 고객 열기",
+          tone: "warn"
+        }
+      );
+      return;
+    }
+
+    setCreatingCustomer(true);
+    setCustomerForm(buildCustomerDraftFromRenewalSnapshot(certificate, snapshot));
+    await showAppAlert(
+      "공동인증서 분석값으로 새 고객 초안을 채웠습니다.\n저장 전에 주소와 휴대폰 번호만 확인하면 됩니다.",
+      {
+        title: "고객 초안 준비",
         tone: "success"
       }
     );
@@ -3336,16 +5692,46 @@ export function App() {
   const activeWorkspaceName = data.auth.activeOrganizationName ?? (isPlatformAdmin ? "플랫폼 관리자" : "작업공간 없음");
   const activeRoleLabel =
     !hasActiveWorkspace && isPlatformAdmin ? "플랫폼 관리자" : getOrganizationRoleLabel(data.auth.activeOrganizationRole);
-  const reviewDrafts = data.drafts.filter((draft) => draft.status === "review" || draft.status === "failed" || draft.status === "issuing");
-  const issuedDrafts = data.drafts.filter((draft) => draft.status === "issued");
-  const expiredCertCustomers = data.customers.filter((customer) => {
+  const reviewDrafts: InvoiceDraft[] = [];
+  const issuedDrafts: InvoiceDraft[] = [];
+  const issuedDraftsByCustomerId = new Map<number, InvoiceDraft[]>();
+  for (const draft of data.drafts) {
+    if (draft.status === "review" || draft.status === "failed" || draft.status === "issuing") {
+      reviewDrafts.push(draft);
+    }
+    if (draft.status === "issued") {
+      issuedDrafts.push(draft);
+      const customerDrafts = issuedDraftsByCustomerId.get(draft.customerId) ?? [];
+      customerDrafts.push(draft);
+      if (!issuedDraftsByCustomerId.has(draft.customerId)) {
+        issuedDraftsByCustomerId.set(draft.customerId, customerDrafts);
+      }
+    }
+  }
+  const customerReadinessMap = new Map<number, ReturnType<typeof getCustomerIssueReadiness>>();
+  const expiredCertCustomers: Customer[] = [];
+  const expiringSoonCustomers: Customer[] = [];
+  const blockedIssueCustomers: Customer[] = [];
+  const readyNowCustomers: Customer[] = [];
+  const popbillPendingCustomers: Customer[] = [];
+  for (const customer of data.customers) {
+    const readiness = getCustomerIssueReadiness(customer);
+    customerReadinessMap.set(customer.id, readiness);
     const days = getDaysUntilDate(customer.popbillCertExpireDate);
-    return days !== null && days < 0;
-  });
-  const expiringSoonCustomers = data.customers.filter((customer) => {
-    const days = getDaysUntilDate(customer.popbillCertExpireDate);
-    return days !== null && days >= 0 && days <= 30;
-  });
+    if (days !== null && days < 0) {
+      expiredCertCustomers.push(customer);
+    } else if (days !== null && days >= 0 && days <= 30) {
+      expiringSoonCustomers.push(customer);
+    }
+    if (readiness.canIssueNow) {
+      readyNowCustomers.push(customer);
+    } else {
+      blockedIssueCustomers.push(customer);
+    }
+    if (customer.popbillState !== "joined" || !customer.popbillCertRegistered) {
+      popbillPendingCustomers.push(customer);
+    }
+  }
   const settingsHealth = {
     mailReady: Boolean(data.settings.imapUser && data.settings.smtpUser && data.settings.mailPasswordConfigured),
     popbillReady: data.settings.popbillConfigured,
@@ -3396,14 +5782,16 @@ export function App() {
   const recentIssuedDrafts = issuedDrafts.slice(0, 8);
   const recentInboxPreview = recentInboxMessages.slice(0, 4);
   const recentIssuedPreview = recentIssuedDrafts.slice(0, 4);
-  const readyNowCustomers = data.customers.filter((customer) => getCustomerIssueReadiness(customer).canIssueNow);
-  const blockedIssueCustomers = data.customers.filter((customer) => !getCustomerIssueReadiness(customer).canIssueNow);
-  const normalizedCustomerSearch = customerSearchQuery.trim().toLocaleLowerCase("ko-KR");
-  const filteredCustomers = (customerListFilter === "blocked" ? blockedIssueCustomers : data.customers).filter((customer) =>
-    normalizedCustomerSearch === "" ||
-    customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch) ||
-    customer.corpName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch)
-  );
+  const normalizedCustomerSearch = deferredCustomerSearchQuery.trim().toLocaleLowerCase("ko-KR");
+  const filteredCustomers = data.customers
+    .filter((customer) => matchesCustomerListFilter(customer, customerListFilter))
+    .filter((customer) =>
+      normalizedCustomerSearch === "" ||
+      customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch) ||
+      customer.corpName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch) ||
+      customer.businessNumber.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch)
+    )
+    .sort(compareCustomersForList);
   const customerImportHeaderCandidates = customerImportFile
     ? customerImportFile.rows.slice(0, Math.min(customerImportFile.rows.length, 5)).map((row, index) => ({
         index,
@@ -3413,20 +5801,37 @@ export function App() {
   const selectedQuickRegisterMessage = quickRegisterForm.messageId
     ? quickRegisterMessages.find((message) => message.id === quickRegisterForm.messageId) ?? null
     : null;
+  const onboardingElectronicTaxBusinessNumbers = new Set(
+    (customerOnboardingWorkbook?.certificates ?? [])
+      .filter((certificate) => certificate.certificateKind === "electronic_tax")
+      .map((certificate) => digitsOnly(certificate.businessNumber))
+      .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
+  );
+  const pendingOnboardingCertificateRegistrationTargets = (customerOnboardingWorkbook?.customers ?? [])
+    .map((row) => digitsOnly(row.businessNumber))
+    .filter((businessNumber, index, values): businessNumber is string => Boolean(businessNumber) && values.indexOf(businessNumber) === index)
+    .filter((businessNumber) => onboardingElectronicTaxBusinessNumbers.has(businessNumber))
+    .map((businessNumber) => data.customers.find((customer) => digitsOnly(customer.businessNumber) === businessNumber) ?? null)
+    .filter(
+      (customer): customer is Customer =>
+        Boolean(customer && customer.popbillState === "joined" && !customer.popbillCertRegistered)
+    );
   const workLayoutClassName = "work-layout";
   const selectedCustomer = customerForm.id ? data.customers.find((customer) => customer.id === customerForm.id) ?? null : null;
-  const selectedCustomerReadiness = selectedCustomer ? getCustomerIssueReadiness(selectedCustomer) : null;
+  const selectedCustomerReadiness = selectedCustomer
+    ? customerReadinessMap.get(selectedCustomer.id) ?? getCustomerIssueReadiness(selectedCustomer)
+    : null;
   const selectedCustomerIssuedDrafts = selectedCustomer
-    ? data.drafts
-      .filter((draft) => draft.customerId === selectedCustomer.id && draft.status === "issued")
-      .sort((left, right) => {
+    ? [...(issuedDraftsByCustomerId.get(selectedCustomer.id) ?? [])].sort((left, right) => {
         const rightTime = right.issuedAt ? new Date(right.issuedAt).getTime() : 0;
         const leftTime = left.issuedAt ? new Date(left.issuedAt).getTime() : 0;
         return rightTime - leftTime || right.id - left.id;
       })
     : [];
+  const getCachedCustomerIssueReadiness = (customer: Customer) =>
+    customerReadinessMap.get(customer.id) ?? getCustomerIssueReadiness(customer);
   const customerRegistrationReady = data.customers.length > 0;
-  const blockedCustomerCount = data.customers.filter((customer) => !getCustomerIssueReadiness(customer).canIssueNow).length;
+  const blockedCustomerCount = blockedIssueCustomers.length;
   const setupChecklist = [
     { key: "gmail", label: "메일 계정 연결", done: settingsHealth.mailReady },
     { key: "popbill", label: "팝빌 연결 준비", done: settingsHealth.popbillReady },
@@ -3445,6 +5850,134 @@ export function App() {
   const opsJobs = opsConsole?.renewalAutomation.jobs ?? [];
   const opsLogs = opsConsole?.logs ?? [];
   const opsWorkspaces = opsConsole?.workspaces ?? [];
+  const customerRenewalAssistantJobs = customerRenewalAssistant?.jobs ?? [];
+  const customerRenewalAssistantAllCertificates = customerRenewalAssistant?.certificates ?? [];
+  const customerRenewalAssistantCertificates = (customerRenewalAssistant?.certificates ?? []).filter(isElectronicTaxCertificate);
+  const canUseCustomerRenewalAssistant = data.auth.activeOrganizationRole !== "viewer";
+  const customerRenewalCandidates: CustomerRenewalCandidateView[] = data.customers
+    .filter((customer) => customer.popbillState === "joined" && customer.popbillCertRegistered)
+    .map((customer) => {
+      const certificate = selectCustomerRenewalCertificate(customerRenewalAssistantCertificates, customer);
+      if (!certificate) {
+        return null;
+      }
+
+      const preflightProbe = getLatestRenewalPreflightProbeForCertificate(
+        certificate,
+        customerRenewalAssistantJobs,
+        null
+      );
+      const status = formatCustomerRenewalStatus(preflightProbe);
+
+      return {
+        customerId: customer.id,
+        customerName: customer.customerName,
+        corpName: customer.corpName,
+        certificateCn: certificate.cn || customer.customerName,
+        certificateExpireDate: customer.popbillCertExpireDate ?? certificate.todate,
+        certificateUsage: certificate.usageToName,
+        statusText: status.statusText,
+        statusTone: status.statusTone,
+        paymentAmount: status.paymentAmount,
+        canOpenPayment: status.canOpenPayment
+      } satisfies CustomerRenewalCandidateView;
+    })
+    .filter((candidate): candidate is CustomerRenewalCandidateView => candidate !== null)
+    .sort((left, right) => {
+      const leftTime = left.certificateExpireDate ? new Date(left.certificateExpireDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const rightTime = right.certificateExpireDate ? new Date(right.certificateExpireDate).getTime() : Number.MAX_SAFE_INTEGER;
+      return leftTime - rightTime || left.customerName.localeCompare(right.customerName, "ko");
+    });
+  const customerCertificateItems: CustomerCertificateCandidateView[] = [
+    ...data.customerCertificates.map((storedCertificate) => {
+      const linkedCustomer = data.customers.find((customer) => customer.id === storedCertificate.customerId) ?? null;
+      const localCertificate = findLocalCertificateForStoredCustomerCertificate(
+        storedCertificate,
+        customerRenewalAssistantAllCertificates
+      );
+      const preflightProbe = localCertificate
+        ? getLatestRenewalPreflightProbeForCertificate(localCertificate, customerRenewalAssistantJobs, null)
+        : null;
+      const status = localCertificate
+        ? formatCustomerRenewalStatus(preflightProbe)
+        : {
+            statusText: customerRenewalAssistant?.agentOnline ? "연결됨 · 로컬 인증서 읽기 전" : "연결됨",
+            statusTone: "default" as const,
+            paymentAmount: null,
+            canOpenPayment: false
+          };
+
+      return {
+        key: getStoredCustomerCertificateKey(storedCertificate),
+        certificateIndex: localCertificate ? String(localCertificate.index) : getStoredCustomerCertificateKey(storedCertificate),
+        certificateCn: storedCertificate.certificateName || linkedCustomer?.customerName || `연결된 인증서 #${storedCertificate.id}`,
+        certificateKind: storedCertificate.certificateKind,
+        certificateUsage: storedCertificate.certificateUsageName,
+        issuerName: storedCertificate.issuerName,
+        certificateExpireDate: storedCertificate.expireDate,
+        linkedCertificateId: storedCertificate.id,
+        linkedCustomerId: linkedCustomer?.id ?? null,
+        linkedCustomerLabel: linkedCustomer ? `${linkedCustomer.customerName} · ${linkedCustomer.corpName}` : null,
+        linkSource: storedCertificate.linkSource,
+        suggestedCustomerId: null,
+        suggestedCustomerLabel: null,
+        suggestionCount: 0,
+        statusText: status.statusText,
+        statusTone: status.statusTone,
+        paymentAmount: status.paymentAmount,
+        canOpenPayment: status.canOpenPayment
+      } satisfies CustomerCertificateCandidateView;
+    }),
+    ...customerRenewalAssistantAllCertificates
+      .filter((certificate) => !findStoredCustomerCertificateForLocalCertificate(certificate, data.customerCertificates))
+      .map((certificate) => {
+        const candidateCustomers = findCandidateCustomersForCertificate(certificate, data.customers);
+        const suggestedCustomer = candidateCustomers.length === 1 ? candidateCustomers[0] ?? null : null;
+        const preflightProbe = getLatestRenewalPreflightProbeForCertificate(certificate, customerRenewalAssistantJobs, null);
+        const status = formatCustomerRenewalStatus(preflightProbe);
+
+        return {
+          key: getLocalCertificateKey(certificate),
+          certificateIndex: String(certificate.index),
+          certificateCn: certificate.cn || `인증서 #${certificate.index}`,
+          certificateKind: deriveCustomerCertificateKind(certificate),
+          certificateUsage: certificate.usageToName,
+          issuerName: certificate.issuerToName,
+          certificateExpireDate: certificate.todate ?? certificate.detailValidateTo ?? null,
+          linkedCertificateId: null,
+          linkedCustomerId: null,
+          linkedCustomerLabel: null,
+          linkSource: null,
+          suggestedCustomerId: suggestedCustomer?.id ?? null,
+          suggestedCustomerLabel: suggestedCustomer ? `${suggestedCustomer.customerName} · ${suggestedCustomer.corpName}` : null,
+          suggestionCount: candidateCustomers.length,
+          statusText: status.statusText,
+          statusTone: status.statusTone,
+          paymentAmount: status.paymentAmount,
+          canOpenPayment: status.canOpenPayment
+        } satisfies CustomerCertificateCandidateView;
+      })
+  ]
+    .sort((left, right) => {
+      const kindOrder = (kind: CustomerCertificateKind) => {
+        if (kind === "electronic_tax") return 0;
+        if (kind === "general_personal") return 1;
+        if (kind === "general_business") return 2;
+        return 3;
+      };
+      const linkPriority = Number(Boolean(right.linkedCustomerId)) - Number(Boolean(left.linkedCustomerId));
+      if (linkPriority !== 0) {
+        return linkPriority;
+      }
+      const kindPriority = kindOrder(left.certificateKind) - kindOrder(right.certificateKind);
+      if (kindPriority !== 0) {
+        return kindPriority;
+      }
+      const leftTime = left.certificateExpireDate ? new Date(left.certificateExpireDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const rightTime = right.certificateExpireDate ? new Date(right.certificateExpireDate).getTime() : Number.MAX_SAFE_INTEGER;
+      return leftTime - rightTime || left.certificateCn.localeCompare(right.certificateCn, "ko");
+    });
+  const latestCustomerRenewalJob = customerRenewalAssistantJobs[0] ?? null;
   const isCreatingWorkspace = busyKey === "ops-create-workspace";
   const isSavingCustomer =
     busyKey === "save-customer" ||
@@ -3523,6 +6056,7 @@ export function App() {
       ? [
           { id: "work" as const, label: "오늘 작업", icon: "dashboard" },
           { id: "customers" as const, label: "고객관리", icon: "group" },
+          { id: "certificates" as const, label: "공동인증서", icon: "cert" },
           { id: "initial" as const, label: "초기 등록", icon: "initial" },
           { id: "settings" as const, label: "시스템설정", icon: "settings" }
         ]
@@ -3545,13 +6079,154 @@ export function App() {
   const joinCustomerPopbill = async (customerId: number) => {
     await api(`/api/customers/${customerId}/popbill/join`, { method: "POST" });
   };
-  const openCustomerCertRegistration = async (customerId: number) => {
-    const result = await api<{ url: string }>(`/api/customers/${customerId}/popbill/cert-url`, {
-      method: "POST"
+
+  const getPrimaryElectronicTaxCustomerCertificate = (customerId: number) => {
+    const matches = (data?.customerCertificates ?? []).filter(
+      (certificate) => certificate.customerId === customerId && certificate.certificateKind === "electronic_tax"
+    );
+    if (matches.length === 0) {
+      return null;
+    }
+
+    return matches.find((certificate) => certificate.isPrimary) ?? matches[0] ?? null;
+  };
+
+  const getOnboardingElectronicTaxCertificateRow = (customer: Customer) => {
+    const businessNumber = digitsOnly(customer.businessNumber);
+    const matches = (customerOnboardingWorkbook?.certificates ?? []).filter(
+      (certificate) =>
+        certificate.certificateKind === "electronic_tax" && digitsOnly(certificate.businessNumber) === businessNumber
+    );
+    if (matches.length === 0) {
+      return null;
+    }
+
+    return matches.find((certificate) => certificate.isPrimary) ?? matches[0] ?? null;
+  };
+
+  const registerCustomerElectronicTaxCertificateAutomatically = async (
+    customer: Customer,
+    options?: {
+      onboardingCertificateRow?: CustomerOnboardingWorkbookInput["certificates"][number] | null;
+      reloadAfter?: boolean;
+    }
+  ) => {
+    const onboardingCertificateRow = options?.onboardingCertificateRow ?? getOnboardingElectronicTaxCertificateRow(customer);
+    const linkedCertificate = getPrimaryElectronicTaxCustomerCertificate(customer.id);
+    const effectivePassword =
+      onboardingCertificateRow?.certificatePassword.trim() ||
+      (await resolveCustomerRenewalPassword({
+        promptIfMissing: false,
+        linkedCertificateId: linkedCertificate?.id ?? null
+      }));
+
+    if (!effectivePassword) {
+      throw new Error(
+        `${customer.customerName} 고객의 전자세금용 공동인증서 비밀번호가 없습니다. 엑셀의 인증서 비밀번호를 입력하거나 시스템 설정의 공통 비밀번호를 먼저 저장하세요.`
+      );
+    }
+
+    const certRegistrationUrl = await getCustomerCertificateRegistrationUrl(customer.id);
+    const registrationResponse = await requestLocalPopbillCertificateRegistration({
+      certificateRegistrationUrl: certRegistrationUrl,
+      certificateCn:
+        onboardingCertificateRow?.certificateName.trim() ||
+        linkedCertificate?.certificateName.trim() ||
+        customer.corpName.trim() ||
+        customer.customerName.trim(),
+      certificatePassword: effectivePassword
     });
+
+    let refreshErrorMessage = "";
+    try {
+      await refreshSingleCustomerCertificateStatus(customer.id);
+    } catch (error) {
+      refreshErrorMessage = error instanceof Error ? error.message : "인증서 상태를 다시 확인하지 못했습니다.";
+    }
+
+    if (options?.reloadAfter !== false) {
+      try {
+        await load();
+      } catch (error) {
+        const reloadErrorMessage = error instanceof Error ? error.message : "화면 새로고침에 실패했습니다.";
+        refreshErrorMessage = refreshErrorMessage
+          ? `${refreshErrorMessage} / ${reloadErrorMessage}`
+          : reloadErrorMessage;
+      }
+    }
+
+    return {
+      outcome: registrationResponse.result.outcome,
+      refreshErrorMessage
+    };
+  };
+
+  const openCustomerCertRegistration = async (customerId: number) => {
+    const result = await getCustomerCertificateRegistrationUrl(customerId);
     setCustomerCertNotice("인증서 등록 창을 열었습니다. 등록 후 이 화면으로 돌아오면 상태를 자동으로 다시 확인합니다.");
-    setPendingCertSyncCustomerId(customerId);
-    window.open(result.url, "_blank", "noopener,noreferrer");
+    queuePendingCustomerCertificateSync([customerId]);
+    window.open(result, "_blank", "noopener,noreferrer");
+  };
+
+  const proceedOnboardingCertificateRegistration = async () => {
+    const pendingCustomers = [...pendingOnboardingCertificateRegistrationTargets];
+    if (pendingCustomers.length === 0) {
+      throw new Error("팝빌 전자세금용 인증서 등록이 필요한 고객이 없습니다.");
+    }
+
+    const completedNames: string[] = [];
+    const alreadyRegisteredNames: string[] = [];
+    const failedDetails: string[] = [];
+    const refreshWarnings: string[] = [];
+
+    for (const customer of pendingCustomers) {
+      const onboardingCertificateRow = getOnboardingElectronicTaxCertificateRow(customer);
+      if (!onboardingCertificateRow) {
+        failedDetails.push(`${customer.customerName}: 전자세금용 공동인증서 업로드 정보를 찾지 못했습니다.`);
+        continue;
+      }
+
+      try {
+        const result = await registerCustomerElectronicTaxCertificateAutomatically(customer, {
+          onboardingCertificateRow,
+          reloadAfter: false
+        });
+        if (result.outcome === "already-registered") {
+          alreadyRegisteredNames.push(customer.customerName);
+        } else {
+          completedNames.push(customer.customerName);
+        }
+        if (result.refreshErrorMessage) {
+          refreshWarnings.push(`${customer.customerName}: ${result.refreshErrorMessage}`);
+        }
+      } catch (error) {
+        failedDetails.push(`${customer.customerName}: ${error instanceof Error ? error.message : "자동 등록 실패"}`);
+      }
+    }
+
+    try {
+      await load();
+    } catch (error) {
+      refreshWarnings.push(`전체 새로고침 실패: ${error instanceof Error ? error.message : "새로고침 실패"}`);
+    }
+
+    const summaryParts = [
+      completedNames.length > 0 ? `자동 등록 ${completedNames.length}건` : null,
+      alreadyRegisteredNames.length > 0 ? `이미 등록 ${alreadyRegisteredNames.length}건` : null,
+      failedDetails.length > 0 ? `실패 ${failedDetails.length}건` : null
+    ].filter((value): value is string => Boolean(value));
+
+    setCustomerOnboardingNotice(
+      `전자세금용 인증서 자동 등록을 마쳤습니다. ${summaryParts.join(" · ") || "처리된 대상이 없습니다."}${
+        failedDetails.length > 0
+          ? `\n\n실패 내역\n${failedDetails.slice(0, 8).join("\n")}`
+          : ""
+      }${
+        refreshWarnings.length > 0
+          ? `\n\n상태 반영 경고\n${refreshWarnings.slice(0, 5).join("\n")}`
+          : ""
+      }`
+    );
   };
   const refreshSingleCustomerCertificateStatus = async (customerId: number) => {
     await api(`/api/customers/${customerId}/popbill/cert-status`, { method: "POST" });
@@ -3641,6 +6316,8 @@ export function App() {
             ? "content content-work"
             : activeTab === "customers"
               ? "content content-customers"
+              : activeTab === "certificates"
+                ? "content content-customers"
               : activeTab === "initial"
                 ? "content content-customers"
               : activeTab === "settings"
@@ -3693,6 +6370,12 @@ export function App() {
 
         {activeTab === "work" ? (
           <div className="work-screen">
+            {mailboxDataLoading ? (
+              <div className="helper-box import-helper-box">
+                <strong>메일/발행 데이터를 불러오는 중입니다.</strong>
+                <span>오늘 작업 화면에 필요한 메일함과 발행 대기 목록을 작업공간별로 따로 읽고 있습니다.</span>
+              </div>
+            ) : null}
             {workNoticeTokens.length > 0 ? (
               <section className="work-inline-bar">
                 <div className="work-inline-copy">
@@ -3878,6 +6561,9 @@ export function App() {
             selectedCustomerReadiness={selectedCustomerReadiness}
             selectedCustomerIssuedDrafts={selectedCustomerIssuedDrafts}
             blockedCustomerCount={blockedCustomerCount}
+            readyCustomerCount={readyNowCustomers.length}
+            expiringSoonCustomerCount={expiringSoonCustomers.length}
+            popbillPendingCustomerCount={popbillPendingCustomers.length}
             managedCustomerCount={managedCustomerCount}
             managedCustomerLimit={managedCustomerLimit}
             hasReachedManagedCustomerLimit={hasReachedManagedCustomerLimit}
@@ -3889,6 +6575,13 @@ export function App() {
             customerForm={customerForm}
             customerCertNotice={customerCertNotice}
             customerAddressResolveMessage={customerAddressResolveMessage}
+            mailboxDataLoading={mailboxDataLoading}
+            canUseCustomerRenewalAssistant={canUseCustomerRenewalAssistant}
+            customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
+            customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
+            customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
+            customerRenewalLoadedCertificateCount={customerRenewalAssistantCertificates.length}
+            renewableCustomers={customerRenewalCandidates}
             customerNameInputRef={customerNameInputRef}
             customerAddressLookupRef={customerAddressLookupRef}
             setCustomerSearchQuery={setCustomerSearchQuery}
@@ -3897,6 +6590,9 @@ export function App() {
             setCustomerForm={setCustomerForm}
             setCustomerAddressResolveMessage={setCustomerAddressResolveMessage}
             onCreateCustomer={startCreatingCustomer}
+            onRefreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
+            onLoadCustomerRenewalCertificates={loadCustomerRenewalCertificates}
+            onStartCustomerRenewal={startCustomerRenewal}
             onSelectCustomer={selectCustomerForEdit}
             onSaveCustomer={saveCustomer}
             onJoinCustomerPopbill={joinCustomerPopbill}
@@ -3910,7 +6606,7 @@ export function App() {
             resolveCustomerAddress={resolveCustomerAddress}
             runAction={runAction}
             formatCertificateExpireDate={formatCertificateExpireDate}
-            getCustomerIssueReadiness={getCustomerIssueReadiness}
+            getCustomerIssueReadiness={getCachedCustomerIssueReadiness}
             getCustomerCertificateSummary={getCustomerCertificateSummary}
             getCustomerPopbillSummary={getCustomerPopbillSummary}
             getIssueModeLabel={getIssueModeLabel}
@@ -3920,19 +6616,35 @@ export function App() {
           />
         ) : null}
 
+        {activeTab === "certificates" ? (
+          <CertificatesTab
+            customers={data.customers}
+            busyKey={busyKey}
+            canUseCustomerRenewalAssistant={canUseCustomerRenewalAssistant}
+            customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
+            customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
+            customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
+            customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
+            certificateItems={customerCertificateItems}
+            onRefreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
+            onLoadCustomerRenewalCertificates={loadCustomerRenewalCertificates}
+            onLinkCustomerCertificate={linkLocalCertificateToCustomer}
+            onUnlinkCustomerCertificate={unlinkCustomerCertificate}
+            onPrepareCustomerCertificateRenewal={prepareLinkedCustomerCertificateRenewal}
+            onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
+            runAction={runAction}
+            formatCertificateExpireDate={formatCertificateExpireDate}
+          />
+        ) : null}
+
         {activeTab === "initial" ? (
           <InitialRegistrationTab
-            customerImportFile={customerImportFile}
-            customerImportRowsPayload={customerImportRowsPayload}
-            customerImportHeaderCandidates={customerImportHeaderCandidates}
-            customerImportHeaderRowIndex={customerImportHeaderRowIndex}
-            customerImportMapping={customerImportMapping}
-            customerImportHeaderOptions={customerImportHeaderOptions}
-            customerImportPreview={customerImportPreview}
-            customerImportNotice={customerImportNotice}
-            customerImportError={customerImportError}
-            canPreviewCustomerImport={canPreviewCustomerImport}
             busyKey={busyKey}
+            customerOnboardingFileName={customerOnboardingFileName}
+            customerOnboardingPreview={customerOnboardingPreview}
+            customerOnboardingNotice={customerOnboardingNotice}
+            customerOnboardingError={customerOnboardingError}
+            pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
             quickRegisterMessages={quickRegisterMessages}
             quickRegisterForm={quickRegisterForm}
             selectedQuickRegisterMessage={selectedQuickRegisterMessage}
@@ -3941,17 +6653,11 @@ export function App() {
             quickRegisterError={quickRegisterError}
             billingMonthSummaries={billingMonthSummaries}
             completedBillingNotice={completedBillingNotice}
-            setCustomerImportFile={setCustomerImportFile}
-            setCustomerImportHeaderRowIndex={setCustomerImportHeaderRowIndex}
-            setCustomerImportMapping={setCustomerImportMapping}
-            setCustomerImportPreview={setCustomerImportPreview}
-            setCustomerImportError={setCustomerImportError}
-            setCustomerImportNotice={setCustomerImportNotice}
+            downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
+            handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
+            commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
+            proceedOnboardingCertificateRegistration={proceedOnboardingCertificateRegistration}
             setQuickRegisterForm={setQuickRegisterForm}
-            handleCustomerImportFileChange={handleCustomerImportFileChange}
-            applyCustomerImportHeaderRow={applyCustomerImportHeaderRow}
-            previewCustomerImport={previewCustomerImport}
-            commitCustomerImport={commitCustomerImport}
             selectQuickRegisterMessage={selectQuickRegisterMessage}
             submitQuickRegister={submitQuickRegister}
             markBillingMonthCompleted={markBillingMonthCompleted}
@@ -3959,8 +6665,6 @@ export function App() {
             formatDateTime={formatDateTime}
             getInboxDisplayParseStatus={getInboxDisplayParseStatus}
             getParseStatusLabel={getParseStatusLabel}
-            customerImportFieldOptions={CUSTOMER_IMPORT_FIELD_OPTIONS}
-            emptyCustomerImportMapping={EMPTY_CUSTOMER_IMPORT_MAPPING}
           />
         ) : null}
 
@@ -3981,6 +6685,13 @@ export function App() {
             revealedFields={revealedFields}
             mailPasswordConfigured={data.settings.mailPasswordConfigured}
             popbillSharedPasswordConfigured={data.settings.popbillSharedPasswordConfigured}
+            renewalCertificatePasswordConfigured={data.settings.renewalCertificatePasswordConfigured}
+            renewalIssuePasswordConfigured={data.settings.renewalIssuePasswordConfigured}
+            customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
+            customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
+            customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
+            customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
+            customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
             canManageOrganizationMembers={canManageOrganizationMembers}
             organizationMembers={organizationMembers}
             currentUserId={data.auth.userId}
@@ -3998,6 +6709,9 @@ export function App() {
             refreshAllCertificateStatuses={refreshAllCertificateStatuses}
             testMailSettings={testMailSettings}
             loadCurrentPopbillSharedPassword={loadCurrentPopbillSharedPassword}
+            loadCurrentRenewalCertificatePassword={loadCurrentRenewalCertificatePassword}
+            loadCurrentRenewalIssuePassword={loadCurrentRenewalIssuePassword}
+            refreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
             changePassword={changePassword}
             createOrganizationMember={createOrganizationMember}
             openMemberPasswordReset={openMemberPasswordReset}
@@ -4445,7 +7159,6 @@ export function App() {
                         <strong>{opsAgent ? formatRenewalPreflightSummary(opsAgent) : "-"}</strong>
                       </div>
                     </div>
-
                     <div className="ops-list">
                       {opsCertificates.length > 0 ? (
                         opsCertificates.map((certificate) => (
@@ -4459,7 +7172,7 @@ export function App() {
                             </div>
                             <div className="ops-card-meta">
                               <span>certID: {opsAgent?.bridge.selectionProbe.certificateIndex === certificate.index ? opsAgent.bridge.selectionProbe.certID ?? "-" : "-"}</span>
-                              <span>경로: {opsAgent ? formatRenewalPathCell(certificate, opsAgent) : "-"}</span>
+                              <span>경로: {formatRenewalPathCell(certificate, opsJobs, opsAgent)}</span>
                             </div>
                             <div className="ops-card-actions">
                               <button

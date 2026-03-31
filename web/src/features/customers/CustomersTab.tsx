@@ -13,15 +13,29 @@ type CustomerFormState = {
   issueMode: "review" | "auto";
   popbillUserId: string;
   popbillPassword: string;
+  renewalContactMobile: string;
   memo: string;
 };
 
 type CustomerDetailTabId = "info" | "history";
-type CustomerListFilter = "all" | "blocked";
+type CustomerListFilter = "all" | "blocked" | "expiring" | "unjoined";
 type CustomerIssueReadiness = {
   canIssueNow: boolean;
   label: string;
   tone: "success" | "warn" | "danger";
+};
+
+type CustomerRenewalCandidateView = {
+  customerId: number;
+  customerName: string;
+  corpName: string;
+  certificateCn: string;
+  certificateExpireDate: string | null;
+  certificateUsage: string;
+  statusText: string;
+  statusTone: "success" | "warn" | "danger" | "default";
+  paymentAmount: string | null;
+  canOpenPayment: boolean;
 };
 
 type CustomersTabProps = {
@@ -33,6 +47,9 @@ type CustomersTabProps = {
   selectedCustomerReadiness: CustomerIssueReadiness | null;
   selectedCustomerIssuedDrafts: InvoiceDraft[];
   blockedCustomerCount: number;
+  readyCustomerCount: number;
+  expiringSoonCustomerCount: number;
+  popbillPendingCustomerCount: number;
   managedCustomerCount: number;
   managedCustomerLimit: number | null;
   hasReachedManagedCustomerLimit: boolean;
@@ -44,6 +61,13 @@ type CustomersTabProps = {
   customerForm: CustomerFormState;
   customerCertNotice: string;
   customerAddressResolveMessage: string;
+  mailboxDataLoading: boolean;
+  canUseCustomerRenewalAssistant: boolean;
+  customerRenewalAssistantOnline: boolean;
+  customerRenewalAssistantHelperVersion: string | null;
+  customerRenewalAssistantHelperMessage: string;
+  customerRenewalLoadedCertificateCount: number;
+  renewableCustomers: CustomerRenewalCandidateView[];
   customerNameInputRef: React.RefObject<HTMLInputElement | null>;
   customerAddressLookupRef: React.MutableRefObject<string>;
   setCustomerSearchQuery: React.Dispatch<React.SetStateAction<string>>;
@@ -52,6 +76,9 @@ type CustomersTabProps = {
   setCustomerForm: React.Dispatch<React.SetStateAction<CustomerFormState>>;
   setCustomerAddressResolveMessage: React.Dispatch<React.SetStateAction<string>>;
   onCreateCustomer: () => void;
+  onRefreshCustomerRenewalAssistant: () => Promise<void>;
+  onLoadCustomerRenewalCertificates: () => Promise<void>;
+  onStartCustomerRenewal: (customerId: number) => Promise<void>;
   onSelectCustomer: (customer: Customer) => void;
   onSaveCustomer: () => Promise<void>;
   onJoinCustomerPopbill: (customerId: number) => Promise<void>;
@@ -109,7 +136,7 @@ export function CustomersTab(props: CustomersTabProps) {
           <div className="customer-list-toolbar">
             <div className="customer-list-search">
               <input
-                placeholder="대표자명 / 상호 검색"
+                placeholder="대표자명 / 상호 / 사업자번호 검색"
                 value={props.customerSearchQuery}
                 onChange={(event) => props.setCustomerSearchQuery(event.target.value)}
               />
@@ -127,9 +154,28 @@ export function CustomersTab(props: CustomersTabProps) {
                 className={props.customerListFilter === "blocked" ? "btn-secondary active-filter" : "btn-secondary"}
                 onClick={() => props.setCustomerListFilter("blocked")}
               >
-                준비 필요만 {props.blockedCustomerCount}명
+                준비 필요 {props.blockedCustomerCount}명
+              </button>
+              <button
+                type="button"
+                className={props.customerListFilter === "expiring" ? "btn-secondary active-filter" : "btn-secondary"}
+                onClick={() => props.setCustomerListFilter("expiring")}
+              >
+                인증서 주의 {props.expiringSoonCustomerCount}명
+              </button>
+              <button
+                type="button"
+                className={props.customerListFilter === "unjoined" ? "btn-secondary active-filter" : "btn-secondary"}
+                onClick={() => props.setCustomerListFilter("unjoined")}
+              >
+                팝빌 미등록 {props.popbillPendingCustomerCount}명
               </button>
             </div>
+          </div>
+          <div className="customer-list-summary-line">
+            <span>즉시 발행 가능 {props.readyCustomerCount}명</span>
+            <span>검색 결과 {props.filteredCustomers.length}명</span>
+            {props.customerSearchQuery.trim() !== "" ? <span>검색어 {props.customerSearchQuery.trim()}</span> : null}
           </div>
           <div className="helper-box">
             <strong>관리 고객 한도</strong>
@@ -159,6 +205,7 @@ export function CustomersTab(props: CustomersTabProps) {
                     <span className={`chip ${readiness.tone === "success" ? "chip-success" : readiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>{readiness.label}</span>
                   </div>
                   <div className="customer-summary-meta">
+                    <span>{customer.businessNumber}</span>
                     <span>{customer.addr}</span>
                     <span>{props.getCustomerCertificateSummary(customer)}</span>
                   </div>
@@ -194,25 +241,6 @@ export function CustomersTab(props: CustomersTabProps) {
               <div className="customer-detail-copy">
                 <strong>{props.selectedCustomer.corpName}</strong>
                 <span>{props.selectedCustomer.customerName} · {props.selectedCustomer.addr}</span>
-                <span>{props.getCustomerPopbillSummary(props.selectedCustomer)} · {props.getCustomerCertificateSummary(props.selectedCustomer)}</span>
-              </div>
-              <div className="customer-detail-stats">
-                <div>
-                  <span>주소</span>
-                  <strong>{props.selectedCustomer.addr || "-"}</strong>
-                </div>
-                <div>
-                  <span>발행 방식</span>
-                  <strong>{props.getIssueModeLabel(props.selectedCustomer.issueMode)}</strong>
-                </div>
-                <div>
-                  <span>팝빌 상태</span>
-                  <strong>{props.getCustomerPopbillSummary(props.selectedCustomer)}</strong>
-                </div>
-                <div>
-                  <span>인증서 상태</span>
-                  <strong>{props.getCustomerCertificateSummary(props.selectedCustomer)}</strong>
-                </div>
               </div>
               <div className="customer-detail-actions">
                 <span className={`chip ${props.selectedCustomerReadiness.tone === "success" ? "chip-success" : props.selectedCustomerReadiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>
@@ -232,24 +260,6 @@ export function CustomersTab(props: CustomersTabProps) {
                 <button className="btn-secondary" onClick={() => void props.runAction(`cert-status-${props.selectedCustomer!.id}`, async () => props.onRefreshCustomerCertificateStatus(props.selectedCustomer!.id))}>만료일 확인</button>
               </div>
               {props.customerCertNotice ? <div className="helper-box customer-cert-notice"><span>{props.customerCertNotice}</span></div> : null}
-              <div className="helper-box-stack customer-cert-guide">
-                <strong>공동인증서 등록 전 확인</strong>
-                <span>아래 정보와 같은 고객 공동인증서만 등록하세요. 다르면 인증서 등록이나 이후 발행이 정상 동작하지 않을 수 있습니다.</span>
-                <div className="fields three-column">
-                  <div>
-                    <span>사업자번호</span>
-                    <strong>{props.selectedCustomer.businessNumber || "-"}</strong>
-                  </div>
-                  <div>
-                    <span>세금계산서 상호</span>
-                    <strong>{props.selectedCustomer.corpName || "-"}</strong>
-                  </div>
-                  <div>
-                    <span>대표자명</span>
-                    <strong>{props.selectedCustomer.customerName || "-"}</strong>
-                  </div>
-                </div>
-              </div>
               <details className="customer-detail-secondary">
                 <summary>더보기</summary>
                 <div className="customer-detail-secondary-actions">
@@ -291,7 +301,9 @@ export function CustomersTab(props: CustomersTabProps) {
 
           {props.selectedCustomer && props.customerDetailTab === "history" ? (
             <div className="customer-history-list">
-              {props.selectedCustomerIssuedDrafts.length > 0 ? (
+              {props.mailboxDataLoading && props.selectedCustomerIssuedDrafts.length === 0 ? (
+                <div className="empty">발행 이력을 불러오는 중입니다.</div>
+              ) : props.selectedCustomerIssuedDrafts.length > 0 ? (
                 props.selectedCustomerIssuedDrafts.map((draft) => {
                   const confirmNumber = props.getDraftConfirmNumber(draft);
                   return (
@@ -387,6 +399,11 @@ export function CustomersTab(props: CustomersTabProps) {
                 <label>
                   업종
                   <input value={props.customerForm.bizClass} onChange={(event) => props.setCustomerForm((prev) => ({ ...prev, bizClass: event.target.value }))} />
+                </label>
+                <label>
+                  휴대폰 번호
+                  <input value={props.customerForm.renewalContactMobile} onChange={(event) => props.setCustomerForm((prev) => ({ ...prev, renewalContactMobile: event.target.value }))} placeholder="01012345678" />
+                  <span className="field-hint">공동인증서 갱신 자동 제출에서 고객별 연락처로 사용합니다.</span>
                 </label>
                 <label className="full">
                   발행 방식

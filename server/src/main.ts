@@ -48,6 +48,10 @@ import {
   normalizeCustomerImportRow as normalizeCustomerImportRowService
 } from "./services/customer-import-service.js";
 import {
+  buildCustomerOnboardingPreview as buildCustomerOnboardingPreviewService,
+  commitCustomerOnboardingImport as commitCustomerOnboardingImportService
+} from "./services/customer-onboarding-import-service.js";
+import {
   assertDraftPopbillEnvironment,
   backfillDraftPopbillEnvironmentIfMissing
 } from "./services/draft-service.js";
@@ -100,6 +104,10 @@ type ClientAppSettings = Pick<
   | "operatorContactName"
   | "operatorContactEmail"
   | "operatorContactTel"
+  | "renewalContactDepartment"
+  | "renewalContactFax"
+  | "renewalCertificatePassword"
+  | "renewalIssuePassword"
   | "schedulerEnabled"
   | "certLastCheckedAt"
   | "certAlertLastSentAt"
@@ -109,6 +117,8 @@ type ClientAppSettings = Pick<
   mailPasswordConfigured: boolean;
   popbillConfigured: boolean;
   popbillSharedPasswordConfigured: boolean;
+  renewalCertificatePasswordConfigured: boolean;
+  renewalIssuePasswordConfigured: boolean;
   operatorConfigured: boolean;
 };
 
@@ -294,6 +304,8 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
   const runtimeSettings = applyServerManagedSettings(settings);
   const mailPasswordConfigured = Boolean(trimOrNull(settings.imapPass) || trimOrNull(settings.smtpPass));
   const popbillSharedPasswordConfigured = Boolean(trimOrNull(settings.popbillSharedPassword));
+  const renewalCertificatePasswordConfigured = Boolean(trimOrNull(settings.renewalCertificatePassword));
+  const renewalIssuePasswordConfigured = Boolean(trimOrNull(settings.renewalIssuePassword));
   return {
     id: settings.id,
     imapHost: settings.imapHost,
@@ -321,6 +333,10 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
     operatorContactName: settings.operatorContactName,
     operatorContactEmail: settings.operatorContactEmail,
     operatorContactTel: settings.operatorContactTel,
+    renewalContactDepartment: settings.renewalContactDepartment,
+    renewalContactFax: settings.renewalContactFax,
+    renewalCertificatePassword: "",
+    renewalIssuePassword: "",
     schedulerEnabled: settings.schedulerEnabled,
     certLastCheckedAt: settings.certLastCheckedAt,
     certAlertLastSentAt: settings.certAlertLastSentAt,
@@ -329,6 +345,8 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
     mailPasswordConfigured,
     popbillConfigured: Boolean(runtimeSettings.popbillLinkId && runtimeSettings.popbillSecretKey),
     popbillSharedPasswordConfigured,
+    renewalCertificatePasswordConfigured,
+    renewalIssuePasswordConfigured,
     operatorConfigured: Boolean(
       settings.popbillUserIdPrefix &&
       popbillSharedPasswordConfigured &&
@@ -379,6 +397,10 @@ function createEmptySettings(): AppSettings {
     operatorContactName: "",
     operatorContactEmail: "",
     operatorContactTel: "",
+    renewalContactDepartment: "",
+    renewalContactFax: "",
+    renewalCertificatePassword: "",
+    renewalIssuePassword: "",
     schedulerEnabled: true,
     certLastCheckedAt: null,
     certAlertLastSentAt: null,
@@ -391,6 +413,7 @@ function createEmptyBootstrapWorkspace(): Omit<DashboardPayload, "logs" | "renew
   return {
     settings: createEmptySettings(),
     customers: [],
+    customerCertificates: [],
     drafts: [],
     inbox: [],
     counts: {
@@ -423,6 +446,7 @@ const customerSchema = z.object({
   issueDay: z.number().int().min(1).max(31).nullable().optional().default(null),
   issueHour: z.number().int().min(0).max(23).nullable().optional().default(null),
   issueMinute: z.number().int().min(0).max(59).nullable().optional().default(null),
+  renewalContactMobile: z.string().default(""),
   memo: z.string().default(""),
   plantNames: z.array(z.string().min(1)).default([]),
   matchAddresses: z.array(z.string().min(1)).default([])
@@ -442,6 +466,7 @@ function normalizeCustomerInput(payload: z.infer<typeof customerSchema>): Custom
     issueDay: payload.issueDay,
     issueHour: payload.issueHour,
     issueMinute: payload.issueMinute,
+    renewalContactMobile: payload.renewalContactMobile,
     memo: payload.memo,
     plantNames: payload.plantNames,
     matchAddresses: payload.matchAddresses
@@ -534,6 +559,50 @@ const renewalAgentBridgeSchema = z.object({
     orderApplySeCd: z.string().nullable(),
     payYn: z.string().nullable(),
     nextUrl: z.string().nullable(),
+    renewInfoPageTitle: z.string().nullable(),
+    renewInfoSubmitUrl: z.string().nullable(),
+    renewInfoSubmitPathKind: z.union([z.literal("apply"), z.literal("renew"), z.literal("unknown")]).nullable(),
+    renewInfoFormFieldNames: z.array(z.string()),
+    renewInfoMustHaveFieldNames: z.array(z.string()),
+    renewInfoFinalNum: z.string().nullable(),
+    renewInfoSnapshot: z.object({
+      companyName: z.string().nullable(),
+      businessNumber: z.string().nullable(),
+      ceoName: z.string().nullable(),
+      bizType: z.string().nullable(),
+      bizClass: z.string().nullable(),
+      businessFieldCode: z.string().nullable(),
+      postalCode: z.string().nullable(),
+      baseAddress: z.string().nullable(),
+      detailAddress: z.string().nullable(),
+      contactName: z.string().nullable(),
+      contactDepartment: z.string().nullable(),
+      contactEmail: z.string().nullable(),
+      contactTel: z.string().nullable(),
+      contactFax: z.string().nullable(),
+      contactMobile: z.string().nullable()
+    }).nullable(),
+    renewInfoBlockingMismatchFields: z.array(z.string()),
+    renewInfoAutoSubmitReady: z.boolean().nullable(),
+    renewInfoAutoSubmitSummary: z.string().nullable(),
+    renewInfoSubmitMissingFields: z.array(z.string()),
+    renewInfoSubmitReady: z.boolean().nullable(),
+    renewInfoSubmitSummary: z.string().nullable(),
+    renewInfoSubmitAttempted: z.boolean().nullable(),
+    renewInfoSubmitResultBranch: z.union([
+      z.literal("renew-info"),
+      z.literal("renew-payment"),
+      z.literal("password-confirm"),
+      z.literal("unknown")
+    ]).nullable(),
+    renewInfoSubmitResultUrl: z.string().nullable(),
+    renewInfoSubmitResultPageTitle: z.string().nullable(),
+    renewInfoSubmitResultSummary: z.string().nullable(),
+    renewInfoSubmitResultError: z.string().nullable(),
+    renewInfoPaymentPreviewLoaded: z.boolean().nullable(),
+    renewInfoPaymentPreviewItems: z.array(z.string()),
+    renewInfoPaymentPreviewTotalAmount: z.string().nullable(),
+    renewInfoPaymentPreviewHasAdditionalAgreement: z.boolean().nullable(),
     actionImageUrl: z.string().nullable(),
     actionImageAlt: z.string().nullable(),
     externalFlowKind: z.union([z.literal("apply-form"), z.literal("unknown")]).nullable(),
@@ -574,7 +643,8 @@ const renewalCertIdProbeRequestSchema = z.object({
 const renewalPreflightRequestSchema = z.object({
   customerId: z.number().int().positive().nullable().optional(),
   certificateIndex: z.number().int().positive(),
-  certificateCn: z.string().nullable().optional()
+  certificateCn: z.string().nullable().optional(),
+  executeSubmit: z.boolean().optional()
 });
 
 const renewalAgentCompleteSchema = z.object({
@@ -780,6 +850,7 @@ export async function createApp(store: AppStore | null, webDist: string) {
     getRequestStore,
     requirePlatformAdmin,
     requireAuthContext,
+    requireWorkspaceEditor,
     requireRenewalAgentAccess,
     renewalAutomation,
     renewalBridgeProbeRequestSchema,
@@ -810,7 +881,11 @@ export async function createApp(store: AppStore | null, webDist: string) {
     maskBusinessNumber,
     normalizeCustomerImportRow: normalizeCustomerImportRowService,
     buildCustomerImportPreview: buildCustomerImportPreviewService,
-    commitCustomerImport
+    commitCustomerImport,
+    buildCustomerOnboardingPreview: buildCustomerOnboardingPreviewService,
+    commitCustomerOnboardingImport: commitCustomerOnboardingImportService,
+    autoJoinCustomerPopbill: (requestStore: AppStore, customer: Customer) =>
+      autoJoinCustomerPopbill(requestStore, customer, getServerManagedSettings, getErrorMessage)
   });
 
   registerCustomerPopbillRoutes({
@@ -824,7 +899,8 @@ export async function createApp(store: AppStore | null, webDist: string) {
     autoJoinCustomerPopbill: (requestStore: AppStore, customer: Customer) =>
       autoJoinCustomerPopbill(requestStore, customer, getServerManagedSettings, getErrorMessage),
     toClientCustomer,
-    refreshAllCertificateStatuses
+    refreshAllCertificateStatuses,
+    renewalAutomation
   });
 
   registerMailRoutes({

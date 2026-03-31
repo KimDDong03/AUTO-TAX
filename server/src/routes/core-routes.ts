@@ -154,8 +154,11 @@ export function registerCoreRoutes(deps: RouteDeps) {
     const requestStore = getRequestStore(res, store);
     const dashboard = await requestStore.getDashboard();
     const { logs: _logs, ...workspaceDashboard } = dashboard;
+    const includeMailbox = String(_req.query.includeMailbox ?? "").trim() === "1";
     res.json({
       ...workspaceDashboard,
+      drafts: includeMailbox ? workspaceDashboard.drafts : [],
+      inbox: includeMailbox ? workspaceDashboard.inbox : [],
       customers: workspaceDashboard.customers.map(toClientCustomer),
       settings: toClientSettings(dashboard.settings),
       auth: authContext
