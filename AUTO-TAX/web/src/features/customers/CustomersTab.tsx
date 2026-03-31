@@ -23,6 +23,15 @@ type CustomerIssueReadiness = {
   canIssueNow: boolean;
   label: string;
   tone: "success" | "warn" | "danger";
+  reason: string;
+};
+
+type CustomerIssueChecklistItem = {
+  key: string;
+  label: string;
+  tone: "success" | "warn" | "danger";
+  actionLabel?: string;
+  actionKind?: "join-popbill" | "register-certificate" | "check-certificate";
 };
 
 type CustomerRenewalCandidateView = {
@@ -45,6 +54,7 @@ type CustomersTabProps = {
   filteredCustomers: Customer[];
   selectedCustomer: Customer | null;
   selectedCustomerReadiness: CustomerIssueReadiness | null;
+  selectedCustomerIssues: CustomerIssueChecklistItem[];
   selectedCustomerIssuedDrafts: InvoiceDraft[];
   blockedCustomerCount: number;
   readyCustomerCount: number;
@@ -102,6 +112,31 @@ type CustomersTabProps = {
 };
 
 export function CustomersTab(props: CustomersTabProps) {
+  const selectedCustomer = props.selectedCustomer;
+  const selectedCustomerReadiness = props.selectedCustomerReadiness;
+
+  const runSelectedCustomerIssueAction = (issue: CustomerIssueChecklistItem) => {
+    if (!selectedCustomer || !issue.actionKind) return;
+
+    switch (issue.actionKind) {
+      case "join-popbill":
+        return void props.runAction(`join-${selectedCustomer.id}`, async () => props.onJoinCustomerPopbill(selectedCustomer.id));
+      case "register-certificate":
+        return void props.runAction(
+          `cert-url-${selectedCustomer.id}`,
+          async () => props.onOpenCustomerCertRegistration(selectedCustomer.id),
+          { reload: false }
+        );
+      case "check-certificate":
+        return void props.runAction(
+          `cert-status-${selectedCustomer.id}`,
+          async () => props.onRefreshCustomerCertificateStatus(selectedCustomer.id)
+        );
+      default:
+        return;
+    }
+  };
+
   return (
     <div className="customers-screen">
       {props.expiredCertCustomers.length > 0 ? (
@@ -236,39 +271,84 @@ export function CustomersTab(props: CustomersTabProps) {
             </button>
           ) : null}
         >
-          {props.selectedCustomer && props.selectedCustomerReadiness ? (
+          {selectedCustomer && selectedCustomerReadiness ? (
             <div className="customer-detail-top">
               <div className="customer-detail-copy">
-                <strong>{props.selectedCustomer.corpName}</strong>
-                <span>{props.selectedCustomer.customerName} · {props.selectedCustomer.addr}</span>
+                <strong>{selectedCustomer.corpName}</strong>
+                <span>{selectedCustomer.customerName} · {selectedCustomer.addr}</span>
               </div>
-              <div className="customer-detail-actions">
-                <span className={`chip ${props.selectedCustomerReadiness.tone === "success" ? "chip-success" : props.selectedCustomerReadiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>
-                  {props.selectedCustomerReadiness.label}
+              <div className="customer-detail-status-row">
+                <span className={`chip ${selectedCustomerReadiness.tone === "success" ? "chip-success" : selectedCustomerReadiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>
+                  {selectedCustomerReadiness.label}
                 </span>
-                {props.selectedCustomer.popbillState !== "joined" ? (
-                  <button
-                    className="btn-secondary"
-                    onClick={() => void props.runAction(`join-${props.selectedCustomer!.id}`, async () => props.onJoinCustomerPopbill(props.selectedCustomer!.id))}
-                  >
-                    팝빌 가입
-                  </button>
-                ) : null}
-                <button onClick={() => void props.runAction(`cert-url-${props.selectedCustomer!.id}`, async () => props.onOpenCustomerCertRegistration(props.selectedCustomer!.id), { reload: false })}>
-                  {props.selectedCustomer.popbillCertRegistered ? "인증서 재등록" : "인증서 등록"}
-                </button>
-                <button className="btn-secondary" onClick={() => void props.runAction(`cert-status-${props.selectedCustomer!.id}`, async () => props.onRefreshCustomerCertificateStatus(props.selectedCustomer!.id))}>만료일 확인</button>
+                <span className="customer-detail-status-note">{selectedCustomerReadiness.reason}</span>
               </div>
+              <div className="customer-issue-list" aria-label="발행 준비 상태">
+                {props.selectedCustomerIssues.map((issue) => (
+                  <article
+                    key={issue.key}
+                    className={
+                      issue.tone === "danger"
+                        ? "customer-issue-card tone-danger"
+                        : issue.tone === "warn"
+                          ? "customer-issue-card tone-warn"
+                          : "customer-issue-card tone-success"
+                    }
+                  >
+                    <div className="customer-issue-card-copy">
+                      <span className={`chip ${issue.tone === "danger" ? "chip-danger" : issue.tone === "warn" ? "chip-warn" : "chip-success"}`}>
+                        {issue.tone === "danger" ? "발행 불가" : issue.tone === "warn" ? "점검 필요" : "준비 완료"}
+                      </span>
+                      <strong>{issue.label}</strong>
+                    </div>
+                    {issue.actionLabel ? (
+                      <button type="button" className="btn-secondary" onClick={() => runSelectedCustomerIssueAction(issue)}>
+                        {issue.actionLabel}
+                      </button>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+              {selectedCustomer.popbillState === "joined" &&
+              selectedCustomer.popbillCertRegistered &&
+              selectedCustomerReadiness.reason === "발행 조건 충족" ? (
+                <div className="customer-detail-actions">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void props.runAction(
+                        `cert-url-${selectedCustomer.id}`,
+                        async () => props.onOpenCustomerCertRegistration(selectedCustomer.id),
+                        { reload: false }
+                      )
+                    }
+                  >
+                    인증서 재등록
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() =>
+                      void props.runAction(
+                        `cert-status-${selectedCustomer.id}`,
+                        async () => props.onRefreshCustomerCertificateStatus(selectedCustomer.id)
+                      )
+                    }
+                  >
+                    만료일 확인
+                  </button>
+                </div>
+              ) : null}
               {props.customerCertNotice ? <div className="helper-box customer-cert-notice"><span>{props.customerCertNotice}</span></div> : null}
               <details className="customer-detail-secondary">
                 <summary>더보기</summary>
                 <div className="customer-detail-secondary-actions">
-                  {props.selectedCustomer.popbillState === "joined" ? (
-                    <button className="btn-ghost" onClick={() => void props.runAction(`reset-popbill-${props.selectedCustomer!.id}`, async () => props.onResetPopbillLink(props.selectedCustomer!))}>
+                  {selectedCustomer.popbillState === "joined" ? (
+                    <button className="btn-ghost" onClick={() => void props.runAction(`reset-popbill-${selectedCustomer.id}`, async () => props.onResetPopbillLink(selectedCustomer))}>
                       연결 해제
                     </button>
                   ) : null}
-                  <button className="btn-ghost btn-danger" onClick={() => void props.runAction(`delete-customer-${props.selectedCustomer!.id}`, async () => props.onDeleteCustomer(props.selectedCustomer!))}>
+                  <button className="btn-ghost btn-danger" onClick={() => void props.runAction(`delete-customer-${selectedCustomer.id}`, async () => props.onDeleteCustomer(selectedCustomer))}>
                     고객 삭제
                   </button>
                 </div>
