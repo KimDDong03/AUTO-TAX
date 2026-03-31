@@ -52,6 +52,83 @@ npm run test:server
 npm run test:e2e:smoke
 ```
 
+## 고객용 로컬 헬퍼
+
+공동인증서 불러오기 기능은 고객 PC의 SignGate 로컬 모듈과 통신하는 `로컬 헬퍼`가 필요합니다.
+
+가장 쉬운 설치:
+
+```bash
+npm run renewal-helper:install
+```
+
+- 자동실행 등록 + 지금 바로 시작
+- 바탕화면에 `시작 / 종료 / 상태 확인 / 자동실행 제거` 바로가기도 같이 만듭니다.
+
+수동 시작:
+
+```bash
+npm run renewal-helper:start
+```
+
+수동 종료:
+
+```bash
+npm run renewal-helper:stop
+```
+
+상태 확인:
+
+```bash
+npm run renewal-helper:status
+```
+
+개발/전면 실행:
+
+```bash
+npm run renewal-helper:dev
+```
+
+자동 실행 제거:
+
+```bash
+npm run renewal-helper:uninstall
+```
+
+고객 PC에 `npm`이 없다면 배포용 폴더를 만들어 전달하면 됩니다:
+
+```bash
+npm run renewal-helper:package
+```
+
+생성 위치:
+
+`dist/renewal-local-helper`
+
+이 폴더를 그대로 고객 PC에 복사한 뒤 아래 파일만 더블클릭하면 됩니다.
+
+- `scripts\\renewal-helper-install.cmd`
+- `scripts\\renewal-helper-start.cmd`
+- `scripts\\renewal-helper-stop.cmd`
+- `scripts\\renewal-helper-status.cmd`
+- `scripts\\renewal-helper-uninstall.cmd`
+
+패키지 설치본은 실행 시 `%LOCALAPPDATA%\\AUTO-TAX\\renewal-local-helper` 로 복사한 뒤 그 경로를 기준으로 자동실행을 등록합니다. 그래서 압축을 푼 원본 폴더를 나중에 옮기거나 지워도 자동실행이 깨지지 않습니다.
+
+직접 더블클릭해도 됩니다:
+
+- [scripts/renewal-helper-install.cmd](./scripts/renewal-helper-install.cmd)
+- [scripts/renewal-helper-start.cmd](./scripts/renewal-helper-start.cmd)
+- [scripts/renewal-helper-stop.cmd](./scripts/renewal-helper-stop.cmd)
+- [scripts/renewal-helper-status.cmd](./scripts/renewal-helper-status.cmd)
+- [scripts/renewal-helper-uninstall.cmd](./scripts/renewal-helper-uninstall.cmd)
+
+설치 전 실행 경로만 확인하려면:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-renewal-local-helper.ps1 -ValidateOnly
+```
+
 ## 설정 순서
 
 1. 작업공간 설정에서 Gmail 계정/앱 비밀번호 입력

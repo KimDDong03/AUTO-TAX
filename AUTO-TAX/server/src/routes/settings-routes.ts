@@ -1,8 +1,16 @@
 import type { Express } from "express";
 import { z } from "zod";
-import type { AppSettings, CustomerImportProfile } from "../domain.js";
+import type { AppSettings, Customer, CustomerImportProfile } from "../domain.js";
 import type { AppStore } from "../store-contract.js";
 import type { CustomerImportCommitResult, CustomerImportMappedRow, CustomerImportPreviewResult } from "../services/customer-import-service.js";
+import type { AutoJoinCustomerResult } from "../services/popbill-customer-service.js";
+import type {
+  CustomerOnboardingCertificateRow,
+  CustomerOnboardingCommitResult,
+  CustomerOnboardingCustomerRow,
+  CustomerOnboardingPlantRow,
+  CustomerOnboardingPreviewResult
+} from "../services/customer-onboarding-import-service.js";
 import type {
   CreateEmptySettings,
   LoggingStoreGetter,
@@ -38,6 +46,10 @@ const settingsSchema = z.object({
   operatorContactName: z.string(),
   operatorContactEmail: z.string(),
   operatorContactTel: z.string(),
+  renewalContactDepartment: z.string(),
+  renewalContactFax: z.string(),
+  renewalCertificatePassword: z.string(),
+  renewalIssuePassword: z.string(),
   schedulerEnabled: z.boolean()
 });
 
@@ -84,6 +96,42 @@ const customerImportProfileSchema = z.object({
   })
 });
 
+const customerOnboardingCustomerRowSchema = z.object({
+  rowIndex: z.number().int().min(1),
+  customerName: z.string().default(""),
+  businessNumber: z.string().default(""),
+  corpName: z.string().default(""),
+  addr: z.string().default(""),
+  bizType: z.string().default(""),
+  bizClass: z.string().default(""),
+  renewalContactMobile: z.string().default(""),
+  memo: z.string().default("")
+});
+
+const customerOnboardingPlantRowSchema = z.object({
+  rowIndex: z.number().int().min(1),
+  businessNumber: z.string().default(""),
+  plantName: z.string().default(""),
+  matchAddress: z.string().default("")
+});
+
+const customerOnboardingCertificateRowSchema = z.object({
+  rowIndex: z.number().int().min(1),
+  businessNumber: z.string().default(""),
+  certificateKind: z.enum(["electronic_tax", "general_personal", "general_business", "unknown"]),
+  certificateName: z.string().default(""),
+  certificateUsageName: z.string().default(""),
+  issuerName: z.string().default(""),
+  certificatePassword: z.string().default(""),
+  isPrimary: z.boolean().default(false)
+});
+
+const customerOnboardingSchema = z.object({
+  customers: z.array(customerOnboardingCustomerRowSchema).min(1).max(2000),
+  plants: z.array(customerOnboardingPlantRowSchema).max(5000).default([]),
+  certificates: z.array(customerOnboardingCertificateRowSchema).max(5000).default([])
+});
+
 const completedBillingMonthSchema = z.object({
   billingMonth: z.string().regex(/^\d{4}-\d{2}$/, "정산월 형식이 올바르지 않습니다.")
 });
@@ -127,6 +175,26 @@ type RouteDeps = {
   normalizeCustomerImportRow: (row: z.infer<typeof customerImportRowSchema>) => CustomerImportMappedRow;
   buildCustomerImportPreview: (requestStore: AppStore, rows: CustomerImportMappedRow[]) => Promise<CustomerImportPreviewResult>;
   commitCustomerImport: (requestStore: AppStore, preview: CustomerImportPreviewResult) => Promise<CustomerImportCommitResult>;
+  buildCustomerOnboardingPreview: (
+    requestStore: AppStore,
+    workbook: {
+      customers: CustomerOnboardingCustomerRow[];
+      plants: CustomerOnboardingPlantRow[];
+      certificates: CustomerOnboardingCertificateRow[];
+    }
+  ) => Promise<CustomerOnboardingPreviewResult>;
+  commitCustomerOnboardingImport: (
+    requestStore: AppStore,
+    workbook: {
+      customers: CustomerOnboardingCustomerRow[];
+      plants: CustomerOnboardingPlantRow[];
+      certificates: CustomerOnboardingCertificateRow[];
+    },
+    options?: {
+      autoJoinCustomer?: (customer: Customer) => Promise<AutoJoinCustomerResult>;
+    }
+  ) => Promise<CustomerOnboardingCommitResult>;
+  autoJoinCustomerPopbill: (requestStore: AppStore, customer: Customer) => Promise<AutoJoinCustomerResult>;
 };
 
 export function registerSettingsRoutes(deps: RouteDeps) {
@@ -149,7 +217,10 @@ export function registerSettingsRoutes(deps: RouteDeps) {
     maskBusinessNumber,
     normalizeCustomerImportRow,
     buildCustomerImportPreview,
-    commitCustomerImport
+    commitCustomerImport,
+    buildCustomerOnboardingPreview,
+    commitCustomerOnboardingImport,
+    autoJoinCustomerPopbill
   } = deps;
 
   app.get("/api/settings", async (_req, res) => {
@@ -164,6 +235,26 @@ export function registerSettingsRoutes(deps: RouteDeps) {
     await requestStore.createLog("warn", "settings", "팝빌 기본 비밀번호를 조회했습니다.");
     res.json({
       password: settings.popbillSharedPassword
+    });
+  });
+
+  app.get("/api/settings/renewal-issue-password", async (_req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const settings = await requestStore.getSettings();
+    await requestStore.createLog("warn", "settings", "공동인증서 갱신 발급용 비밀번호를 조회했습니다.");
+    res.json({
+      password: settings.renewalIssuePassword
+    });
+  });
+
+  app.get("/api/settings/renewal-certificate-password", async (_req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const settings = await requestStore.getSettings();
+    await requestStore.createLog("warn", "settings", "공동인증서 공통 비밀번호를 조회했습니다.");
+    res.json({
+      password: settings.renewalCertificatePassword
     });
   });
 
@@ -325,5 +416,23 @@ export function registerSettingsRoutes(deps: RouteDeps) {
     const rows = payload.rows.map(normalizeCustomerImportRow);
     const preview = await buildCustomerImportPreview(requestStore, rows);
     res.json(await commitCustomerImport(requestStore, preview));
+  });
+
+  app.post("/api/customer-onboarding/preview", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const payload = customerOnboardingSchema.parse(req.body);
+    res.json(await buildCustomerOnboardingPreview(requestStore, payload));
+  });
+
+  app.post("/api/customer-onboarding/commit", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const payload = customerOnboardingSchema.parse(req.body);
+    res.json(
+      await commitCustomerOnboardingImport(requestStore, payload, {
+        autoJoinCustomer: (customer) => autoJoinCustomerPopbill(requestStore, customer)
+      })
+    );
   });
 }

@@ -18,6 +18,13 @@ type SettingsTabProps = {
   revealedFields: Record<string, boolean>;
   mailPasswordConfigured: boolean;
   popbillSharedPasswordConfigured: boolean;
+  renewalCertificatePasswordConfigured: boolean;
+  renewalIssuePasswordConfigured: boolean;
+  customerRenewalAssistantOnline: boolean;
+  customerRenewalAssistantHelperVersion: string | null;
+  customerRenewalAssistantHelperMessage: string;
+  customerRenewalAssistantCheckedAt: string | null;
+  customerRenewalLoadedCertificateCount: number;
   detectedMailProviderLabel: string;
   canManageOrganizationMembers: boolean;
   organizationMembers: OrganizationMemberSummary[];
@@ -36,6 +43,9 @@ type SettingsTabProps = {
   refreshAllCertificateStatuses: () => Promise<void>;
   testMailSettings: () => Promise<void>;
   loadCurrentPopbillSharedPassword: () => Promise<void>;
+  loadCurrentRenewalCertificatePassword: () => Promise<void>;
+  loadCurrentRenewalIssuePassword: () => Promise<void>;
+  refreshCustomerRenewalAssistant: () => Promise<void>;
   changePassword: () => Promise<void>;
   createOrganizationMember: () => Promise<void>;
   openMemberPasswordReset: (member: OrganizationMemberSummary) => void;
@@ -249,11 +259,105 @@ export function SettingsTab(props: SettingsTabProps) {
                     운영 담당자 연락처
                     <input value={props.settingsForm.operatorContactTel} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, operatorContactTel: event.target.value })} placeholder="01012345678" />
                   </label>
+                  <label className="settings-field-full-width">
+                    공동인증서 공통 비밀번호
+                    <div className="password-field">
+                      <input
+                        type={props.revealedFields.renewalCertificatePassword ? "text" : "password"}
+                        value={props.settingsForm.renewalCertificatePassword}
+                        onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, renewalCertificatePassword: event.target.value })}
+                        placeholder={props.renewalCertificatePasswordConfigured ? "변경할 때만 다시 입력" : "선택 입력"}
+                      />
+                      <button type="button" className="password-toggle" aria-label={props.revealedFields.renewalCertificatePassword ? "공동인증서 공통 비밀번호 숨기기" : "공동인증서 공통 비밀번호 보기"} onClick={() => props.toggleRevealField("renewalCertificatePassword")}>
+                        <RevealIcon open={Boolean(props.revealedFields.renewalCertificatePassword)} />
+                      </button>
+                    </div>
+                    <div className="field-meta-row">
+                      <span className="field-hint">
+                        {props.renewalCertificatePasswordConfigured
+                          ? "이미 저장된 공통 비밀번호가 있습니다. 변경하거나 확인하려면 불러오기를 누르세요. 엑셀에서 인증서 비밀번호 칸을 비워둔 행만 이 공통 비밀번호를 fallback으로 사용합니다."
+                          : "선택값입니다. 여러 전자세금용 공동인증서 비밀번호가 같을 때만 저장하세요. 엑셀에서 인증서 비밀번호 칸이 비어 있으면 이 값을 사용합니다."}
+                      </span>
+                      {props.renewalCertificatePasswordConfigured ? (
+                        <div className="field-action-row">
+                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runAction("load-renewal-certificate-password", props.loadCurrentRenewalCertificatePassword, { reload: false })}>
+                            저장된 비밀번호 불러오기
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </label>
+                  <label className="settings-field-full-width">
+                    공동인증서 발급용 임시번호
+                    <div className="password-field">
+                      <input
+                        type={props.revealedFields.renewalIssuePassword ? "text" : "password"}
+                        value={props.settingsForm.renewalIssuePassword}
+                        onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, renewalIssuePassword: event.target.value })}
+                        placeholder={props.renewalIssuePasswordConfigured ? "변경할 때만 다시 입력" : "발급용 임시번호 입력"}
+                      />
+                      <button type="button" className="password-toggle" aria-label={props.revealedFields.renewalIssuePassword ? "발급용 임시번호 숨기기" : "발급용 임시번호 보기"} onClick={() => props.toggleRevealField("renewalIssuePassword")}>
+                        <RevealIcon open={Boolean(props.revealedFields.renewalIssuePassword)} />
+                      </button>
+                    </div>
+                    <div className="field-meta-row">
+                      <span className="field-hint">
+                        {props.renewalIssuePasswordConfigured
+                          ? "이미 저장된 발급용 임시번호가 있습니다. 변경하거나 확인하려면 불러오기를 누르세요."
+                          : "공동인증서 갱신 신청정보 제출 시 사용하는 회사 공통값입니다."}
+                      </span>
+                      {props.renewalIssuePasswordConfigured ? (
+                        <div className="field-action-row">
+                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runAction("load-renewal-issue-password", props.loadCurrentRenewalIssuePassword, { reload: false })}>
+                            저장된 임시번호 불러오기
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </label>
                 </div>
                 <div className="helper-box full">
                   <strong>현재 상태</strong>
                   <span>팝빌 연결: {props.settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</span>
                   <span>작업공간 운영값: {props.settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</span>
+                </div>
+              </section>
+
+              <section className="settings-field-group">
+                <div className="settings-field-group-head">
+                  <strong>공동인증서 헬퍼</strong>
+                  <span>공동인증서 읽기, 갱신 준비, 팝빌 인증서 자동 등록에 쓰는 로컬 프로그램 상태입니다.</span>
+                </div>
+                <div className="helper-box-stack settings-helper-status-card">
+                  <div className="settings-helper-status-head">
+                    <div className="settings-helper-status-meta">
+                      <span className={props.customerRenewalAssistantOnline ? "chip chip-success" : "chip chip-danger"}>
+                        {props.customerRenewalAssistantOnline ? "연결됨" : "연결 안 됨"}
+                      </span>
+                      {props.customerRenewalAssistantHelperVersion ? <span className="chip">v{props.customerRenewalAssistantHelperVersion}</span> : null}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={props.busyKey !== null}
+                      onClick={() => void props.runAction("refresh-customer-renewal-helper", props.refreshCustomerRenewalAssistant, { reload: false })}
+                    >
+                      상태 다시 확인
+                    </button>
+                  </div>
+                  <span>상태 메시지: {props.customerRenewalAssistantHelperMessage}</span>
+                  <span>마지막 확인: {props.formatDateTime(props.customerRenewalAssistantCheckedAt)}</span>
+                  <span>현재 읽은 공동인증서: {props.customerRenewalLoadedCertificateCount}건</span>
+                </div>
+                <div className="helper-box-stack settings-install-guide">
+                  <strong>설치 안내</strong>
+                  <span>
+                    고객 PC에는 전달한 <code>renewal-local-helper</code> 압축을 푼 뒤 <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
+                  </span>
+                  <span>설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시 실행됩니다.</span>
+                  <span>
+                    문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>, <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code> 바로가기로 확인할 수 있습니다.
+                  </span>
                 </div>
               </section>
             </div>

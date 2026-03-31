@@ -2,6 +2,8 @@ import type {
   AppSettings,
   CompletedBillingMonth,
   Customer,
+  CustomerCertificate,
+  CustomerCertificateInput,
   CustomerImportProfile,
   CustomerInput,
   DashboardPayload,
@@ -25,10 +27,15 @@ export interface AppStore {
   getMailSyncCheckpoint(mailbox: string): Promise<number | null>;
   updateMailSyncCheckpoint(mailbox: string, lastUid: number): Promise<void>;
   listCustomers(): Promise<Customer[]>;
+  listCustomerCertificates(): Promise<CustomerCertificate[]>;
+  getCustomerCertificatePassword(certificateId: number): Promise<string>;
   getCustomer(customerId: number): Promise<Customer | null>;
   findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null>;
   findCustomerByMatchAddress(matchAddress: string): Promise<Customer | null>;
   saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer>;
+  upsertCustomerCertificate(input: CustomerCertificateInput): Promise<CustomerCertificate>;
+  deleteCustomerCertificate(certificateId: number): Promise<void>;
+  updateCustomerTaxProfile(customerId: number, bizType: string, bizClass: string): Promise<Customer>;
   updateCustomerPopbillUserId(customerId: number, popbillUserId: string): Promise<Customer>;
   updateCustomerPopbillState(customerId: number, state: PopbillState, certRegistered?: boolean, certExpireDate?: string | null): Promise<Customer>;
   resetCustomerPopbill(customerId: number): Promise<Customer>;

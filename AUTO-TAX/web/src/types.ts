@@ -3,6 +3,8 @@ export type DraftStatus = "review" | "scheduled" | "issuing" | "issued" | "faile
 export type PopbillEnvironment = "test" | "production";
 export type OrganizationMemberRole = "owner" | "admin" | "operator" | "viewer";
 export type OrganizationStatus = "trial" | "active" | "suspended" | "churned";
+export type CustomerCertificateKind = "electronic_tax" | "general_personal" | "general_business" | "unknown";
+export type CustomerCertificateLinkSource = "auto" | "manual";
 
 export interface AppSettings {
   id: number;
@@ -32,8 +34,14 @@ export interface AppSettings {
   operatorContactName: string;
   operatorContactEmail: string;
   operatorContactTel: string;
+  renewalContactDepartment: string;
+  renewalContactFax: string;
+  renewalCertificatePassword: string;
+  renewalIssuePassword: string;
   popbillConfigured: boolean;
   popbillSharedPasswordConfigured: boolean;
+  renewalCertificatePasswordConfigured: boolean;
+  renewalIssuePasswordConfigured: boolean;
   operatorConfigured: boolean;
   schedulerEnabled: boolean;
   certLastCheckedAt: string | null;
@@ -58,9 +66,29 @@ export interface Customer {
   issueDay: number | null;
   issueHour: number | null;
   issueMinute: number | null;
+  renewalContactMobile: string;
   memo: string;
   plantNames: string[];
   matchAddresses: string[];
+}
+
+export interface CustomerCertificate {
+  id: number;
+  customerId: number;
+  certificateKind: CustomerCertificateKind;
+  certificateName: string;
+  certificateUsageName: string;
+  issuerName: string;
+  serial: string | null;
+  userDN: string | null;
+  oid: string | null;
+  expireDate: string | null;
+  certDirPath: string | null;
+  certificatePasswordConfigured: boolean;
+  isPrimary: boolean;
+  linkSource: CustomerCertificateLinkSource;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CustomerImportProfile {
@@ -214,6 +242,43 @@ export interface RenewalBridgeSelectionProbe {
   error: string | null;
 }
 
+export interface RenewalInfoSnapshot {
+  companyName: string | null;
+  businessNumber: string | null;
+  ceoName: string | null;
+  bizType: string | null;
+  bizClass: string | null;
+  businessFieldCode: string | null;
+  postalCode: string | null;
+  baseAddress: string | null;
+  detailAddress: string | null;
+  contactName: string | null;
+  contactDepartment: string | null;
+  contactEmail: string | null;
+  contactTel: string | null;
+  contactFax: string | null;
+  contactMobile: string | null;
+}
+
+export interface RenewalPreflightComparisonProfile {
+  corpName: string;
+  businessNumber: string;
+  ceoName: string;
+  addr: string;
+  bizType: string;
+  bizClass: string;
+}
+
+export interface RenewalPreflightSubmissionProfile {
+  contactName: string;
+  contactDepartment: string;
+  contactEmail: string;
+  contactTel: string;
+  contactFax: string;
+  contactMobile: string;
+  issuePassword: string;
+}
+
 export interface RenewalBridgePreflightProbe {
   ok: boolean;
   sourcePort: number | null;
@@ -231,6 +296,29 @@ export interface RenewalBridgePreflightProbe {
   orderApplySeCd: string | null;
   payYn: string | null;
   nextUrl: string | null;
+  renewInfoPageTitle: string | null;
+  renewInfoSubmitUrl: string | null;
+  renewInfoSubmitPathKind: "apply" | "renew" | "unknown" | null;
+  renewInfoFormFieldNames: string[];
+  renewInfoMustHaveFieldNames: string[];
+  renewInfoFinalNum: string | null;
+  renewInfoSnapshot: RenewalInfoSnapshot | null;
+  renewInfoBlockingMismatchFields: string[];
+  renewInfoAutoSubmitReady: boolean | null;
+  renewInfoAutoSubmitSummary: string | null;
+  renewInfoSubmitMissingFields: string[];
+  renewInfoSubmitReady: boolean | null;
+  renewInfoSubmitSummary: string | null;
+  renewInfoSubmitAttempted: boolean | null;
+  renewInfoSubmitResultBranch: "renew-info" | "renew-payment" | "password-confirm" | "unknown" | null;
+  renewInfoSubmitResultUrl: string | null;
+  renewInfoSubmitResultPageTitle: string | null;
+  renewInfoSubmitResultSummary: string | null;
+  renewInfoSubmitResultError: string | null;
+  renewInfoPaymentPreviewLoaded: boolean | null;
+  renewInfoPaymentPreviewItems: string[];
+  renewInfoPaymentPreviewTotalAmount: string | null;
+  renewInfoPaymentPreviewHasAdditionalAgreement: boolean | null;
   actionImageUrl: string | null;
   actionImageAlt: string | null;
   externalFlowKind: "apply-form" | "unknown" | null;
@@ -278,6 +366,9 @@ export interface RenewalAutomationJob {
   summary: string;
   error: string | null;
   result: RenewalBridgeProbeResult | null;
+  comparisonProfile?: RenewalPreflightComparisonProfile | null;
+  submissionProfile?: RenewalPreflightSubmissionProfile | null;
+  executeSubmit?: boolean;
 }
 
 export interface RenewalAutomationPayload {
@@ -288,6 +379,7 @@ export interface RenewalAutomationPayload {
 export interface DashboardPayload {
   settings: AppSettings;
   customers: Customer[];
+  customerCertificates: CustomerCertificate[];
   drafts: InvoiceDraft[];
   inbox: InboxMessage[];
   logs: LogEntry[];

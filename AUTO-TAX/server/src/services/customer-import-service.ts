@@ -195,6 +195,7 @@ export async function commitCustomerImport(requestStore: AppStore, preview: Cust
         issueDay: null,
         issueHour: null,
         issueMinute: null,
+        renewalContactMobile: "",
         memo: "",
         plantNames: [],
         matchAddresses: [row.addr]

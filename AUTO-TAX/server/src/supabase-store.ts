@@ -3,6 +3,8 @@ import type {
   AppSettings,
   CompletedBillingMonth,
   Customer,
+  CustomerCertificate,
+  CustomerCertificateInput,
   CustomerImportProfile,
   CustomerInput,
   DashboardPayload,
@@ -114,6 +116,10 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     operatorContactName: asString(integrationRow.operator_contact_name),
     operatorContactEmail: asString(integrationRow.operator_contact_email),
     operatorContactTel: asString(integrationRow.operator_contact_tel),
+    renewalContactDepartment: asString(integrationRow.renewal_contact_department),
+    renewalContactFax: asString(integrationRow.renewal_contact_fax),
+    renewalCertificatePassword: decryptSecret(asString(integrationRow.renewal_certificate_password_encrypted)),
+    renewalIssuePassword: decryptSecret(asString(integrationRow.renewal_issue_password_encrypted)),
     schedulerEnabled: asBoolean(settingsRow.scheduler_enabled, true),
     certLastCheckedAt: asNullableString(settingsRow.cert_last_checked_at),
     certAlertLastSentAt: asNullableString(settingsRow.cert_alert_last_sent_at),
@@ -198,6 +204,56 @@ function isMissingMailSyncCheckpointsTableError(error: unknown): boolean {
   );
 }
 
+function isManagedCustomerRenewalContactMobileColumnMissingError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? asString((error as { code?: unknown }).code) : "";
+  const message = "message" in error ? asString((error as { message?: unknown }).message).toLowerCase() : "";
+
+  return (
+    code === "42703" ||
+    code === "PGRST204" ||
+    (message.includes("managed_customers") &&
+      message.includes("renewal_contact_mobile") &&
+      (message.includes("schema cache") || message.includes("does not exist") || message.includes("column")))
+  );
+}
+
+function isMissingCustomerCertificatesTableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? asString((error as { code?: unknown }).code) : "";
+  const message = "message" in error ? asString((error as { message?: unknown }).message).toLowerCase() : "";
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    (message.includes("customer_certificates") &&
+      (message.includes("schema cache") || message.includes("does not exist") || message.includes("relation")))
+  );
+}
+
+function isCustomerCertificatesPasswordColumnMissingError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? asString((error as { code?: unknown }).code) : "";
+  const message = "message" in error ? asString((error as { message?: unknown }).message).toLowerCase() : "";
+
+  return (
+    code === "42703" ||
+    code === "PGRST204" ||
+    (message.includes("customer_certificates") &&
+      message.includes("certificate_password_encrypted") &&
+      (message.includes("schema cache") || message.includes("does not exist") || message.includes("column")))
+  );
+}
+
 function mapCustomer(row: Row, plantNames: string[], matchAddresses: string[]): Customer {
   const customerName = asString(row.customer_name);
   return {
@@ -218,9 +274,31 @@ function mapCustomer(row: Row, plantNames: string[], matchAddresses: string[]): 
     issueDay: row.issue_day === null ? null : asNumber(row.issue_day),
     issueHour: row.issue_hour === null ? null : asNumber(row.issue_hour),
     issueMinute: row.issue_minute === null ? null : asNumber(row.issue_minute),
+    renewalContactMobile: asString(row.renewal_contact_mobile),
     memo: asString(row.memo),
     plantNames,
     matchAddresses,
+    createdAt: asString(row.created_at, nowIso()),
+    updatedAt: asString(row.updated_at, nowIso())
+  };
+}
+
+function mapCustomerCertificate(row: Row): CustomerCertificate {
+  return {
+    id: asNumber(row.legacy_id),
+    customerId: asNumber(row.managed_customer_legacy_id),
+    certificateKind: asString(row.certificate_kind, "unknown") as CustomerCertificate["certificateKind"],
+    certificateName: asString(row.certificate_name),
+    certificateUsageName: asString(row.certificate_usage_name),
+    issuerName: asString(row.issuer_name),
+    serial: asNullableString(row.certificate_serial),
+    userDN: asNullableString(row.certificate_user_dn),
+    oid: asNullableString(row.certificate_oid),
+    expireDate: asNullableString(row.expire_date),
+    certDirPath: asNullableString(row.cert_dir_path),
+    certificatePasswordConfigured: Boolean(asString(row.certificate_password_encrypted)),
+    isPrimary: asBoolean(row.is_primary, false),
+    linkSource: asString(row.link_source, "manual") as CustomerCertificate["linkSource"],
     createdAt: asString(row.created_at, nowIso()),
     updatedAt: asString(row.updated_at, nowIso())
   };
@@ -466,6 +544,27 @@ export class SupabaseStore implements AppStore {
     return (data as Row | null) ?? null;
   }
 
+  private async getCustomerCertificateRowByLegacyId(certificateId: number): Promise<Row | null> {
+    await this.initialize();
+    try {
+      const data = await assertNoError(
+        "공동인증서 연결 조회 실패",
+        this.client
+          .from("customer_certificates")
+          .select("*")
+          .eq("organization_id", this.requireOrganizationId())
+          .eq("legacy_id", certificateId)
+          .maybeSingle()
+      );
+      return (data as Row | null) ?? null;
+    } catch (error) {
+      if (isMissingCustomerCertificatesTableError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   private async getInboxRowByLegacyId(messageId: number): Promise<Row | null> {
     await this.initialize();
     const data = await assertNoError(
@@ -572,6 +671,14 @@ export class SupabaseStore implements AppStore {
       managed_customer_legacy_id: customerLegacyId,
       source_message_legacy_id: sourceMessageLegacyId,
       customer_name: customerName
+    });
+  }
+
+  private async buildCustomerCertificatePayload(row: Row): Promise<CustomerCertificate> {
+    const customerLegacyId = await this.lookupLegacyId("managed_customers", asString(row.managed_customer_id));
+    return mapCustomerCertificate({
+      ...row,
+      managed_customer_legacy_id: customerLegacyId
     });
   }
 
@@ -742,6 +849,14 @@ export class SupabaseStore implements AppStore {
       input.popbillSharedPassword !== undefined
         ? (input.popbillSharedPassword.trim() === "" ? current.popbillSharedPassword : input.popbillSharedPassword)
         : current.popbillSharedPassword;
+    const nextRenewalIssuePassword =
+      input.renewalIssuePassword !== undefined
+        ? (input.renewalIssuePassword.trim() === "" ? current.renewalIssuePassword : input.renewalIssuePassword)
+        : current.renewalIssuePassword;
+    const nextRenewalCertificatePassword =
+      input.renewalCertificatePassword !== undefined
+        ? (input.renewalCertificatePassword.trim() === "" ? current.renewalCertificatePassword : input.renewalCertificatePassword)
+        : current.renewalCertificatePassword;
     const next: AppSettings = {
       ...current,
       ...input,
@@ -749,6 +864,8 @@ export class SupabaseStore implements AppStore {
       smtpPass: nextSmtpPass,
       popbillUserIdPrefix: nextPopbillUserIdPrefix,
       popbillSharedPassword: nextPopbillSharedPassword,
+      renewalCertificatePassword: nextRenewalCertificatePassword,
+      renewalIssuePassword: nextRenewalIssuePassword,
       notificationEmails: input.notificationEmails ?? current.notificationEmails,
       updatedAt: nowIso()
     };
@@ -802,7 +919,11 @@ export class SupabaseStore implements AppStore {
           popbill_shared_password_encrypted: encryptSecret(next.popbillSharedPassword),
           operator_contact_name: next.operatorContactName,
           operator_contact_email: next.operatorContactEmail,
-          operator_contact_tel: next.operatorContactTel
+          operator_contact_tel: next.operatorContactTel,
+          renewal_contact_department: next.renewalContactDepartment,
+          renewal_contact_fax: next.renewalContactFax,
+          renewal_certificate_password_encrypted: encryptSecret(next.renewalCertificatePassword),
+          renewal_issue_password_encrypted: encryptSecret(next.renewalIssuePassword)
         },
         { onConflict: "organization_id" }
       )
@@ -827,6 +948,39 @@ export class SupabaseStore implements AppStore {
       const relations = relationMap.get(asString(row.id)) ?? { plantNames: [], matchAddresses: [] };
       return mapCustomer(row, relations.plantNames, relations.matchAddresses);
     });
+  }
+
+  async listCustomerCertificates(): Promise<CustomerCertificate[]> {
+    await this.initialize();
+    let rows: unknown;
+    try {
+      rows = await assertNoError(
+        "공동인증서 연결 목록 조회 실패",
+        this.client
+          .from("customer_certificates")
+          .select("*")
+          .eq("organization_id", this.requireOrganizationId())
+          .order("is_primary", { ascending: false })
+          .order("certificate_kind", { ascending: true })
+          .order("created_at", { ascending: true })
+      );
+    } catch (error) {
+      if (isMissingCustomerCertificatesTableError(error)) {
+        return [];
+      }
+      throw error;
+    }
+
+    return await Promise.all(((rows as Row[]) ?? []).map((row) => this.buildCustomerCertificatePayload(row)));
+  }
+
+  async getCustomerCertificatePassword(certificateId: number): Promise<string> {
+    const row = await this.getCustomerCertificateRowByLegacyId(certificateId);
+    if (!row) {
+      throw new Error("공동인증서 연결을 찾지 못했습니다.");
+    }
+
+    return decryptSecret(asString(row.certificate_password_encrypted));
   }
 
   async getCustomer(customerId: number): Promise<Customer | null> {
@@ -926,31 +1080,50 @@ export class SupabaseStore implements AppStore {
       const popbillUserId = asString(current.popbill_user_id) || buildPopbillUserId(idPrefix, customerId);
       const popbillPassword = decryptSecret(asString(current.popbill_password_encrypted)) || sharedPassword;
 
-      persistedRow = await assertNoError(
-        "고객 수정 실패",
-        this.client
-          .from("managed_customers")
-          .update({
-            customer_name: input.customerName,
-            business_number: normalizedBusinessNumber,
-            corp_name: input.corpName,
-            ceo_name: input.customerName,
-            addr: roadAddress,
-            biz_type: input.bizType,
-            biz_class: input.bizClass,
-            popbill_user_id: popbillUserId,
-            popbill_password_encrypted: encryptSecret(popbillPassword),
-            issue_mode: input.issueMode,
-            issue_day: input.issueDay,
-            issue_hour: input.issueHour,
-            issue_minute: input.issueMinute,
-            memo: input.memo,
-            updated_at: timestamp
-          })
-          .eq("id", asString(current.id))
-          .select("*")
-          .single()
-      ) as Row;
+      const updatePayload = {
+        customer_name: input.customerName,
+        business_number: normalizedBusinessNumber,
+        corp_name: input.corpName,
+        ceo_name: input.customerName,
+        addr: roadAddress,
+        biz_type: input.bizType,
+        biz_class: input.bizClass,
+        popbill_user_id: popbillUserId,
+        popbill_password_encrypted: encryptSecret(popbillPassword),
+        issue_mode: input.issueMode,
+        issue_day: input.issueDay,
+        issue_hour: input.issueHour,
+        issue_minute: input.issueMinute,
+        renewal_contact_mobile: input.renewalContactMobile,
+        memo: input.memo,
+        updated_at: timestamp
+      };
+
+      const { data: updatedCustomerData, error: updatedCustomerError } = await this.client
+        .from("managed_customers")
+        .update(updatePayload)
+        .eq("id", asString(current.id))
+        .select("*")
+        .single();
+
+      if (updatedCustomerError) {
+        if (!isManagedCustomerRenewalContactMobileColumnMissingError(updatedCustomerError)) {
+          throw new Error(`고객 수정 실패: ${updatedCustomerError.message}`);
+        }
+
+        const { renewal_contact_mobile: _ignoredRenewalContactMobile, ...fallbackUpdatePayload } = updatePayload;
+        persistedRow = await assertNoError(
+          "고객 수정 실패",
+          this.client
+            .from("managed_customers")
+            .update(fallbackUpdatePayload)
+            .eq("id", asString(current.id))
+            .select("*")
+            .single()
+        ) as Row;
+      } else {
+        persistedRow = updatedCustomerData as Row;
+      }
 
       await assertNoError(
         "기존 발전소명 삭제 실패",
@@ -976,28 +1149,47 @@ export class SupabaseStore implements AppStore {
         throw new Error(`관리 고객 등록 한도(${managedCustomerLimit}명)를 초과했습니다. 플랫폼 관리자에게 한도 상향을 요청하세요.`);
       }
 
-      const createdRow = await assertNoError(
-        "고객 생성 실패",
-        this.client
-          .from("managed_customers")
-          .insert({
-            organization_id: organizationId,
-            customer_name: input.customerName,
-            business_number: normalizedBusinessNumber,
-            corp_name: input.corpName,
-            ceo_name: input.customerName,
-            addr: roadAddress,
-            biz_type: input.bizType,
-            biz_class: input.bizClass,
-            issue_mode: input.issueMode,
-            issue_day: input.issueDay,
-            issue_hour: input.issueHour,
-            issue_minute: input.issueMinute,
-            memo: input.memo
-          })
-          .select("*")
-          .single()
-      );
+      const insertPayload = {
+        organization_id: organizationId,
+        customer_name: input.customerName,
+        business_number: normalizedBusinessNumber,
+        corp_name: input.corpName,
+        ceo_name: input.customerName,
+        addr: roadAddress,
+        biz_type: input.bizType,
+        biz_class: input.bizClass,
+        issue_mode: input.issueMode,
+        issue_day: input.issueDay,
+        issue_hour: input.issueHour,
+        issue_minute: input.issueMinute,
+        renewal_contact_mobile: input.renewalContactMobile,
+        memo: input.memo
+      };
+
+      const { data: insertedCustomerData, error: insertedCustomerError } = await this.client
+        .from("managed_customers")
+        .insert(insertPayload)
+        .select("*")
+        .single();
+
+      let createdRow: unknown;
+      if (insertedCustomerError) {
+        if (!isManagedCustomerRenewalContactMobileColumnMissingError(insertedCustomerError)) {
+          throw new Error(`고객 생성 실패: ${insertedCustomerError.message}`);
+        }
+
+        const { renewal_contact_mobile: _ignoredRenewalContactMobile, ...fallbackInsertPayload } = insertPayload;
+        createdRow = await assertNoError(
+          "고객 생성 실패",
+          this.client
+            .from("managed_customers")
+            .insert(fallbackInsertPayload)
+            .select("*")
+            .single()
+        );
+      } else {
+        createdRow = insertedCustomerData;
+      }
 
       const created = createdRow as Row;
       const legacyId = asNumber(created.legacy_id);
@@ -1033,6 +1225,202 @@ export class SupabaseStore implements AppStore {
     const customer = await this.getCustomer(asNumber(persistedRow.legacy_id));
     if (!customer) {
       throw new Error("고객 저장 결과를 다시 읽지 못했습니다.");
+    }
+    return customer;
+  }
+
+  async upsertCustomerCertificate(input: CustomerCertificateInput): Promise<CustomerCertificate> {
+    await this.initialize();
+    const customerRow = await this.getManagedCustomerRowByLegacyId(input.customerId);
+    if (!customerRow) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const organizationId = this.requireOrganizationId();
+    const managedCustomerId = asString(customerRow.id);
+    const serial = asNullableString(input.serial?.trim() ?? null);
+    const userDN = asNullableString(input.userDN?.trim() ?? null);
+    const certificateName = input.certificateName.trim();
+    const certificateUsageName = input.certificateUsageName.trim();
+
+    let existingRow: Row | null = null;
+    try {
+      if (serial) {
+        const existingBySerial = await assertNoError(
+          "공동인증서 연결 조회 실패",
+          this.client
+            .from("customer_certificates")
+            .select("*")
+            .eq("organization_id", organizationId)
+            .eq("certificate_serial", serial)
+            .order("created_at", { ascending: false })
+            .limit(1)
+        );
+        existingRow = (existingBySerial as Row[])[0] ?? null;
+      } else if (userDN) {
+        const existingByUserDn = await assertNoError(
+          "공동인증서 연결 조회 실패",
+          this.client
+            .from("customer_certificates")
+            .select("*")
+            .eq("organization_id", organizationId)
+            .eq("certificate_user_dn", userDN)
+            .order("created_at", { ascending: false })
+            .limit(1)
+        );
+        existingRow = (existingByUserDn as Row[])[0] ?? null;
+      } else {
+        const existingByName = await assertNoError(
+          "공동인증서 연결 조회 실패",
+          this.client
+            .from("customer_certificates")
+            .select("*")
+            .eq("organization_id", organizationId)
+            .eq("managed_customer_id", managedCustomerId)
+            .eq("certificate_kind", input.certificateKind)
+            .eq("certificate_name", certificateName)
+            .order("created_at", { ascending: false })
+            .limit(1)
+        );
+        existingRow = (existingByName as Row[])[0] ?? null;
+      }
+    } catch (error) {
+      if (isMissingCustomerCertificatesTableError(error)) {
+        throw new Error("공동인증서 연결 테이블이 아직 준비되지 않았습니다.");
+      }
+      throw error;
+    }
+
+    const nextCertificatePassword =
+      input.certificatePassword !== undefined
+        ? (input.certificatePassword.trim() === ""
+            ? decryptSecret(asString(existingRow?.certificate_password_encrypted))
+            : input.certificatePassword.trim())
+        : decryptSecret(asString(existingRow?.certificate_password_encrypted));
+
+    const payload = {
+      organization_id: organizationId,
+      managed_customer_id: managedCustomerId,
+      certificate_kind: input.certificateKind,
+      certificate_name: certificateName,
+      certificate_usage_name: certificateUsageName,
+      issuer_name: input.issuerName.trim(),
+      certificate_serial: serial,
+      certificate_user_dn: userDN,
+      certificate_oid: asNullableString(input.oid?.trim() ?? null),
+      expire_date: asNullableString(input.expireDate?.trim() ?? null),
+      cert_dir_path: asNullableString(input.certDirPath?.trim() ?? null),
+      certificate_password_encrypted: encryptSecret(nextCertificatePassword),
+      is_primary: input.isPrimary,
+      link_source: input.linkSource,
+      updated_at: nowIso()
+    };
+
+    let persistedRow: Row;
+    if (existingRow) {
+      const { data: updatedCertificateData, error: updatedCertificateError } = await this.client
+        .from("customer_certificates")
+        .update(payload)
+        .eq("id", asString(existingRow.id))
+        .select("*")
+        .single();
+
+      if (updatedCertificateError) {
+        if (!isCustomerCertificatesPasswordColumnMissingError(updatedCertificateError)) {
+          throw new Error(`공동인증서 연결 저장 실패: ${updatedCertificateError.message}`);
+        }
+
+        const { certificate_password_encrypted: _ignoredCertificatePassword, ...fallbackUpdatePayload } = payload;
+        persistedRow = await assertNoError(
+          "공동인증서 연결 저장 실패",
+          this.client
+            .from("customer_certificates")
+            .update(fallbackUpdatePayload)
+            .eq("id", asString(existingRow.id))
+            .select("*")
+            .single()
+        ) as Row;
+      } else {
+        persistedRow = updatedCertificateData as Row;
+      }
+    } else {
+      const { data: insertedCertificateData, error: insertedCertificateError } = await this.client
+        .from("customer_certificates")
+        .insert(payload)
+        .select("*")
+        .single();
+
+      if (insertedCertificateError) {
+        if (!isCustomerCertificatesPasswordColumnMissingError(insertedCertificateError)) {
+          throw new Error(`공동인증서 연결 저장 실패: ${insertedCertificateError.message}`);
+        }
+
+        const { certificate_password_encrypted: _ignoredCertificatePassword, ...fallbackInsertPayload } = payload;
+        persistedRow = await assertNoError(
+          "공동인증서 연결 저장 실패",
+          this.client
+            .from("customer_certificates")
+            .insert(fallbackInsertPayload)
+            .select("*")
+            .single()
+        ) as Row;
+      } else {
+        persistedRow = insertedCertificateData as Row;
+      }
+    }
+
+    if (input.isPrimary) {
+      await assertNoError(
+        "기본 공동인증서 상태 갱신 실패",
+        this.client
+          .from("customer_certificates")
+          .update({
+            is_primary: false,
+            updated_at: nowIso()
+          })
+          .eq("organization_id", organizationId)
+          .eq("managed_customer_id", managedCustomerId)
+          .eq("certificate_kind", input.certificateKind)
+          .neq("id", asString(persistedRow.id))
+      );
+    }
+
+    return this.buildCustomerCertificatePayload(persistedRow);
+  }
+
+  async deleteCustomerCertificate(certificateId: number): Promise<void> {
+    const row = await this.getCustomerCertificateRowByLegacyId(certificateId);
+    if (!row) {
+      return;
+    }
+
+    await assertNoError(
+      "공동인증서 연결 삭제 실패",
+      this.client.from("customer_certificates").delete().eq("id", asString(row.id))
+    );
+  }
+
+  async updateCustomerTaxProfile(customerId: number, bizType: string, bizClass: string): Promise<Customer> {
+    const current = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!current) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    await assertNoError(
+      "고객 업태/업종 저장 실패",
+      this.client
+        .from("managed_customers")
+        .update({
+          biz_type: bizType.trim(),
+          biz_class: bizClass.trim(),
+          updated_at: nowIso()
+        })
+        .eq("id", asString(current.id))
+    );
+
+    const customer = await this.getCustomer(customerId);
+    if (!customer) {
+      throw new Error("고객 업태/업종 저장 결과를 다시 읽지 못했습니다.");
     }
     return customer;
   }
@@ -1601,9 +1989,10 @@ export class SupabaseStore implements AppStore {
   }
 
   async getDashboard(): Promise<Omit<DashboardPayload, "renewalAutomation">> {
-    const [settings, customers, drafts, inbox, logs] = await Promise.all([
+    const [settings, customers, customerCertificates, drafts, inbox, logs] = await Promise.all([
       this.getSettings(),
       this.listCustomers(),
+      this.listCustomerCertificates(),
       this.listDrafts(),
       this.listInbox(),
       this.listLogs()
@@ -1612,6 +2001,7 @@ export class SupabaseStore implements AppStore {
     return {
       settings,
       customers,
+      customerCertificates,
       drafts,
       inbox,
       logs,
