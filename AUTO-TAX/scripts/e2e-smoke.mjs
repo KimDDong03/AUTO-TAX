@@ -160,6 +160,7 @@ try {
 
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
+  const navButton = (label) => page.locator(".nav-list .nav-button").filter({ hasText: label });
 
   page.on("console", (msg) => {
     if (msg.type() === "error") {
@@ -196,12 +197,12 @@ try {
       page.waitForResponse((response) => response.url().endsWith("/api/bootstrap") && response.status() === 200),
       loginCard.getByRole("button", { name: "로그인" }).click()
     ]);
-    await page.getByRole("button", { name: "오늘 작업" }).waitFor();
+    await navButton("오늘 작업").waitFor();
   });
 
-  await recordStep("create customer with enter submit", async () => {
-    await page.getByRole("button", { name: "고객관리" }).click();
-    await page.getByRole("button", { name: "새 고객" }).click();
+  await recordStep("create customer and show readiness checklist", async () => {
+    await navButton("고객 운영").click();
+    await page.locator(".panel-customer-list").getByRole("button", { name: "새 고객", exact: true }).click();
     const editor = page.locator(".panel-customer-editor");
     await editor.getByLabel("대표자명").fill(`E2E 대표 ${suffix}`);
     await editor.getByLabel("주소").fill("서울특별시 강남구 테헤란로 123");
@@ -209,46 +210,42 @@ try {
     await editor.getByLabel("세금계산서 상호").fill(`E2E 상호 ${suffix}`);
     await editor.getByLabel("업태").fill("서비스업");
     await editor.getByLabel("업종").fill("소프트웨어 개발");
-    await Promise.all([
-      page.locator(".customer-summary").filter({ hasText: `E2E 상호 ${suffix}` }).first().waitFor(),
-      editor.getByLabel("업종").press("Enter")
-    ]);
+    await editor.getByLabel("휴대폰 번호").fill("01012345678");
+    await Promise.all([page.locator(".customer-detail-top").waitFor(), editor.getByRole("button", { name: "고객 등록", exact: true }).click()]);
+    await page.locator(".customer-issue-list").waitFor();
   });
 
-  await recordStep("initial registration csv preview and import", async () => {
-    await page.getByRole("button", { name: "초기 등록" }).click();
-    const importPanel = page.locator(".panel-initial-import");
-    const csv = [
-      "대표자명,사업자번호,세금계산서 상호,주소",
-      `CSV대표${suffix},2233${suffix.slice(-6)},CSV상호${suffix},부산광역시 해운대구 센텀중앙로 97`
-    ].join("\n");
-    await importPanel.locator('input[type="file"]').setInputFiles({
-      name: `customers-${suffix}.csv`,
-      mimeType: "text/csv",
-      buffer: Buffer.from(csv, "utf8")
-    });
-    await importPanel.getByRole("button", { name: "미리보기" }).click();
-    await page.getByText("가져오기 가능 1건").waitFor();
-    await importPanel.getByRole("button", { name: "가져오기 실행" }).click();
-    await page.getByText(/가져오기 완료 · 성공 1건/).waitFor();
+  await recordStep("onboarding registration block renders", async () => {
+    await navButton("도입 준비").click();
+    await page.locator(".panel-initial-onboarding").waitFor();
+    await page.getByRole("button", { name: "양식 업로드", exact: true }).waitFor();
   });
 
-  await recordStep("imported customer visible in customer list", async () => {
-    await page.getByRole("button", { name: "고객관리" }).click();
-    await page.locator(".customer-summary").filter({ hasText: `CSV상호${suffix}` }).first().waitFor();
+  await recordStep("created customer visible after tab round-trip", async () => {
+    await navButton("고객 운영").click();
+    await page.locator(".customer-summary").filter({ hasText: `E2E 상호 ${suffix}` }).first().waitFor();
   });
 
   await recordStep("settings member management flow", async () => {
-    await page.getByRole("button", { name: "시스템설정" }).click();
-    await page.getByRole("button", { name: "계정 보안" }).click();
+    await navButton("작업공간 설정").click();
+    await page.locator(".settings-step-card").filter({ hasText: "계정 보안" }).click();
     const settingsDetail = page.locator(".settings-detail");
     await settingsDetail.getByRole("textbox", { name: "로그인 아이디", exact: true }).fill(`member${suffix}`);
     await settingsDetail.getByRole("textbox", { name: "이름", exact: true }).fill(`멤버 ${suffix}`);
     await settingsDetail.getByPlaceholder("기존 계정이면 비워두고, 새 계정이면 8자 이상 입력").fill(`Temp!${suffix}`);
     await settingsDetail.getByRole("button", { name: "사용자 추가" }).click();
     const dialog = page.locator('[role="dialog"], [role="alertdialog"]');
+    await dialog.getByText("사용자 추가 완료", { exact: true }).waitFor();
     await dialog.getByRole("button", { name: "확인" }).click();
     await settingsDetail.locator(".workspace-member-card").filter({ hasText: `member${suffix}` }).first().waitFor();
+  });
+
+  await recordStep("certificates action-needed view renders", async () => {
+    await navButton("인증서 관리").click();
+    await page.getByText("조치가 필요한 고객과 미연결 인증서를 먼저 확인하고, 연결된 인증서의 갱신과 결제를 진행합니다.", {
+      exact: true
+    }).waitFor();
+    await page.getByText(/조치 필요 고객 \d+명/).waitFor();
   });
 
   await recordStep("logout returns to public page", async () => {
