@@ -1,161 +1,208 @@
-# AUTO-TAX Operations Guide
+# AUTO-TAX Operations Runbook
 
-## 1. 최초 실행
+This file is for development and deployment work, not end-user operations.
 
-1. `.env` 값을 채운다.
-2. `npm install`
-3. `npm run dev`
-4. 브라우저에서 `http://localhost:5173` 접속
+## 1. Required Environment
 
-## 2. 시스템 설정 확인
+### Browser/runtime
 
-설정 화면에서 아래를 확인한다.
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY`
 
-- Gmail IMAP 계정
-- Gmail 앱 비밀번호
-- SMTP 계정
-- SMTP 앱 비밀번호
-- 운영자 알림 메일
-- 운영 담당자명 / 이메일 / 연락처
-- 기본 발행일 / 시각
-- 팝빌 LinkID / SecretKey
-- 팝빌 ID 접두어
-- 팝빌 공통 비밀번호
-- 테스트 모드 여부
+### Server
 
-주의:
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `AUTO_TAX_OPS_EMAILS`
+- `AUTO_TAX_SUPPORT_APP_PASSWORD`
+- `AUTO_TAX_POPBILL_LINK_ID`
+- `AUTO_TAX_POPBILL_SECRET_KEY`
+- `AUTO_TAX_POPBILL_IS_TEST`
 
-- 팝빌 공통 비밀번호는 신규 고객용 기준값이다.
-- 이미 가입된 기존 고객의 실제 팝빌 비밀번호를 자동 변경하지는 않는다.
+### Internal jobs / Edge Function
 
-권장 기본값:
+- `AUTO_TAX_SERVER_URL`
+- `AUTO_TAX_JOB_SECRET`
 
-- 기본 발행일: `25`
-- 기본 발행 시: `14`
-- 기본 발행 분: `0`
-- 메일 폴링 주기: `5`
-- 시간대: `Asia/Seoul`
+### Optional / situational
 
-## 3. 일상 운영 순서
+- `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`
+- `SUPABASE_DB_PASSWORD`
+- `AUTO_TAX_RENEWAL_AGENT_*`
 
-### 매월 초 또는 신규 고객 등록 시
+## 2. Local Development
 
-1. 고객 등록
-2. 발전소명 등록
-3. 자동 생성된 팝빌 ID 확인
-4. 팝빌 가입
-4. 인증서 등록
-5. 인증 상태 확인
+### Run app
 
-### 메일 수집 확인
+```bash
+npm install
+npm run dev
+```
 
-1. `메일 즉시 동기화` 버튼 실행
-2. 최근 수신 메일 목록 확인
-3. 고객 매칭 실패가 없는지 확인
-4. 검수 대기건 생성 여부 확인
+### Typecheck and tests
 
-### 발행 확인
+```bash
+npm run check
+npm run test:server
+npm run test:e2e:smoke
+```
 
-- 검수 모드 고객은 `지금 발행` 버튼으로 발행
-- 자동 발행 고객은 작업공간에서 정한 월 자동 실행일의 메일 동기화 이후 자동으로 발행되고, 실패 시 로그와 알림 메일을 확인
-- 사용자가 월 중간에 직접 처리하고 싶으면 `메일 동기화`와 `전체 발행`을 수동으로 실행
-- 월 자동 처리에서 실패한 작업은 시스템이 몇 차례 자동 재시도한 뒤 최종 실패로 남긴다.
+### Vercel-local path
 
-## 4. 장애 대응
+```bash
+npm run dev:vercel
+```
 
-### 메일 수집 실패
+## 3. Local Certificate Helper
 
-가능한 원인:
+### Helper commands
 
-- Gmail 앱 비밀번호 오류
-- Gmail 계정 잠금 또는 보안 경고
-- IMAP 계정 입력 오타
-- 네트워크 문제
+```bash
+npm run renewal-helper:install
+npm run renewal-helper:start
+npm run renewal-helper:status
+npm run renewal-helper:stop
+npm run renewal-helper:uninstall
+```
 
-확인 순서:
+### Renewal agent
 
-1. `.env` 또는 설정 화면 값 확인
-2. Gmail 계정 로그인 가능 여부 확인
-3. 앱 비밀번호 재발급 후 재입력
-4. `메일 즉시 동기화` 재시도
+```bash
+npm run renewal-agent:dev
+```
 
-### 고객 매칭 실패
+Useful env:
 
-원인:
+- `AUTO_TAX_SERVER_URL`
+- `AUTO_TAX_RENEWAL_AGENT_ID`
+- `AUTO_TAX_RENEWAL_AGENT_INTERVAL_MS`
+- `AUTO_TAX_RENEWAL_AGENT_CERT_PASSWORD`
+- `AUTO_TAX_RENEWAL_AGENT_CERT_PASSWORD_FILE`
 
-- 메일의 발전소명과 고객 발전소명이 정확히 다름
+See `docs/CERTIFICATE_RENEWAL_POC.md` for the renewal-specific runtime model.
 
-조치:
+## 4. Database and Migrations
 
-1. 메일에서 실제 발전소명 확인
-2. 고객 정보의 발전소명 별칭 추가
-3. 다시 메일 동기화
+### Local/remote migration push
 
-### 팝빌 발행 실패
+```bash
+npx supabase db push --workdir .
+```
 
-가능한 원인:
+### Schema review
 
-- LinkID / SecretKey 오류
-- 고객 팝빌 가입 미완료
-- 인증서 미등록 또는 만료
-- 시스템설정의 팝빌 공통 비밀번호 또는 자동 생성 ID 규칙 불일치
+- inspect `supabase/migrations/`
+- inspect `docs/SUPABASE_SCHEMA_PLAN.md`
+- inspect `server/src/supabase-store.ts`
 
-조치:
+## 5. Vercel Build/Serve Shape
 
-1. 고객 팝빌 가입 상태 확인
-2. 인증 상태 확인
-3. 인증서 만료일 확인
-4. 시스템설정의 팝빌 ID 접두어 / 공통 비밀번호와 고객 카드의 자동 생성 ID 재검토
-5. 검수 화면에서 재발행
+- Vercel server entry: `api/index.ts`
+- static output directory: `public/`
+- local Node server entry: `server/src/main.ts`
 
-## 5. 운영 체크리스트
+Build commands:
 
-### 매월 20일 이전
+```bash
+npm run build
+npm run build:vercel
+```
 
-- 고객 신규 등록 여부 확인
-- 팝빌 인증서 만료 예정 고객 확인
+## 6. Cron / Internal Jobs
 
-### 매월 25일 전후
+### Business queue flow
 
-- 한전 메일 수집 확인
-- 검수 대기건 확인
-- 자동발행 설정 고객 확인
+1. Supabase cron hits Edge Function `job-tick`
+2. Edge Function calls Vercel API using `AUTO_TAX_JOB_SECRET`
+3. Vercel endpoints:
+   - `POST /api/internal/jobs/dispatch`
+   - `POST /api/internal/jobs/run`
+4. Work is persisted in `job_queue`
 
-### 매월 28일 전후
+### Edge Function deployment assumptions
 
-- 발행 실패건이 남아 있지 않은지 확인
-- 운영자 로그 확인
+- function name: `job-tick`
+- deploy with `--no-verify-jwt`
+- validate `x-auto-tax-job-secret` inside the function
 
-## 6. 데이터 보관
+### Minimum remote secrets
 
-중요 항목:
+- `AUTO_TAX_SERVER_URL`
+- `AUTO_TAX_JOB_SECRET`
 
-- Supabase 프로젝트 데이터
+## 7. Health and Smoke Checks
+
+### Basic health
+
+- `GET /api/health`
+
+Expected:
+
+```json
+{ "ok": true }
+```
+
+### Manual smoke checklist
+
+1. landing page renders
+2. public login works
+3. bootstrap loads with active workspace
+4. customer create/edit works
+5. mail sync endpoint responds
+6. draft list loads
+7. internal jobs can dispatch/run from ops UI
+
+### Scripted smoke
+
+```bash
+npm run test:e2e:smoke
+```
+
+## 8. File Hygiene
+
+Disposable generated output:
+
+- `dist/`
+- `public/`
+- `tmp/`
+- `supabase/.temp/`
+- `supabase/supabase/.temp/`
+- `tmp-*.log`
+- `.tmp-*.cjs`
+
+Treat with caution:
+
 - `.env`
+- `data/`
+- `node_modules/`
 
-권장:
+`data/` may contain local state worth keeping even if the current product is Supabase-first.
 
-- Supabase 대시보드의 백업 정책 확인
-- `.env`는 암호화 보관
+## 9. Debugging Shortcuts
 
-## 7. 보안 주의사항
+When auth/session looks wrong:
 
-- Gmail 앱 비밀번호는 외부 공유 금지
-- 팝빌 SecretKey는 운영자 외 접근 금지
-- `.env`는 git에 올리지 않음
-- 인증서 파일 원본은 별도 안전 보관
+- inspect `server/src/api-access.ts`
+- inspect `web/src/api.ts`
+- inspect `web/src/supabase.ts`
 
-## 8. 로그 확인 포인트
+When mail sync looks wrong:
 
-로그 화면 또는 `logs` 테이블에서 확인할 것:
+- inspect `server/src/mail-sync.ts`
+- inspect `server/src/mail-reprocess.ts`
+- inspect `server/src/parser.ts`
+- inspect `mail_sync_checkpoints`
 
-- `server`
-- `mail-sync`
-- `scheduler`
-- `popbill`
-- `api`
+When auto-issue / recurring jobs look wrong:
 
-우선순위 높은 로그:
+- inspect `server/src/job-queue.ts`
+- inspect `/api/internal/jobs/dispatch`
+- inspect `/api/internal/jobs/run`
+- inspect `job_queue`
 
-- `error`
-- `warn`
+When local renewal flow looks wrong:
+
+- inspect `server/src/routes/renewal-routes.ts`
+- inspect `server/src/renewal-automation.ts`
+- inspect `renewal_agent_heartbeats`
+- inspect `renewal_automation_jobs`

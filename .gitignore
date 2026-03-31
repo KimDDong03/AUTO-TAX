@@ -6,3 +6,6 @@ data
 *.log
 release
 .tmp-*.cjs
+tmp
+supabase/.temp
+supabase/supabase/.temp

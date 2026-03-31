@@ -97,9 +97,9 @@ export function CertificatesTab(props: CertificatesTabProps) {
   const [selectedManagedCustomerIds, setSelectedManagedCustomerIds] = useState<Record<number, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [customerFilter, setCustomerFilter] = useState<
-    "all" | "prepare_needed" | "payment_ready" | "expiring_30" | "missing_general" | "missing_electronic"
-  >("all");
-  const [showUnlinkedCertificates, setShowUnlinkedCertificates] = useState(false);
+    "action_needed" | "all" | "prepare_needed" | "payment_ready" | "expiring_30" | "missing_general" | "missing_electronic"
+  >("action_needed");
+  const [showUnlinkedCertificates, setShowUnlinkedCertificates] = useState(true);
   const [queueNotice, setQueueNotice] = useState("");
   const [batchPrepareState, setBatchPrepareState] = useState<{
     active: boolean;
@@ -251,6 +251,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
     }
 
     switch (customerFilter) {
+      case "action_needed":
+        return row.hasPaymentReady || row.hasPrepareNeeded || row.hasExpiringSoon || !row.hasGeneral || !row.hasElectronicTax;
       case "prepare_needed":
         return row.hasPrepareNeeded;
       case "payment_ready":
@@ -269,6 +271,9 @@ export function CertificatesTab(props: CertificatesTabProps) {
   const filteredUnlinkedCertificates = unlinkedCertificates.filter((item) =>
     matchesSearch(item.certificateCn, item.issuerName, item.suggestedCustomerLabel, item.certificateUsage)
   );
+  const actionNeededCustomerCount = linkedCustomerRows.filter(
+    (row) => row.hasPaymentReady || row.hasPrepareNeeded || row.hasExpiringSoon || !row.hasGeneral || !row.hasElectronicTax
+  ).length;
   const filteredUnlinkedSuggestedCount = filteredUnlinkedCertificates.filter((item) => Boolean(item.suggestedCustomerLabel)).length;
   const selectedManagedRows = filteredLinkedCustomerRows.filter((row) => selectedManagedCustomerIds[row.customer.id]);
   const selectedManagedCertificates = selectedManagedRows.flatMap((row) => [
@@ -512,7 +517,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
       <Panel
         className="panel-customer-renewal"
         title="공동인증서"
-        subtitle="이 PC의 공동인증서를 읽어서 고객과 연결하고, 연결된 인증서의 갱신과 결제를 진행합니다."
+        subtitle="조치가 필요한 고객과 미연결 인증서를 먼저 확인하고, 연결된 인증서의 갱신과 결제를 진행합니다."
         actions={(
           <>
             <button
@@ -542,8 +547,9 @@ export function CertificatesTab(props: CertificatesTabProps) {
           <div className="certificate-overview">
             <div className="certificate-stat-strip">
               <span className="certificate-stat-pill">로컬 읽음 {props.customerRenewalLoadedCertificateCount}건</span>
+              <span className="certificate-stat-pill accent">조치 필요 고객 {actionNeededCustomerCount}명</span>
               <span className="certificate-stat-pill">연결 완료 {linkedCount}건</span>
-              <span className="certificate-stat-pill">미연결 {unlinkedCount}건</span>
+              <span className={unlinkedCount > 0 ? "certificate-stat-pill accent" : "certificate-stat-pill"}>미연결 {unlinkedCount}건</span>
               <span className="certificate-stat-pill accent">결제 가능 {paymentReadyCount}건</span>
             </div>
             <div className="certificate-controls">
@@ -558,10 +564,17 @@ export function CertificatesTab(props: CertificatesTabProps) {
               <div className="certificate-filter-group">
                 <button
                   type="button"
+                  className={customerFilter === "action_needed" ? "chip chip-filter active" : "chip chip-filter"}
+                  onClick={() => setCustomerFilter("action_needed")}
+                >
+                  조치 필요
+                </button>
+                <button
+                  type="button"
                   className={customerFilter === "all" ? "chip chip-filter active" : "chip chip-filter"}
                   onClick={() => setCustomerFilter("all")}
                 >
-                  전체 고객
+                  전체 보기
                 </button>
                 <button
                   type="button"
@@ -600,6 +613,12 @@ export function CertificatesTab(props: CertificatesTabProps) {
                 </button>
               </div>
             </div>
+            {customerFilter === "action_needed" ? (
+              <div className="certificate-focus-note">
+                <span className="chip chip-warn">기본 보기</span>
+                <strong>결제 가능, 준비 필요, 만료 임박, 필수 인증서 누락 고객만 먼저 보여주고 있습니다.</strong>
+              </div>
+            ) : null}
             <div className="certificate-queue-toolbar">
               <div className="certificate-queue-summary">
                 <span className="certificate-queue-chip">선택 고객 {selectedManagedRows.length}명</span>
@@ -657,7 +676,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
 
         <div className="certificate-table-section">
           <div className="certificate-table-section-head">
-            <strong>고객별 공동인증서</strong>
+            <strong>{customerFilter === "action_needed" ? "조치 필요 고객" : "고객별 공동인증서"}</strong>
             <span>{filteredLinkedCustomerRows.length}명</span>
           </div>
           <div className="certificate-table-wrap">
@@ -750,7 +769,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
 
         <div className="certificate-table-section">
           <div className="certificate-table-section-head">
-            <strong>미연결 공동인증서</strong>
+            <strong>{customerFilter === "action_needed" ? "바로 연결할 미연결 공동인증서" : "미연결 공동인증서"}</strong>
             <div className="certificate-table-section-actions">
               <span>
                 {filteredUnlinkedCertificates.length}건

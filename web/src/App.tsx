@@ -6,6 +6,7 @@ import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, Reveal
 import { CertificatesTab } from "./features/certificates/CertificatesTab";
 import { CustomersTab } from "./features/customers/CustomersTab";
 import { InitialRegistrationTab } from "./features/initial-registration/InitialRegistrationTab";
+import { OnboardingTab } from "./features/onboarding/OnboardingTab";
 import {
   downloadCustomerOnboardingTemplate,
   parseCustomerOnboardingWorkbook,
@@ -44,7 +45,7 @@ import type {
   RenewalAutomationPayload
 } from "./types";
 
-type TabId = "work" | "customers" | "certificates" | "initial" | "settings" | "ops";
+type TabId = "work" | "onboarding" | "customers" | "certificates" | "settings" | "ops";
 type SettingsSectionId = "gmail" | "popbill" | "account";
 type CustomerDetailTabId = "info" | "history";
 type CustomerListFilter = "all" | "blocked" | "expiring" | "unjoined";
@@ -127,7 +128,7 @@ type InternalJobRunResponse = {
 };
 
 function shouldLoadMailboxData(activeTab: TabId, customerDetailTab: CustomerDetailTabId): boolean {
-  return activeTab === "work" || activeTab === "initial" || (activeTab === "customers" && customerDetailTab === "history");
+  return activeTab === "work" || activeTab === "onboarding" || (activeTab === "customers" && customerDetailTab === "history");
 }
 
 type OpsWorkspaceFormState = {
@@ -622,7 +623,15 @@ const MAIL_PROVIDER_CONFIG: Record<
 
 function getTabFromHash(hash: string): TabId | null {
   const value = hash.replace(/^#/, "");
-  return value === "customers" || value === "certificates" || value === "initial" || value === "settings" || value === "work" || value === "ops" ? value : null;
+  const normalizedValue = value === "initial" ? "onboarding" : value;
+  return normalizedValue === "customers" ||
+    normalizedValue === "certificates" ||
+    normalizedValue === "onboarding" ||
+    normalizedValue === "settings" ||
+    normalizedValue === "work" ||
+    normalizedValue === "ops"
+    ? normalizedValue
+    : null;
 }
 
 function getHashParams(hash: string): URLSearchParams {
@@ -1019,6 +1028,72 @@ function getCustomerIssueReadiness(customer: Customer): {
     tone: "success",
     reason: "발행 조건 충족"
   };
+}
+
+function getCustomerIssueChecklist(customer: Customer): Array<{
+  key: string;
+  label: string;
+  tone: "success" | "warn" | "danger";
+  actionLabel?: string;
+  actionKind?: "join-popbill" | "register-certificate" | "check-certificate";
+}> {
+  const days = getDaysUntilDate(customer.popbillCertExpireDate);
+
+  if (customer.popbillState !== "joined") {
+    return [
+      {
+        key: "join-popbill",
+        label: "팝빌 가입이 필요합니다.",
+        tone: "danger",
+        actionLabel: "팝빌 가입",
+        actionKind: "join-popbill"
+      }
+    ];
+  }
+
+  if (!customer.popbillCertRegistered) {
+    return [
+      {
+        key: "register-certificate",
+        label: "전자세금용 인증서 등록이 필요합니다.",
+        tone: "danger",
+        actionLabel: "인증서 등록",
+        actionKind: "register-certificate"
+      }
+    ];
+  }
+
+  if (days !== null && days < 0) {
+    return [
+      {
+        key: "expired-certificate",
+        label: "인증서가 이미 만료되어 발행이 막혀 있습니다.",
+        tone: "danger",
+        actionLabel: "만료일 확인",
+        actionKind: "check-certificate"
+      }
+    ];
+  }
+
+  if (days !== null && days <= 30) {
+    return [
+      {
+        key: "expiring-certificate",
+        label: `인증서 만료가 ${days}일 남았습니다. 지금은 발행 가능하지만 미리 점검이 필요합니다.`,
+        tone: "warn",
+        actionLabel: "만료일 확인",
+        actionKind: "check-certificate"
+      }
+    ];
+  }
+
+  return [
+    {
+      key: "ready",
+      label: "팝빌 가입과 인증서 준비가 끝나 바로 발행할 수 있습니다.",
+      tone: "success"
+    }
+  ];
 }
 
 function matchesCustomerListFilter(customer: Customer, filter: CustomerListFilter): boolean {
@@ -2501,7 +2576,7 @@ export function App() {
   }, [activeTab, customerDetailTab, data?.auth.activeOrganizationId]);
 
   useEffect(() => {
-    if (!data || activeTab !== "initial") return;
+    if (!data || activeTab !== "onboarding") return;
 
     const nextQuickRegisterMessages = data.inbox
       .filter((message) => getInboxDisplayParseStatus(message) === "unmatched" && message.parsedData?.plantAddress)
@@ -2535,7 +2610,7 @@ export function App() {
   }, [creatingCustomer, customerForm.id]);
 
   useEffect(() => {
-    if (activeTab !== "initial") {
+    if (activeTab !== "onboarding") {
       return;
     }
 
@@ -5831,6 +5906,7 @@ export function App() {
   const selectedCustomerReadiness = selectedCustomer
     ? customerReadinessMap.get(selectedCustomer.id) ?? getCustomerIssueReadiness(selectedCustomer)
     : null;
+  const selectedCustomerIssues = selectedCustomer ? getCustomerIssueChecklist(selectedCustomer) : [];
   const selectedCustomerIssuedDrafts = selectedCustomer
     ? [...(issuedDraftsByCustomerId.get(selectedCustomer.id) ?? [])].sort((left, right) => {
         const rightTime = right.issuedAt ? new Date(right.issuedAt).getTime() : 0;
@@ -6012,15 +6088,126 @@ export function App() {
   const opsAgentStatusMeta = opsAgent ? getRenewalAgentStatusMeta(opsAgent) : null;
   const opsCertificates = opsAgent?.bridge.storageProbe.certificates ?? [];
   const canManageOrganizationMembers = data.auth.activeOrganizationRole === "owner";
-  const workNoticeTokens = [
-    ...(setupPendingCount > 0 ? [`설정 ${setupPendingCount}개 필요`] : []),
-    ...(expiredCertCustomers.length > 0 ? [`만료 ${expiredCertCustomers.length}건`] : []),
-    ...(expiringSoonCustomers.length > 0 ? [`30일 이내 ${expiringSoonCustomers.length}건`] : []),
-    ...(duplicateMessages.length > 0 ? [`중복 의심 ${duplicateMessages.length}건`] : [])
-  ];
   const recommendedSettingsSection: SettingsSectionId = !settingsHealth.mailReady
     ? "gmail"
     : "popbill";
+  const linkedCustomerCertificateCount = customerCertificateItems.filter((item) => item.linkedCustomerId !== null).length;
+  const onboardingCertificateReady =
+    linkedCustomerCertificateCount > 0 || data.customers.some((customer) => customer.popbillCertRegistered);
+  const onboardingFirstSyncReady = data.inbox.length > 0 || data.drafts.length > 0;
+  const onboardingSteps = [
+    {
+      id: "mail",
+      step: 1,
+      title: "메일 연결",
+      summary: settingsHealth.mailReady ? "한전 메일 읽기 연결이 준비되었습니다." : "한전 메일을 읽고 알림을 보낼 계정을 먼저 연결합니다.",
+      done: settingsHealth.mailReady,
+      actionLabel: "메일 연결 열기",
+      onAction: () => {
+        setActiveSettingsSection("gmail");
+        setActiveTab("settings");
+      }
+    },
+    {
+      id: "defaults",
+      step: 2,
+      title: "발행 기본값 입력",
+      summary:
+        settingsHealth.popbillReady && settingsHealth.operatorReady
+          ? "팝빌과 운영 담당자 기본값이 준비되었습니다."
+          : "신규 고객 생성과 발행에 필요한 팝빌 기본값과 운영 정보를 입력합니다.",
+      done: settingsHealth.popbillReady && settingsHealth.operatorReady,
+      actionLabel: "기본값 열기",
+      onAction: () => {
+        setActiveSettingsSection("popbill");
+        setActiveTab("settings");
+      }
+    },
+    {
+      id: "customers",
+      step: 3,
+      title: "고객 등록",
+      summary: customerRegistrationReady ? `현재 ${data.customers.length}명의 고객이 등록되어 있습니다.` : "최소 1명의 고객을 등록해야 자동 매칭과 발행 검토가 가능합니다.",
+      done: customerRegistrationReady,
+      actionLabel: "고객 운영 열기",
+      onAction: () => setActiveTab("customers")
+    },
+    {
+      id: "certificates",
+      step: 4,
+      title: "인증서 연결",
+      summary: onboardingCertificateReady ? "전자세금용 또는 연동 인증서가 연결되어 있습니다." : "초기 등록 양식이나 인증서 관리에서 고객과 인증서를 연결합니다.",
+      done: onboardingCertificateReady,
+      actionLabel: "초기 등록 보기",
+      onAction: () => scrollToElementById("onboarding-registration")
+    },
+    {
+      id: "first-run",
+      step: 5,
+      title: "첫 동기화 / 첫 발행 확인",
+      summary: onboardingFirstSyncReady ? "메일 수집 또는 발행 대기 데이터가 이미 들어와 있습니다." : "오늘 작업에서 메일 즉시 동기화를 실행하고 첫 발행 대기를 확인합니다.",
+      done: onboardingFirstSyncReady,
+      actionLabel: "오늘 작업 열기",
+      onAction: () => setActiveTab("work")
+    }
+  ];
+  const workPriorityCards = [
+    ...(setupPendingCount > 0
+      ? [
+          {
+            key: "setup",
+            title: "도입 준비",
+            count: setupPendingCount,
+            description: "메일, 발행 기본값, 고객 등록 중 아직 마무리되지 않은 준비가 있습니다.",
+            tone: "warn" as const,
+            actionLabel: "도입 준비 열기",
+            onAction: () => setActiveTab("onboarding")
+          }
+        ]
+      : []),
+    ...(unmatchedMessages.length > 0
+      ? [
+          {
+            key: "unmatched",
+            title: "미매칭 메일",
+            count: unmatchedMessages.length,
+            description: "고객 연결이 안 된 메일이 있어 초안 생성이 멈춰 있습니다.",
+            tone: "warn" as const,
+            actionLabel: "초기 등록 확인",
+            onAction: () => setActiveTab("onboarding")
+          }
+        ]
+      : []),
+    ...(certAttentionCount > 0
+      ? [
+          {
+            key: "cert",
+            title: "인증서 주의",
+            count: certAttentionCount,
+            description: "만료되었거나 30일 이내 만료 예정인 인증서가 있습니다.",
+            tone: expiredCertCustomers.length > 0 ? ("danger" as const) : ("warn" as const),
+            actionLabel: "인증서 관리 열기",
+            onAction: () => setActiveTab("certificates")
+          }
+        ]
+      : []),
+    ...(duplicateMessages.length > 0
+      ? [
+          {
+            key: "duplicate",
+            title: "중복 의심 메일",
+            count: duplicateMessages.length,
+            description: "같은 정산월 또는 같은 메일이 중복으로 들어온 것으로 보입니다.",
+            tone: "default" as const,
+            actionLabel: "최근 수신 보기",
+            onAction: () => {
+              setWorkFeedTab("inbox");
+              scrollToElementById("work-recent-history");
+            }
+          }
+        ]
+      : [])
+  ];
   const settingsSections: Array<{
     id: SettingsSectionId;
     step: number;
@@ -6065,10 +6252,10 @@ export function App() {
     ...(hasActiveWorkspace
       ? [
           { id: "work" as const, label: "오늘 작업", icon: "dashboard" },
-          { id: "customers" as const, label: "고객관리", icon: "group" },
-          { id: "certificates" as const, label: "공동인증서", icon: "cert" },
-          { id: "initial" as const, label: "초기 등록", icon: "initial" },
-          { id: "settings" as const, label: "시스템설정", icon: "settings" }
+          { id: "onboarding" as const, label: "도입 준비", icon: "initial" },
+          { id: "customers" as const, label: "고객 운영", icon: "group" },
+          { id: "certificates" as const, label: "인증서 관리", icon: "cert" },
+          { id: "settings" as const, label: "작업공간 설정", icon: "settings" }
         ]
       : []),
     ...(isPlatformAdmin ? [{ id: "ops" as const, label: "플랫폼 관리자", icon: "ops" }] : [])
@@ -6320,15 +6507,13 @@ export function App() {
         </div>
       </aside>
 
-      <main
-        className={
+        <main
+          className={
           activeTab === "work"
             ? "content content-work"
             : activeTab === "customers"
               ? "content content-customers"
               : activeTab === "certificates"
-                ? "content content-customers"
-              : activeTab === "initial"
                 ? "content content-customers"
               : activeTab === "settings"
                 ? "content content-settings"
@@ -6386,21 +6571,52 @@ export function App() {
                 <span>오늘 작업 화면에 필요한 메일함과 발행 대기 목록을 작업공간별로 따로 읽고 있습니다.</span>
               </div>
             ) : null}
-            {workNoticeTokens.length > 0 ? (
-              <section className="work-inline-bar">
-                <div className="work-inline-copy">
-                  <strong>확인 필요</strong>
-                  <div className="work-inline-chips">
-                    {workNoticeTokens.map((item) => (
-                      <span key={item} className="chip chip-warn">{item}</span>
-                    ))}
-                  </div>
+            <Panel
+              className="panel-work-priority"
+              title={workPriorityCards.length > 0 ? "긴급 예외" : "운영 상태"}
+              subtitle={
+                workPriorityCards.length > 0
+                  ? "먼저 막힘과 주의 항목을 정리한 뒤 발행 대기를 처리하세요."
+                  : "지금 막힌 예외는 없습니다. 발행 대기와 최근 처리만 확인하면 됩니다."
+              }
+            >
+              {workPriorityCards.length > 0 ? (
+                <div className="work-priority-grid">
+                  {workPriorityCards.map((card) => (
+                    <article
+                      key={card.key}
+                      className={
+                        card.tone === "danger"
+                          ? "work-priority-card tone-danger"
+                          : card.tone === "warn"
+                            ? "work-priority-card tone-warn"
+                            : "work-priority-card"
+                      }
+                    >
+                      <div className="work-priority-card-head">
+                        <div>
+                          <span className="work-priority-label">{card.title}</span>
+                          <strong>{card.count}건</strong>
+                        </div>
+                        <span className={`chip ${card.tone === "danger" ? "chip-danger" : card.tone === "warn" ? "chip-warn" : ""}`}>
+                          {card.tone === "danger" ? "즉시 확인" : card.tone === "warn" ? "확인 필요" : "참고"}
+                        </span>
+                      </div>
+                      <p>{card.description}</p>
+                      <button type="button" className="btn-secondary" onClick={card.onAction}>
+                        {card.actionLabel}
+                      </button>
+                    </article>
+                  ))}
                 </div>
-                {setupPendingCount > 0 ? (
-                  <button className="btn-secondary" onClick={() => setActiveTab("settings")}>설정 열기</button>
-                ) : null}
-              </section>
-            ) : null}
+              ) : (
+                <div className="work-priority-empty">
+                  <span className="chip chip-success">긴급 예외 없음</span>
+                  <strong>지금은 발행 대기와 최근 처리만 확인하면 됩니다.</strong>
+                  <p>메일 즉시 동기화로 새 정산 메일을 확인하거나, 아래 발행 대기 테이블을 바로 처리하세요.</p>
+                </div>
+              )}
+            </Panel>
 
             <section className="stats-grid stats-grid-compact work-stats">
               <StatCard label="발행 대상" value={reviewDrafts.length} tone={reviewDrafts.length > 0 ? "warn" : "default"} />
@@ -6490,9 +6706,9 @@ export function App() {
                       <strong>{certAttentionCount}건</strong>
                     </div>
                   </div>
-                  <div className="compact-status-stack">
+                    <div className="compact-status-stack">
                     <div className="history-split">
-                      <section className="history-block">
+                      <section className="history-block" id="work-recent-history">
                         <header className="history-block-head">
                           <div className="history-title-row">
                             <strong>최근 처리</strong>
@@ -6561,6 +6777,51 @@ export function App() {
           </div>
         ) : null}
 
+        {activeTab === "onboarding" ? (
+          <OnboardingTab
+            setupPendingCount={setupPendingCount}
+            customerCount={data.customers.length}
+            quickRegisterMessageCount={quickRegisterMessages.length}
+            pendingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
+            linkedCertificateCount={linkedCustomerCertificateCount}
+            steps={onboardingSteps}
+            onOpenSettings={() => {
+              setActiveSettingsSection(recommendedSettingsSection);
+              setActiveTab("settings");
+            }}
+            registrationContent={
+              <InitialRegistrationTab
+                busyKey={busyKey}
+                customerOnboardingFileName={customerOnboardingFileName}
+                customerOnboardingPreview={customerOnboardingPreview}
+                customerOnboardingNotice={customerOnboardingNotice}
+                customerOnboardingError={customerOnboardingError}
+                pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
+                quickRegisterMessages={quickRegisterMessages}
+                quickRegisterForm={quickRegisterForm}
+                selectedQuickRegisterMessage={selectedQuickRegisterMessage}
+                isQuickRegistering={isQuickRegistering}
+                quickRegisterNotice={quickRegisterNotice}
+                quickRegisterError={quickRegisterError}
+                billingMonthSummaries={billingMonthSummaries}
+                completedBillingNotice={completedBillingNotice}
+                downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
+                handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
+                commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
+                proceedOnboardingCertificateRegistration={proceedOnboardingCertificateRegistration}
+                setQuickRegisterForm={setQuickRegisterForm}
+                selectQuickRegisterMessage={selectQuickRegisterMessage}
+                submitQuickRegister={submitQuickRegister}
+                markBillingMonthCompleted={markBillingMonthCompleted}
+                runAction={runAction}
+                formatDateTime={formatDateTime}
+                getInboxDisplayParseStatus={getInboxDisplayParseStatus}
+                getParseStatusLabel={getParseStatusLabel}
+              />
+            }
+          />
+        ) : null}
+
         {activeTab === "customers" ? (
           <CustomersTab
             customers={data.customers}
@@ -6569,6 +6830,7 @@ export function App() {
             filteredCustomers={filteredCustomers}
             selectedCustomer={selectedCustomer}
             selectedCustomerReadiness={selectedCustomerReadiness}
+            selectedCustomerIssues={selectedCustomerIssues}
             selectedCustomerIssuedDrafts={selectedCustomerIssuedDrafts}
             blockedCustomerCount={blockedCustomerCount}
             readyCustomerCount={readyNowCustomers.length}
@@ -6644,37 +6906,6 @@ export function App() {
             onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
             runAction={runAction}
             formatCertificateExpireDate={formatCertificateExpireDate}
-          />
-        ) : null}
-
-        {activeTab === "initial" ? (
-          <InitialRegistrationTab
-            busyKey={busyKey}
-            customerOnboardingFileName={customerOnboardingFileName}
-            customerOnboardingPreview={customerOnboardingPreview}
-            customerOnboardingNotice={customerOnboardingNotice}
-            customerOnboardingError={customerOnboardingError}
-            pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
-            quickRegisterMessages={quickRegisterMessages}
-            quickRegisterForm={quickRegisterForm}
-            selectedQuickRegisterMessage={selectedQuickRegisterMessage}
-            isQuickRegistering={isQuickRegistering}
-            quickRegisterNotice={quickRegisterNotice}
-            quickRegisterError={quickRegisterError}
-            billingMonthSummaries={billingMonthSummaries}
-            completedBillingNotice={completedBillingNotice}
-            downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
-            handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
-            commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
-            proceedOnboardingCertificateRegistration={proceedOnboardingCertificateRegistration}
-            setQuickRegisterForm={setQuickRegisterForm}
-            selectQuickRegisterMessage={selectQuickRegisterMessage}
-            submitQuickRegister={submitQuickRegister}
-            markBillingMonthCompleted={markBillingMonthCompleted}
-            runAction={runAction}
-            formatDateTime={formatDateTime}
-            getInboxDisplayParseStatus={getInboxDisplayParseStatus}
-            getParseStatusLabel={getParseStatusLabel}
           />
         ) : null}
 
