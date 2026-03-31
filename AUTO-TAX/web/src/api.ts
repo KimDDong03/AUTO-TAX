@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { getSessionSafely } from "./supabase";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "auto-tax.active-organization-id";
 
@@ -48,9 +48,11 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
 
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
+  const { session, clearedInvalidRefreshToken } = await getSessionSafely();
+
+  if (clearedInvalidRefreshToken) {
+    throw new ApiError(401, "로그인 세션이 만료되어 다시 로그인해야 합니다.");
+  }
 
   if (session?.access_token) {
     headers.set("Authorization", `Bearer ${session.access_token}`);

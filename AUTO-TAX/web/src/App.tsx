@@ -23,7 +23,7 @@ import {
   requestLocalRenewalPreparePayment,
   requestLocalRenewalPreflight
 } from "./local-renewal-helper";
-import { supabase } from "./supabase";
+import { getSessionSafely, supabase } from "./supabase";
 import type {
   AppSettings,
   BootstrapPayload,
@@ -2336,12 +2336,22 @@ export function App() {
       applyAuthHashState(window.location.hash);
     }
 
-    void supabase.auth.getSession().then(({ data: next }) => {
-      if (!mounted) return;
-      authSessionRef.current = next.session;
-      setAuthSession(next.session);
-      setAuthReady(true);
-    });
+    void getSessionSafely()
+      .then(({ session, clearedInvalidRefreshToken }) => {
+        if (!mounted) return;
+        authSessionRef.current = session;
+        setAuthSession(session);
+        if (clearedInvalidRefreshToken) {
+          setAuthNotice("로그인 세션이 만료되어 다시 로그인해 주세요.");
+        }
+        setAuthReady(true);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        authSessionRef.current = null;
+        setAuthSession(null);
+        setAuthReady(true);
+      });
 
     const {
       data: { subscription }
