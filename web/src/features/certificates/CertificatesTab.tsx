@@ -99,7 +99,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
   const [customerFilter, setCustomerFilter] = useState<
     "action_needed" | "all" | "prepare_needed" | "payment_ready" | "expiring_30" | "missing_general" | "missing_electronic"
   >("action_needed");
-  const [showUnlinkedCertificates, setShowUnlinkedCertificates] = useState(true);
+  const [showUnlinkedCertificates, setShowUnlinkedCertificates] = useState(false);
   const [queueNotice, setQueueNotice] = useState("");
   const [batchPrepareState, setBatchPrepareState] = useState<{
     active: boolean;
@@ -274,6 +274,11 @@ export function CertificatesTab(props: CertificatesTabProps) {
   const actionNeededCustomerCount = linkedCustomerRows.filter(
     (row) => row.hasPaymentReady || row.hasPrepareNeeded || row.hasExpiringSoon || !row.hasGeneral || !row.hasElectronicTax
   ).length;
+  const prepareNeededCustomerCount = linkedCustomerRows.filter((row) => row.hasPrepareNeeded).length;
+  const paymentReadyCustomerCount = linkedCustomerRows.filter((row) => row.hasPaymentReady).length;
+  const expiringCustomerCount = linkedCustomerRows.filter((row) => row.hasExpiringSoon).length;
+  const missingGeneralCustomerCount = linkedCustomerRows.filter((row) => !row.hasGeneral).length;
+  const missingElectronicCustomerCount = linkedCustomerRows.filter((row) => !row.hasElectronicTax).length;
   const filteredUnlinkedSuggestedCount = filteredUnlinkedCertificates.filter((item) => Boolean(item.suggestedCustomerLabel)).length;
   const selectedManagedRows = filteredLinkedCustomerRows.filter((row) => selectedManagedCustomerIds[row.customer.id]);
   const selectedManagedCertificates = selectedManagedRows.flatMap((row) => [
@@ -282,6 +287,59 @@ export function CertificatesTab(props: CertificatesTabProps) {
   ]);
   const selectedPrepareCertificates = selectedManagedCertificates.filter((item) => !item.canOpenPayment);
   const selectedPaymentCertificates = selectedManagedCertificates.filter((item) => item.canOpenPayment);
+  const filterMeta: Record<
+    typeof customerFilter,
+    {
+      label: string;
+      summary: string;
+      count: number;
+    }
+  > = {
+    action_needed: {
+      label: "조치 필요",
+      summary: "결제·준비·만료 고객만 표시",
+      count: actionNeededCustomerCount
+    },
+    all: {
+      label: "전체 보기",
+      summary: "연결 고객 전체",
+      count: linkedCustomerRows.length
+    },
+    prepare_needed: {
+      label: "준비 필요",
+      summary: "갱신 준비 필요만",
+      count: prepareNeededCustomerCount
+    },
+    payment_ready: {
+      label: "결제 가능",
+      summary: "바로 결제 가능",
+      count: paymentReadyCustomerCount
+    },
+    expiring_30: {
+      label: "30일 내 만료",
+      summary: "30일 내 만료",
+      count: expiringCustomerCount
+    },
+    missing_general: {
+      label: "범용 없음",
+      summary: "범용 없음",
+      count: missingGeneralCustomerCount
+    },
+    missing_electronic: {
+      label: "전자세금 없음",
+      summary: "전자세금 없음",
+      count: missingElectronicCustomerCount
+    }
+  };
+  const focusFilters: Array<{
+    key: "action_needed" | "payment_ready" | "prepare_needed" | "expiring_30";
+    tone: "warn" | "success";
+  }> = [
+    { key: "action_needed", tone: actionNeededCustomerCount > 0 ? "warn" : "success" },
+    { key: "payment_ready", tone: paymentReadyCustomerCount > 0 ? "success" : "warn" },
+    { key: "prepare_needed", tone: prepareNeededCustomerCount > 0 ? "warn" : "success" },
+    { key: "expiring_30", tone: expiringCustomerCount > 0 ? "warn" : "success" }
+  ];
 
   const pauseBatchPrepareForInteractiveAction = async (reason: string) => {
     if (!batchPreparePromiseRef.current) {
@@ -517,7 +575,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
       <Panel
         className="panel-customer-renewal"
         title="공동인증서"
-        subtitle="조치가 필요한 고객과 미연결 인증서를 먼저 확인하고, 연결된 인증서의 갱신과 결제를 진행합니다."
+        subtitle="조치가 필요한 고객만 먼저 봅니다."
         actions={(
           <>
             <button
@@ -553,6 +611,24 @@ export function CertificatesTab(props: CertificatesTabProps) {
               <span className="certificate-stat-pill accent">결제 가능 {paymentReadyCount}건</span>
             </div>
             <div className="certificate-controls">
+              <div className="certificate-focus-grid">
+                {focusFilters.map((filter) => (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    className={customerFilter === filter.key ? "certificate-focus-card active" : "certificate-focus-card"}
+                    onClick={() => setCustomerFilter(filter.key)}
+                  >
+                    <div className="certificate-focus-card-head">
+                      <span>{filterMeta[filter.key].label}</span>
+                      <span className={`chip ${filter.tone === "success" ? "chip-success" : "chip-warn"}`}>
+                        {filterMeta[filter.key].count}명
+                      </span>
+                    </div>
+                    <strong>{filterMeta[filter.key].count.toLocaleString("ko-KR")}</strong>
+                  </button>
+                ))}
+              </div>
               <label className="certificate-search">
                 <input
                   type="search"
@@ -561,64 +637,72 @@ export function CertificatesTab(props: CertificatesTabProps) {
                   placeholder="고객명, 상호, 사업자번호, 인증서명"
                 />
               </label>
-              <div className="certificate-filter-group">
-                <button
-                  type="button"
-                  className={customerFilter === "action_needed" ? "chip chip-filter active" : "chip chip-filter"}
-                  onClick={() => setCustomerFilter("action_needed")}
-                >
-                  조치 필요
-                </button>
-                <button
-                  type="button"
-                  className={customerFilter === "all" ? "chip chip-filter active" : "chip chip-filter"}
-                  onClick={() => setCustomerFilter("all")}
-                >
-                  전체 보기
-                </button>
-                <button
-                  type="button"
-                  className={customerFilter === "prepare_needed" ? "chip chip-filter active" : "chip chip-filter"}
-                  onClick={() => setCustomerFilter("prepare_needed")}
-                >
-                  준비 필요
-                </button>
-                <button
-                  type="button"
-                  className={customerFilter === "payment_ready" ? "chip chip-filter active" : "chip chip-filter"}
-                  onClick={() => setCustomerFilter("payment_ready")}
-                >
-                  결제 가능
-                </button>
-                <button
-                  type="button"
-                  className={customerFilter === "expiring_30" ? "chip chip-filter active" : "chip chip-filter"}
-                  onClick={() => setCustomerFilter("expiring_30")}
-                >
-                  30일 이내 만료
-                </button>
-                <button
-                  type="button"
-                  className={customerFilter === "missing_general" ? "chip chip-filter active" : "chip chip-filter"}
-                  onClick={() => setCustomerFilter("missing_general")}
-                >
-                  범용 없음
-                </button>
-                <button
-                  type="button"
-                  className={customerFilter === "missing_electronic" ? "chip chip-filter active" : "chip chip-filter"}
-                  onClick={() => setCustomerFilter("missing_electronic")}
-                >
-                  전자세금 없음
-                </button>
-              </div>
+              <details className="certificate-advanced-filters">
+                <summary>세부 필터 보기</summary>
+                <div className="certificate-filter-group">
+                  <button
+                    type="button"
+                    className={customerFilter === "action_needed" ? "chip chip-filter active" : "chip chip-filter"}
+                    onClick={() => setCustomerFilter("action_needed")}
+                  >
+                    조치 필요
+                  </button>
+                  <button
+                    type="button"
+                    className={customerFilter === "all" ? "chip chip-filter active" : "chip chip-filter"}
+                    onClick={() => setCustomerFilter("all")}
+                  >
+                    전체 보기
+                  </button>
+                  <button
+                    type="button"
+                    className={customerFilter === "prepare_needed" ? "chip chip-filter active" : "chip chip-filter"}
+                    onClick={() => setCustomerFilter("prepare_needed")}
+                  >
+                    준비 필요
+                  </button>
+                  <button
+                    type="button"
+                    className={customerFilter === "payment_ready" ? "chip chip-filter active" : "chip chip-filter"}
+                    onClick={() => setCustomerFilter("payment_ready")}
+                  >
+                    결제 가능
+                  </button>
+                  <button
+                    type="button"
+                    className={customerFilter === "expiring_30" ? "chip chip-filter active" : "chip chip-filter"}
+                    onClick={() => setCustomerFilter("expiring_30")}
+                  >
+                    30일 이내 만료
+                  </button>
+                  <button
+                    type="button"
+                    className={customerFilter === "missing_general" ? "chip chip-filter active" : "chip chip-filter"}
+                    onClick={() => setCustomerFilter("missing_general")}
+                  >
+                    범용 없음
+                  </button>
+                  <button
+                    type="button"
+                    className={customerFilter === "missing_electronic" ? "chip chip-filter active" : "chip chip-filter"}
+                    onClick={() => setCustomerFilter("missing_electronic")}
+                  >
+                    전자세금 없음
+                  </button>
+                </div>
+              </details>
             </div>
             {customerFilter === "action_needed" ? (
               <div className="certificate-focus-note">
                 <span className="chip chip-warn">기본 보기</span>
-                <strong>결제 가능, 준비 필요, 만료 임박, 필수 인증서 누락 고객만 먼저 보여주고 있습니다.</strong>
+                <span>결제 가능·준비 필요·만료 임박만 표시</span>
               </div>
-            ) : null}
+            ) : (
+              <div className="certificate-focus-note">
+                <span className="chip">현재 보기</span>
+                <span>{filterMeta[customerFilter].summary}</span>
+              </div>
+            )}
             <div className="certificate-queue-toolbar">
               <div className="certificate-queue-summary">
                 <span className="certificate-queue-chip">선택 고객 {selectedManagedRows.length}명</span>
@@ -666,9 +750,9 @@ export function CertificatesTab(props: CertificatesTabProps) {
               </div>
             </div>
             {queueNotice ? (
-              <div className="helper-box import-helper-box">
-                <strong>작업 안내</strong>
-                <span className="helper-multiline-text">{queueNotice}</span>
+              <div className="certificate-inline-note" role="status">
+                <span className="chip chip-warn">안내</span>
+                <span>{queueNotice}</span>
               </div>
             ) : null}
           </div>

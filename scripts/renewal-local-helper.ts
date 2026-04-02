@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import express from "express";
 import { z } from "zod";
 import { collectBridgeProbeResult, prepareRenewPaymentOpenContext } from "./renewal-agent.ts";
@@ -10,22 +9,25 @@ import { openSignGateRenewPaymentWindow } from "./signgate-fee-payment.ts";
 const DEFAULT_PORT = 35119;
 const DEFAULT_ALLOWED_ORIGINS = ["https://auto-tax-alpha.vercel.app"];
 
-function resolveCurrentFilePath(): string {
-  if (typeof __filename !== "undefined") {
-    return __filename;
-  }
-
-  return fileURLToPath(import.meta.url);
-}
-
 function readPackageVersion(): string {
-  const packageFile = path.resolve(path.dirname(resolveCurrentFilePath()), "..", "package.json");
-  try {
-    const parsed = JSON.parse(fs.readFileSync(packageFile, "utf8")) as { version?: string };
-    return parsed.version?.trim() || "0.0.0";
-  } catch {
-    return "0.0.0";
+  const candidatePackageFiles = [
+    path.resolve(process.cwd(), "package.json"),
+    process.argv[1] ? path.resolve(path.dirname(process.argv[1]), "..", "package.json") : null
+  ].filter((value): value is string => Boolean(value));
+
+  for (const packageFile of candidatePackageFiles) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(packageFile, "utf8")) as { version?: string };
+      const version = parsed.version?.trim();
+      if (version) {
+        return version;
+      }
+    } catch {
+      continue;
+    }
   }
+
+  return "0.0.0";
 }
 
 function readAllowedOrigins(): string[] {
@@ -279,13 +281,7 @@ const isDirectExecution = (() => {
     return false;
   }
 
-  const entryBasename = path.basename(entryArg).toLowerCase();
-  if (!entryBasename.includes("renewal-local-helper")) {
-    return false;
-  }
-
-  const currentFile = resolveCurrentFilePath();
-  return path.resolve(currentFile) === path.resolve(entryArg);
+  return path.basename(entryArg).toLowerCase().includes("renewal-local-helper");
 })();
 
 if (isDirectExecution) {

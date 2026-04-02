@@ -22,6 +22,7 @@ export interface AppSettings {
   smtpFromName: string;
   smtpFromEmail: string;
   mailPasswordConfigured: boolean;
+  mailConnectionVerifiedAt: string | null;
   notificationEmails: string[];
   defaultIssueDay: number;
   defaultIssueHour: number;
@@ -29,6 +30,7 @@ export interface AppSettings {
   mailPollMinutes: number;
   mailSyncStartAt: string | null;
   timezone: string;
+  popbillIsTest: boolean;
   popbillUserIdPrefix: string;
   popbillSharedPassword: string;
   operatorContactName: string;

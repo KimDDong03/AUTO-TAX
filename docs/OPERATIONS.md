@@ -29,6 +29,8 @@ This file is for development and deployment work, not end-user operations.
 - `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`
 - `SUPABASE_DB_PASSWORD`
 - `AUTO_TAX_RENEWAL_AGENT_*`
+- `AUTO_TAX_RENEWAL_HELPER_ZIP_PATH`
+- `VITE_RENEWAL_HELPER_DOWNLOAD_URL`
 
 ## 2. Local Development
 
@@ -59,11 +61,28 @@ npm run dev:vercel
 
 ```bash
 npm run renewal-helper:install
+npm run renewal-helper:package
 npm run renewal-helper:start
 npm run renewal-helper:status
 npm run renewal-helper:stop
 npm run renewal-helper:uninstall
 ```
+
+### Helper package download
+
+- `npm run renewal-helper:package` creates:
+  - `dist/renewal-local-helper/`
+  - `dist/renewal-local-helper.zip`
+- the same command also refreshes:
+  - `web/public/downloads/renewal-local-helper.zip`
+- Vercel/public site default download path:
+  - `/downloads/renewal-local-helper.zip`
+- local/self-hosted server download path:
+  - `/downloads/renewal-local-helper.zip`
+- if the zip is stored elsewhere, set:
+  - `VITE_RENEWAL_HELPER_DOWNLOAD_URL`
+- if the server should serve a non-default zip path, set:
+  - `AUTO_TAX_RENEWAL_HELPER_ZIP_PATH`
 
 ### Renewal agent
 

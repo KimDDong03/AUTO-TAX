@@ -5,16 +5,13 @@ $ErrorActionPreference = "Stop"
 
 $taskName = "AUTO-TAX Renewal Local Helper"
 $desktopPath = [Environment]::GetFolderPath("Desktop")
-$shortcutNames = @(
-  "AUTO-TAX Helper Start.lnk",
-  "AUTO-TAX Helper Stop.lnk",
-  "AUTO-TAX Helper Status.lnk",
+$autostartShortcutNames = @(
   "AUTO-TAX Helper Disable Autostart.lnk"
 )
 $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 
 if (-not $existingTask) {
-  foreach ($shortcutName in $shortcutNames) {
+  foreach ($shortcutName in $autostartShortcutNames) {
     $shortcutPath = Join-Path $desktopPath $shortcutName
     if (Test-Path $shortcutPath) {
       Remove-Item -LiteralPath $shortcutPath -Force
@@ -29,7 +26,7 @@ if ($PSCmdlet.ShouldProcess($taskName, "Unregister renewal local helper schedule
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
 }
 
-foreach ($shortcutName in $shortcutNames) {
+foreach ($shortcutName in $autostartShortcutNames) {
   $shortcutPath = Join-Path $desktopPath $shortcutName
   if (Test-Path $shortcutPath) {
     Remove-Item -LiteralPath $shortcutPath -Force
@@ -38,3 +35,4 @@ foreach ($shortcutName in $shortcutNames) {
 
 Write-Output "taskName=$taskName"
 Write-Output "status=removed"
+Write-Output "desktopShortcuts=preserved"

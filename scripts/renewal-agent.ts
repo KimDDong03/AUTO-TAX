@@ -6,7 +6,6 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   buildEffectiveRenewInfoSubmissionProfile,
@@ -291,22 +290,25 @@ let cachedPreflightProbe: BridgeProbeResult["bridge"]["preflightProbe"] = {
   error: null
 };
 
-function resolveCurrentFilePath(): string {
-  if (typeof __filename !== "undefined") {
-    return __filename;
-  }
-
-  return fileURLToPath(import.meta.url);
-}
-
 function readPackageVersion(): string {
-  const packageFile = path.resolve(path.dirname(resolveCurrentFilePath()), "..", "package.json");
-  try {
-    const parsed = JSON.parse(fs.readFileSync(packageFile, "utf8")) as { version?: string };
-    return parsed.version?.trim() || "0.0.0";
-  } catch {
-    return "0.0.0";
+  const candidatePackageFiles = [
+    path.resolve(process.cwd(), "package.json"),
+    process.argv[1] ? path.resolve(path.dirname(process.argv[1]), "..", "package.json") : null
+  ].filter((value): value is string => Boolean(value));
+
+  for (const packageFile of candidatePackageFiles) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(packageFile, "utf8")) as { version?: string };
+      const version = parsed.version?.trim();
+      if (version) {
+        return version;
+      }
+    } catch {
+      continue;
+    }
   }
+
+  return "0.0.0";
 }
 
 function getArgValue(flag: string): string | null {
@@ -2026,8 +2028,7 @@ const isDirectExecution = (() => {
     return false;
   }
 
-  const currentFile = resolveCurrentFilePath();
-  return path.resolve(currentFile) === path.resolve(entryArg);
+  return true;
 })();
 
 if (isDirectExecution) {

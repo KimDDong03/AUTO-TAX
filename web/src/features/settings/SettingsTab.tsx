@@ -25,6 +25,7 @@ type SettingsTabProps = {
   customerRenewalAssistantHelperMessage: string;
   customerRenewalAssistantCheckedAt: string | null;
   customerRenewalLoadedCertificateCount: number;
+  renewalHelperDownloadUrl: string;
   detectedMailProviderLabel: string;
   canManageOrganizationMembers: boolean;
   organizationMembers: OrganizationMemberSummary[];
@@ -39,6 +40,7 @@ type SettingsTabProps = {
   setPasswordResetForm: React.Dispatch<React.SetStateAction<any>>;
   setOrganizationMemberForm: React.Dispatch<React.SetStateAction<any>>;
   onMailAddressChange: (value: string) => void;
+  onRenewalIssuePasswordChange: (value: string) => void;
   toggleRevealField: (fieldKey: string) => void;
   refreshAllCertificateStatuses: () => Promise<void>;
   testMailSettings: () => Promise<void>;
@@ -105,7 +107,6 @@ export function SettingsTab(props: SettingsTabProps) {
           ) : null}
           <div className="settings-inline-note">
             <strong>{props.customerRegistrationReady ? `고객 ${props.customerCount}명 등록됨` : "고객 등록이 필요합니다."}</strong>
-            <span>설정을 마치면 고객관리에서 고객을 등록하고 메일 동기화 테스트를 진행하면 됩니다.</span>
             <button className="btn-secondary" onClick={() => void props.runAction("refresh-certificates", props.refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
           </div>
         </section>
@@ -133,12 +134,12 @@ export function SettingsTab(props: SettingsTabProps) {
             ) : null}
             <div className="form-grid">
               <div className="settings-detected-provider full">
-                <span>메일 수집 범위</span>
-                <strong>최근 1000통 기준으로 바로 연동</strong>
-                <p className="settings-inline-help">기존 메일까지 함께 읽고, 이미 처리한 달은 초기 등록의 월별 완료 처리에서 제외합니다.</p>
+                <span>바로 읽어오는 범위</span>
+                <strong>최근 메일 1000통까지 함께 확인</strong>
+                <p className="settings-inline-help">예전 메일까지 함께 읽어서 첫 도입 때도 바로 확인할 수 있습니다.</p>
               </div>
               <div className="settings-detected-provider full">
-                <span>감지된 메일 서비스</span>
+                <span>자동으로 찾은 메일 서비스</span>
                 <strong>{props.detectedMailProviderLabel}</strong>
               </div>
               <label>
@@ -170,31 +171,34 @@ export function SettingsTab(props: SettingsTabProps) {
                 <textarea rows={4} value={props.settingsForm.notificationEmailsText} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, notificationEmailsText: event.target.value })} />
                 <span className="field-hint">파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나 쉼표로 구분합니다.</span>
               </label>
-              <div className="helper-box full">
-                <strong>월 자동 처리</strong>
-                <div className="fields three-column">
-                  <label>
-                    자동 실행
-                    <select value={props.settingsForm.schedulerEnabled ? "on" : "off"} onChange={(event) => props.setSettingsForm((prev: any) => prev ? { ...prev, schedulerEnabled: event.target.value === "on" } : prev)}>
-                      <option value="on">사용</option>
-                      <option value="off">중지</option>
-                    </select>
-                  </label>
-                  <label>
-                    실행일
-                    <input type="number" min="1" max="31" value={props.settingsForm.defaultIssueDay} onChange={(event) => props.setSettingsForm((prev: any) => (prev ? { ...prev, defaultIssueDay: event.target.value } : prev))} />
-                  </label>
-                  <label>
-                    실행 시각
-                    <div className="inline-time-fields">
-                      <input type="number" min="0" max="23" value={props.settingsForm.defaultIssueHour} onChange={(event) => props.setSettingsForm((prev: any) => (prev ? { ...prev, defaultIssueHour: event.target.value } : prev))} />
-                      <span>:</span>
-                      <input type="number" min="0" max="59" value={props.settingsForm.defaultIssueMinute} onChange={(event) => props.setSettingsForm((prev: any) => (prev ? { ...prev, defaultIssueMinute: event.target.value } : prev))} />
-                    </div>
-                  </label>
+              <details className="settings-advanced-panel full">
+                <summary>월 자동 발행 일정 보기</summary>
+                <div className="helper-box">
+                  <strong>매달 자동 실행 일정</strong>
+                  <div className="fields three-column">
+                    <label>
+                      자동 실행
+                      <select value={props.settingsForm.schedulerEnabled ? "on" : "off"} onChange={(event) => props.setSettingsForm((prev: any) => prev ? { ...prev, schedulerEnabled: event.target.value === "on" } : prev)}>
+                        <option value="on">사용</option>
+                        <option value="off">중지</option>
+                      </select>
+                    </label>
+                    <label>
+                      실행일
+                      <input type="number" min="1" max="31" value={props.settingsForm.defaultIssueDay} onChange={(event) => props.setSettingsForm((prev: any) => (prev ? { ...prev, defaultIssueDay: event.target.value } : prev))} />
+                    </label>
+                    <label>
+                      실행 시각
+                      <div className="inline-time-fields">
+                        <input type="number" min="0" max="23" value={props.settingsForm.defaultIssueHour} onChange={(event) => props.setSettingsForm((prev: any) => (prev ? { ...prev, defaultIssueHour: event.target.value } : prev))} />
+                        <span>:</span>
+                        <input type="number" min="0" max="59" value={props.settingsForm.defaultIssueMinute} onChange={(event) => props.setSettingsForm((prev: any) => (prev ? { ...prev, defaultIssueMinute: event.target.value } : prev))} />
+                      </div>
+                    </label>
+                  </div>
+                  <span>기본값은 매월 26일입니다. 이 일정이 되면 메일을 읽고, 자동 발행 고객은 바로 세금계산서를 발행합니다.</span>
                 </div>
-                <span>기본값은 매월 26일입니다. 이 시각이 되면 메일을 자동으로 읽고, 자동 발행 고객은 바로 전자세금계산서를 발행합니다.</span>
-              </div>
+              </details>
             </div>
           </SetupPanel>
         ) : null}
@@ -203,23 +207,35 @@ export function SettingsTab(props: SettingsTabProps) {
           <SetupPanel
             step={2}
             className="panel-settings-popbill"
-            title="팝빌 기본값"
+            title="발행 기본 설정"
             done={props.settingsHealth.popbillReady && props.settingsHealth.operatorReady}
-            note="고객사에서 직접 관리해야 하는 발행 기본값만 입력합니다."
+            note="고객 등록과 세금계산서 발행에 필요한 회사 공통값입니다."
           >
             <div className="settings-field-stack">
               <section className="settings-field-group">
                 <div className="settings-field-group-head">
-                  <strong>작업공간별 운영값</strong>
-                  <span>신규 고객 팝빌 계정 생성과 발행 처리에 쓰는 기본값입니다.</span>
+                  <strong>먼저 입력할 공통값</strong>
+                  <span>신규 고객 계정 생성과 기본 발행 처리에 쓰는 값입니다.</span>
                 </div>
-                <div className="fields two-column">
-                  <label>
-                    팝빌 사용자 ID 접두어
+                <div className="settings-defaults-grid">
+                  <label className="settings-defaults-cell">
+                    신규 고객 계정 시작 문자
                     <input value={props.settingsForm.popbillUserIdPrefix} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} placeholder="예: TEST_" />
-                    <span className="field-hint">신규 고객 팝빌 ID를 만들 때 앞에 붙는 값입니다. 예: `TEST_001` · 다른 고객사와 중복되면 저장할 수 없습니다.</span>
+                    <span className="field-hint">예: `TEST_001` · 다른 작업공간과 겹치면 저장할 수 없습니다.</span>
                   </label>
-                  <label className="settings-field-full-width">
+                  <label className="settings-defaults-cell">
+                    담당자 이름
+                    <input value={props.settingsForm.operatorContactName} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, operatorContactName: event.target.value })} placeholder="담당자 이름" />
+                  </label>
+                  <label className="settings-defaults-cell">
+                    담당자 연락처
+                    <input value={props.settingsForm.operatorContactTel} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, operatorContactTel: event.target.value })} placeholder="01012345678" />
+                  </label>
+                  <label className="settings-defaults-cell">
+                    담당자 이메일
+                    <input type="email" value={props.settingsForm.operatorContactEmail} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, operatorContactEmail: event.target.value })} placeholder="operator@example.com" />
+                  </label>
+                  <label className="settings-defaults-cell">
                     신규 고객 기본 비밀번호
                     <div className="password-field">
                       <input
@@ -235,8 +251,8 @@ export function SettingsTab(props: SettingsTabProps) {
                     <div className="field-meta-row">
                       <span className="field-hint">
                         {props.popbillSharedPasswordConfigured
-                          ? "이미 저장된 기본 비밀번호가 있습니다. 변경하거나 확인하려면 불러오기를 누르세요."
-                          : "신규 고객 팝빌 계정을 만들 때 초기 비밀번호로 사용합니다."}
+                          ? "이미 저장된 값이 있습니다. 필요하면 불러오세요."
+                          : "신규 고객 계정 초기 비밀번호"}
                       </span>
                       {props.popbillSharedPasswordConfigured ? (
                         <div className="field-action-row">
@@ -247,20 +263,38 @@ export function SettingsTab(props: SettingsTabProps) {
                       ) : null}
                     </div>
                   </label>
-                  <label>
-                    운영 담당자명
-                    <input value={props.settingsForm.operatorContactName} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, operatorContactName: event.target.value })} placeholder="담당자 이름" />
+                  <label className="settings-defaults-cell">
+                    발급용 임시번호
+                    <div className="password-field">
+                      <input
+                        type={props.revealedFields.renewalIssuePassword ? "text" : "password"}
+                        value={props.settingsForm.renewalIssuePassword}
+                        inputMode="numeric"
+                        maxLength={6}
+                        onChange={(event) => props.onRenewalIssuePasswordChange(event.target.value)}
+                        placeholder={props.renewalIssuePasswordConfigured ? "변경할 때만 다시 입력" : "숫자 6자리 입력"}
+                      />
+                      <button type="button" className="password-toggle" aria-label={props.revealedFields.renewalIssuePassword ? "발급용 임시번호 숨기기" : "발급용 임시번호 보기"} onClick={() => props.toggleRevealField("renewalIssuePassword")}>
+                        <RevealIcon open={Boolean(props.revealedFields.renewalIssuePassword)} />
+                      </button>
+                    </div>
+                    <div className="field-meta-row">
+                      <span className="field-hint">
+                        {props.renewalIssuePasswordConfigured
+                          ? "공동인증서 신청 및 갱신 신청용 6자리입니다. 필요하면 불러오세요."
+                          : "공동인증서 신청 및 갱신 신청용 6자리"}
+                      </span>
+                      {props.renewalIssuePasswordConfigured ? (
+                        <div className="field-action-row">
+                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runAction("load-renewal-issue-password", props.loadCurrentRenewalIssuePassword, { reload: false })}>
+                            저장된 임시번호 불러오기
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </label>
-                  <label>
-                    운영 담당자 이메일
-                    <input type="email" value={props.settingsForm.operatorContactEmail} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, operatorContactEmail: event.target.value })} placeholder="operator@example.com" />
-                  </label>
-                  <label>
-                    운영 담당자 연락처
-                    <input value={props.settingsForm.operatorContactTel} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, operatorContactTel: event.target.value })} placeholder="01012345678" />
-                  </label>
-                  <label className="settings-field-full-width">
-                    공동인증서 공통 비밀번호
+                  <label className="settings-defaults-cell settings-defaults-cell-span-2">
+                    인증서 공통 비밀번호 (선택)
                     <div className="password-field">
                       <input
                         type={props.revealedFields.renewalCertificatePassword ? "text" : "password"}
@@ -275,8 +309,8 @@ export function SettingsTab(props: SettingsTabProps) {
                     <div className="field-meta-row">
                       <span className="field-hint">
                         {props.renewalCertificatePasswordConfigured
-                          ? "이미 저장된 공통 비밀번호가 있습니다. 변경하거나 확인하려면 불러오기를 누르세요. 엑셀에서 인증서 비밀번호 칸을 비워둔 행만 이 공통 비밀번호를 fallback으로 사용합니다."
-                          : "선택값입니다. 여러 전자세금용 공동인증서 비밀번호가 같을 때만 저장하세요. 엑셀에서 인증서 비밀번호 칸이 비어 있으면 이 값을 사용합니다."}
+                          ? "이미 저장된 값이 있습니다. 필요하면 불러오세요. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."
+                          : "비밀번호가 모두 같을 때만 사용합니다. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."}
                       </span>
                       {props.renewalCertificatePasswordConfigured ? (
                         <div className="field-action-row">
@@ -287,46 +321,18 @@ export function SettingsTab(props: SettingsTabProps) {
                       ) : null}
                     </div>
                   </label>
-                  <label className="settings-field-full-width">
-                    공동인증서 발급용 임시번호
-                    <div className="password-field">
-                      <input
-                        type={props.revealedFields.renewalIssuePassword ? "text" : "password"}
-                        value={props.settingsForm.renewalIssuePassword}
-                        onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, renewalIssuePassword: event.target.value })}
-                        placeholder={props.renewalIssuePasswordConfigured ? "변경할 때만 다시 입력" : "발급용 임시번호 입력"}
-                      />
-                      <button type="button" className="password-toggle" aria-label={props.revealedFields.renewalIssuePassword ? "발급용 임시번호 숨기기" : "발급용 임시번호 보기"} onClick={() => props.toggleRevealField("renewalIssuePassword")}>
-                        <RevealIcon open={Boolean(props.revealedFields.renewalIssuePassword)} />
-                      </button>
-                    </div>
-                    <div className="field-meta-row">
-                      <span className="field-hint">
-                        {props.renewalIssuePasswordConfigured
-                          ? "이미 저장된 발급용 임시번호가 있습니다. 변경하거나 확인하려면 불러오기를 누르세요."
-                          : "공동인증서 갱신 신청정보 제출 시 사용하는 회사 공통값입니다."}
-                      </span>
-                      {props.renewalIssuePasswordConfigured ? (
-                        <div className="field-action-row">
-                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runAction("load-renewal-issue-password", props.loadCurrentRenewalIssuePassword, { reload: false })}>
-                            저장된 임시번호 불러오기
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </label>
-                </div>
-                <div className="helper-box full">
-                  <strong>현재 상태</strong>
-                  <span>팝빌 연결: {props.settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</span>
-                  <span>작업공간 운영값: {props.settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</span>
+                  <div className="settings-defaults-status">
+                    <strong>입력 상태</strong>
+                    <span>팝빌 연결: {props.settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</span>
+                    <span>작업공간 운영값: {props.settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</span>
+                  </div>
                 </div>
               </section>
 
               <section className="settings-field-group">
                 <div className="settings-field-group-head">
-                  <strong>공동인증서 헬퍼</strong>
-                  <span>공동인증서 읽기, 갱신 준비, 팝빌 인증서 자동 등록에 쓰는 로컬 프로그램 상태입니다.</span>
+                  <strong>인증서 작업 도구</strong>
+                  <span>인증서 읽기나 갱신 준비가 필요할 때만 확인하면 됩니다.</span>
                 </div>
                 <div className="helper-box-stack settings-helper-status-card">
                   <div className="settings-helper-status-head">
@@ -336,29 +342,42 @@ export function SettingsTab(props: SettingsTabProps) {
                       </span>
                       {props.customerRenewalAssistantHelperVersion ? <span className="chip">v{props.customerRenewalAssistantHelperVersion}</span> : null}
                     </div>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      disabled={props.busyKey !== null}
-                      onClick={() => void props.runAction("refresh-customer-renewal-helper", props.refreshCustomerRenewalAssistant, { reload: false })}
-                    >
-                      상태 다시 확인
-                    </button>
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => window.location.assign(props.renewalHelperDownloadUrl)}
+                      >
+                        헬퍼 압축 다운로드
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={props.busyKey !== null}
+                        onClick={() => void props.runAction("refresh-customer-renewal-helper", props.refreshCustomerRenewalAssistant, { reload: false })}
+                      >
+                        상태 다시 확인
+                      </button>
+                    </div>
                   </div>
                   <span>상태 메시지: {props.customerRenewalAssistantHelperMessage}</span>
                   <span>마지막 확인: {props.formatDateTime(props.customerRenewalAssistantCheckedAt)}</span>
                   <span>현재 읽은 공동인증서: {props.customerRenewalLoadedCertificateCount}건</span>
                 </div>
-                <div className="helper-box-stack settings-install-guide">
-                  <strong>설치 안내</strong>
-                  <span>
-                    고객 PC에는 전달한 <code>renewal-local-helper</code> 압축을 푼 뒤 <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
-                  </span>
-                  <span>설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시 실행됩니다.</span>
-                  <span>
-                    문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>, <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code> 바로가기로 확인할 수 있습니다.
-                  </span>
-                </div>
+                <details className="settings-advanced-panel">
+                  <summary>설치 안내와 세부 정보 보기</summary>
+                  <div className="helper-box-stack settings-install-guide">
+                    <strong>설치 안내</strong>
+                    <span>
+                      고객 PC에서는 위 <code>헬퍼 압축 다운로드</code>로 받은 <code>renewal-local-helper</code> 압축을 푼 뒤 <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
+                    </span>
+                    <span>설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시 실행됩니다.</span>
+                    <span>
+                      문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>, <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code> 바로가기로 확인할 수 있습니다.
+                    </span>
+                    <span>자동실행만 꺼도 Start / Stop / Status 바로가기는 그대로 남습니다.</span>
+                  </div>
+                </details>
               </section>
             </div>
           </SetupPanel>
@@ -396,35 +415,40 @@ export function SettingsTab(props: SettingsTabProps) {
 
             <Panel
               title="작업공간 사용자 관리"
-              subtitle={props.canManageOrganizationMembers ? "owner가 같은 회사 내부 사용자를 추가하거나 제거할 수 있습니다." : "현재 계정은 사용자 관리 권한이 없습니다."}
+              subtitle={props.canManageOrganizationMembers ? "owner만 회사 내부 사용자를 추가하거나 제거합니다." : "현재 계정은 사용자 관리 권한이 없습니다."}
               actions={props.canManageOrganizationMembers ? <button onClick={() => void props.runAction("create-organization-member", props.createOrganizationMember, { reload: false })}>사용자 추가</button> : null}
             >
               {props.canManageOrganizationMembers ? (
                 <>
-                  <div className="form-grid">
-                    <label>
-                      로그인 아이디
-                      <input value={props.organizationMemberForm.loginId} onChange={(event) => props.setOrganizationMemberForm((prev: any) => ({ ...prev, loginId: event.target.value }))} placeholder="예: team01" />
-                    </label>
-                    <label>
-                      이름
-                      <input value={props.organizationMemberForm.displayName} onChange={(event) => props.setOrganizationMemberForm((prev: any) => ({ ...prev, displayName: event.target.value }))} placeholder="표시 이름" />
-                    </label>
-                    <label className="full">
-                      임시 비밀번호
-                      <div className="password-field">
-                        <input type={props.revealedFields.organizationMemberPassword ? "text" : "password"} value={props.organizationMemberForm.password} onChange={(event) => props.setOrganizationMemberForm((prev: any) => ({ ...prev, password: event.target.value }))} placeholder="기존 계정이면 비워두고, 새 계정이면 8자 이상 입력" />
-                        <button type="button" className="password-toggle" aria-label={props.revealedFields.organizationMemberPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"} onClick={() => props.toggleRevealField("organizationMemberPassword")}>
-                          <RevealIcon open={Boolean(props.revealedFields.organizationMemberPassword)} />
-                        </button>
-                      </div>
-                      <span className="field-hint">이미 존재하는 로그인 아이디면 현재 계정을 멤버로 연결하고, 처음 만드는 로그인 아이디면 임시 비밀번호가 필요합니다.</span>
-                      <span className="field-hint">같은 회사에서 쓸 로그인 아이디입니다. 영어, 숫자, `.`, `_`, `-`만 권장합니다.</span>
-                    </label>
-                  </div>
-                  <div className="helper-box">
+                  <div className="helper-box workspace-member-summary">
                     <strong>현재 사용자 {props.organizationMembers.length}명</strong>
-                    <span>소유자(owner)는 여기서 삭제할 수 없습니다.</span>
+                    <span>owner는 여기서 제거할 수 없습니다.</span>
+                  </div>
+
+                  <div className="workspace-member-create-box">
+                    <div className="workspace-member-create-grid">
+                      <label>
+                        로그인 아이디
+                        <input value={props.organizationMemberForm.loginId} onChange={(event) => props.setOrganizationMemberForm((prev: any) => ({ ...prev, loginId: event.target.value }))} placeholder="예: team01" />
+                      </label>
+                      <label>
+                        이름
+                        <input value={props.organizationMemberForm.displayName} onChange={(event) => props.setOrganizationMemberForm((prev: any) => ({ ...prev, displayName: event.target.value }))} placeholder="표시 이름" />
+                      </label>
+                      <label>
+                        임시 비밀번호
+                        <div className="password-field">
+                          <input type={props.revealedFields.organizationMemberPassword ? "text" : "password"} value={props.organizationMemberForm.password} onChange={(event) => props.setOrganizationMemberForm((prev: any) => ({ ...prev, password: event.target.value }))} placeholder="새 계정이면 8자 이상" />
+                          <button type="button" className="password-toggle" aria-label={props.revealedFields.organizationMemberPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"} onClick={() => props.toggleRevealField("organizationMemberPassword")}>
+                            <RevealIcon open={Boolean(props.revealedFields.organizationMemberPassword)} />
+                          </button>
+                        </div>
+                      </label>
+                    </div>
+                    <div className="workspace-member-create-note">
+                      <span>기존 로그인 아이디면 현재 계정을 멤버로 연결합니다.</span>
+                      <span>새 로그인 아이디면 임시 비밀번호 8자 이상이 필요합니다.</span>
+                    </div>
                   </div>
 
                   <div className="workspace-member-list">

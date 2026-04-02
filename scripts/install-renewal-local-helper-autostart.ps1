@@ -8,10 +8,12 @@ $ErrorActionPreference = "Stop"
 
 $sourceRoot = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
 $packageAppMarker = Join-Path $sourceRoot "app\\renewal-local-helper.cjs"
+$legacyPackageAppMarker = Join-Path $sourceRoot "app\\renewal-local-helper.mjs"
 $defaultInstallRoot = Join-Path $env:LOCALAPPDATA "AUTO-TAX\\renewal-local-helper"
-$installRoot = if (Test-Path $packageAppMarker) { $defaultInstallRoot } else { $sourceRoot }
+$isPackagedInstall = (Test-Path $packageAppMarker) -or (Test-Path $legacyPackageAppMarker)
+$installRoot = if ($isPackagedInstall) { $defaultInstallRoot } else { $sourceRoot }
 
-if ((Test-Path $packageAppMarker) -and ($sourceRoot -ne $installRoot)) {
+if ($isPackagedInstall -and ($sourceRoot -ne $installRoot)) {
   if ($PSCmdlet.ShouldProcess($installRoot, "Copy packaged renewal helper files to stable install location")) {
     New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
     Copy-Item -Path (Join-Path $sourceRoot "*") -Destination $installRoot -Recurse -Force
@@ -33,7 +35,7 @@ if (-not (Test-Path $launcherScript)) {
 
 $action = New-ScheduledTaskAction `
   -Execute $powershellExe `
-  -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcherScript`"" `
+  -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcherScript`" -Detached" `
   -WorkingDirectory $installRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
 $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
@@ -82,7 +84,7 @@ if (-not $SkipDesktopShortcuts) {
       Name = "AUTO-TAX Helper Disable Autostart.lnk"
       Target = $powershellExe
       Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$uninstallScript`""
-      Description = "AUTO-TAX 로컬 공동인증서 헬퍼 자동실행 제거"
+      Description = "AUTO-TAX 로컬 공동인증서 헬퍼 로그인 자동실행만 해제"
     }
   )
 

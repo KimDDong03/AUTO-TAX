@@ -44,6 +44,7 @@ const baseSettings: AppSettings = {
   smtpPass: "",
   smtpFromName: "AUTO-TAX",
   smtpFromEmail: "",
+  mailConnectionVerifiedAt: null,
   notificationEmails: [],
   defaultIssueDay: 26,
   defaultIssueHour: 9,
@@ -63,7 +64,7 @@ const baseSettings: AppSettings = {
   renewalContactDepartment: "",
   renewalContactFax: "",
   renewalCertificatePassword: "",
-  renewalIssuePassword: "1234",
+  renewalIssuePassword: "123456",
   schedulerEnabled: true,
   certLastCheckedAt: null,
   certAlertLastSentAt: null,
@@ -107,7 +108,7 @@ test("buildRenewalSubmissionProfile keeps only shared renewal essentials plus cu
     contactTel: "031-0000-0000",
     contactFax: "",
     contactMobile: "01052836506",
-    issuePassword: "1234"
+    issuePassword: "123456"
   });
 });
 

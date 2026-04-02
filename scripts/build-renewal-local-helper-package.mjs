@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import esbuild from "esbuild";
 
@@ -11,9 +12,19 @@ const appDir = path.join(outputRoot, "app");
 const appNodeModulesDir = path.join(appDir, "node_modules");
 const runtimeDir = path.join(outputRoot, "runtime");
 const scriptsDir = path.join(outputRoot, "scripts");
+const outputZipPath = path.join(repoRoot, "dist", "renewal-local-helper.zip");
+const staticDownloadDir = path.join(repoRoot, "web", "public", "downloads");
+const staticDownloadZipPath = path.join(staticDownloadDir, "renewal-local-helper.zip");
 
 function resetDir(dirPath) {
-  fs.rmSync(dirPath, { recursive: true, force: true });
+  try {
+    fs.rmSync(dirPath, { recursive: true, force: true });
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "EBUSY") {
+      throw new Error(`${dirPath} 폴더가 사용 중입니다. 로컬 헬퍼가 실행 중이면 먼저 종료한 뒤 다시 패키징하세요.`);
+    }
+    throw error;
+  }
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
@@ -34,6 +45,7 @@ function writePackageReadme() {
     "1. this folder 전체를 고객 PC에 복사합니다.",
     "2. scripts\\renewal-helper-install.cmd 를 더블클릭합니다.",
     "3. 설치 후 바탕화면의 AUTO-TAX Helper Start / Stop / Status 바로가기를 사용합니다.",
+    "4. Disable Autostart는 로그인 자동실행만 끄고 Start / Stop / Status 바로가기는 유지합니다.",
     "",
     "직접 실행 명령:",
     "  scripts\\renewal-helper-start.cmd",
@@ -43,6 +55,29 @@ function writePackageReadme() {
   ].join("\r\n");
 
   fs.writeFileSync(path.join(outputRoot, "README.txt"), content, "utf8");
+}
+
+function writeZipArchive() {
+  if (fs.existsSync(outputZipPath)) {
+    fs.rmSync(outputZipPath, { force: true });
+  }
+
+  const sourcePattern = path.join(outputRoot, "*").replace(/\\/g, "\\\\");
+  const destinationPath = outputZipPath.replace(/\\/g, "\\\\");
+  const command = `Compress-Archive -Path "${sourcePattern}" -DestinationPath "${destinationPath}" -Force`;
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`renewal helper zip 생성에 실패했습니다: ${result.stderr?.trim() || result.stdout?.trim() || "powershell 실패"}`);
+  }
+}
+
+function syncStaticDownloadAsset() {
+  fs.mkdirSync(staticDownloadDir, { recursive: true });
+  copyRecursive(outputZipPath, staticDownloadZipPath);
 }
 
 async function buildBundle() {
@@ -130,7 +165,7 @@ function copyScripts() {
       "setlocal",
       "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0uninstall-renewal-local-helper-autostart.ps1\"",
       "echo.",
-      "echo AUTO-TAX renewal helper autostart removed.",
+      "echo AUTO-TAX renewal helper autostart removed. Start/Stop/Status shortcuts stay available.",
       "pause"
     ]
   };
@@ -151,8 +186,12 @@ async function main() {
   copyPlaywrightRuntime();
   copyScripts();
   writePackageReadme();
+  writeZipArchive();
+  syncStaticDownloadAsset();
 
   console.log(`output=${outputRoot}`);
+  console.log(`zip=${outputZipPath}`);
+  console.log(`publicZip=${staticDownloadZipPath}`);
 }
 
 await main();
