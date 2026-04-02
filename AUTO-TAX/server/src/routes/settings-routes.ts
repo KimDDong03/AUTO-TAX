@@ -20,6 +20,11 @@ import type {
   ServerManagedSettingsGetter
 } from "../route-types.js";
 
+const renewalIssuePasswordSchema = z
+  .string()
+  .trim()
+  .regex(/^$|^\d{6}$/, "발급용 임시번호는 숫자 6자리여야 합니다.");
+
 const settingsSchema = z.object({
   imapHost: z.string(),
   imapPort: z.number().int().min(1),
@@ -49,7 +54,7 @@ const settingsSchema = z.object({
   renewalContactDepartment: z.string(),
   renewalContactFax: z.string(),
   renewalCertificatePassword: z.string(),
-  renewalIssuePassword: z.string(),
+  renewalIssuePassword: renewalIssuePasswordSchema,
   schedulerEnabled: z.boolean()
 });
 
@@ -358,6 +363,20 @@ export function registerSettingsRoutes(deps: RouteDeps) {
       smtpPass: payload.smtpPass || currentSettings.smtpPass
     });
     res.json(result);
+  });
+
+  app.post("/api/settings/mail-connection-verified", async (_req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const currentSettings = await requestStore.getSettings();
+    const verifiedSettings = await requestStore.updateSettings({
+      mailConnectionVerifiedAt:
+        currentSettings.imapUser && currentSettings.smtpUser && (currentSettings.imapPass || currentSettings.smtpPass)
+          ? new Date().toISOString()
+          : null
+    });
+    await requestStore.createLog("info", "settings", "메일 연결 검증 상태를 갱신했습니다.");
+    res.json(toClientSettings(verifiedSettings));
   });
 
   app.get("/api/address/resolve", async (req, res) => {

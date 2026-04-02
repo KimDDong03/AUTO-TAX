@@ -101,6 +101,7 @@ Important fields:
 - `default_issue_minute`
 - `mail_poll_minutes`
 - `mail_sync_start_at`
+- `mail_connection_verified_at`
 - `scheduler_enabled`
 - `cert_last_checked_at`
 - `cert_alert_last_sent_at`

@@ -8,10 +8,11 @@ type AppShellDeps = {
   store: AppStore | null;
   requirePlatformAdmin: (res: Response) => unknown;
   webDist: string;
+  renewalHelperZipPath?: string | null;
 };
 
 export function registerAppShell(deps: AppShellDeps): void {
-  const { app, store, requirePlatformAdmin, webDist } = deps;
+  const { app, store, requirePlatformAdmin, webDist, renewalHelperZipPath } = deps;
 
   app.get("/api/logs", async (_req, res) => {
     requirePlatformAdmin(res);
@@ -21,6 +22,15 @@ export function registerAppShell(deps: AppShellDeps): void {
     }
 
     res.json(await store.listLogs());
+  });
+
+  app.get("/downloads/renewal-local-helper.zip", (_req, res, next) => {
+    if (!renewalHelperZipPath || !fs.existsSync(renewalHelperZipPath)) {
+      next();
+      return;
+    }
+
+    res.download(renewalHelperZipPath, "renewal-local-helper.zip");
   });
 
   if (!fs.existsSync(webDist)) {

@@ -48,7 +48,7 @@ import type {
 type TabId = "work" | "onboarding" | "customers" | "certificates" | "settings" | "ops";
 type SettingsSectionId = "gmail" | "popbill" | "account";
 type CustomerDetailTabId = "info" | "history";
-type CustomerListFilter = "all" | "blocked" | "expiring" | "unjoined";
+type CustomerListFilter = "all" | "blocked" | "ready" | "expiring" | "unjoined";
 type MailProvider = "gmail" | "naver" | "daum";
 type RenewalAgentSnapshot = RenewalAutomationPayload["agent"];
 type RenewalAgentCertificate = RenewalAgentSnapshot["bridge"]["storageProbe"]["certificates"][number];
@@ -778,6 +778,10 @@ function settingsToForm(settings: AppSettings): SettingsFormState {
   };
 }
 
+function normalizeRenewalIssuePasswordInput(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 6);
+}
+
 function getDraftStatusLabel(status: string): string {
   switch (status) {
     case "review":
@@ -989,7 +993,7 @@ function getCustomerIssueReadiness(customer: Customer): {
   if (customer.popbillState !== "joined") {
     return {
       canIssueNow: false,
-      label: "발행 준비 필요",
+      label: "준비 필요",
       tone: "danger",
       reason: "팝빌 가입 필요"
     };
@@ -998,7 +1002,7 @@ function getCustomerIssueReadiness(customer: Customer): {
   if (!customer.popbillCertRegistered) {
     return {
       canIssueNow: false,
-      label: "발행 준비 필요",
+      label: "준비 필요",
       tone: "danger",
       reason: "인증서 등록 필요"
     };
@@ -1007,7 +1011,7 @@ function getCustomerIssueReadiness(customer: Customer): {
   if (days !== null && days < 0) {
     return {
       canIssueNow: false,
-      label: "발행 준비 필요",
+      label: "준비 필요",
       tone: "danger",
       reason: "인증서 만료"
     };
@@ -1016,17 +1020,17 @@ function getCustomerIssueReadiness(customer: Customer): {
   if (days !== null && days <= 30) {
     return {
       canIssueNow: true,
-      label: "즉시 발행 가능",
+      label: "발행 가능",
       tone: "warn",
-      reason: `인증서 만료 ${days}일 전`
+      reason: `만료 ${days}일 전`
     };
   }
 
   return {
     canIssueNow: true,
-    label: "즉시 발행 가능",
+    label: "발행 가능",
     tone: "success",
-    reason: "발행 조건 충족"
+    reason: "준비 완료"
   };
 }
 
@@ -1043,7 +1047,7 @@ function getCustomerIssueChecklist(customer: Customer): Array<{
     return [
       {
         key: "join-popbill",
-        label: "팝빌 가입이 필요합니다.",
+        label: "팝빌 가입 필요",
         tone: "danger",
         actionLabel: "팝빌 가입",
         actionKind: "join-popbill"
@@ -1055,7 +1059,7 @@ function getCustomerIssueChecklist(customer: Customer): Array<{
     return [
       {
         key: "register-certificate",
-        label: "전자세금용 인증서 등록이 필요합니다.",
+        label: "전자세금 인증서 등록 필요",
         tone: "danger",
         actionLabel: "인증서 등록",
         actionKind: "register-certificate"
@@ -1067,7 +1071,7 @@ function getCustomerIssueChecklist(customer: Customer): Array<{
     return [
       {
         key: "expired-certificate",
-        label: "인증서가 이미 만료되어 발행이 막혀 있습니다.",
+        label: "인증서 만료",
         tone: "danger",
         actionLabel: "만료일 확인",
         actionKind: "check-certificate"
@@ -1079,10 +1083,8 @@ function getCustomerIssueChecklist(customer: Customer): Array<{
     return [
       {
         key: "expiring-certificate",
-        label: `인증서 만료가 ${days}일 남았습니다. 지금은 발행 가능하지만 미리 점검이 필요합니다.`,
-        tone: "warn",
-        actionLabel: "만료일 확인",
-        actionKind: "check-certificate"
+        label: `만료 ${days}일 전`,
+        tone: "warn"
       }
     ];
   }
@@ -1090,7 +1092,7 @@ function getCustomerIssueChecklist(customer: Customer): Array<{
   return [
     {
       key: "ready",
-      label: "팝빌 가입과 인증서 준비가 끝나 바로 발행할 수 있습니다.",
+      label: "발행 가능",
       tone: "success"
     }
   ];
@@ -1100,6 +1102,10 @@ function matchesCustomerListFilter(customer: Customer, filter: CustomerListFilte
   const readiness = getCustomerIssueReadiness(customer);
   if (filter === "blocked") {
     return !readiness.canIssueNow;
+  }
+
+  if (filter === "ready") {
+    return readiness.canIssueNow;
   }
 
   if (filter === "expiring") {
@@ -3859,6 +3865,7 @@ export function App() {
 
   const buildSettingsPayload = (form: SettingsFormState) => {
     const normalized = withSelectedMailProviderSettings(form);
+    const renewalIssuePassword = normalizeRenewalIssuePasswordInput(normalized.renewalIssuePassword);
     return {
       normalized,
       payload: {
@@ -3893,7 +3900,7 @@ export function App() {
         renewalContactDepartment: normalized.renewalContactDepartment.trim(),
         renewalContactFax: normalized.renewalContactFax.trim(),
         renewalCertificatePassword: normalized.renewalCertificatePassword,
-        renewalIssuePassword: normalized.renewalIssuePassword,
+        renewalIssuePassword,
         schedulerEnabled: normalized.schedulerEnabled
       }
     };
@@ -3944,7 +3951,8 @@ export function App() {
       payload.defaultIssueMinute <= 59 &&
       isFiniteInteger(payload.mailPollMinutes) &&
       payload.mailPollMinutes >= 1 &&
-      payload.mailPollMinutes <= 1440
+      payload.mailPollMinutes <= 1440 &&
+      (payload.renewalIssuePassword === "" || /^\d{6}$/.test(payload.renewalIssuePassword))
     );
   };
 
@@ -3981,7 +3989,7 @@ export function App() {
 
   const fetchStoredRenewalIssuePassword = async () => {
     const result = await api<{ password: string }>("/api/settings/renewal-issue-password");
-    return result.password.trim();
+    return normalizeRenewalIssuePasswordInput(result.password.trim());
   };
 
   const fetchStoredCustomerCertificatePassword = async (certificateId: number) => {
@@ -4016,10 +4024,16 @@ export function App() {
     if (!settingsForm) return;
     const password = await fetchStoredRenewalIssuePassword();
     const nextForm = { ...settingsForm, renewalIssuePassword: password };
+    customerRenewalIssuePasswordRef.current = password;
     settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
     setSettingsAutosaveState("saved");
     setSettingsForm(nextForm);
     setRevealedFields((prev) => ({ ...prev, renewalIssuePassword: true }));
+  };
+  const handleSettingsRenewalIssuePasswordChange = (nextValue: string) => {
+    const normalizedValue = normalizeRenewalIssuePasswordInput(nextValue);
+    customerRenewalIssuePasswordRef.current = normalizedValue.length === 6 ? normalizedValue : "";
+    setSettingsForm((prev) => (prev ? { ...prev, renewalIssuePassword: normalizedValue } : prev));
   };
 
   const testMailSettings = async () => {
@@ -4053,11 +4067,14 @@ export function App() {
 
     const testSucceeded = result.imapOk && result.smtpOk;
     if (testSucceeded) {
-      const savedSettings = await api<AppSettings>("/api/settings", {
+      await api<AppSettings>("/api/settings", {
         method: "PUT",
         body: JSON.stringify(payload)
       });
-      applySavedSettings(savedSettings, {
+      const verifiedSettings = await api<AppSettings>("/api/settings/mail-connection-verified", {
+        method: "POST"
+      });
+      applySavedSettings(verifiedSettings, {
         syncForm: false,
         baselineForm: normalized
       });
@@ -4510,23 +4527,28 @@ export function App() {
   };
 
   const resolveCustomerRenewalIssuePassword = async () => {
-    const cachedPassword = customerRenewalIssuePasswordRef.current.trim();
-    if (cachedPassword) {
-      return cachedPassword;
-    }
-
-    const formPassword = settingsForm?.renewalIssuePassword.trim() ?? "";
-    if (formPassword) {
+    const rawFormPassword = settingsForm?.renewalIssuePassword ?? "";
+    const formPassword = normalizeRenewalIssuePasswordInput(rawFormPassword.trim());
+    if (formPassword.length === 6) {
       customerRenewalIssuePasswordRef.current = formPassword;
       return formPassword;
     }
 
+    if (rawFormPassword.trim()) {
+      return "";
+    }
+
     if (data?.settings.renewalIssuePasswordConfigured) {
       const storedPassword = await fetchStoredRenewalIssuePassword();
-      if (storedPassword) {
+      if (storedPassword.length === 6) {
         customerRenewalIssuePasswordRef.current = storedPassword;
         return storedPassword;
       }
+    }
+
+    const cachedPassword = normalizeRenewalIssuePasswordInput(customerRenewalIssuePasswordRef.current.trim());
+    if (cachedPassword.length === 6) {
+      return cachedPassword;
     }
 
     return "";
@@ -5820,7 +5842,12 @@ export function App() {
     }
   }
   const settingsHealth = {
-    mailReady: Boolean(data.settings.imapUser && data.settings.smtpUser && data.settings.mailPasswordConfigured),
+    mailReady: Boolean(
+      data.settings.imapUser &&
+      data.settings.smtpUser &&
+      data.settings.mailPasswordConfigured &&
+      data.settings.mailConnectionVerifiedAt
+    ),
     popbillReady: data.settings.popbillConfigured,
     operatorReady: data.settings.operatorConfigured
   };
@@ -6074,6 +6101,9 @@ export function App() {
   const isQuickRegistering = busyKey === "quick-register-unmatched";
   const partnerTaxInvoiceUnitCost = opsConsole?.partnerPoints.taxInvoiceUnitCost ?? null;
   const opsPartnerIsTest = opsConsole?.partnerPoints.isTest ?? false;
+  const workspacePopbillIsTest = data.settings.popbillIsTest;
+  const workspacePopbillModeLabel = workspacePopbillIsTest ? "팝빌 테스트" : "팝빌 운영";
+  const renewalHelperDownloadUrl = import.meta.env.VITE_RENEWAL_HELPER_DOWNLOAD_URL?.trim() || "/downloads/renewal-local-helper.zip";
   const opsPartnerModeLabel = opsPartnerIsTest ? "테스트 모드" : "운영 모드";
   const opsPartnerModeDescription = opsPartnerIsTest
     ? "현재 팝빌 테스트 환경으로 연결되어 있습니다. 실제 고객 운영 전에는 운영 모드 전환 여부를 다시 확인하세요."
@@ -6102,13 +6132,8 @@ export function App() {
       id: "mail",
       step: 1,
       title: "메일 연결",
-      summary: settingsHealth.mailReady ? "한전 메일 읽기 연결이 준비되었습니다." : "한전 메일을 읽고 알림을 보낼 계정을 먼저 연결합니다.",
-      done: settingsHealth.mailReady,
-      actionLabel: "메일 연결 열기",
-      onAction: () => {
-        setActiveSettingsSection("gmail");
-        setActiveTab("settings");
-      }
+      summary: settingsHealth.mailReady ? "메일 연결 완료" : "메일 연결 필요",
+      done: settingsHealth.mailReady
     },
     {
       id: "defaults",
@@ -6116,41 +6141,30 @@ export function App() {
       title: "발행 기본값 입력",
       summary:
         settingsHealth.popbillReady && settingsHealth.operatorReady
-          ? "팝빌과 운영 담당자 기본값이 준비되었습니다."
-          : "신규 고객 생성과 발행에 필요한 팝빌 기본값과 운영 정보를 입력합니다.",
-      done: settingsHealth.popbillReady && settingsHealth.operatorReady,
-      actionLabel: "기본값 열기",
-      onAction: () => {
-        setActiveSettingsSection("popbill");
-        setActiveTab("settings");
-      }
+          ? "기본값 완료"
+          : "기본값 입력",
+      done: settingsHealth.popbillReady && settingsHealth.operatorReady
     },
     {
       id: "customers",
       step: 3,
-      title: "고객 등록",
-      summary: customerRegistrationReady ? `현재 ${data.customers.length}명의 고객이 등록되어 있습니다.` : "최소 1명의 고객을 등록해야 자동 매칭과 발행 검토가 가능합니다.",
-      done: customerRegistrationReady,
-      actionLabel: "고객 운영 열기",
-      onAction: () => setActiveTab("customers")
+      title: "엑셀 고객 등록",
+      summary: customerRegistrationReady ? `${data.customers.length}명 등록됨` : "고객 등록 필요",
+      done: customerRegistrationReady
     },
     {
       id: "certificates",
       step: 4,
-      title: "인증서 연결",
-      summary: onboardingCertificateReady ? "전자세금용 또는 연동 인증서가 연결되어 있습니다." : "초기 등록 양식이나 인증서 관리에서 고객과 인증서를 연결합니다.",
-      done: onboardingCertificateReady,
-      actionLabel: "초기 등록 보기",
-      onAction: () => scrollToElementById("onboarding-registration")
+      title: "인증서 연결 마무리",
+      summary: onboardingCertificateReady ? "인증서 연결됨" : "인증서 연결 필요",
+      done: onboardingCertificateReady
     },
     {
       id: "first-run",
       step: 5,
       title: "첫 동기화 / 첫 발행 확인",
-      summary: onboardingFirstSyncReady ? "메일 수집 또는 발행 대기 데이터가 이미 들어와 있습니다." : "오늘 작업에서 메일 즉시 동기화를 실행하고 첫 발행 대기를 확인합니다.",
-      done: onboardingFirstSyncReady,
-      actionLabel: "오늘 작업 열기",
-      onAction: () => setActiveTab("work")
+      summary: onboardingFirstSyncReady ? "첫 실행 완료" : "첫 동기화 필요",
+      done: onboardingFirstSyncReady
     }
   ];
   const workPriorityCards = [
@@ -6160,7 +6174,7 @@ export function App() {
             key: "setup",
             title: "도입 준비",
             count: setupPendingCount,
-            description: "메일, 발행 기본값, 고객 등록 중 아직 마무리되지 않은 준비가 있습니다.",
+            description: "남은 준비",
             tone: "warn" as const,
             actionLabel: "도입 준비 열기",
             onAction: () => setActiveTab("onboarding")
@@ -6173,7 +6187,7 @@ export function App() {
             key: "unmatched",
             title: "미매칭 메일",
             count: unmatchedMessages.length,
-            description: "고객 연결이 안 된 메일이 있어 초안 생성이 멈춰 있습니다.",
+            description: "고객 연결 필요",
             tone: "warn" as const,
             actionLabel: "초기 등록 확인",
             onAction: () => setActiveTab("onboarding")
@@ -6186,7 +6200,7 @@ export function App() {
             key: "cert",
             title: "인증서 주의",
             count: certAttentionCount,
-            description: "만료되었거나 30일 이내 만료 예정인 인증서가 있습니다.",
+            description: "만료 임박",
             tone: expiredCertCustomers.length > 0 ? ("danger" as const) : ("warn" as const),
             actionLabel: "인증서 관리 열기",
             onAction: () => setActiveTab("certificates")
@@ -6199,7 +6213,7 @@ export function App() {
             key: "duplicate",
             title: "중복 의심 메일",
             count: duplicateMessages.length,
-            description: "같은 정산월 또는 같은 메일이 중복으로 들어온 것으로 보입니다.",
+            description: "중복 확인",
             tone: "default" as const,
             actionLabel: "최근 수신 보기",
             onAction: () => {
@@ -6222,7 +6236,7 @@ export function App() {
       step: 1,
       title: "메일 연결",
       done: settingsHealth.mailReady,
-      summary: settingsHealth.mailReady ? data.settings.imapUser || "메일 연결 완료" : "메일 계정과 앱 비밀번호 입력"
+      summary: settingsHealth.mailReady ? data.settings.imapUser || "연결 완료" : "테스트 필요"
     },
     {
       id: "popbill",
@@ -6230,15 +6244,15 @@ export function App() {
       title: "팝빌 / 담당자",
       done: settingsHealth.popbillReady && settingsHealth.operatorReady,
       summary: settingsHealth.popbillReady && settingsHealth.operatorReady
-        ? "플랫폼 키 연결 및 작업공간 운영값 준비 완료"
-        : "팝빌 연결 또는 작업공간 운영값 확인 필요"
+        ? "기본값 완료"
+        : "기본값 필요"
     },
     {
       id: "account",
       step: 3,
       title: "계정 보안",
       done: true,
-      summary: canManageOrganizationMembers ? "로그인 비밀번호 변경 및 사용자 관리" : "로그인 비밀번호 변경"
+      summary: canManageOrganizationMembers ? "비밀번호 / 사용자" : "비밀번호 변경"
     }
   ];
   const settingsAutosaveLabel =
@@ -6449,6 +6463,305 @@ export function App() {
       };
     });
   };
+  const onboardingSettingsStatusChipClass =
+    settingsAutosaveState === "error"
+      ? "chip chip-danger"
+      : settingsAutosaveState === "saving"
+        ? "chip chip-warn"
+        : settingsAutosaveState === "pending"
+          ? "chip chip-warn"
+          : "chip chip-success";
+  const canRunOnboardingFirstSync = setupPendingCount === 0 && customerRegistrationReady;
+  const onboardingMailSetupContent = (
+    <SetupPanel
+      step={1}
+      className="panel-settings-mail"
+      title="메일 연결"
+      done={settingsHealth.mailReady}
+      note="도입 준비 탭 안에서 바로 연결하면 됩니다. 저장은 자동으로 처리됩니다."
+      actions={
+        <button disabled={busyKey !== null} onClick={() => void runAction("mail-test", testMailSettings, { reload: false })}>
+          {isMailTesting ? "메일 연결 확인 중..." : "메일 연결 테스트"}
+        </button>
+      }
+    >
+      <div className="settings-action-feedback">
+        <span className={onboardingSettingsStatusChipClass}>{settingsAutosaveLabel}</span>
+        <span>{settingsHealth.mailReady ? "메일 연결 테스트까지 완료되었습니다." : "입력은 자동 저장되지만, 메일 연결 테스트 성공 전에는 완료되지 않습니다."}</span>
+      </div>
+      {isMailTesting ? (
+        <div className="settings-action-feedback">
+          <span className="chip chip-warn">테스트 중</span>
+          <span>IMAP/SMTP 연결을 확인하고 있습니다.</span>
+        </div>
+      ) : null}
+      <div className="form-grid">
+        <div className="settings-detected-provider full">
+          <span>바로 읽어오는 범위</span>
+          <strong>최근 메일 1000통까지 함께 확인</strong>
+          <p className="settings-inline-help">예전 메일까지 함께 읽어서 첫 도입 때도 바로 확인할 수 있습니다.</p>
+        </div>
+        <div className="settings-detected-provider full">
+          <span>자동으로 찾은 메일 서비스</span>
+          <strong>{detectedMailProviderLabel}</strong>
+        </div>
+        <label>
+          메일 주소
+          <input placeholder="example@mail.com" value={settingsForm.mailAddress} onChange={(event) => handleSettingsMailAddressChange(event.target.value)} />
+          <span className="field-hint">한전 메일을 읽고 알림 메일을 보낼 때 함께 사용하는 주소입니다.</span>
+        </label>
+        <label>
+          앱 비밀번호
+          <div className="password-field">
+            <input
+              type={revealedFields.mailPassword ? "text" : "password"}
+              value={settingsForm.mailPassword}
+              onChange={(event) => setSettingsForm((prev) => prev && { ...prev, mailPassword: event.target.value })}
+              placeholder={data.settings.mailPasswordConfigured ? "변경할 때만 다시 입력" : "앱 비밀번호 입력"}
+            />
+            <button type="button" className="password-toggle" aria-label={revealedFields.mailPassword ? "앱 비밀번호 숨기기" : "앱 비밀번호 보기"} onClick={() => toggleRevealField("mailPassword")}>
+              <RevealIcon open={Boolean(revealedFields.mailPassword)} />
+            </button>
+          </div>
+          <span className="field-hint">
+            {data.settings.mailPasswordConfigured
+              ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요."
+              : "위 메일 주소로 로그인할 때 쓰는 비밀번호입니다."}
+          </span>
+        </label>
+        <label className="full">
+          알림 수신 메일
+          <textarea rows={4} value={settingsForm.notificationEmailsText} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, notificationEmailsText: event.target.value })} />
+          <span className="field-hint">파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나 쉼표로 구분합니다.</span>
+        </label>
+        <details className="settings-advanced-panel full">
+          <summary>월 자동 발행 일정 보기</summary>
+          <div className="helper-box">
+            <strong>매달 자동 실행 일정</strong>
+            <div className="fields three-column">
+              <label>
+                자동 실행
+                <select value={settingsForm.schedulerEnabled ? "on" : "off"} onChange={(event) => setSettingsForm((prev) => prev ? { ...prev, schedulerEnabled: event.target.value === "on" } : prev)}>
+                  <option value="on">사용</option>
+                  <option value="off">중지</option>
+                </select>
+              </label>
+              <label>
+                실행일
+                <input type="number" min="1" max="31" value={settingsForm.defaultIssueDay} onChange={(event) => setSettingsForm((prev) => (prev ? { ...prev, defaultIssueDay: event.target.value } : prev))} />
+              </label>
+              <label>
+                실행 시각
+                <div className="inline-time-fields">
+                  <input type="number" min="0" max="23" value={settingsForm.defaultIssueHour} onChange={(event) => setSettingsForm((prev) => (prev ? { ...prev, defaultIssueHour: event.target.value } : prev))} />
+                  <span>:</span>
+                  <input type="number" min="0" max="59" value={settingsForm.defaultIssueMinute} onChange={(event) => setSettingsForm((prev) => (prev ? { ...prev, defaultIssueMinute: event.target.value } : prev))} />
+                </div>
+              </label>
+            </div>
+            <span>기본값은 매월 26일입니다. 이 일정이 되면 메일을 읽고, 자동 발행 고객은 바로 세금계산서를 발행합니다.</span>
+          </div>
+        </details>
+      </div>
+    </SetupPanel>
+  );
+  const onboardingDefaultsContent = (
+    <SetupPanel
+      step={2}
+      className="panel-settings-popbill"
+      title="발행 기본 설정"
+      done={settingsHealth.popbillReady && settingsHealth.operatorReady}
+      note="고객 등록 전에 필요한 공통값만 여기서 먼저 입력하면 됩니다."
+    >
+      <div className="settings-action-feedback">
+        <span className={onboardingSettingsStatusChipClass}>{settingsAutosaveLabel}</span>
+        <span>입력하면 자동 저장됩니다.</span>
+      </div>
+      <div className="settings-field-stack">
+        <section className="settings-field-group">
+          <div className="settings-field-group-head">
+            <strong>먼저 입력할 공통값</strong>
+            <span>신규 고객 계정 생성과 기본 발행 처리에 쓰는 값입니다.</span>
+          </div>
+          <div className="settings-defaults-grid">
+            <label className="settings-defaults-cell">
+              신규 고객 계정 시작 문자
+              <input value={settingsForm.popbillUserIdPrefix} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} placeholder="예: TEST_" />
+              <span className="field-hint">예: `TEST_001`</span>
+            </label>
+            <label className="settings-defaults-cell">
+              담당자 이름
+              <input value={settingsForm.operatorContactName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })} placeholder="담당자 이름" />
+            </label>
+            <label className="settings-defaults-cell">
+              담당자 연락처
+              <input value={settingsForm.operatorContactTel} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })} placeholder="01012345678" />
+            </label>
+            <label className="settings-defaults-cell">
+              담당자 이메일
+              <input type="email" value={settingsForm.operatorContactEmail} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })} placeholder="operator@example.com" />
+            </label>
+            <label className="settings-defaults-cell">
+              신규 고객 기본 비밀번호
+              <div className="password-field">
+                <input
+                  type={revealedFields.popbillSharedPassword ? "text" : "password"}
+                  value={settingsForm.popbillSharedPassword}
+                  onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
+                  placeholder={data.settings.popbillSharedPasswordConfigured ? "변경할 때만 다시 입력" : "신규 고객 공통 비밀번호"}
+                />
+                <button type="button" className="password-toggle" aria-label={revealedFields.popbillSharedPassword ? "팝빌 기본 비밀번호 숨기기" : "팝빌 기본 비밀번호 보기"} onClick={() => toggleRevealField("popbillSharedPassword")}>
+                  <RevealIcon open={Boolean(revealedFields.popbillSharedPassword)} />
+                </button>
+              </div>
+              <div className="field-meta-row">
+                <span className="field-hint">
+                  {data.settings.popbillSharedPasswordConfigured
+                    ? "이미 저장된 값이 있습니다. 필요하면 불러오세요."
+                    : "신규 고객 계정 초기 비밀번호"}
+                </span>
+                {data.settings.popbillSharedPasswordConfigured ? (
+                  <div className="field-action-row">
+                    <button type="button" className="btn-secondary field-inline-action" disabled={busyKey !== null} onClick={() => void runAction("load-popbill-shared-password", loadCurrentPopbillSharedPassword, { reload: false })}>
+                      저장된 비밀번호 불러오기
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </label>
+            <label className="settings-defaults-cell">
+              발급용 임시번호
+              <div className="password-field">
+                <input
+                  type={revealedFields.renewalIssuePassword ? "text" : "password"}
+                  value={settingsForm.renewalIssuePassword}
+                  inputMode="numeric"
+                  maxLength={6}
+                  onChange={(event) => handleSettingsRenewalIssuePasswordChange(event.target.value)}
+                  placeholder={data.settings.renewalIssuePasswordConfigured ? "변경할 때만 다시 입력" : "숫자 6자리 입력"}
+                />
+                <button type="button" className="password-toggle" aria-label={revealedFields.renewalIssuePassword ? "발급용 임시번호 숨기기" : "발급용 임시번호 보기"} onClick={() => toggleRevealField("renewalIssuePassword")}>
+                  <RevealIcon open={Boolean(revealedFields.renewalIssuePassword)} />
+                </button>
+              </div>
+              <div className="field-meta-row">
+                <span className="field-hint">
+                  {data.settings.renewalIssuePasswordConfigured
+                    ? "공동인증서 신청 및 갱신 신청용 6자리입니다. 필요하면 불러오세요."
+                    : "공동인증서 신청 및 갱신 신청용 6자리"}
+                </span>
+                {data.settings.renewalIssuePasswordConfigured ? (
+                  <div className="field-action-row">
+                    <button type="button" className="btn-secondary field-inline-action" disabled={busyKey !== null} onClick={() => void runAction("load-renewal-issue-password", loadCurrentRenewalIssuePassword, { reload: false })}>
+                      저장된 임시번호 불러오기
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </label>
+            <label className="settings-defaults-cell settings-defaults-cell-span-2">
+              인증서 공통 비밀번호 (선택)
+              <div className="password-field">
+                <input
+                  type={revealedFields.renewalCertificatePassword ? "text" : "password"}
+                  value={settingsForm.renewalCertificatePassword}
+                  onChange={(event) => setSettingsForm((prev) => prev && { ...prev, renewalCertificatePassword: event.target.value })}
+                  placeholder={data.settings.renewalCertificatePasswordConfigured ? "변경할 때만 다시 입력" : "선택 입력"}
+                />
+                <button type="button" className="password-toggle" aria-label={revealedFields.renewalCertificatePassword ? "공동인증서 공통 비밀번호 숨기기" : "공동인증서 공통 비밀번호 보기"} onClick={() => toggleRevealField("renewalCertificatePassword")}>
+                  <RevealIcon open={Boolean(revealedFields.renewalCertificatePassword)} />
+                </button>
+              </div>
+              <div className="field-meta-row">
+                <span className="field-hint">
+                  {data.settings.renewalCertificatePasswordConfigured
+                    ? "이미 저장된 값이 있습니다. 필요하면 불러오세요."
+                    : "비밀번호가 모두 같을 때만 사용"}
+                </span>
+                {data.settings.renewalCertificatePasswordConfigured ? (
+                  <div className="field-action-row">
+                    <button type="button" className="btn-secondary field-inline-action" disabled={busyKey !== null} onClick={() => void runAction("load-renewal-certificate-password", loadCurrentRenewalCertificatePassword, { reload: false })}>
+                      저장된 비밀번호 불러오기
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </label>
+            <div className="settings-defaults-status">
+              <strong>입력 상태</strong>
+              <span>팝빌 연결: {settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</span>
+              <span>작업공간 운영값: {settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</span>
+            </div>
+          </div>
+        </section>
+        <details className="settings-advanced-panel">
+          <summary>인증서 도구와 추가 설정은 작업공간 설정에서 보기</summary>
+          <div className="helper-box-stack">
+            <strong>고급 설정 분리</strong>
+            <span>인증서 작업 도구 상태, 설치 안내, 계정 관리 같은 세부 항목은 작업공간 설정 탭에 그대로 있습니다.</span>
+            <div className="button-row">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setActiveSettingsSection("popbill");
+                  setActiveTab("settings");
+                }}
+              >
+                작업공간 설정 열기
+              </button>
+            </div>
+          </div>
+        </details>
+      </div>
+    </SetupPanel>
+  );
+  const onboardingFirstRunContent = (
+    <Panel
+      title="첫 동기화와 첫 발행 확인"
+      subtitle="기본 준비와 고객 등록이 끝났으면 여기서 바로 시작합니다."
+      actions={
+        <button
+          disabled={busyKey !== null || !canRunOnboardingFirstSync}
+          onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))}
+        >
+          메일 즉시 동기화
+        </button>
+      }
+    >
+      <div className="info-grid">
+        <div>
+          <span>준비 남음</span>
+          <strong>{setupPendingCount}개</strong>
+        </div>
+        <div>
+          <span>등록 고객</span>
+          <strong>{data.customers.length}명</strong>
+        </div>
+        <div>
+          <span>미매칭 메일</span>
+          <strong>{unmatchedMessages.length}건</strong>
+        </div>
+        <div>
+          <span>발행 대기</span>
+          <strong>{reviewDrafts.length}건</strong>
+        </div>
+      </div>
+      <div className="helper-box">
+        <strong>{canRunOnboardingFirstSync ? "여기서 바로 첫 실행을 시작하면 됩니다." : "아직 도입 준비가 남아 있습니다."}</strong>
+        <span>
+          {canRunOnboardingFirstSync
+            ? "메일 즉시 동기화를 한 번 실행한 뒤, 오늘 작업에서 미매칭 메일과 발행 대기를 확인하세요."
+            : "메일 연결, 발행 기본값, 고객 등록을 먼저 마치면 여기서 바로 첫 동기화를 실행할 수 있습니다."}
+        </span>
+      </div>
+      <div className="button-row">
+        <button type="button" className="btn-secondary" onClick={() => setActiveTab("work")}>
+          오늘 작업 열기
+        </button>
+      </div>
+    </Panel>
+  );
   const activeNavLabel = navItems.find((item) => item.id === activeTab)?.label ?? "AUTO-TAX";
 
   return (
@@ -6542,7 +6855,7 @@ export function App() {
                 </>
               ) : (
                 <>
-                  <span className="hero-pill">팝빌 운영</span>
+                  <span className={workspacePopbillIsTest ? "hero-pill hero-pill-warn" : "hero-pill"}>{workspacePopbillModeLabel}</span>
                   <span className="hero-pill">발행 대상 {data.counts.actionableDrafts}건</span>
                   <span className={certAttentionCount > 0 ? "hero-pill hero-pill-warn" : "hero-pill"}>인증서 주의 {certAttentionCount}건</span>
                 </>
@@ -6569,8 +6882,7 @@ export function App() {
           <div className="work-screen">
             {mailboxDataLoading ? (
               <div className="helper-box import-helper-box">
-                <strong>메일/발행 데이터를 불러오는 중입니다.</strong>
-                <span>오늘 작업 화면에 필요한 메일함과 발행 대기 목록을 작업공간별로 따로 읽고 있습니다.</span>
+                <strong>메일과 발행 대기를 읽는 중입니다.</strong>
               </div>
             ) : null}
             <Panel
@@ -6578,8 +6890,8 @@ export function App() {
               title={workPriorityCards.length > 0 ? "긴급 예외" : "운영 상태"}
               subtitle={
                 workPriorityCards.length > 0
-                  ? "먼저 막힘과 주의 항목을 정리한 뒤 발행 대기를 처리하세요."
-                  : "지금 막힌 예외는 없습니다. 발행 대기와 최근 처리만 확인하면 됩니다."
+                  ? "먼저 처리할 항목"
+                  : "발행 대기와 최근 처리만 확인"
               }
             >
               {workPriorityCards.length > 0 ? (
@@ -6604,7 +6916,6 @@ export function App() {
                           {card.tone === "danger" ? "즉시 확인" : card.tone === "warn" ? "확인 필요" : "참고"}
                         </span>
                       </div>
-                      <p>{card.description}</p>
                       <button type="button" className="btn-secondary" onClick={card.onAction}>
                         {card.actionLabel}
                       </button>
@@ -6614,8 +6925,7 @@ export function App() {
               ) : (
                 <div className="work-priority-empty">
                   <span className="chip chip-success">긴급 예외 없음</span>
-                  <strong>지금은 발행 대기와 최근 처리만 확인하면 됩니다.</strong>
-                  <p>메일 즉시 동기화로 새 정산 메일을 확인하거나, 아래 발행 대기 테이블을 바로 처리하세요.</p>
+                  <strong>발행 대기와 최근 처리만 보면 됩니다.</strong>
                 </div>
               )}
             </Panel>
@@ -6683,7 +6993,7 @@ export function App() {
               <div className="work-side-column">
                 <Panel
                   className="panel-work-status"
-                title="운영 체크"
+                title="지금 상태"
                 actions={
                   <>
                     <button onClick={() => void runAction("cert-refresh-all", refreshAllCertificateStatuses)}>인증서 점검</button>
@@ -6713,21 +7023,24 @@ export function App() {
                       <section className="history-block" id="work-recent-history">
                         <header className="history-block-head">
                           <div className="history-title-row">
-                            <strong>최근 처리</strong>
+                            <div className="history-title-copy">
+                              <strong>최근 처리</strong>
+                              <span className="history-caption">최근 항목만 빠르게 확인합니다.</span>
+                            </div>
                             <div className="history-tabs">
                               <button
                                 type="button"
                                 className={workFeedTab === "inbox" ? "btn-secondary active-filter" : "btn-secondary"}
                                 onClick={() => setWorkFeedTab("inbox")}
                               >
-                                최근 수신 메일
+                                수신 {recentInboxPreview.length}
                               </button>
                               <button
                                 type="button"
                                 className={workFeedTab === "issued" ? "btn-secondary active-filter" : "btn-secondary"}
                                 onClick={() => setWorkFeedTab("issued")}
                               >
-                                최근 발행 완료
+                                발행 {recentIssuedPreview.length}
                               </button>
                             </div>
                           </div>
@@ -6791,6 +7104,8 @@ export function App() {
               setActiveSettingsSection(recommendedSettingsSection);
               setActiveTab("settings");
             }}
+            mailSetupContent={onboardingMailSetupContent}
+            defaultsContent={onboardingDefaultsContent}
             registrationContent={
               <InitialRegistrationTab
                 busyKey={busyKey}
@@ -6821,6 +7136,7 @@ export function App() {
                 getParseStatusLabel={getParseStatusLabel}
               />
             }
+            firstRunContent={onboardingFirstRunContent}
           />
         ) : null}
 
@@ -6935,6 +7251,7 @@ export function App() {
             customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
             customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
             customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
+            renewalHelperDownloadUrl={renewalHelperDownloadUrl}
             canManageOrganizationMembers={canManageOrganizationMembers}
             organizationMembers={organizationMembers}
             currentUserId={data.auth.userId}
@@ -6948,6 +7265,7 @@ export function App() {
             setPasswordResetForm={setPasswordResetForm}
             setOrganizationMemberForm={setOrganizationMemberForm}
             onMailAddressChange={handleSettingsMailAddressChange}
+            onRenewalIssuePasswordChange={handleSettingsRenewalIssuePasswordChange}
             toggleRevealField={toggleRevealField}
             refreshAllCertificateStatuses={refreshAllCertificateStatuses}
             testMailSettings={testMailSettings}

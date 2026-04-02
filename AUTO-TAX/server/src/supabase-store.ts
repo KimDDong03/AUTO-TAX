@@ -100,6 +100,7 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     smtpPass: decryptSecret(asString(integrationRow.smtp_pass_encrypted)),
     smtpFromName: asString(integrationRow.smtp_from_name, "AUTO-TAX"),
     smtpFromEmail: asString(integrationRow.smtp_from_email),
+    mailConnectionVerifiedAt: asNullableString(settingsRow.mail_connection_verified_at),
     notificationEmails: asStringArray(settingsRow.notification_emails),
     defaultIssueDay: asNumber(settingsRow.default_issue_day, 26),
     defaultIssueHour: asNumber(settingsRow.default_issue_hour, 9),
@@ -857,6 +858,7 @@ export class SupabaseStore implements AppStore {
       input.renewalCertificatePassword !== undefined
         ? (input.renewalCertificatePassword.trim() === "" ? current.renewalCertificatePassword : input.renewalCertificatePassword)
         : current.renewalCertificatePassword;
+    const nextMailConnectionVerifiedAt = input.mailConnectionVerifiedAt !== undefined ? input.mailConnectionVerifiedAt : current.mailConnectionVerifiedAt;
     const next: AppSettings = {
       ...current,
       ...input,
@@ -866,9 +868,28 @@ export class SupabaseStore implements AppStore {
       popbillSharedPassword: nextPopbillSharedPassword,
       renewalCertificatePassword: nextRenewalCertificatePassword,
       renewalIssuePassword: nextRenewalIssuePassword,
+      mailConnectionVerifiedAt: nextMailConnectionVerifiedAt,
       notificationEmails: input.notificationEmails ?? current.notificationEmails,
       updatedAt: nowIso()
     };
+    const mailSettingsChanged =
+      current.imapHost !== next.imapHost ||
+      current.imapPort !== next.imapPort ||
+      current.imapSecure !== next.imapSecure ||
+      current.imapUser !== next.imapUser ||
+      current.imapPass !== next.imapPass ||
+      current.imapMailbox !== next.imapMailbox ||
+      current.smtpHost !== next.smtpHost ||
+      current.smtpPort !== next.smtpPort ||
+      current.smtpSecure !== next.smtpSecure ||
+      current.smtpUser !== next.smtpUser ||
+      current.smtpPass !== next.smtpPass ||
+      current.smtpFromName !== next.smtpFromName ||
+      current.smtpFromEmail !== next.smtpFromEmail ||
+      JSON.stringify(current.notificationEmails) !== JSON.stringify(next.notificationEmails);
+    if (mailSettingsChanged) {
+      next.mailConnectionVerifiedAt = null;
+    }
     const organizationId = this.requireOrganizationId();
 
     await assertUniquePopbillUserPrefix(this.client, organizationId, next.popbillUserIdPrefix);
@@ -885,6 +906,7 @@ export class SupabaseStore implements AppStore {
           default_issue_minute: next.defaultIssueMinute,
           mail_poll_minutes: next.mailPollMinutes,
           mail_sync_start_at: next.mailSyncStartAt,
+          mail_connection_verified_at: next.mailConnectionVerifiedAt,
           scheduler_enabled: next.schedulerEnabled,
           cert_last_checked_at: next.certLastCheckedAt,
           cert_alert_last_sent_at: next.certAlertLastSentAt

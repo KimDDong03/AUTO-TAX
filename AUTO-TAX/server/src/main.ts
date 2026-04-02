@@ -92,6 +92,7 @@ type ClientAppSettings = Pick<
   | "smtpPass"
   | "smtpFromName"
   | "smtpFromEmail"
+  | "mailConnectionVerifiedAt"
   | "notificationEmails"
   | "defaultIssueDay"
   | "defaultIssueHour"
@@ -99,6 +100,7 @@ type ClientAppSettings = Pick<
   | "mailPollMinutes"
   | "mailSyncStartAt"
   | "timezone"
+  | "popbillIsTest"
   | "popbillUserIdPrefix"
   | "popbillSharedPassword"
   | "operatorContactName"
@@ -321,6 +323,7 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
     smtpPass: "",
     smtpFromName: settings.smtpFromName,
     smtpFromEmail: settings.smtpFromEmail,
+    mailConnectionVerifiedAt: settings.mailConnectionVerifiedAt,
     notificationEmails: settings.notificationEmails,
     defaultIssueDay: settings.defaultIssueDay,
     defaultIssueHour: settings.defaultIssueHour,
@@ -328,6 +331,7 @@ function toClientSettings(settings: AppSettings): ClientAppSettings {
     mailPollMinutes: settings.mailPollMinutes,
     mailSyncStartAt: settings.mailSyncStartAt,
     timezone: settings.timezone,
+    popbillIsTest: runtimeSettings.popbillIsTest,
     popbillUserIdPrefix: settings.popbillUserIdPrefix,
     popbillSharedPassword: "",
     operatorContactName: settings.operatorContactName,
@@ -381,6 +385,7 @@ function createEmptySettings(): AppSettings {
     smtpPass: "",
     smtpFromName: "AUTO-TAX",
     smtpFromEmail: "",
+    mailConnectionVerifiedAt: null,
     notificationEmails: [],
     defaultIssueDay: 26,
     defaultIssueHour: 9,
@@ -744,7 +749,7 @@ const {
   createSupabaseAdminClient
 });
 
-export async function createApp(store: AppStore | null, webDist: string) {
+export async function createApp(store: AppStore | null, webDist: string, rootDir = process.cwd()) {
   const app = express();
   const renewalAutomation = new RenewalAutomationManager();
   app.disable("x-powered-by");
@@ -943,7 +948,10 @@ export async function createApp(store: AppStore | null, webDist: string) {
     app,
     store,
     requirePlatformAdmin,
-    webDist
+    webDist,
+    renewalHelperZipPath: envString("AUTO_TAX_RENEWAL_HELPER_ZIP_PATH")
+      ? resolvePathFromRoot(rootDir, envString("AUTO_TAX_RENEWAL_HELPER_ZIP_PATH") as string)
+      : path.join(rootDir, "dist", "renewal-local-helper.zip")
   });
 
   return app;
@@ -978,7 +986,7 @@ export async function startServer(options: StartServerOptions = {}) {
 
   const store = await createConfiguredStore();
   const scheduler = store ? new Scheduler(store) : null;
-  const app = await createApp(store, webDist);
+  const app = await createApp(store, webDist, rootDir);
   const server = app.listen(port, () => {
     if (store) {
       void store.createLog("info", "server", "AUTO-TAX 서버가 시작되었습니다.", { port });

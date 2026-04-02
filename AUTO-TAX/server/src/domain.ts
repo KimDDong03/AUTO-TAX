@@ -21,6 +21,7 @@ export interface AppSettings {
   smtpPass: string;
   smtpFromName: string;
   smtpFromEmail: string;
+  mailConnectionVerifiedAt: string | null;
   notificationEmails: string[];
   defaultIssueDay: number;
   defaultIssueHour: number;

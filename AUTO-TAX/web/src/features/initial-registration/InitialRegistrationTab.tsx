@@ -58,13 +58,14 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const isProceedingOnboardingCertificateRegistration = onboardingBusyKey === "customer-onboarding-cert-registration";
   const onboardingImportableCount =
     (props.customerOnboardingPreview?.createCount ?? 0) + (props.customerOnboardingPreview?.updateCount ?? 0);
+  const onboardingBlockedCount = props.customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
 
   return (
     <div className="initial-screen">
       <Panel
         className="panel-initial-onboarding"
-        title="인증서 기준 엑셀 초기 등록"
-        subtitle="이 PC의 공동인증서 목록을 양식으로 내려받고, 전자세금용은 고객 생성에, 범용 공동인증서는 기존 고객 추가 연결에 사용합니다."
+        title="여러 고객 한 번에 등록"
+        subtitle="엑셀 양식을 받고, 작성한 파일을 올린 뒤 고객 반영만 누르면 됩니다."
         actions={
           <>
             <input
@@ -87,67 +88,55 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               disabled={props.busyKey !== null}
               onClick={() => void props.runAction("customer-onboarding-template", props.downloadCustomerOnboardingTemplate, { reload: false })}
             >
-              {isDownloadingOnboardingTemplate ? "내리는 중..." : "양식 다운로드"}
+              {isDownloadingOnboardingTemplate ? "받는 중..." : "엑셀 양식 받기"}
             </button>
             <button
               className="btn-secondary"
               disabled={props.busyKey !== null}
               onClick={() => onboardingFileInputRef.current?.click()}
             >
-              {isPreviewingOnboarding ? "읽는 중..." : "양식 업로드"}
+              {isPreviewingOnboarding ? "읽는 중..." : "작성한 엑셀 올리기"}
             </button>
             <button
               disabled={props.busyKey !== null || !props.customerOnboardingPreview || onboardingImportableCount === 0}
               onClick={() => void props.runAction("customer-onboarding-commit", props.commitCustomerOnboardingWorkbook, { reload: false })}
             >
-              {isCommittingOnboarding ? "가져오는 중..." : "엑셀로 고객 등록"}
+              {isCommittingOnboarding ? "반영 중..." : "고객 반영"}
             </button>
-            <button
-              className="btn-secondary"
-              disabled={props.busyKey !== null || props.pendingOnboardingCertificateRegistrationCount === 0}
-              onClick={() =>
-                void props.runAction(
-                  "customer-onboarding-cert-registration",
-                  props.proceedOnboardingCertificateRegistration,
-                  { reload: false }
-                )
-              }
-            >
-              {isProceedingOnboardingCertificateRegistration
-                ? "자동 등록 중..."
-                : `전자세금용 인증서 자동 등록${
-                    props.pendingOnboardingCertificateRegistrationCount > 0
-                      ? ` (${props.pendingOnboardingCertificateRegistrationCount}건 남음)`
-                      : ""
-                  }`}
-            </button>
+            {props.pendingOnboardingCertificateRegistrationCount > 0 ? (
+              <button
+                className="btn-secondary"
+                disabled={props.busyKey !== null}
+                onClick={() =>
+                  void props.runAction(
+                    "customer-onboarding-cert-registration",
+                    props.proceedOnboardingCertificateRegistration,
+                    { reload: false }
+                  )
+                }
+              >
+                {isProceedingOnboardingCertificateRegistration ? "연결 마무리 중..." : `인증서 연결 마무리 (${props.pendingOnboardingCertificateRegistrationCount}건 남음)`}
+              </button>
+            ) : null}
           </>
         }
       >
-        <div className="info-grid">
+        <div className="initial-onboarding-summary">
           <div>
             <span>업로드 파일</span>
-            <strong>{props.customerOnboardingFileName || "-"}</strong>
+            <strong>{props.customerOnboardingFileName || "아직 없음"}</strong>
           </div>
           <div>
             <span>고객</span>
             <strong>{props.customerOnboardingPreview?.totalCustomers ?? 0}건</strong>
           </div>
           <div>
-            <span>발전소</span>
-            <strong>{props.customerOnboardingPreview?.totalPlants ?? 0}건</strong>
+            <span>반영 가능</span>
+            <strong>{onboardingImportableCount}건</strong>
           </div>
           <div>
-            <span>공동인증서</span>
-            <strong>{props.customerOnboardingPreview?.totalCertificates ?? 0}건</strong>
-          </div>
-          <div>
-            <span>신규 생성</span>
-            <strong>{props.customerOnboardingPreview?.createCount ?? 0}건</strong>
-          </div>
-          <div>
-            <span>기존 갱신</span>
-            <strong>{props.customerOnboardingPreview?.updateCount ?? 0}건</strong>
+            <span>검토 필요</span>
+            <strong>{onboardingBlockedCount}건</strong>
           </div>
         </div>
         {props.customerOnboardingNotice ? (
@@ -161,7 +150,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             <strong>다음 단계</strong>
             <span>
               고객 등록은 끝났고, 팝빌 전자세금용 인증서 등록이 {props.pendingOnboardingCertificateRegistrationCount}건 남아 있습니다.
-              위 `전자세금용 인증서 자동 등록` 버튼으로 순서대로 진행하면 됩니다.
+              위 `인증서 연결 마무리` 버튼으로 순서대로 진행하면 됩니다.
             </span>
           </div>
         ) : null}
@@ -177,43 +166,60 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             <span className="helper-multiline-text">{props.customerOnboardingPreview.fileErrors.join("\n")}</span>
           </div>
         ) : null}
-        <p className="ops-helper-text">양식 다운로드를 누르면 이 PC의 공동인증서 목록이 먼저 채워집니다. 전자세금용은 인증서 비밀번호와 발전소 메일 매칭 주소만 적으면 사업자번호·상호·대표자·사업자 주소·업태·업종을 시스템이 인증서에서 읽어옵니다. 범용 공동인증서는 비밀번호와 `연결할 사업자번호`를 적으면 같은 고객에 추가 연결됩니다. 인증서 비밀번호 칸이 비어 있으면 시스템 설정의 공동인증서 공통 비밀번호를 fallback으로 사용합니다.</p>
-        <div className="ops-list initial-onboarding-preview-list">
-          {props.customerOnboardingPreview?.rows.length ? (
-            props.customerOnboardingPreview.rows.map((row) => {
-              const toneClass =
-                row.status === "blocked" ? "chip-danger" : row.status === "update" ? "chip-warn" : "chip-success";
-              const statusLabel = row.status === "blocked" ? "검토 필요" : row.status === "update" ? "기존 고객 갱신" : "신규 등록";
+        {props.customerOnboardingPreview?.rows.length ? (
+          <details className="initial-onboarding-preview-details">
+            <summary>
+              <span>반영 미리 보기</span>
+              <span className="chip">{props.customerOnboardingPreview.rows.length}건</span>
+            </summary>
+            <div className="ops-list initial-onboarding-preview-list">
+              {props.customerOnboardingPreview.rows.map((row) => {
+                const toneClass =
+                  row.status === "blocked" ? "chip-danger" : row.status === "update" ? "chip-warn" : "chip-success";
+                const statusLabel = row.status === "blocked" ? "검토 필요" : row.status === "update" ? "기존 고객 갱신" : "신규 등록";
 
-              return (
-                <article key={`customer-onboarding-${row.rowIndex}-${row.businessNumber}`} className="ops-card">
-                  <div className="ops-card-head">
-                    <div>
-                      <strong>{row.corpName || row.customerName || `고객 ${row.rowIndex}행`}</strong>
-                      <span>{row.businessNumber || "-"}</span>
+                return (
+                  <article key={`customer-onboarding-${row.rowIndex}-${row.businessNumber}`} className="ops-card">
+                    <div className="ops-card-head">
+                      <div>
+                        <strong>{row.corpName || row.customerName || `고객 ${row.rowIndex}행`}</strong>
+                        <span>{row.businessNumber || "-"}</span>
+                      </div>
+                      <span className={`chip ${toneClass}`}>{statusLabel}</span>
                     </div>
-                    <span className={`chip ${toneClass}`}>{statusLabel}</span>
-                  </div>
-                  <div className="ops-card-meta">
-                    <span>발전소 {row.plantCount}건</span>
-                    <span>공동인증서 {row.certificateCount}건</span>
-                    {row.errors.length > 0 ? <span className="text-danger">{row.errors.join(" ")}</span> : null}
-                    {row.warnings.length > 0 ? <span className="text-warn">{row.warnings.join(" ")}</span> : null}
-                  </div>
-                </article>
-              );
-            })
-          ) : (
-            <div className="empty">양식을 업로드하면 인증서에서 읽은 사업자 정보를 기준으로 신규/갱신/검토 대상을 바로 확인할 수 있습니다.</div>
-          )}
-        </div>
+                    <div className="ops-card-meta">
+                      <span>발전소 {row.plantCount}건</span>
+                      <span>공동인증서 {row.certificateCount}건</span>
+                      {row.errors.length > 0 ? <span className="text-danger">{row.errors.join(" ")}</span> : null}
+                      {row.warnings.length > 0 ? <span className="text-warn">{row.warnings.join(" ")}</span> : null}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </details>
+        ) : null}
       </Panel>
 
       {props.quickRegisterMessages.length > 0 || props.selectedQuickRegisterMessage ? (
         <details className="import-manual-fallback">
-          <summary>예외 처리용 수동 등록 열기</summary>
+          <summary>
+            <div className="import-manual-summary">
+              <div className="import-manual-summary-copy">
+                <strong>예외 메일 수동 처리</strong>
+                <span>엑셀로 바로 처리하기 어려운 메일만 여기서 1건씩 등록합니다.</span>
+              </div>
+              <span className="chip chip-warn">
+                {props.selectedQuickRegisterMessage ? "선택됨" : `${props.quickRegisterMessages.length}건 남음`}
+              </span>
+            </div>
+          </summary>
           <div className="import-layout">
-            <Panel className="panel-initial-unmatched" title={`미등록 고객 ${props.quickRegisterMessages.length}건`}>
+            <Panel
+              className="panel-initial-unmatched"
+              title={`미등록 메일 ${props.quickRegisterMessages.length}건`}
+              subtitle="주소까지 읽힌 예외 메일만 모아 둔 목록입니다."
+            >
               {props.quickRegisterMessages.length > 0 ? (
                 <div className="list initial-unmatched-list">
                   {props.quickRegisterMessages.map((message) => {
@@ -245,14 +251,20 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               )}
             </Panel>
 
-            <Panel className="panel-initial-quick-register" title="빠른 등록">
+            <Panel
+              className="panel-initial-quick-register"
+              title="선택 메일 등록"
+              subtitle="필수값만 적고 바로 고객으로 연결합니다."
+            >
               {props.selectedQuickRegisterMessage ? (
                 <>
-                  <div className="helper-box import-helper-box">
+                  <div className="quick-register-selected">
                     <strong>{props.selectedQuickRegisterMessage.subject}</strong>
-                    <span>
-                      {props.selectedQuickRegisterMessage.parsedData?.billingMonth || "-"} · {props.selectedQuickRegisterMessage.parsedData?.plantName || "-"}
-                    </span>
+                    <div className="quick-register-meta">
+                      <span>{props.selectedQuickRegisterMessage.parsedData?.billingMonth || "정산월 없음"}</span>
+                      <span>{props.selectedQuickRegisterMessage.parsedData?.plantName || "발전소명 없음"}</span>
+                      <span>{props.formatDateTime(props.selectedQuickRegisterMessage.receivedAt)}</span>
+                    </div>
                   </div>
                   <form
                     onSubmit={(event) => {
@@ -261,7 +273,11 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                       void props.runAction("quick-register-unmatched", props.submitQuickRegister);
                     }}
                   >
-                    <div className="form-grid">
+                    <div className="customer-form-lead quick-register-lead">
+                      <strong>필수값 4개만 확인하면 됩니다.</strong>
+                      <span>대표자명, 주소, 사업자번호, 세금계산서 상호만 맞으면 바로 등록할 수 있습니다.</span>
+                    </div>
+                    <div className="form-grid quick-register-grid">
                       <label>
                         대표자명
                         <input
@@ -275,7 +291,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                           value={props.quickRegisterForm.addr}
                           onChange={(event) => props.setQuickRegisterForm((prev) => ({ ...prev, addr: event.target.value }))}
                         />
-                        <span className="field-hint">메일에서 읽은 주소가 먼저 들어가 있습니다. 필요하면 수정 후 등록하세요.</span>
+                        <span className="field-hint">메일에서 읽은 주소가 먼저 들어가 있습니다.</span>
                       </label>
                       <label>
                         사업자번호
@@ -292,9 +308,9 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                         />
                       </label>
                     </div>
-                    <div className="button-row">
+                    <div className="button-row quick-register-actions">
                       <button type="submit" disabled={props.busyKey !== null}>
-                        {props.isQuickRegistering ? "고객 등록 및 팝빌 가입 중..." : "고객 등록 후 메일 연결"}
+                        {props.isQuickRegistering ? "등록 중..." : "고객 등록하고 연결"}
                       </button>
                       {props.isQuickRegistering ? <span className="field-hint">고객 등록, 팝빌 가입, 메일 연결을 처리하고 있습니다.</span> : null}
                     </div>

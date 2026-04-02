@@ -1,6 +1,8 @@
 node_modules
 dist
 public
+!web/public/
+!web/public/**
 .env
 data
 *.log
