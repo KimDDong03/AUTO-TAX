@@ -2,10 +2,14 @@ import type React from "react";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api, setActiveOrganizationId } from "./api";
-import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, SetupPanel, StatCard } from "./components/ui";
+import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, SetupPanel, SurfaceCard } from "./components/ui";
 import { CertificatesTab } from "./features/certificates/CertificatesTab";
 import { CustomersTab } from "./features/customers/CustomersTab";
-import { InitialRegistrationTab } from "./features/initial-registration/InitialRegistrationTab";
+import {
+  InitialRegistrationFollowupSections,
+  InitialRegistrationTab
+} from "./features/initial-registration/InitialRegistrationTab";
+import { OnboardingCertificateStep } from "./features/onboarding/OnboardingCertificateStep";
 import { OnboardingTab } from "./features/onboarding/OnboardingTab";
 import {
   downloadCustomerOnboardingTemplate,
@@ -49,6 +53,8 @@ type TabId = "work" | "onboarding" | "customers" | "certificates" | "settings" |
 type SettingsSectionId = "gmail" | "popbill" | "account";
 type CustomerDetailTabId = "info" | "history";
 type CustomerListFilter = "all" | "blocked" | "ready" | "expiring" | "unjoined";
+type OnboardingStepId = "mail" | "defaults" | "customers" | "certificates" | "first-run";
+type CertificateCustomerFilter = "action_needed" | "all" | "prepare_needed" | "payment_ready" | "expiring_30" | "missing_general" | "missing_electronic";
 type MailProvider = "gmail" | "naver" | "daum";
 type RenewalAgentSnapshot = RenewalAutomationPayload["agent"];
 type RenewalAgentCertificate = RenewalAgentSnapshot["bridge"]["storageProbe"]["certificates"][number];
@@ -539,7 +545,7 @@ const PUBLIC_PRICING_PLANS: Record<PublicPricingPlanId, PublicPricingPlan> = {
   beta: {
     id: "beta",
     label: "오픈베타 1개월",
-    badge: "OPEN BETA",
+    badge: "오픈 베타",
     headline: "도입 전 시험 운영 요금",
     basePrice: 79000,
     includedCustomers: 50,
@@ -548,7 +554,7 @@ const PUBLIC_PRICING_PLANS: Record<PublicPricingPlanId, PublicPricingPlan> = {
   standard: {
     id: "standard",
     label: "정식 요금",
-    badge: "STANDARD",
+    badge: "정식 운영",
     headline: "기본 월 구독 요금",
     basePrice: 149000,
     includedCustomers: 50,
@@ -558,21 +564,83 @@ const PUBLIC_PRICING_PLANS: Record<PublicPricingPlanId, PublicPricingPlan> = {
 
 const PRICING_EXAMPLE_COUNTS = [100, 200, 300];
 
+const LANDING_META_TITLE = "AUTO-TAX | 태양광 전자세금계산서 운영 자동화";
+const LANDING_META_DESCRIPTION =
+  "한전 메일 확인, 고객 자동 매칭, 전자세금계산서 초안 생성, 검수 후 발행, 공동인증서 관리를 한 화면에서 운영하는 태양광 세무 운영 콘솔 AUTO-TAX.";
+const APP_META_TITLE = "AUTO-TAX 운영 콘솔";
+const APP_META_DESCRIPTION = "AUTO-TAX 운영 콘솔";
+
 const LANDING_HERO_POINTS = [
   {
     label: "한전 메일",
     value: "자동 확인",
-    description: "매월 반복 확인 시간을 줄입니다."
+    description: "반복 확인 시간을 줄입니다."
   },
   {
     label: "전자세금계산서",
     value: "초안 자동 생성",
-    description: "담당자는 검수와 발행에 집중합니다."
+    description: "검수에만 집중하면 됩니다."
   },
   {
     label: "운영 방식",
     value: "검수 후 발행",
-    description: "안정화 후 자동 발행으로 전환할 수 있습니다."
+    description: "안정화 후 자동 발행 전환"
+  }
+];
+
+const LANDING_HERO_IMAGE_URL =
+  "https://lh3.googleusercontent.com/aida-public/AB6AXuCk5p-jGcfPHotexj-LBBnI2YgGfe_RIEjCFt9UJx9IliAtArABTsGrbEZ3oO6qDfEmszkch5QzQGQhgOsswU4Cv0N20RG6gwpCLXFQQQq25puMofCE4_6fqgP4GcZ_36L2p-fgJ8zhTm_mJT1n1nk63sSRY3ScF959dSOICrop4dzg7ai7WTrwwFfoBX8zqxS1-tGw6mulI0h_m1ic9wDbNpmUny7ZwouP41ehxBUzMlP4FroVnyiAivJ42eNTi-_urL-pkg3bSDM";
+
+const LANDING_WORKFLOW_STEPS = [
+  {
+    step: "01",
+    title: "한전 메일 확인",
+    description: "최근 정산 메일까지 함께 읽습니다."
+  },
+  {
+    step: "02",
+    title: "고객 자동 매칭",
+    description: "주소 기준으로 자동 매칭합니다."
+  },
+  {
+    step: "03",
+    title: "초안 생성",
+    description: "검수 대상으로 바로 올립니다."
+  },
+  {
+    step: "04",
+    title: "검수 후 발행",
+    description: "예외만 확인한 뒤 발행합니다."
+  }
+];
+
+const LANDING_ACCESS_CHECKS = [
+  {
+    title: "메일 연결",
+    description: "최근 정산 메일까지 바로 읽습니다."
+  },
+  {
+    title: "발행 기본값 입력",
+    description: "첫 초안 검수를 빠르게 시작합니다."
+  },
+  {
+    title: "고객 등록",
+    description: "첫 자동 매칭 정확도를 높입니다."
+  }
+];
+
+const LANDING_FAQ_ITEMS = [
+  {
+    question: "처음 도입할 때 무엇부터 준비하면 되나요?",
+    answer: "메일 연결, 발행 기본값 입력, 고객 등록 순서로 진행하면 됩니다."
+  },
+  {
+    question: "미매칭 메일은 어떻게 처리하나요?",
+    answer: "오늘 작업과 대량 등록 화면에서 따로 확인하고 수동 연결할 수 있습니다."
+  },
+  {
+    question: "공동인증서 관리는 어디서 하나요?",
+    answer: "공동인증서 관리 화면에서 만료 임박, 미연결 상태를 고객 기준으로 확인합니다."
   }
 ];
 
@@ -620,6 +688,56 @@ const MAIL_PROVIDER_CONFIG: Record<
     defaultMailbox: "INBOX"
   }
 };
+
+function ensureMetaTag(attributeName: "name" | "property", attributeValue: string): HTMLMetaElement | null {
+  if (typeof document === "undefined") return null;
+  const selector = `meta[${attributeName}="${attributeValue}"]`;
+  const existing = document.head.querySelector(selector);
+  if (existing instanceof HTMLMetaElement) {
+    return existing;
+  }
+
+  const meta = document.createElement("meta");
+  meta.setAttribute(attributeName, attributeValue);
+  document.head.append(meta);
+  return meta;
+}
+
+function setMetaTag(attributeName: "name" | "property", attributeValue: string, content: string) {
+  const tag = ensureMetaTag(attributeName, attributeValue);
+  if (tag) {
+    tag.setAttribute("content", content);
+  }
+}
+
+function setCanonicalLink(href: string) {
+  if (typeof document === "undefined") return;
+  const existing = document.head.querySelector('link[rel="canonical"]');
+  const link = existing instanceof HTMLLinkElement ? existing : document.createElement("link");
+  link.setAttribute("rel", "canonical");
+  link.setAttribute("href", href);
+  if (!(existing instanceof HTMLLinkElement)) {
+    document.head.append(link);
+  }
+}
+
+function setJsonLdScript(id: string, payload: Record<string, unknown> | null) {
+  if (typeof document === "undefined") return;
+  const selector = `script[data-seo-script="${id}"]`;
+  const existing = document.head.querySelector(selector);
+  if (!payload) {
+    existing?.remove();
+    return;
+  }
+
+  const script = existing instanceof HTMLScriptElement ? existing : document.createElement("script");
+  script.type = "application/ld+json";
+  script.dataset.seoScript = id;
+  script.textContent = JSON.stringify(payload);
+  if (!(existing instanceof HTMLScriptElement)) {
+    document.head.append(script);
+  }
+}
 
 function getTabFromHash(hash: string): TabId | null {
   const value = hash.replace(/^#/, "");
@@ -2104,7 +2222,7 @@ export function App() {
     typeof window !== "undefined" ? isSupabaseRecoveryHash(window.location.hash) : false
   );
   const [recoveryPasswordForm, setRecoveryPasswordForm] = useState<PasswordResetFormState>(basePasswordResetForm);
-  const [showSupportRequestForm, setShowSupportRequestForm] = useState(false);
+  const [, setShowSupportRequestForm] = useState(false);
   const [supportRequestBusy, setSupportRequestBusy] = useState(false);
   const [supportRequestForm, setSupportRequestForm] = useState<SupportRequestFormState>(baseSupportRequestForm);
   const [pricingPlanId, setPricingPlanId] = useState<PublicPricingPlanId>("standard");
@@ -2121,7 +2239,9 @@ export function App() {
   const [customerListFilter, setCustomerListFilter] = useState<CustomerListFilter>("all");
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [customerDetailTab, setCustomerDetailTab] = useState<CustomerDetailTabId>("info");
-  const [workFeedTab, setWorkFeedTab] = useState<"inbox" | "issued">("inbox");
+  const [workQueueSearchQuery, setWorkQueueSearchQuery] = useState("");
+  const [onboardingNavigationIntent, setOnboardingNavigationIntent] = useState<{ stepId: OnboardingStepId; nonce: number } | null>(null);
+  const [certificateFilterIntent, setCertificateFilterIntent] = useState<{ filter: CertificateCustomerFilter; nonce: number } | null>(null);
   const [settingsForm, setSettingsForm] = useState<SettingsFormState | null>(null);
   const [passwordChangeForm, setPasswordChangeForm] = useState<PasswordChangeFormState>(basePasswordChangeForm);
   const [passwordResetForm, setPasswordResetForm] = useState<PasswordResetFormState>(basePasswordResetForm);
@@ -2167,6 +2287,9 @@ export function App() {
   const customerRenewalAutoLoadedRef = useRef(false);
   const customerRenewalAutoLoadedOrganizationRef = useRef<string | null>(null);
   const customerNameInputRef = useRef<HTMLInputElement | null>(null);
+  const workQueueCardRef = useRef<HTMLDivElement | null>(null);
+  const workQueueSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const workNavigationNonceRef = useRef(0);
   const certSyncInFlightRef = useRef(false);
   const mailboxLoadInFlightRef = useRef(false);
   const mailboxLoadedOrganizationRef = useRef<string | null>(null);
@@ -2521,6 +2644,92 @@ export function App() {
   }, [activeTab, recoveryMode]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const rootUrl = new URL("/", window.location.origin).toString();
+    const isLandingSeoTarget = !authSession && !recoveryMode;
+
+    if (isLandingSeoTarget) {
+      document.title = LANDING_META_TITLE;
+      setMetaTag("name", "description", LANDING_META_DESCRIPTION);
+      setMetaTag("name", "robots", "index,follow,max-image-preview:large");
+      setMetaTag("name", "theme-color", "#f6fafe");
+      setMetaTag("property", "og:type", "website");
+      setMetaTag("property", "og:locale", "ko_KR");
+      setMetaTag("property", "og:site_name", "AUTO-TAX");
+      setMetaTag("property", "og:title", LANDING_META_TITLE);
+      setMetaTag("property", "og:description", LANDING_META_DESCRIPTION);
+      setMetaTag("property", "og:url", rootUrl);
+      setMetaTag("property", "og:image", LANDING_HERO_IMAGE_URL);
+      setMetaTag("name", "twitter:card", "summary_large_image");
+      setMetaTag("name", "twitter:title", LANDING_META_TITLE);
+      setMetaTag("name", "twitter:description", LANDING_META_DESCRIPTION);
+      setMetaTag("name", "twitter:image", LANDING_HERO_IMAGE_URL);
+      setCanonicalLink(rootUrl);
+      setJsonLdScript("auto-tax-landing", {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            name: "AUTO-TAX",
+            url: rootUrl,
+            inLanguage: "ko-KR",
+            description: LANDING_META_DESCRIPTION
+          },
+          {
+            "@type": "SoftwareApplication",
+            name: "AUTO-TAX",
+            applicationCategory: "BusinessApplication",
+            operatingSystem: "Web",
+            url: rootUrl,
+            inLanguage: "ko-KR",
+            description: LANDING_META_DESCRIPTION,
+            featureList: [
+              "한전 메일 자동 확인",
+              "고객 자동 매칭",
+              "전자세금계산서 초안 생성",
+              "검수 후 발행",
+              "공동인증서 상태 점검"
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            mainEntity: LANDING_FAQ_ITEMS.map((item) => ({
+              "@type": "Question",
+              name: item.question,
+              acceptedAnswer: {
+                "@type": "Answer",
+                text: item.answer
+              }
+            }))
+          }
+        ]
+      });
+      return;
+    }
+
+    document.title = APP_META_TITLE;
+    setMetaTag("name", "description", APP_META_DESCRIPTION);
+    setMetaTag("name", "robots", "noindex,nofollow");
+    setMetaTag("name", "theme-color", "#f6fafe");
+    setMetaTag("property", "og:type", "website");
+    setMetaTag("property", "og:locale", "ko_KR");
+    setMetaTag("property", "og:site_name", "AUTO-TAX");
+    setMetaTag("property", "og:title", APP_META_TITLE);
+    setMetaTag("property", "og:description", APP_META_DESCRIPTION);
+    setMetaTag("property", "og:url", rootUrl);
+    setMetaTag("property", "og:image", LANDING_HERO_IMAGE_URL);
+    setMetaTag("name", "twitter:card", "summary_large_image");
+    setMetaTag("name", "twitter:title", APP_META_TITLE);
+    setMetaTag("name", "twitter:description", APP_META_DESCRIPTION);
+    setMetaTag("name", "twitter:image", LANDING_HERO_IMAGE_URL);
+    setCanonicalLink(rootUrl);
+    setJsonLdScript("auto-tax-landing", null);
+  }, [authSession, recoveryMode]);
+
+  useEffect(() => {
     if (data && !data.auth.isPlatformAdmin && activeTab === "ops") {
       setActiveTab("work");
     }
@@ -2679,7 +2888,10 @@ export function App() {
   }, [activeTab, customerRenewalAssistant, data?.auth.activeOrganizationId, data?.auth.activeOrganizationRole]);
 
   useEffect(() => {
-    if (activeTab !== "settings" || activeSettingsSection !== "popbill") {
+    const shouldCheckHelperOnSettings = activeTab === "settings" && activeSettingsSection === "popbill";
+    const shouldCheckHelperOnOnboarding = activeTab === "onboarding";
+
+    if (!shouldCheckHelperOnSettings && !shouldCheckHelperOnOnboarding) {
       return;
     }
 
@@ -4292,40 +4504,6 @@ export function App() {
     setOrganizationMembers(result.members);
   };
 
-  const openPartnerChargeUrl = async () => {
-    const result = await api<{ url: string }>("/api/popbill/partner-charge-url");
-    window.open(result.url, "_blank", "noopener,noreferrer");
-  };
-
-  const dispatchInternalJobs = async () => {
-    const result = await api<InternalJobDispatchResponse>("/api/internal/jobs/dispatch", {
-      method: "POST"
-    });
-
-    await showAppAlert(
-      `배치 작업 생성이 완료되었습니다.\n확인한 작업공간: ${result.checkedOrganizations}곳\n새로 큐에 넣은 작업: ${result.dispatched}건\n건너뛴 작업: ${result.skipped}건`,
-      {
-        title: "배치 작업 생성 완료",
-        tone: "success"
-      }
-    );
-  };
-
-  const runInternalJobs = async () => {
-    const result = await api<InternalJobRunResponse>("/api/internal/jobs/run", {
-      method: "POST",
-      body: JSON.stringify({ limit: 100 })
-    });
-
-    await showAppAlert(
-      `배치 작업 실행이 완료되었습니다.\n조회한 작업: ${result.attempted}건\n선점한 작업: ${result.claimed}건\n완료: ${result.completed}건\n실패: ${result.failed}건`,
-      {
-        title: "배치 작업 실행 완료",
-        tone: "success"
-      }
-    );
-  };
-
   const createWorkspace = async () => {
     const managedCustomerLimit = Number(opsWorkspaceForm.managedCustomerLimit);
     if (!Number.isInteger(managedCustomerLimit) || managedCustomerLimit < 1) {
@@ -4394,71 +4572,6 @@ export function App() {
       `${result.workspace.organizationName} 작업공간의 관리 고객 한도를 ${result.workspace.managedCustomerLimit ?? "-"}명으로 저장했습니다.`,
       {
         title: "관리 고객 한도 저장",
-        tone: "success"
-      }
-    );
-  };
-
-  const requestRenewalBridgeProbe = async (customerId?: number | null) => {
-    const result = await api<{ id: number }>("/api/automation/renewal-jobs/bridge-probe", {
-      method: "POST",
-      body: JSON.stringify({
-        customerId: customerId ?? null
-      })
-    });
-
-    await showAppAlert(`로컬 인증서 목록 진단 작업을 큐에 추가했습니다.\n작업번호: ${result.id}`, {
-      title: "진단 작업 추가",
-      tone: "success"
-    });
-  };
-
-  const requestRenewalCertIdProbe = async (
-    certificate: RenewalAgentCertificate
-  ) => {
-    const result = await api<{ id: number }>("/api/automation/renewal-jobs/certid-probe", {
-      method: "POST",
-      body: JSON.stringify({
-        certificateIndex: Number(certificate.index),
-        certificateCn: certificate.cn || null
-      })
-    });
-
-    await showAppAlert(
-      `certID 조회 작업을 큐에 추가했습니다.\n작업번호: ${result.id}\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 조회됩니다.`,
-      {
-        title: "certID 조회 작업 추가",
-        tone: "success"
-      }
-    );
-  };
-
-  const requestRenewalPreflight = async (
-    certificate: RenewalAgentCertificate
-  ) => {
-    const customers = data?.customers ?? [];
-    const normalizedCn = certificate.cn.trim();
-    const matchingCustomers = normalizedCn === ""
-      ? []
-      : customers.filter((customer) => {
-          const corpName = customer.corpName.trim();
-          const customerName = customer.customerName.trim();
-          return corpName === normalizedCn || customerName === normalizedCn;
-        });
-    const matchedCustomerId = matchingCustomers.length === 1 ? matchingCustomers[0]?.id ?? null : null;
-    const result = await api<{ id: number }>("/api/automation/renewal-jobs/preflight", {
-      method: "POST",
-      body: JSON.stringify({
-        customerId: matchedCustomerId,
-        certificateIndex: Number(certificate.index),
-        certificateCn: certificate.cn || null
-      })
-    });
-
-    await showAppAlert(
-      `갱신 경로 분석 작업을 큐에 추가했습니다.\n작업번호: ${result.id}${matchedCustomerId ? `\n고객 기준 비교: ${matchingCustomers[0]?.customerName ?? "-"}` : ""}\n완료 후에는 고객관리 탭에서 고객 초안을 만들 수 있습니다.\n로컬 에이전트에 인증서 비밀번호 환경변수가 지정되어 있어야 실제 분석됩니다.`,
-      {
-        title: "갱신 경로 분석 작업 추가",
         tone: "success"
       }
     );
@@ -5533,23 +5646,32 @@ export function App() {
           <header className="landing-topbar">
           <div className="landing-topbar-inner">
             <button type="button" className="landing-brand" onClick={() => scrollToLandingSection("landing-top")}>
-              <span className="brand-badge landing-brand-badge">AT</span>
+              <span className="brand-badge landing-brand-badge">AUTO</span>
               <span className="landing-brand-copy">
                 <strong>AUTO-TAX</strong>
-                <span>태양광 회사 전자세금계산서 운영</span>
+                <span>태양광 세무 운영</span>
               </span>
             </button>
             <nav className="landing-nav" aria-label="공개 페이지 탐색">
-              <button type="button" className="landing-nav-button" onClick={() => scrollToLandingSection("landing-pricing")}>
-                가격 안내
+              <button type="button" className="landing-nav-button" onClick={() => scrollToLandingSection("landing-workflow")}>
+                운영 흐름
               </button>
-              <button type="button" className="landing-nav-button" onClick={() => openSupportRequest()}>
-                도입 문의
+              <button type="button" className="landing-nav-button" onClick={() => scrollToLandingSection("landing-pricing")}>
+                요금 안내
+              </button>
+              <button type="button" className="landing-nav-button" onClick={() => scrollToLandingSection("landing-faq")}>
+                자주 묻는 질문
+              </button>
+              <button type="button" className="landing-nav-button" onClick={() => scrollToLandingSection("landing-login-card")}>
+                도입/로그인
               </button>
             </nav>
             <div className="landing-topbar-actions">
-              <button type="button" className="btn-secondary" onClick={() => scrollToLandingSection("landing-login-card")}>
+              <button type="button" className="btn-secondary landing-topbar-button landing-topbar-button-secondary" onClick={() => scrollToLandingSection("landing-login-card")}>
                 로그인
+              </button>
+              <button type="button" className="landing-topbar-button landing-topbar-button-primary" onClick={() => openSupportRequest(buildSupportRequestPrefill(pricingPlanId, publicManagedCustomerCount))}>
+                도입 문의하기
               </button>
             </div>
           </div>
@@ -5560,18 +5682,20 @@ export function App() {
             <div className="landing-hero-panel">
               <div className="landing-hero-copy">
                 <div className="landing-badge-row">
-                  <span className="auth-badge">태양광 회사용</span>
-                  <span className="landing-inline-note">관리 고객 수 기준 월 구독형</span>
+                  <span className="auth-badge">태양광 발전 사업자 전용 세무 자동화</span>
                 </div>
-                <h1>태양광 회사의 전자세금계산서 업무를 더 빠르고 정확하게</h1>
-                <p>한전 메일 확인부터 초안 작성, 검수 후 발행까지 한 화면에서 처리하는 운영 도구입니다.</p>
+                <h1>
+                  태양광 회사의
+                  <br />
+                  <span className="landing-hero-emphasis">전자세금계산서 운영</span>을
+                  <br />
+                  더 빠르고 정확하게.
+                </h1>
+                <p>한전 메일 확인, 고객 매칭, 초안 생성, 검수 후 발행을 한 화면에서 운영합니다.</p>
               </div>
               <div className="landing-hero-actions">
-                <button type="button" onClick={() => scrollToLandingSection("landing-pricing")}>
-                  예상 요금 확인하기
-                </button>
-                <button type="button" className="btn-secondary" onClick={() => openSupportRequest()}>
-                  도입 문의
+                <button type="button" className="landing-action-button landing-action-button-primary" onClick={() => scrollToLandingSection("landing-pricing")}>
+                  시작하기
                 </button>
               </div>
               <div className="landing-proof-grid">
@@ -5586,112 +5710,44 @@ export function App() {
             </div>
 
             <aside className="landing-side-panel">
-              <section className="auth-card landing-auth-card" id="landing-login-card">
-                <div className="auth-copy">
-                  <span className="auth-badge">작업공간 로그인</span>
-                  <h2>도입 문의와 로그인</h2>
-                  <p>계정이 있으면 바로 로그인하고, 도입 전이면 아래에서 문의를 남기면 됩니다.</p>
+              <section className="landing-visual-card">
+                <img src={LANDING_HERO_IMAGE_URL} alt="AUTO-TAX 대시보드 미리보기" className="landing-visual-image" />
+                <div className="landing-floating-card">
+                  <div className="landing-floating-head">
+                    <span className="material-symbols-outlined">check_circle</span>
+                    <strong>정산서 자동 대조 완료</strong>
+                  </div>
+                  <div className="landing-floating-progress">
+                    <span />
+                  </div>
+                  <span className="landing-floating-time">오늘 09:42 기준</span>
                 </div>
-                <form className="auth-form" onSubmit={(event) => void signIn(event)}>
-                  <label>
-                    <span>로그인 계정</span>
-                    <input
-                      value={signInAccount}
-                      onChange={(event) => setSignInAccount(event.target.value)}
-                      placeholder="고객사 사용자: 로그인 아이디 / 플랫폼 관리자: 이메일"
-                      autoComplete="username"
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>비밀번호</span>
-                    <input
-                      type="password"
-                      value={signInPassword}
-                      onChange={(event) => setSignInPassword(event.target.value)}
-                      placeholder="비밀번호 입력"
-                      autoComplete="current-password"
-                      required
-                    />
-                  </label>
-                  {authNotice ? <div className="alert success">{authNotice}</div> : null}
-                  {error ? <div className="alert error">{error}</div> : null}
-                  <div className="auth-actions">
-                    <button type="submit" disabled={authBusy}>
-                      {authBusy ? "로그인 중..." : "로그인"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => setShowSupportRequestForm((prev) => !prev)}
-                      disabled={supportRequestBusy}
-                    >
-                      {showSupportRequestForm ? "문의 닫기" : "도입 문의"}
-                    </button>
-                  </div>
-                  <p className="field-hint">계정이 없으면 `도입 문의`에서 회사명, 담당자, 연락처를 남겨주세요.</p>
-                </form>
-                {showSupportRequestForm ? (
-                  <div className="auth-form support-request-box">
-                    <label>
-                      <span>회사명</span>
-                      <input
-                        value={supportRequestForm.companyName}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, companyName: event.target.value }))}
-                        placeholder="회사명 입력"
-                      />
-                    </label>
-                    <label>
-                      <span>담당자명</span>
-                      <input
-                        value={supportRequestForm.requesterName}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterName: event.target.value }))}
-                        placeholder="담당자 이름"
-                      />
-                    </label>
-                    <label>
-                      <span>이메일</span>
-                      <input
-                        type="email"
-                        value={supportRequestForm.requesterEmail}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterEmail: event.target.value }))}
-                        placeholder="reply 받을 이메일"
-                      />
-                    </label>
-                    <label>
-                      <span>연락처</span>
-                      <input
-                        value={supportRequestForm.requesterPhone}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterPhone: event.target.value }))}
-                        placeholder="전화번호 또는 휴대폰"
-                      />
-                    </label>
-                    <label>
-                      <span>요청 내용</span>
-                      <textarea
-                        rows={5}
-                        value={supportRequestForm.message}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, message: event.target.value }))}
-                        placeholder="작업공간 개통 요청 내용, 필요한 기능, 문의사항을 적어주세요."
-                      />
-                    </label>
-                    <div className="auth-actions">
-                      <button type="button" onClick={() => void submitSupportRequest()} disabled={supportRequestBusy}>
-                        {supportRequestBusy ? "보내는 중..." : "보내기"}
-                      </button>
-                    </div>
-                    <p className="field-hint">문의는 `ehdrjs0887@gmail.com`으로 접수됩니다.</p>
-                  </div>
-                ) : null}
               </section>
             </aside>
+          </section>
+
+          <section className="landing-section" id="landing-workflow">
+            <div className="landing-section-head">
+              <span className="landing-eyebrow">운영 흐름</span>
+              <h2>한전 메일부터 발행까지, 실무 순서대로 이어지는 운영 흐름</h2>
+              <p>실제 운영 순서만 남겼습니다.</p>
+            </div>
+            <div className="landing-step-grid">
+              {LANDING_WORKFLOW_STEPS.map((item) => (
+                <article key={item.step} className="landing-step-card">
+                  <span className="landing-step-number">{item.step}</span>
+                  <h3>{item.title}</h3>
+                  <p>{item.description}</p>
+                </article>
+              ))}
+            </div>
           </section>
 
           <section className="landing-section" id="landing-pricing">
             <div className="landing-section-head">
               <span className="landing-eyebrow">가격 안내</span>
               <h2>관리 고객 수에 따라 자동 계산되는 월 구독형 요금제</h2>
-              <p>기본 50곳 포함, 초과 고객은 1곳당 추가 과금됩니다.</p>
+              <p>기본 50곳 포함, 초과 고객만 추가됩니다.</p>
             </div>
             <div className="landing-pricing-layout">
               <div className="landing-pricing-grid">
@@ -5770,14 +5826,169 @@ export function App() {
                 </div>
                 <p className="landing-fineprint">외부 연동 서비스 정책 변경 시 요금 정책이 조정될 수 있습니다.</p>
                 <div className="landing-hero-actions landing-calculator-actions">
-                  <button type="button" onClick={() => openSupportRequest(buildSupportRequestPrefill(pricingPlanId, publicManagedCustomerCount))}>
+                  <button type="button" className="landing-action-button landing-action-button-primary" onClick={() => openSupportRequest(buildSupportRequestPrefill(pricingPlanId, publicManagedCustomerCount))}>
                     이 규모로 도입 문의
                   </button>
-                  <button type="button" className="btn-secondary" onClick={() => scrollToLandingSection("landing-login-card")}>
+                  <button type="button" className="btn-secondary landing-action-button landing-action-button-secondary" onClick={() => scrollToLandingSection("landing-login-card")}>
                     로그인
                   </button>
                 </div>
               </aside>
+            </div>
+          </section>
+
+          <section className="landing-section landing-access-section" id="landing-login-card">
+            <div className="landing-section-head landing-access-head">
+              <span className="landing-eyebrow">도입/로그인</span>
+              <h2>로그인과 도입 문의를 한 구간에서 바로 처리</h2>
+              <p>로그인과 도입 문의를 같은 화면에서 처리합니다.</p>
+            </div>
+            <div className="landing-access-layout">
+              <div className="landing-access-stack">
+                <section className="auth-card landing-auth-card">
+                  <div className="auth-copy">
+                    <span className="auth-badge">작업공간 로그인</span>
+                    <h3>계정이 있으면 바로 로그인</h3>
+                    <p>로그인 아이디 또는 이메일로 접속합니다.</p>
+                  </div>
+                  <form className="auth-form" onSubmit={(event) => void signIn(event)}>
+                    <label>
+                      <span>로그인 계정</span>
+                      <input
+                        value={signInAccount}
+                        onChange={(event) => setSignInAccount(event.target.value)}
+                        placeholder="로그인 아이디 또는 이메일"
+                        autoComplete="username"
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>비밀번호</span>
+                      <input
+                        type="password"
+                        value={signInPassword}
+                        onChange={(event) => setSignInPassword(event.target.value)}
+                        placeholder="비밀번호 입력"
+                        autoComplete="current-password"
+                        required
+                      />
+                    </label>
+                    {authNotice ? <div className="alert success">{authNotice}</div> : null}
+                    {error ? <div className="alert error">{error}</div> : null}
+                    <div className="auth-actions">
+                      <button type="submit" disabled={authBusy}>
+                        {authBusy ? "로그인 중..." : "로그인"}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+
+                <article className="landing-access-info-card">
+                  <span className="landing-eyebrow">바로 시작 체크</span>
+                  <h3>도입 전에 먼저 맞춰두면 좋은 기준</h3>
+                  <div className="landing-access-info-list">
+                    {LANDING_ACCESS_CHECKS.map((item) => (
+                      <div key={item.title} className="landing-access-info-item">
+                        <strong>{item.title}</strong>
+                        <p>{item.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              </div>
+
+              <section className="auth-card landing-auth-card landing-support-card">
+                <div className="auth-copy">
+                  <span className="auth-badge">도입 문의</span>
+                  <h3>운영 규모를 알려주세요</h3>
+                  <p>연락처를 남기면 도입 흐름에 맞춰 안내합니다.</p>
+                </div>
+                <div className="auth-form">
+                  <div className="landing-support-form-grid">
+                    <label>
+                      <span>회사명</span>
+                      <input
+                        value={supportRequestForm.companyName}
+                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, companyName: event.target.value }))}
+                        placeholder="회사명 입력"
+                      />
+                    </label>
+                    <label>
+                      <span>담당자명</span>
+                      <input
+                        value={supportRequestForm.requesterName}
+                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterName: event.target.value }))}
+                        placeholder="담당자 이름"
+                      />
+                    </label>
+                    <label>
+                      <span>이메일</span>
+                      <input
+                        type="email"
+                        value={supportRequestForm.requesterEmail}
+                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterEmail: event.target.value }))}
+                        placeholder="회신 받을 이메일"
+                      />
+                    </label>
+                    <label>
+                      <span>연락처</span>
+                      <input
+                        value={supportRequestForm.requesterPhone}
+                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterPhone: event.target.value }))}
+                        placeholder="전화번호 또는 휴대폰"
+                      />
+                    </label>
+                  </div>
+                  <label className="landing-support-message-field">
+                    <span>요청 내용</span>
+                    <textarea
+                      rows={4}
+                      value={supportRequestForm.message}
+                      onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, message: event.target.value }))}
+                      placeholder="작업공간 개통 요청 내용, 필요한 기능, 문의사항을 적어주세요."
+                    />
+                  </label>
+                  <div className="auth-actions">
+                    <button type="button" onClick={() => void submitSupportRequest()} disabled={supportRequestBusy}>
+                      {supportRequestBusy ? "보내는 중..." : "도입 문의 보내기"}
+                    </button>
+                  </div>
+                  <p className="field-hint">문의는 `ehdrjs0887@gmail.com`으로 접수됩니다.</p>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section className="landing-section" id="landing-faq">
+            <div className="landing-section-head">
+              <span className="landing-eyebrow">자주 묻는 질문</span>
+              <h2>도입 전 가장 많이 확인하는 항목</h2>
+              <p>자주 확인하는 항목만 모았습니다.</p>
+            </div>
+            <div className="landing-faq-grid">
+              {LANDING_FAQ_ITEMS.map((item) => (
+                <details key={item.question} className="landing-faq-card landing-faq-item">
+                  <summary>{item.question}</summary>
+                  <div>
+                    <p>{item.answer}</p>
+                  </div>
+                </details>
+              ))}
+            </div>
+          </section>
+
+          <section className="landing-section landing-cta-section">
+            <div className="landing-cta-copy">
+              <span className="landing-eyebrow">도입 시작</span>
+              <h2>지금 바로 로그인하거나 도입 문의를 남길 수 있습니다.</h2>
+            </div>
+            <div className="landing-cta-actions">
+              <button type="button" className="landing-action-button landing-action-button-primary" onClick={() => scrollToLandingSection("landing-login-card")}>
+                로그인
+              </button>
+              <button type="button" className="btn-secondary landing-action-button landing-action-button-secondary" onClick={() => openSupportRequest(buildSupportRequestPrefill(pricingPlanId, publicManagedCustomerCount))}>
+                도입 문의
+              </button>
             </div>
           </section>
 
@@ -5858,8 +6069,6 @@ export function App() {
   const quickRegisterMessages = data.inbox
     .filter((message) => getInboxDisplayParseStatus(message) === "unmatched" && message.parsedData?.plantAddress)
     .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime());
-  const duplicateMessages = data.inbox.filter((message) => getInboxDisplayParseStatus(message) === "duplicate");
-  const reprocessableMessages = data.inbox.filter((message) => isInboxActionable(message));
   const billingMonthSummaryMap = new Map<string, BillingMonthSummary>();
   for (const message of data.inbox) {
     const billingMonth = message.parsedData?.billingMonth;
@@ -5896,6 +6105,55 @@ export function App() {
   const recentIssuedDrafts = issuedDrafts.slice(0, 8);
   const recentInboxPreview = recentInboxMessages.slice(0, 4);
   const recentIssuedPreview = recentIssuedDrafts.slice(0, 4);
+  const normalizedWorkQueueSearch = workQueueSearchQuery.trim().toLocaleLowerCase("ko-KR");
+  const filteredReviewDrafts = reviewDrafts.filter((draft) => {
+    if (normalizedWorkQueueSearch === "") return true;
+    return (
+      draft.customerName.toLocaleLowerCase("ko-KR").includes(normalizedWorkQueueSearch) ||
+      draft.itemName.toLocaleLowerCase("ko-KR").includes(normalizedWorkQueueSearch)
+    );
+  });
+  const workRecentActivityEntries = [
+    ...recentIssuedPreview.slice(0, 2).map((draft) => ({
+      key: `issued-${draft.id}`,
+      icon: "task_alt",
+      iconTone: "primary",
+      title: `${draft.customerName} 발행 완료`,
+      note: `${formatMoney(draft.totalAmount)}원`,
+      time: formatDateTime(draft.issuedAt)
+    })),
+    ...recentInboxPreview.slice(0, 2).map((message) => ({
+      key: `inbox-${message.id}`,
+      icon: getInboxDisplayParseStatus(message) === "failed" ? "error" : "mail",
+      iconTone: getInboxDisplayParseStatus(message) === "failed" ? "danger" : "muted",
+      title: message.parsedData?.plantName ?? "미확인 메일 수신",
+      note: getParseStatusLabel(getInboxDisplayParseStatus(message)),
+      time: formatDateTime(message.receivedAt)
+    }))
+  ];
+  const displayedWorkRecentActivityEntries =
+    workRecentActivityEntries.length > 0
+      ? workRecentActivityEntries.map((item) => ({ ...item, preview: false }))
+      : [
+          {
+            key: "preview-mail-sync",
+            icon: "sync",
+            iconTone: "muted",
+            title: "메일 즉시 동기화",
+            note: "새 메일을 읽으면 미매칭 메일과 발행 대상이 이력으로 쌓입니다.",
+            time: "예상 다음 단계",
+            preview: true
+          },
+          {
+            key: "preview-customer",
+            icon: "groups",
+            iconTone: "muted",
+            title: "첫 고객 등록",
+            note: "고객 등록 후에는 발행 준비/연결 상태 변화가 여기에 기록됩니다.",
+            time: "예상 다음 단계",
+            preview: true
+          }
+        ];
   const normalizedCustomerSearch = deferredCustomerSearchQuery.trim().toLocaleLowerCase("ko-KR");
   const filteredCustomers = data.customers
     .filter((customer) => matchesCustomerListFilter(customer, customerListFilter))
@@ -5930,7 +6188,6 @@ export function App() {
       (customer): customer is Customer =>
         Boolean(customer && customer.popbillState === "joined" && !customer.popbillCertRegistered)
     );
-  const workLayoutClassName = "work-layout";
   const selectedCustomer = customerForm.id ? data.customers.find((customer) => customer.id === customerForm.id) ?? null : null;
   const selectedCustomerReadiness = selectedCustomer
     ? customerReadinessMap.get(selectedCustomer.id) ?? getCustomerIssueReadiness(selectedCustomer)
@@ -5961,9 +6218,6 @@ export function App() {
   const managedCustomerCount = data.counts.customers;
   const hasReachedManagedCustomerLimit =
     managedCustomerLimit !== null && managedCustomerCount >= managedCustomerLimit;
-  const opsAgent = opsConsole?.renewalAutomation.agent ?? null;
-  const opsJobs = opsConsole?.renewalAutomation.jobs ?? [];
-  const opsLogs = opsConsole?.logs ?? [];
   const opsWorkspaces = opsConsole?.workspaces ?? [];
   const customerRenewalAssistantJobs = customerRenewalAssistant?.jobs ?? [];
   const customerRenewalAssistantAllCertificates = customerRenewalAssistant?.certificates ?? [];
@@ -6099,26 +6353,43 @@ export function App() {
     busyKey === "save-customer-top" ||
     (customerForm.id !== null && busyKey === `save-customer-${customerForm.id}`);
   const isQuickRegistering = busyKey === "quick-register-unmatched";
-  const partnerTaxInvoiceUnitCost = opsConsole?.partnerPoints.taxInvoiceUnitCost ?? null;
-  const opsPartnerIsTest = opsConsole?.partnerPoints.isTest ?? false;
   const workspacePopbillIsTest = data.settings.popbillIsTest;
   const workspacePopbillModeLabel = workspacePopbillIsTest ? "팝빌 테스트" : "팝빌 운영";
   const renewalHelperDownloadUrl = import.meta.env.VITE_RENEWAL_HELPER_DOWNLOAD_URL?.trim() || "/downloads/renewal-local-helper.zip";
-  const opsPartnerModeLabel = opsPartnerIsTest ? "테스트 모드" : "운영 모드";
-  const opsPartnerModeDescription = opsPartnerIsTest
-    ? "현재 팝빌 테스트 환경으로 연결되어 있습니다. 실제 고객 운영 전에는 운영 모드 전환 여부를 다시 확인하세요."
-    : "현재 팝빌 운영 환경으로 연결되어 있습니다. 실제 발행과 파트너 포인트가 운영 기준으로 반영됩니다.";
-  const totalWorkspaceIssuedDraftCount = opsWorkspaces.reduce((sum, workspace) => sum + workspace.issuedDraftCount, 0);
-  const totalWorkspaceCurrentMonthIssuedDraftCount = opsWorkspaces.reduce(
-    (sum, workspace) => sum + workspace.currentMonthIssuedDraftCount,
-    0
-  );
-  const totalWorkspaceEstimatedPointUsage =
-    partnerTaxInvoiceUnitCost === null ? null : totalWorkspaceIssuedDraftCount * partnerTaxInvoiceUnitCost;
-  const totalWorkspaceCurrentMonthEstimatedPointUsage =
-    partnerTaxInvoiceUnitCost === null ? null : totalWorkspaceCurrentMonthIssuedDraftCount * partnerTaxInvoiceUnitCost;
-  const opsAgentStatusMeta = opsAgent ? getRenewalAgentStatusMeta(opsAgent) : null;
-  const opsCertificates = opsAgent?.bridge.storageProbe.certificates ?? [];
+  const opsActiveWorkspaceCount = opsWorkspaces.filter((workspace) => workspace.organizationStatus === "active").length;
+  const opsOwnerMissingCount = opsWorkspaces.filter((workspace) => !workspace.ownerLoginId).length;
+  const opsBusinessNumberMissingCount = opsWorkspaces.filter((workspace) => !workspace.organizationBusinessNumber).length;
+  const opsWorkspaceAlerts = opsWorkspaces
+    .flatMap((workspace) => {
+      const issues: string[] = [];
+      if (!workspace.organizationBusinessNumber) {
+        issues.push("사업자번호 미입력");
+      }
+      if (!workspace.ownerLoginId) {
+        issues.push("owner 미연결");
+      }
+      if (workspace.organizationStatus !== "active") {
+        issues.push(`상태 ${getOrganizationStatusLabel(workspace.organizationStatus)}`);
+      }
+
+      if (issues.length === 0) {
+        return [];
+      }
+
+      return [
+        {
+          key: `workspace-alert-${workspace.organizationId}`,
+          tone:
+            !workspace.ownerLoginId || workspace.organizationStatus === "suspended" || workspace.organizationStatus === "churned"
+              ? "error"
+              : "warn",
+          title: workspace.organizationName,
+          note: issues.join(" · ")
+        }
+      ];
+    })
+    .slice(0, 6);
+  const opsAttentionWorkspaceCount = opsWorkspaceAlerts.length;
   const canManageOrganizationMembers = data.auth.activeOrganizationRole === "owner";
   const recommendedSettingsSection: SettingsSectionId = !settingsHealth.mailReady
     ? "gmail"
@@ -6126,31 +6397,37 @@ export function App() {
   const linkedCustomerCertificateCount = customerCertificateItems.filter((item) => item.linkedCustomerId !== null).length;
   const onboardingCertificateReady =
     linkedCustomerCertificateCount > 0 || data.customers.some((customer) => customer.popbillCertRegistered);
+  const onboardingPrerequisitePendingCount = [
+    customerRegistrationReady,
+    settingsHealth.mailReady,
+    settingsHealth.popbillReady && settingsHealth.operatorReady,
+    onboardingCertificateReady
+  ].filter((done) => !done).length;
   const onboardingFirstSyncReady = data.inbox.length > 0 || data.drafts.length > 0;
   const onboardingSteps = [
     {
-      id: "mail",
+      id: "customers",
       step: 1,
+      title: "엑셀 고객 등록",
+      summary: customerRegistrationReady ? `${data.customers.length}명 등록됨` : "고객 등록 필요",
+      done: customerRegistrationReady
+    },
+    {
+      id: "mail",
+      step: 2,
       title: "메일 연결",
       summary: settingsHealth.mailReady ? "메일 연결 완료" : "메일 연결 필요",
       done: settingsHealth.mailReady
     },
     {
       id: "defaults",
-      step: 2,
+      step: 3,
       title: "발행 기본값 입력",
       summary:
         settingsHealth.popbillReady && settingsHealth.operatorReady
           ? "기본값 완료"
           : "기본값 입력",
       done: settingsHealth.popbillReady && settingsHealth.operatorReady
-    },
-    {
-      id: "customers",
-      step: 3,
-      title: "엑셀 고객 등록",
-      summary: customerRegistrationReady ? `${data.customers.length}명 등록됨` : "고객 등록 필요",
-      done: customerRegistrationReady
     },
     {
       id: "certificates",
@@ -6167,63 +6444,173 @@ export function App() {
       done: onboardingFirstSyncReady
     }
   ];
-  const workPriorityCards = [
-    ...(setupPendingCount > 0
-      ? [
-          {
-            key: "setup",
-            title: "도입 준비",
-            count: setupPendingCount,
-            description: "남은 준비",
-            tone: "warn" as const,
-            actionLabel: "도입 준비 열기",
-            onAction: () => setActiveTab("onboarding")
-          }
-        ]
-      : []),
-    ...(unmatchedMessages.length > 0
-      ? [
-          {
-            key: "unmatched",
-            title: "미매칭 메일",
-            count: unmatchedMessages.length,
-            description: "고객 연결 필요",
-            tone: "warn" as const,
-            actionLabel: "초기 등록 확인",
-            onAction: () => setActiveTab("onboarding")
-          }
-        ]
-      : []),
-    ...(certAttentionCount > 0
-      ? [
-          {
-            key: "cert",
-            title: "인증서 주의",
-            count: certAttentionCount,
-            description: "만료 임박",
-            tone: expiredCertCustomers.length > 0 ? ("danger" as const) : ("warn" as const),
-            actionLabel: "인증서 관리 열기",
-            onAction: () => setActiveTab("certificates")
-          }
-        ]
-      : []),
-    ...(duplicateMessages.length > 0
-      ? [
-          {
-            key: "duplicate",
-            title: "중복 의심 메일",
-            count: duplicateMessages.length,
-            description: "중복 확인",
-            tone: "default" as const,
-            actionLabel: "최근 수신 보기",
-            onAction: () => {
-              setWorkFeedTab("inbox");
-              scrollToElementById("work-recent-history");
-            }
-          }
-        ]
-      : [])
+  const workStatusItems: Array<{
+    label: string;
+    detail: string;
+    statusLabel: string;
+    tone: "default" | "success" | "warn" | "danger";
+  }> = [
+    {
+      label: "메일 연결",
+      detail: settingsHealth.mailReady ? "수신/발신 연결 확인됨" : "메일 연결 테스트 필요",
+      statusLabel: settingsHealth.mailReady ? "정상" : "연결 필요",
+      tone: settingsHealth.mailReady ? "success" : "warn"
+    },
+    {
+      label: "팝빌",
+      detail: settingsHealth.popbillReady ? "발행 기본값 확인됨" : "발행 기본값 확인 필요",
+      statusLabel: settingsHealth.popbillReady ? "정상" : "설정 필요",
+      tone: settingsHealth.popbillReady ? "success" : "warn"
+    },
+    {
+      label: "자동 발행",
+      detail: data.settings.schedulerEnabled ? "정기 일정 사용 중" : "수동 발행 모드",
+      statusLabel: data.settings.schedulerEnabled ? "사용 중" : "수동",
+      tone: data.settings.schedulerEnabled ? "success" : "default"
+    },
+    {
+      label: "인증서 상태",
+      detail: certAttentionCount > 0 ? "만료 임박 또는 재점검 필요" : "지금 조치할 항목 없음",
+      statusLabel: certAttentionCount > 0 ? `주의 ${certAttentionCount}건` : "정상",
+      tone: certAttentionCount > 0 ? (expiredCertCustomers.length > 0 ? "danger" : "warn") : "success"
+    }
   ];
+  const nextWorkIntentNonce = () => {
+    workNavigationNonceRef.current += 1;
+    return workNavigationNonceRef.current;
+  };
+  const openOnboardingStep = (stepId: OnboardingStepId) => {
+    setOnboardingNavigationIntent({ stepId, nonce: nextWorkIntentNonce() });
+    setActiveTab("onboarding");
+  };
+  const openCertificateFilter = (filter: CertificateCustomerFilter) => {
+    setCertificateFilterIntent({ filter, nonce: nextWorkIntentNonce() });
+    setActiveTab("certificates");
+  };
+  const focusWorkQueue = () => {
+    setWorkQueueSearchQuery("");
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      workQueueCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      workQueueSearchInputRef.current?.focus();
+    });
+  };
+  const workShortcutCards: Array<{
+    key: string;
+    toneClass: "kpi-alert" | "kpi-primary" | "kpi-success";
+    badgeLabel: string;
+    icon: string;
+    title: string;
+    value: number;
+    note: string;
+    actionLabel: string;
+    onClick: () => void;
+  }> = [
+    {
+      key: "unmatched-mail",
+      toneClass: unmatchedMessages.length > 0 ? "kpi-alert" : "kpi-success",
+      badgeLabel: unmatchedMessages.length > 0 ? "확인 필요" : "정리됨",
+      icon: "mail",
+      title: "미매칭 메일",
+      value: unmatchedMessages.length,
+      note: unmatchedMessages.length > 0 ? "주소 또는 고객명이 맞지 않는 메일" : "지금 바로 볼 미매칭 메일 없음",
+      actionLabel: unmatchedMessages.length > 0 ? "등록 단계 열기" : "도입 준비 열기",
+      onClick: () => openOnboardingStep("customers")
+    },
+    {
+      key: "review-drafts",
+      toneClass: "kpi-primary",
+      badgeLabel: reviewDrafts.length > 0 ? "진행 중" : "비어 있음",
+      icon: "description",
+      title: "발행 대상",
+      value: reviewDrafts.length,
+      note: reviewDrafts.length > 0 ? "검수 후 바로 발행할 수 있는 초안" : "대기 중인 발행 초안 없음",
+      actionLabel: "목록으로 이동",
+      onClick: focusWorkQueue
+    },
+    {
+      key: "certificate-attention",
+      toneClass: certAttentionCount > 0 ? "kpi-alert" : "kpi-success",
+      badgeLabel: certAttentionCount > 0 ? "주의" : "정상",
+      icon: "verified_user",
+      title: "인증서 만료 예정",
+      value: certAttentionCount,
+      note: certAttentionCount > 0 ? "만료 임박 고객부터 우선 점검" : "지금 조치할 인증서 주의 고객 없음",
+      actionLabel: "인증서 관리 열기",
+      onClick: () => openCertificateFilter("expiring_30")
+    }
+  ];
+  const workPriorityPanel =
+    setupPendingCount > 0
+      ? {
+          badgeTone: "warn" as const,
+          badgeLabel: "먼저 할 일",
+          title: `운영 시작 전 기본 설정 ${setupPendingCount}개를 먼저 끝내세요.`,
+          description:
+            customerRegistrationReady
+              ? "메일 연결과 발행 기본값을 마치면 발행 대기와 미매칭 메일이 자동으로 모입니다."
+              : "고객 등록, 메일 연결, 발행 기본값을 마치면 발행 대상이 자동으로 채워집니다.",
+          primaryLabel: "도입 준비 계속",
+          primaryAction: () => setActiveTab("onboarding"),
+          secondaryActions: [
+            { label: "작업공간 설정", onClick: () => setActiveTab("settings") },
+            { label: "고객 운영", onClick: () => setActiveTab("customers") }
+          ]
+        }
+      : reviewDrafts.length > 0
+        ? {
+            badgeTone: "default" as const,
+            badgeLabel: "지금 처리 가능",
+            title: `검토 후 바로 발행할 초안 ${reviewDrafts.length}건이 쌓여 있습니다.`,
+            description: "발행 대기 목록으로 내려가 검토 완료분을 먼저 일괄 발행하세요.",
+            primaryLabel: "발행 대기 열기",
+            primaryAction: focusWorkQueue,
+            secondaryActions: [
+              { label: "고객 운영", onClick: () => setActiveTab("customers") },
+              { label: "인증서 관리", onClick: () => openCertificateFilter("action_needed") }
+            ]
+          }
+        : unmatchedMessages.length > 0
+          ? {
+              badgeTone: "warn" as const,
+              badgeLabel: "확인 필요",
+              title: `미매칭 메일 ${unmatchedMessages.length}건을 먼저 정리하면 자동 등록 정확도가 올라갑니다.`,
+              description: "대표자·상호·주소를 보강한 뒤 다시 동기화하면 초안 생성 흐름이 안정됩니다.",
+              primaryLabel: "도입 준비 열기",
+              primaryAction: () => openOnboardingStep("customers"),
+              secondaryActions: [
+                { label: "고객 운영", onClick: () => setActiveTab("customers") },
+                { label: "메일 즉시 동기화", onClick: () => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" }))) }
+              ]
+            }
+          : certAttentionCount > 0
+            ? {
+                badgeTone: expiredCertCustomers.length > 0 ? "danger" as const : "warn" as const,
+                badgeLabel: expiredCertCustomers.length > 0 ? "중요" : "주의",
+                title: `인증서 주의 ${certAttentionCount}건을 먼저 정리해야 발행 중단 위험을 줄일 수 있습니다.`,
+                description: "만료 예정 고객부터 인증서 관리 화면에서 준비·결제 순서로 처리하세요.",
+                primaryLabel: "인증서 관리 열기",
+                primaryAction: () => openCertificateFilter("action_needed"),
+                secondaryActions: [
+                  { label: "고객 운영", onClick: () => setActiveTab("customers") },
+                  { label: "작업공간 설정", onClick: () => setActiveTab("settings") }
+                ]
+              }
+            : {
+                badgeTone: "success" as const,
+                badgeLabel: "운영 안정",
+                title: "지금 바로 처리할 운영 이슈가 없습니다.",
+                description: "새 메일을 읽거나 신규 고객을 등록해 다음 작업을 준비하세요.",
+                primaryLabel: "메일 즉시 동기화",
+                primaryAction: () => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" }))),
+                secondaryActions: [
+                  { label: "고객 운영", onClick: () => setActiveTab("customers") },
+                  { label: "도입 준비", onClick: () => setActiveTab("onboarding") }
+                ]
+              };
   const settingsSections: Array<{
     id: SettingsSectionId;
     step: number;
@@ -6471,14 +6858,15 @@ export function App() {
         : settingsAutosaveState === "pending"
           ? "chip chip-warn"
           : "chip chip-success";
-  const canRunOnboardingFirstSync = setupPendingCount === 0 && customerRegistrationReady;
+  const canRunOnboardingFirstSync = setupPendingCount === 0 && customerRegistrationReady && onboardingCertificateReady;
   const onboardingMailSetupContent = (
     <SetupPanel
-      step={1}
+      step={2}
       className="panel-settings-mail"
       title="메일 연결"
       done={settingsHealth.mailReady}
       note="도입 준비 탭 안에서 바로 연결하면 됩니다. 저장은 자동으로 처리됩니다."
+      showStepOrder={false}
       actions={
         <button disabled={busyKey !== null} onClick={() => void runAction("mail-test", testMailSettings, { reload: false })}>
           {isMailTesting ? "메일 연결 확인 중..." : "메일 연결 테스트"}
@@ -6567,11 +6955,12 @@ export function App() {
   );
   const onboardingDefaultsContent = (
     <SetupPanel
-      step={2}
+      step={3}
       className="panel-settings-popbill"
       title="발행 기본 설정"
       done={settingsHealth.popbillReady && settingsHealth.operatorReady}
       note="고객 등록 전에 필요한 공통값만 여기서 먼저 입력하면 됩니다."
+      showStepOrder={false}
     >
       <div className="settings-action-feedback">
         <span className={onboardingSettingsStatusChipClass}>{settingsAutosaveLabel}</span>
@@ -6719,7 +7108,7 @@ export function App() {
   const onboardingFirstRunContent = (
     <Panel
       title="첫 동기화와 첫 발행 확인"
-      subtitle="기본 준비와 고객 등록이 끝났으면 여기서 바로 시작합니다."
+      subtitle="메일을 실제로 읽은 뒤 예외 메일과 월별 완료 처리까지 여기서 마무리합니다."
       actions={
         <button
           disabled={busyKey !== null || !canRunOnboardingFirstSync}
@@ -6730,19 +7119,19 @@ export function App() {
       }
     >
       <div className="info-grid">
-        <div>
+        <div className="stitch-console-metric-tile">
           <span>준비 남음</span>
-          <strong>{setupPendingCount}개</strong>
+          <strong>{onboardingPrerequisitePendingCount}개</strong>
         </div>
-        <div>
+        <div className="stitch-console-metric-tile">
           <span>등록 고객</span>
           <strong>{data.customers.length}명</strong>
         </div>
-        <div>
+        <div className="stitch-console-metric-tile">
           <span>미매칭 메일</span>
           <strong>{unmatchedMessages.length}건</strong>
         </div>
-        <div>
+        <div className="stitch-console-metric-tile">
           <span>발행 대기</span>
           <strong>{reviewDrafts.length}건</strong>
         </div>
@@ -6751,10 +7140,32 @@ export function App() {
         <strong>{canRunOnboardingFirstSync ? "여기서 바로 첫 실행을 시작하면 됩니다." : "아직 도입 준비가 남아 있습니다."}</strong>
         <span>
           {canRunOnboardingFirstSync
-            ? "메일 즉시 동기화를 한 번 실행한 뒤, 오늘 작업에서 미매칭 메일과 발행 대기를 확인하세요."
-            : "메일 연결, 발행 기본값, 고객 등록을 먼저 마치면 여기서 바로 첫 동기화를 실행할 수 있습니다."}
+            ? "메일 즉시 동기화를 한 번 실행한 뒤, 아래에서 예외 메일과 완료 처리까지 정리하면 첫 발행 검토로 넘어갈 수 있습니다."
+            : "고객 등록, 메일 연결, 발행 기본값, 인증서 연결을 먼저 마치면 여기서 바로 첫 동기화를 실행할 수 있습니다."}
         </span>
       </div>
+      {quickRegisterNotice ? <div className="stitch-import-notice tone-success">{quickRegisterNotice}</div> : null}
+      {quickRegisterError ? <div className="stitch-import-notice tone-error">{quickRegisterError}</div> : null}
+      {completedBillingNotice ? <div className="stitch-import-notice tone-success">{completedBillingNotice}</div> : null}
+      <InitialRegistrationFollowupSections
+        busyKey={busyKey}
+        quickRegisterMessages={quickRegisterMessages}
+        quickRegisterForm={quickRegisterForm}
+        selectedQuickRegisterMessage={selectedQuickRegisterMessage}
+        isQuickRegistering={isQuickRegistering}
+        quickRegisterNotice={quickRegisterNotice}
+        quickRegisterError={quickRegisterError}
+        billingMonthSummaries={billingMonthSummaries}
+        completedBillingNotice={completedBillingNotice}
+        setQuickRegisterForm={setQuickRegisterForm}
+        selectQuickRegisterMessage={selectQuickRegisterMessage}
+        submitQuickRegister={submitQuickRegister}
+        markBillingMonthCompleted={markBillingMonthCompleted}
+        runAction={runAction}
+        formatDateTime={formatDateTime}
+        getInboxDisplayParseStatus={getInboxDisplayParseStatus}
+        getParseStatusLabel={getParseStatusLabel}
+      />
       <div className="button-row">
         <button type="button" className="btn-secondary" onClick={() => setActiveTab("work")}>
           오늘 작업 열기
@@ -6763,6 +7174,362 @@ export function App() {
     </Panel>
   );
   const activeNavLabel = navItems.find((item) => item.id === activeTab)?.label ?? "AUTO-TAX";
+  const activeHeroTitle =
+    activeTab === "work" ? "오늘 작업 대시보드" : activeTab === "ops" ? "플랫폼 관리자" : activeNavLabel;
+  const activeHeroSubtitle =
+    activeTab === "work"
+      ? "실시간 운영 현황과 미처리 항목을 빠르게 정리합니다."
+      : activeTab === "onboarding"
+        ? "첫 발행 준비를 순서대로 완료합니다."
+        : activeTab === "customers"
+          ? "고객 등록과 발행 준비 상태를 관리합니다."
+          : activeTab === "certificates"
+            ? "인증서 읽기·연결·갱신 대기를 관리합니다."
+            : activeTab === "settings"
+              ? "메일, 기본값, 사용자 설정을 관리합니다."
+            : activeTab === "ops"
+                ? "태양광 고객사 작업공간을 개통하고 owner 계정을 관리합니다."
+                : "AUTO-TAX 운영 화면";
+  const showGlobalStatusStrip = activeTab === "work" || activeTab === "ops";
+  const showGlobalRefreshAction = activeTab === "work" || activeTab === "ops";
+  const showImmediateSyncAction = hasActiveWorkspace && activeTab === "work" && setupPendingCount === 0;
+  const appTopbarClassName = activeTab === "work" || activeTab === "ops" ? "app-topbar" : "app-topbar app-topbar-compact";
+  const opsContent = (
+    <div className="stitch-ops-screen">
+      {opsConsole ? (
+        <div className="stitch-ops-main">
+          <div className="stitch-ops-top-grid">
+            <SurfaceCard className="stitch-ops-card">
+              <div className="stitch-ops-card-head">
+                <div>
+                  <h3>
+                    <span className="material-symbols-outlined">domain</span>
+                    고객사 작업공간 개통 관리
+                  </h3>
+                  <p>{isCreatingWorkspace ? "고객사 작업공간과 첫 owner 계정을 만드는 중입니다." : "새 고객사를 만들고 첫 owner 로그인 아이디를 바로 연결합니다."}</p>
+                </div>
+                <button disabled={busyKey !== null} onClick={() => void runAction("ops-create-workspace", createWorkspace)}>
+                  {isCreatingWorkspace ? "개통 중..." : "새 고객사 개통"}
+                </button>
+              </div>
+
+              <div className="stitch-ops-form-grid">
+                <label>
+                  고객사명
+                  <input
+                    disabled={busyKey !== null}
+                    value={opsWorkspaceForm.organizationName}
+                    onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationName: event.target.value }))}
+                    placeholder="예: 해성태양광"
+                  />
+                </label>
+                <label>
+                  사업자번호
+                  <input
+                    disabled={busyKey !== null}
+                    value={opsWorkspaceForm.organizationBusinessNumber}
+                    onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationBusinessNumber: event.target.value }))}
+                    placeholder="숫자만 입력"
+                  />
+                </label>
+                <label>
+                  관리 고객 한도
+                  <input
+                    disabled={busyKey !== null}
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={opsWorkspaceForm.managedCustomerLimit}
+                    onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, managedCustomerLimit: event.target.value }))}
+                    placeholder="예: 50"
+                  />
+                </label>
+                <label>
+                  첫 owner 로그인 아이디
+                  <input
+                    disabled={busyKey !== null}
+                    value={opsWorkspaceForm.ownerLoginId}
+                    onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerLoginId: event.target.value }))}
+                    placeholder="예: admin01"
+                  />
+                </label>
+                <label>
+                  owner 이름
+                  <input
+                    disabled={busyKey !== null}
+                    value={opsWorkspaceForm.ownerDisplayName}
+                    onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerDisplayName: event.target.value }))}
+                    placeholder="담당자 이름"
+                  />
+                </label>
+                <label className="full">
+                  임시 비밀번호
+                  <div className="password-field">
+                    <input
+                      disabled={busyKey !== null}
+                      type={revealedFields.opsOwnerPassword ? "text" : "password"}
+                      value={opsWorkspaceForm.ownerPassword}
+                      onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerPassword: event.target.value }))}
+                      placeholder="기존 사용자면 비워두고, 새 사용자면 8자 이상 입력"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      disabled={busyKey !== null}
+                      aria-label={revealedFields.opsOwnerPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
+                      onClick={() => toggleRevealField("opsOwnerPassword")}
+                    >
+                      <RevealIcon open={Boolean(revealedFields.opsOwnerPassword)} />
+                    </button>
+                  </div>
+                </label>
+              </div>
+            </SurfaceCard>
+
+            <SurfaceCard className="stitch-ops-card">
+              <div className="stitch-ops-card-head">
+                <div>
+                  <h3>
+                    <span className="material-symbols-outlined">monitoring</span>
+                    고객사 운영 현황
+                  </h3>
+                  <p>운영자 화면에서는 고객사 작업공간 상태, 사업자번호, owner 계정만 관리합니다.</p>
+                </div>
+              </div>
+
+              <div className="stitch-ops-summary-grid">
+                <div className="stitch-console-metric-tile">
+                  <span>전체 고객사</span>
+                  <strong>{opsWorkspaces.length}곳</strong>
+                </div>
+                <div className="stitch-console-metric-tile">
+                  <span>운영 중</span>
+                  <strong>{opsActiveWorkspaceCount}곳</strong>
+                </div>
+                <div className="stitch-console-metric-tile">
+                  <span>확인 필요</span>
+                  <strong>{opsAttentionWorkspaceCount}곳</strong>
+                </div>
+                <div className="stitch-console-metric-tile">
+                  <span>owner 미연결</span>
+                  <strong>{opsOwnerMissingCount}곳</strong>
+                </div>
+              </div>
+
+              <div className="stitch-ops-alert-block">
+                <div className="stitch-ops-card-head compact stitch-ops-subhead">
+                  <h3>
+                    <span className="material-symbols-outlined">priority_high</span>
+                    확인 필요한 고객사
+                  </h3>
+                </div>
+                <div className="stitch-ops-pending-list">
+                  {opsWorkspaceAlerts.length > 0 ? (
+                    opsWorkspaceAlerts.map((item) => (
+                      <article key={item.key} className={`stitch-ops-pending-item tone-${item.tone}`}>
+                        <strong>{item.title}</strong>
+                        <p>{item.note}</p>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="empty">현재 확인이 필요한 고객사 작업공간은 없습니다.</div>
+                  )}
+                </div>
+              </div>
+            </SurfaceCard>
+          </div>
+
+            <SurfaceCard className="stitch-ops-card">
+              <div className="stitch-ops-card-head">
+                <div>
+                  <h3>
+                    <span className="material-symbols-outlined">list_alt</span>
+                    개통된 고객사 작업공간 목록
+                  </h3>
+                  <p>고객사 상태, 사업자번호, owner 연결, 관리 고객 한도를 한 화면에서 관리합니다.</p>
+                </div>
+              </div>
+
+              <div className="stitch-ops-tab-row">
+                <span className="is-active">전체 목록 {opsWorkspaces.length}</span>
+                <span>운영 중 {opsActiveWorkspaceCount}</span>
+                <span>확인 필요 {opsAttentionWorkspaceCount}</span>
+                <span>사업자번호 미입력 {opsBusinessNumberMissingCount}</span>
+              </div>
+
+              {opsWorkspaces.length > 0 ? (
+                <>
+                  <div className="stitch-ops-table-wrap">
+                    <table className="stitch-ops-table">
+                      <thead>
+                        <tr>
+                          <th>고객사명</th>
+                          <th>사업자번호</th>
+                          <th>개통일자</th>
+                          <th>작업상태</th>
+                          <th>관리자</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {opsWorkspaces.map((workspace) => (
+                          <tr key={workspace.organizationId}>
+                            <td>{workspace.organizationName}</td>
+                            <td>{workspace.organizationBusinessNumber || "-"}</td>
+                            <td>{formatDateTime(workspace.createdAt)}</td>
+                            <td>
+                              <span className={`stitch-ops-inline-badge ${workspace.organizationStatus === "active" ? "tone-success" : workspace.organizationStatus === "trial" ? "tone-warn" : "tone-error"}`}>
+                                {getOrganizationStatusLabel(workspace.organizationStatus)}
+                              </span>
+                            </td>
+                            <td>{workspace.ownerDisplayName || workspace.ownerLoginId || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="stitch-ops-workspace-actions">
+                    {opsWorkspaces.map((workspace) => {
+                      const isOwnerResetTarget =
+                        passwordResetTarget?.kind === "owner" &&
+                        passwordResetTarget.organizationId === workspace.organizationId;
+
+                      return (
+                        <article key={`ops-detail-${workspace.organizationId}`} className="stitch-ops-workspace-card">
+                          <div className="stitch-ops-workspace-card-head">
+                            <div>
+                              <strong>{workspace.organizationName}</strong>
+                              <p>
+                                owner {workspace.ownerDisplayName || "-"}
+                                {workspace.ownerLoginId ? ` · ${workspace.ownerLoginId}` : " · 미연결"}
+                              </p>
+                            </div>
+                            <div className="stitch-ops-workspace-card-meta">
+                              <span>사업자번호 {workspace.organizationBusinessNumber || "-"}</span>
+                              <span>상태 {getOrganizationStatusLabel(workspace.organizationStatus)}</span>
+                              <span>등록 고객 {workspace.managedCustomerCount}명 / 한도 {workspace.managedCustomerLimit ?? "-"}</span>
+                              <span>멤버 {workspace.memberCount}명</span>
+                            </div>
+                          </div>
+                          <div className="stitch-ops-form-grid compact">
+                            <label>
+                              최대 등록 가능 수
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={workspaceLimitEdits[workspace.organizationId] ?? String(workspace.managedCustomerLimit ?? "")}
+                                onChange={(event) =>
+                                  setWorkspaceLimitEdits((prev) => ({
+                                    ...prev,
+                                    [workspace.organizationId]: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                          <div className="stitch-ops-workspace-card-actions">
+                            <button
+                              className="btn-secondary"
+                              disabled={busyKey !== null}
+                              onClick={() =>
+                                void runAction(
+                                  `ops-workspace-limit-${workspace.organizationId}`,
+                                  async () => void (await updateWorkspaceManagedCustomerLimit(workspace)),
+                                  { reload: false }
+                                )
+                              }
+                            >
+                              한도 저장
+                            </button>
+                            <button className="btn-secondary" disabled={busyKey !== null} onClick={() => openOwnerPasswordReset(workspace)}>
+                              owner 비밀번호 재설정
+                            </button>
+                          </div>
+                          {isOwnerResetTarget ? (
+                            <div className="stitch-ops-password-reset">
+                              <div className="stitch-ops-form-grid compact">
+                                <label>
+                                  새 임시 비밀번호
+                                  <div className="password-field">
+                                    <input
+                                      type={revealedFields.ownerResetNextPassword ? "text" : "password"}
+                                      value={passwordResetForm.nextPassword}
+                                      onChange={(event) =>
+                                        setPasswordResetForm((prev) => ({
+                                          ...prev,
+                                          nextPassword: event.target.value
+                                        }))
+                                      }
+                                      placeholder="8자 이상 입력"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="password-toggle"
+                                      aria-label={revealedFields.ownerResetNextPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
+                                      onClick={() => toggleRevealField("ownerResetNextPassword")}
+                                    >
+                                      <RevealIcon open={Boolean(revealedFields.ownerResetNextPassword)} />
+                                    </button>
+                                  </div>
+                                </label>
+                                <label>
+                                  새 임시 비밀번호 확인
+                                  <div className="password-field">
+                                    <input
+                                      type={revealedFields.ownerResetConfirmPassword ? "text" : "password"}
+                                      value={passwordResetForm.confirmPassword}
+                                      onChange={(event) =>
+                                        setPasswordResetForm((prev) => ({
+                                          ...prev,
+                                          confirmPassword: event.target.value
+                                        }))
+                                      }
+                                      placeholder="한 번 더 입력"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="password-toggle"
+                                      aria-label={revealedFields.ownerResetConfirmPassword ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"}
+                                      onClick={() => toggleRevealField("ownerResetConfirmPassword")}
+                                    >
+                                      <RevealIcon open={Boolean(revealedFields.ownerResetConfirmPassword)} />
+                                    </button>
+                                  </div>
+                                </label>
+                              </div>
+                              <div className="stitch-ops-workspace-card-actions">
+                                <button
+                                  onClick={() =>
+                                    void runAction(`reset-owner-password-${workspace.organizationId}`, submitPasswordReset, {
+                                      reload: false
+                                    })
+                                  }
+                                >
+                                  임시 비밀번호 저장
+                                </button>
+                                <button type="button" className="btn-secondary" onClick={cancelPasswordReset}>
+                                  취소
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="empty">아직 개통된 고객사 작업공간이 없습니다.</div>
+              )}
+            </SurfaceCard>
+
+        </div>
+      ) : (
+        <div className="empty">플랫폼 관리자 데이터를 불러오는 중입니다.</div>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -6770,9 +7537,9 @@ export function App() {
         <aside className="sidebar">
         <div className="brand">
           <span className="brand-badge">AT</span>
-          <div>
-            <h1>AUTO-TAX</h1>
-            <p>한전 메일 기반 전자세금계산서 자동화</p>
+          <div className="brand-copy">
+            <h1>운영 콘솔</h1>
+            <p>AUTO-TAX</p>
           </div>
         </div>
 
@@ -6825,55 +7592,60 @@ export function App() {
         <main
           className={
           activeTab === "work"
-            ? "content content-work"
+            ? "content content-app content-work"
             : activeTab === "customers"
-              ? "content content-customers"
+              ? "content content-app content-customers"
               : activeTab === "certificates"
-                ? "content content-customers"
+                ? "content content-app content-customers"
               : activeTab === "settings"
-                ? "content content-settings"
+                ? "content content-app content-settings"
                 : activeTab === "ops"
-                  ? "content content-ops"
-                : "content"
+                  ? "content content-app content-ops"
+                : "content content-app"
         }
       >
-        <header className="hero">
-          <div className="hero-main">
-            <h2>{activeNavLabel}</h2>
-            <div className="hero-summary">
-              <span className="hero-pill">{activeWorkspaceName}</span>
-              {activeTab === "ops" ? (
-                <>
-                  <span className="hero-pill">플랫폼 관리자 전용</span>
-                  <span className="hero-pill">
-                    파트너 {opsConsole?.partnerPoints.available && opsConsole.partnerPoints.partnerRemainPoint !== null ? `${formatMoney(opsConsole.partnerPoints.partnerRemainPoint)}P` : "-"}
-                  </span>
-                  <span className="hero-pill">로그 {opsLogs.length}건</span>
-                  <span className={opsAgent?.online ? "hero-pill" : "hero-pill hero-pill-warn"}>
-                    {opsAgentStatusMeta?.label ?? "에이전트 상태 확인 필요"}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className={workspacePopbillIsTest ? "hero-pill hero-pill-warn" : "hero-pill"}>{workspacePopbillModeLabel}</span>
-                  <span className="hero-pill">발행 대상 {data.counts.actionableDrafts}건</span>
-                  <span className={certAttentionCount > 0 ? "hero-pill hero-pill-warn" : "hero-pill"}>인증서 주의 {certAttentionCount}건</span>
-                </>
-              )}
+        <header className={appTopbarClassName}>
+          <div className="app-topbar-copy">
+            <span className="app-topbar-eyebrow">{activeWorkspaceName}</span>
+            <div className="app-topbar-title-row">
+              <h2>{activeHeroTitle}</h2>
+              <span className="app-topbar-role">{activeRoleLabel}</span>
             </div>
+            <p>{activeHeroSubtitle}</p>
           </div>
-          <div className="hero-actions">
-            <button className="btn-secondary" onClick={() => void runAction("refresh", load)} disabled={busyKey !== null}>
-              <Icon name="refresh" className="button-icon" />
-              새로고침
-            </button>
-            {hasActiveWorkspace && activeTab !== "ops" ? (
-              <button onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
-                <Icon name="sync" className="button-icon" />
-                메일 즉시 동기화
-              </button>
-            ) : null}
-          </div>
+          {showGlobalStatusStrip || showGlobalRefreshAction || showImmediateSyncAction ? (
+            <div className="app-topbar-actions">
+              {showGlobalStatusStrip ? (
+                <div className="app-topbar-status">
+                  {activeTab === "ops" ? (
+                    <>
+                      <span>고객사 {opsWorkspaces.length}곳</span>
+                      <span>운영 중 {opsActiveWorkspaceCount}곳</span>
+                      <span>확인 필요 {opsAttentionWorkspaceCount}곳</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{workspacePopbillModeLabel}</span>
+                      <span>발행 대상 {data.counts.actionableDrafts}건</span>
+                      <span>인증서 주의 {certAttentionCount}건</span>
+                    </>
+                  )}
+                </div>
+              ) : null}
+              {showGlobalRefreshAction ? (
+                <button className="btn-secondary" onClick={() => void runAction("refresh", load)} disabled={busyKey !== null}>
+                  <Icon name="refresh" className="button-icon" />
+                  새로고침
+                </button>
+              ) : null}
+              {showImmediateSyncAction ? (
+                <button className={workPriorityPanel.primaryLabel === "메일 즉시 동기화" ? undefined : "btn-secondary"} onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
+                  <Icon name="sync" className="button-icon" />
+                  메일 즉시 동기화
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </header>
 
         {error ? <div className="alert error">{error}</div> : null}
@@ -6881,213 +7653,279 @@ export function App() {
         {activeTab === "work" ? (
           <div className="work-screen">
             {mailboxDataLoading ? (
-              <div className="helper-box import-helper-box">
+              <div className="helper-box import-helper-box work-loading-banner">
                 <strong>메일과 발행 대기를 읽는 중입니다.</strong>
               </div>
             ) : null}
-            <Panel
-              className="panel-work-priority"
-              title={workPriorityCards.length > 0 ? "긴급 예외" : "운영 상태"}
-              subtitle={
-                workPriorityCards.length > 0
-                  ? "먼저 처리할 항목"
-                  : "발행 대기와 최근 처리만 확인"
-              }
-            >
-              {workPriorityCards.length > 0 ? (
-                <div className="work-priority-grid">
-                  {workPriorityCards.map((card) => (
-                    <article
-                      key={card.key}
-                      className={
-                        card.tone === "danger"
-                          ? "work-priority-card tone-danger"
-                          : card.tone === "warn"
-                            ? "work-priority-card tone-warn"
-                            : "work-priority-card"
-                      }
-                    >
-                      <div className="work-priority-card-head">
-                        <div>
-                          <span className="work-priority-label">{card.title}</span>
-                          <strong>{card.count}건</strong>
-                        </div>
-                        <span className={`chip ${card.tone === "danger" ? "chip-danger" : card.tone === "warn" ? "chip-warn" : ""}`}>
-                          {card.tone === "danger" ? "즉시 확인" : card.tone === "warn" ? "확인 필요" : "참고"}
-                        </span>
-                      </div>
-                      <button type="button" className="btn-secondary" onClick={card.onAction}>
-                        {card.actionLabel}
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="work-priority-empty">
-                  <span className="chip chip-success">긴급 예외 없음</span>
-                  <strong>발행 대기와 최근 처리만 보면 됩니다.</strong>
-                </div>
-              )}
-            </Panel>
-
-            <section className="stats-grid stats-grid-compact work-stats">
-              <StatCard label="발행 대상" value={reviewDrafts.length} tone={reviewDrafts.length > 0 ? "warn" : "default"} />
-              <StatCard label="미매칭 메일" value={unmatchedMessages.length} tone={unmatchedMessages.length > 0 ? "warn" : "default"} />
-              <StatCard label="인증서 주의" value={certAttentionCount} tone={certAttentionCount > 0 ? "error" : "default"} />
+            <section className="stitch-work-kpi-grid">
+              {workShortcutCards.map((card) => (
+                <button key={card.key} type="button" className={`stitch-work-kpi stitch-work-kpi-button ${card.toneClass}`} onClick={card.onClick}>
+                  <div className="stitch-work-kpi-top">
+                    <span className="material-symbols-outlined">{card.icon}</span>
+                    <strong>{card.badgeLabel}</strong>
+                  </div>
+                  <div className="stitch-work-kpi-main">
+                    <div className="stitch-work-kpi-copy">
+                      <p>{card.title}</p>
+                      <span className="stitch-work-kpi-note">{card.note}</span>
+                    </div>
+                    <div className="stitch-work-kpi-value">
+                      <span>{card.value}</span>
+                      <em>건</em>
+                    </div>
+                  </div>
+                  <div className="stitch-work-kpi-foot">
+                    <strong>
+                      {card.actionLabel}
+                      <span className="material-symbols-outlined">arrow_forward</span>
+                    </strong>
+                  </div>
+                </button>
+              ))}
             </section>
 
-            <div className={workLayoutClassName}>
-              <Panel
-                className="panel-work-queue"
-                title="발행할 건"
-                actions={
-                  <>
-                    <button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>전체 발행</button>
-                  </>
-                }
-              >
-                <div className={reviewDrafts.length === 0 ? "table-wrap queue-table-shell is-empty" : "table-wrap queue-table-shell"}>
-                  <table className="responsive-table queue-table">
+            <SurfaceCard className="stitch-work-priority-card">
+              <div className="stitch-work-priority-copy">
+                <span
+                  className={
+                    workPriorityPanel.badgeTone === "danger"
+                      ? "chip chip-danger"
+                      : workPriorityPanel.badgeTone === "warn"
+                        ? "chip chip-warn"
+                        : workPriorityPanel.badgeTone === "success"
+                          ? "chip chip-success"
+                          : "chip"
+                  }
+                >
+                  {workPriorityPanel.badgeLabel}
+                </span>
+                <div>
+                  <h3>{workPriorityPanel.title}</h3>
+                  <p>{workPriorityPanel.description}</p>
+                </div>
+              </div>
+              <div className="stitch-work-priority-actions">
+                <button type="button" onClick={workPriorityPanel.primaryAction}>
+                  {workPriorityPanel.primaryLabel}
+                </button>
+                {workPriorityPanel.secondaryActions.map((action) => (
+                  <button key={action.label} type="button" className="btn-secondary" onClick={action.onClick}>
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            </SurfaceCard>
+
+            <div className="stitch-work-layout">
+              <div ref={workQueueCardRef}>
+              <SurfaceCard className="stitch-work-table-card">
+                <div className="stitch-work-table-head">
+                  <h3>
+                    <span className="stitch-work-table-dot" />
+                    발행 대기 목록
+                  </h3>
+                  <div className="stitch-work-search">
+                    <span className="material-symbols-outlined">search</span>
+                    <input
+                      ref={workQueueSearchInputRef}
+                      value={workQueueSearchQuery}
+                      onChange={(event) => setWorkQueueSearchQuery(event.target.value)}
+                      placeholder="거래처명 검색..."
+                    />
+                  </div>
+                </div>
+                <div className="stitch-work-table-wrap">
+                  <table className="stitch-work-table">
                     <thead>
                       <tr>
-                        <th>고객</th>
-                        <th>품목</th>
-                        <th>공급가액</th>
+                        <th>ID</th>
+                        <th>거래처명</th>
+                        <th>금액(원)</th>
                         <th>상태</th>
                         <th>액션</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {reviewDrafts.map((draft) => (
+                      {filteredReviewDrafts.map((draft) => (
                         <tr key={draft.id}>
-                          <td data-label="고객">{draft.customerName}</td>
-                          <td data-label="품목">{draft.itemName}</td>
-                          <td data-label="공급가액">{formatMoney(draft.supplyCost)}원</td>
-                          <td data-label="상태">
+                          <td>{`TX-${String(draft.id).padStart(4, "0")}`}</td>
+                          <td>{draft.customerName}</td>
+                          <td>{formatMoney(draft.supplyCost)}</td>
+                          <td>
                             <span className={`status status-${draft.status}`}>{getDraftStatusLabel(draft.status)}</span>
-                            {draft.issueError ? <p className="cell-error" title={draft.issueError}>{simplifyIssueError(draft.issueError)}</p> : null}
                           </td>
-                          <td data-label="액션">
+                          <td>
                             {draft.status === "issuing" ? (
-                              <span className="status status-pending">발행 중</span>
+                              <span className="stitch-work-action-link is-muted">발행 중</span>
                             ) : (
-                              <button disabled={busyKey !== null} onClick={() => void runAction(`issue-${draft.id}`, async () => void (await api(`/api/drafts/${draft.id}/issue`, { method: "POST" })))}>
-                                지금 발행
+                              <button
+                                type="button"
+                                className="stitch-work-action-link"
+                                disabled={busyKey !== null}
+                                onClick={() =>
+                                  void runAction(`issue-${draft.id}`, async () => void (await api(`/api/drafts/${draft.id}/issue`, { method: "POST" })))
+                                }
+                              >
+                                {draft.issueError ? "상세확인" : "발행하기"}
                               </button>
                             )}
                           </td>
                         </tr>
                       ))}
-                      {reviewDrafts.length === 0 ? (
-                        <tr className="queue-empty-row">
-                          <td className="queue-empty-cell" colSpan={5}>
-                            지금 발행할 건이 없습니다.
+                      {filteredReviewDrafts.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="stitch-work-empty-cell">
+                            <div className="stitch-work-empty-state">
+                              <strong>
+                                {setupPendingCount > 0
+                                  ? "발행 대기가 비어 있는 이유: 기본 설정이 아직 남아 있습니다."
+                                  : data.customers.length === 0
+                                    ? "아직 등록된 고객이 없어 발행 대기가 없습니다."
+                                    : "지금 바로 검토할 발행 대기가 없습니다."}
+                              </strong>
+                              <p>
+                                {setupPendingCount > 0
+                                  ? "도입 준비를 마치고 메일을 다시 읽어 오면 검토 대상 초안이 자동으로 쌓입니다."
+                                  : data.customers.length === 0
+                                    ? "고객을 먼저 등록한 뒤 메일을 동기화하면 초안과 미매칭 메일이 함께 정리됩니다."
+                                    : "새 메일을 즉시 동기화하거나 인증서 주의 고객을 먼저 점검해 다음 작업을 준비하세요."}
+                              </p>
+                              <div className="stitch-work-empty-actions">
+                                <button
+                                  type="button"
+                                  onClick={
+                                    setupPendingCount > 0
+                                      ? () => setActiveTab("onboarding")
+                                      : data.customers.length === 0
+                                        ? () => setActiveTab("customers")
+                                        : () => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))
+                                  }
+                                >
+                                  {setupPendingCount > 0
+                                    ? "도입 준비 계속"
+                                    : data.customers.length === 0
+                                      ? "고객 운영 열기"
+                                      : "메일 즉시 동기화"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  onClick={certAttentionCount > 0 ? () => openCertificateFilter("action_needed") : () => setActiveTab("settings")}
+                                >
+                                  {certAttentionCount > 0 ? "인증서 관리 열기" : "작업공간 설정 보기"}
+                                </button>
+                              </div>
+                              <div className="stitch-work-empty-metrics">
+                                <article>
+                                  <span>남은 기본 설정</span>
+                                  <strong>{setupPendingCount}개</strong>
+                                </article>
+                                <article>
+                                  <span>등록 고객</span>
+                                  <strong>{data.customers.length}명</strong>
+                                </article>
+                                <article>
+                                  <span>인증서 주의</span>
+                                  <strong>{certAttentionCount}건</strong>
+                                </article>
+                              </div>
+                              <div className="stitch-work-empty-preview-row">
+                                <span className="chip chip-warn">1. 고객 등록</span>
+                                <span className="chip">2. 메일 연결</span>
+                                <span className="chip chip-success">3. 초안 생성 준비</span>
+                              </div>
+                              <div className="stitch-work-empty-sample-row">
+                                <div className="stitch-empty-sample-meta">
+                                  <span>예시 초안</span>
+                                  <span>자동 생성 예정</span>
+                                </div>
+                                <div className="stitch-empty-preview-table">
+                                  <div className="stitch-empty-preview-head">
+                                    <span>거래처명</span>
+                                    <span>금액</span>
+                                    <span>상태</span>
+                                    <span>다음 액션</span>
+                                  </div>
+                                  <div className="stitch-empty-preview-row">
+                                    <strong>해성태양광</strong>
+                                    <span>1,250,000원</span>
+                                    <span className="chip chip-warn">검수 대기</span>
+                                    <span>검토 후 발행</span>
+                                  </div>
+                                  <div className="stitch-empty-preview-row">
+                                    <strong>동해에너지</strong>
+                                    <span>890,000원</span>
+                                    <span className="chip chip-success">발행 준비</span>
+                                    <span>일괄 발행 포함</span>
+                                  </div>
+                                </div>
+                                <small>고객 등록과 메일 연결이 끝나면 이런 발행 대상이 자동으로 쌓입니다.</small>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       ) : null}
                     </tbody>
                   </table>
                 </div>
-              </Panel>
-
-              <div className="work-side-column">
-                <Panel
-                  className="panel-work-status"
-                title="지금 상태"
-                actions={
-                  <>
-                    <button onClick={() => void runAction("cert-refresh-all", refreshAllCertificateStatuses)}>인증서 점검</button>
-                  </>
-                }
-              >
-                <div className="info-grid">
-                    <div>
-                      <span>메일</span>
-                      <strong>{settingsHealth.mailReady ? "준비됨" : "설정 필요"}</strong>
-                    </div>
-                    <div>
-                      <span>팝빌</span>
-                      <strong>{settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</strong>
-                    </div>
-                    <div>
-                      <span>발행 대상</span>
-                      <strong>{reviewDrafts.length}건</strong>
-                    </div>
-                    <div>
-                      <span>인증서 주의</span>
-                      <strong>{certAttentionCount}건</strong>
-                    </div>
-                  </div>
-                    <div className="compact-status-stack">
-                    <div className="history-split">
-                      <section className="history-block" id="work-recent-history">
-                        <header className="history-block-head">
-                          <div className="history-title-row">
-                            <div className="history-title-copy">
-                              <strong>최근 처리</strong>
-                              <span className="history-caption">최근 항목만 빠르게 확인합니다.</span>
-                            </div>
-                            <div className="history-tabs">
-                              <button
-                                type="button"
-                                className={workFeedTab === "inbox" ? "btn-secondary active-filter" : "btn-secondary"}
-                                onClick={() => setWorkFeedTab("inbox")}
-                              >
-                                수신 {recentInboxPreview.length}
-                              </button>
-                              <button
-                                type="button"
-                                className={workFeedTab === "issued" ? "btn-secondary active-filter" : "btn-secondary"}
-                                onClick={() => setWorkFeedTab("issued")}
-                              >
-                                발행 {recentIssuedPreview.length}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="history-head-action">
-                            {workFeedTab === "inbox" && reprocessableMessages.length > 0 ? (
-                              <button className="btn-secondary" onClick={() => void runAction("reprocess-all-unmatched", reprocessAllUnmatchedMessages)}>재처리</button>
-                            ) : (
-                              <span className="history-head-spacer" />
-                            )}
-                          </div>
-                        </header>
-                        <div className="history-list">
-                          {workFeedTab === "inbox"
-                            ? recentInboxPreview.map((message) => (
-                                <div key={message.id} className="history-row">
-                                  <div>
-                                    <strong>{message.parsedData?.plantName ?? "미확인 메일"}</strong>
-                                    <span>{formatDateTime(message.receivedAt)}</span>
-                                  </div>
-                                  <div className="history-actions">
-                                    <span className={`status status-${getInboxDisplayParseStatus(message)}`}>{getParseStatusLabel(getInboxDisplayParseStatus(message))}</span>
-                                    {isInboxActionable(message) ? (
-                                      <button className="btn-secondary" onClick={() => void runAction(`reprocess-${message.id}`, async () => void (await reprocessInboxMessage(message.id)))}>재처리</button>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              ))
-                            : recentIssuedPreview.map((draft) => (
-                                <div key={draft.id} className="history-row">
-                                  <div>
-                                    <strong>{draft.customerName}</strong>
-                                    <span>{formatMoney(draft.totalAmount)}원 · {formatDateTime(draft.issuedAt)}</span>
-                                  </div>
-                                  <div className="history-actions">
-                                    <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-view-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}>보기</button>
-                                    <button className="btn-danger" disabled={busyKey !== null} onClick={() => void runAction(`draft-cancel-${draft.id}`, async () => void (await cancelIssuedDraft(draft.id)))}>취소</button>
-                                  </div>
-                                </div>
-                              ))}
-                          {workFeedTab === "inbox" && recentInboxPreview.length === 0 ? <div className="empty">최근 수신 메일이 없습니다.</div> : null}
-                          {workFeedTab === "issued" && recentIssuedPreview.length === 0 ? <div className="empty">최근 발행 완료 이력이 없습니다.</div> : null}
-                        </div>
-                      </section>
-                    </div>
-                  </div>
-                </Panel>
+                <div className="stitch-work-table-footer">
+                  <button
+                    type="button"
+                    className="stitch-btn stitch-btn-secondary"
+                    disabled={busyKey !== null || reviewDrafts.length === 0}
+                    onClick={() => void runAction("issue-all", issueAllReviewDrafts)}
+                  >
+                    검토 완료분 일괄 발행
+                  </button>
+                </div>
+              </SurfaceCard>
               </div>
+
+              <aside className="stitch-work-side">
+                <SurfaceCard className="stitch-work-status-card">
+                  <div className="stitch-work-side-head">
+                    <h3>데이터 연동 상태</h3>
+                  </div>
+                  <div className="stitch-work-status-list">
+                    {workStatusItems.map((item) => (
+                      <article key={item.label} className="stitch-work-status-row">
+                        <div className="stitch-work-status-copy">
+                          <span className="material-symbols-outlined">
+                            {item.label === "메일 연결" ? "mail" : item.label === "팝빌" ? "description" : item.label === "자동 발행" ? "schedule" : "vpn_key"}
+                          </span>
+                          <div>
+                            <strong>{item.label}</strong>
+                            <small>{item.detail}</small>
+                          </div>
+                        </div>
+                        <div className={`stitch-work-status-state tone-${item.tone}`}>
+                          <i />
+                          <span>{item.statusLabel}</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="stitch-work-side-inline-section">
+                    <div className="stitch-work-side-inline-head">
+                      <h4>최근 처리 활동</h4>
+                    </div>
+                    <div className="stitch-work-history-list">
+                      {displayedWorkRecentActivityEntries.map((item) => (
+                        <article key={item.key} className={item.preview ? "stitch-work-history-row is-preview" : "stitch-work-history-row"}>
+                          <div className={`stitch-work-history-icon tone-${item.iconTone}`}>
+                            <span className="material-symbols-outlined">{item.icon}</span>
+                          </div>
+                          <div className="stitch-work-history-copy">
+                            <strong>{item.title}</strong>
+                            <p>{item.note}</p>
+                            <span>{item.time}</span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                </SurfaceCard>
+              </aside>
             </div>
           </div>
         ) : null}
@@ -7100,6 +7938,7 @@ export function App() {
             pendingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
             linkedCertificateCount={linkedCustomerCertificateCount}
             steps={onboardingSteps}
+            navigationIntent={onboardingNavigationIntent}
             onOpenSettings={() => {
               setActiveSettingsSection(recommendedSettingsSection);
               setActiveTab("settings");
@@ -7113,6 +7952,13 @@ export function App() {
                 customerOnboardingPreview={customerOnboardingPreview}
                 customerOnboardingNotice={customerOnboardingNotice}
                 customerOnboardingError={customerOnboardingError}
+                customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
+                customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
+                customerRenewalAssistantHelperMessage={
+                  customerRenewalAssistant?.helperMessage || "상태 확인 전"
+                }
+                customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
+                customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
                 pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
                 quickRegisterMessages={quickRegisterMessages}
                 quickRegisterForm={quickRegisterForm}
@@ -7130,10 +7976,25 @@ export function App() {
                 selectQuickRegisterMessage={selectQuickRegisterMessage}
                 submitQuickRegister={submitQuickRegister}
                 markBillingMonthCompleted={markBillingMonthCompleted}
+                refreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
+                renewalHelperDownloadUrl={renewalHelperDownloadUrl}
                 runAction={runAction}
                 formatDateTime={formatDateTime}
                 getInboxDisplayParseStatus={getInboxDisplayParseStatus}
                 getParseStatusLabel={getParseStatusLabel}
+                showMailFollowupSections={false}
+                embeddedInOnboarding
+              />
+            }
+            certificateContent={
+              <OnboardingCertificateStep
+                busyKey={busyKey}
+                pendingTargets={pendingOnboardingCertificateRegistrationTargets}
+                linkedCertificateCount={linkedCustomerCertificateCount}
+                runAction={runAction}
+                proceedOnboardingCertificateRegistration={proceedOnboardingCertificateRegistration}
+                openCertificatesTab={() => setActiveTab("certificates")}
+                formatCertificateExpireDate={formatCertificateExpireDate}
               />
             }
             firstRunContent={onboardingFirstRunContent}
@@ -7224,6 +8085,7 @@ export function App() {
             onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
             runAction={runAction}
             formatCertificateExpireDate={formatCertificateExpireDate}
+            filterIntent={certificateFilterIntent}
           />
         ) : null}
 
@@ -7285,542 +8147,7 @@ export function App() {
           />
         ) : null}
 
-        {activeTab === "ops" ? (
-          <div className="ops-layout">
-            {opsConsole ? (
-              <>
-                <Panel
-                  className="panel-ops-workspace-create"
-                  title="고객사 작업공간 개통"
-                  subtitle={isCreatingWorkspace ? "고객사 작업공간과 첫 owner 계정을 만드는 중입니다. 잠시만 기다려주세요." : "새 고객사를 만들고 첫 owner 로그인 아이디를 바로 연결합니다."}
-                  actions={
-                    <button disabled={busyKey !== null} onClick={() => void runAction("ops-create-workspace", createWorkspace)}>
-                      {isCreatingWorkspace ? "작업공간 개통 중..." : "작업공간 개통"}
-                    </button>
-                  }
-                >
-                  {isCreatingWorkspace ? (
-                    <div className="helper-box full-width">
-                      <strong>개통 진행 중</strong>
-                      <span>계정 확인, 작업공간 생성, 첫 owner 연결을 순서대로 처리하고 있습니다. 완료될 때까지 창을 닫지 말고 잠시 기다려주세요.</span>
-                    </div>
-                  ) : null}
-                  <div className="form-grid">
-                    <label>
-                      고객사명
-                      <input
-                        disabled={busyKey !== null}
-                        value={opsWorkspaceForm.organizationName}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationName: event.target.value }))}
-                        placeholder="예: 해성태양광"
-                      />
-                    </label>
-                    <label>
-                      사업자번호
-                      <input
-                        disabled={busyKey !== null}
-                        value={opsWorkspaceForm.organizationBusinessNumber}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationBusinessNumber: event.target.value }))}
-                        placeholder="숫자만 입력"
-                      />
-                    </label>
-                    <label>
-                      관리 고객 한도
-                      <input
-                        disabled={busyKey !== null}
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={opsWorkspaceForm.managedCustomerLimit}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, managedCustomerLimit: event.target.value }))}
-                        placeholder="예: 50"
-                      />
-                      <span className="field-hint">이 고객사가 등록할 수 있는 최대 관리 고객 수입니다.</span>
-                    </label>
-                    <label>
-                      첫 owner 로그인 아이디
-                      <input
-                        disabled={busyKey !== null}
-                        value={opsWorkspaceForm.ownerLoginId}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerLoginId: event.target.value }))}
-                        placeholder="예: admin01"
-                      />
-                    </label>
-                    <label>
-                      owner 이름
-                      <input
-                        disabled={busyKey !== null}
-                        value={opsWorkspaceForm.ownerDisplayName}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerDisplayName: event.target.value }))}
-                        placeholder="담당자 이름"
-                      />
-                    </label>
-                    <label className="full">
-                      임시 비밀번호
-                      <div className="password-field">
-                        <input
-                          disabled={busyKey !== null}
-                          type={revealedFields.opsOwnerPassword ? "text" : "password"}
-                          value={opsWorkspaceForm.ownerPassword}
-                          onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerPassword: event.target.value }))}
-                          placeholder="기존 사용자면 비워두고, 새 사용자면 8자 이상 입력"
-                        />
-                        <button
-                          type="button"
-                          className="password-toggle"
-                          disabled={busyKey !== null}
-                          aria-label={revealedFields.opsOwnerPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
-                          onClick={() => toggleRevealField("opsOwnerPassword")}
-                        >
-                          <RevealIcon open={Boolean(revealedFields.opsOwnerPassword)} />
-                        </button>
-                      </div>
-                      <span className="field-hint">이미 존재하는 로그인 아이디면 기존 계정을 owner로 연결하고, 처음 만드는 로그인 아이디면 임시 비밀번호가 필요합니다.</span>
-                    </label>
-                  </div>
-                </Panel>
-
-                <section className={`alert ${opsPartnerIsTest ? "warn" : "success"} ops-mode-banner`}>
-                  <div className="ops-mode-banner-head">
-                    <strong>팝빌 현재 연결 모드</strong>
-                    <span className={`chip ${opsPartnerIsTest ? "chip-warn" : "chip-success"}`}>{opsPartnerModeLabel}</span>
-                  </div>
-                  <p>{opsPartnerModeDescription}</p>
-                </section>
-
-                <section className="stats-grid stats-grid-compact ops-stats">
-                  <StatCard
-                    label="파트너 포인트"
-                    value={opsConsole.partnerPoints.available && opsConsole.partnerPoints.partnerRemainPoint !== null ? opsConsole.partnerPoints.partnerRemainPoint : 0}
-                    tone={opsConsole.partnerPoints.available ? "default" : "warn"}
-                  />
-                  <StatCard
-                    label="이번 달 발행"
-                    value={totalWorkspaceCurrentMonthIssuedDraftCount}
-                    tone={totalWorkspaceCurrentMonthIssuedDraftCount > 0 ? "default" : "warn"}
-                  />
-                  <StatCard
-                    label={partnerTaxInvoiceUnitCost === null ? "누적 발행" : "누적 추정 사용"}
-                    value={partnerTaxInvoiceUnitCost === null ? totalWorkspaceIssuedDraftCount : totalWorkspaceEstimatedPointUsage ?? 0}
-                    tone="default"
-                  />
-                  <StatCard label="운영 로그" value={opsLogs.length} tone={opsLogs.some((log) => log.level === "error") ? "error" : "default"} />
-                  <StatCard label="진단 작업" value={opsJobs.length} tone={opsJobs.some((job) => job.status === "failed") ? "warn" : "default"} />
-                </section>
-
-                <Panel className="panel-ops-workspaces" title="개통된 고객사 작업공간">
-                  <p className="ops-helper-text">
-                    고객사별 발행 완료 건수를 기준으로 사용량을 집계합니다.
-                    {partnerTaxInvoiceUnitCost !== null
-                      ? ` 현재 팝빌 전자세금계산서 단가 ${formatMoney(partnerTaxInvoiceUnitCost)}P 기준 추정 사용 포인트도 함께 표시합니다.`
-                      : " 팝빌 전자세금계산서 단가를 읽지 못해 추정 포인트는 아직 계산하지 못했습니다."}
-                  </p>
-                  <div className="ops-list">
-                    {opsWorkspaces.length > 0 ? (
-                      opsWorkspaces.map((workspace) => {
-                        const isOwnerResetTarget =
-                          passwordResetTarget?.kind === "owner" &&
-                          passwordResetTarget.organizationId === workspace.organizationId;
-                        const workspaceEstimatedPointUsage = getWorkspaceEstimatedPointUsage(workspace, partnerTaxInvoiceUnitCost);
-                        const workspaceCurrentMonthEstimatedPointUsage = getWorkspaceCurrentMonthEstimatedPointUsage(
-                          workspace,
-                          partnerTaxInvoiceUnitCost
-                        );
-
-                        return (
-                          <article key={workspace.organizationId} className="ops-card">
-                            <div className="ops-card-head">
-                              <div>
-                                <strong>{workspace.organizationName}</strong>
-                                <span>{workspace.organizationBusinessNumber || "사업자번호 없음"}</span>
-                              </div>
-                              <span className={`chip ${workspace.organizationStatus === "active" ? "chip-success" : workspace.organizationStatus === "trial" ? "chip-warn" : "chip-danger"}`}>
-                                {getOrganizationStatusLabel(workspace.organizationStatus)}
-                              </span>
-                            </div>
-                            <div className="ops-card-meta">
-                              <span>owner: {workspace.ownerDisplayName ? `${workspace.ownerDisplayName} · ` : ""}{workspace.ownerLoginId ?? "-"}</span>
-                              <span>멤버 {workspace.memberCount}명</span>
-                              <span>플랜 {workspace.organizationPlanCode}</span>
-                              <span>
-                                관리 고객 {workspace.managedCustomerCount}명
-                                {workspace.managedCustomerLimit !== null ? ` / 한도 ${workspace.managedCustomerLimit}명` : ""}
-                              </span>
-                              <span>누적 발행 {formatMoney(workspace.issuedDraftCount)}건</span>
-                              <span>이번 달 발행 {formatMoney(workspace.currentMonthIssuedDraftCount)}건</span>
-                              <span>
-                                누적 추정 사용 {workspaceEstimatedPointUsage !== null ? `${formatMoney(workspaceEstimatedPointUsage)}P` : "-"}
-                              </span>
-                              <span>
-                                이번 달 추정 사용 {workspaceCurrentMonthEstimatedPointUsage !== null ? `${formatMoney(workspaceCurrentMonthEstimatedPointUsage)}P` : "-"}
-                              </span>
-                              <span>최근 발행 {formatDateTime(workspace.lastIssuedAt)}</span>
-                              <span>생성 {formatDateTime(workspace.createdAt)}</span>
-                            </div>
-                            <div className="ops-card-actions">
-                              <button
-                                className="btn-secondary"
-                                disabled={busyKey !== null}
-                                onClick={() => openOwnerPasswordReset(workspace)}
-                              >
-                                owner 비밀번호 재설정
-                              </button>
-                            </div>
-                            <div className="helper-box-stack">
-                              <strong>관리 고객 한도</strong>
-                              <div className="form-grid">
-                                <label>
-                                  현재 등록 고객
-                                  <input value={`${workspace.managedCustomerCount}명`} disabled />
-                                </label>
-                                <label>
-                                  최대 등록 가능 수
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    step="1"
-                                    value={workspaceLimitEdits[workspace.organizationId] ?? String(workspace.managedCustomerLimit ?? "")}
-                                    onChange={(event) =>
-                                      setWorkspaceLimitEdits((prev) => ({
-                                        ...prev,
-                                        [workspace.organizationId]: event.target.value
-                                      }))
-                                    }
-                                  />
-                                </label>
-                              </div>
-                              <div className="button-row">
-                                <button
-                                  className="btn-secondary"
-                                  disabled={busyKey !== null}
-                                  onClick={() =>
-                                    void runAction(
-                                      `ops-workspace-limit-${workspace.organizationId}`,
-                                      async () => void (await updateWorkspaceManagedCustomerLimit(workspace)),
-                                      { reload: false }
-                                    )
-                                  }
-                                >
-                                  한도 저장
-                                </button>
-                              </div>
-                            </div>
-                            {isOwnerResetTarget ? (
-                              <div className="helper-box-stack inline-password-reset">
-                                <strong>{workspace.organizationName} owner 임시 비밀번호 재설정</strong>
-                                <div className="form-grid">
-                                  <label>
-                                    새 임시 비밀번호
-                                    <div className="password-field">
-                                      <input
-                                        type={revealedFields.ownerResetNextPassword ? "text" : "password"}
-                                        value={passwordResetForm.nextPassword}
-                                        onChange={(event) =>
-                                          setPasswordResetForm((prev) => ({
-                                            ...prev,
-                                            nextPassword: event.target.value
-                                          }))
-                                        }
-                                        placeholder="8자 이상 입력"
-                                      />
-                                      <button
-                                        type="button"
-                                        className="password-toggle"
-                                        aria-label={revealedFields.ownerResetNextPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
-                                        onClick={() => toggleRevealField("ownerResetNextPassword")}
-                                      >
-                                        <RevealIcon open={Boolean(revealedFields.ownerResetNextPassword)} />
-                                      </button>
-                                    </div>
-                                  </label>
-                                  <label>
-                                    새 임시 비밀번호 확인
-                                    <div className="password-field">
-                                      <input
-                                        type={revealedFields.ownerResetConfirmPassword ? "text" : "password"}
-                                        value={passwordResetForm.confirmPassword}
-                                        onChange={(event) =>
-                                          setPasswordResetForm((prev) => ({
-                                            ...prev,
-                                            confirmPassword: event.target.value
-                                          }))
-                                        }
-                                        placeholder="한 번 더 입력"
-                                      />
-                                      <button
-                                        type="button"
-                                        className="password-toggle"
-                                        aria-label={revealedFields.ownerResetConfirmPassword ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"}
-                                        onClick={() => toggleRevealField("ownerResetConfirmPassword")}
-                                      >
-                                        <RevealIcon open={Boolean(revealedFields.ownerResetConfirmPassword)} />
-                                      </button>
-                                    </div>
-                                  </label>
-                                </div>
-                                <div className="button-row">
-                                  <button
-                                    onClick={() =>
-                                      void runAction(
-                                        `reset-owner-password-${workspace.organizationId}`,
-                                        submitPasswordReset,
-                                        { reload: false }
-                                      )
-                                    }
-                                  >
-                                    임시 비밀번호 저장
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn-secondary"
-                                    onClick={cancelPasswordReset}
-                                  >
-                                    취소
-                                  </button>
-                                </div>
-                              </div>
-                            ) : null}
-                          </article>
-                        );
-                      })
-                    ) : (
-                      <div className="empty">아직 개통된 고객사 작업공간이 없습니다.</div>
-                    )}
-                  </div>
-                </Panel>
-
-                <div className="ops-grid">
-                  <Panel
-                    title="배치 작업"
-                    subtitle="Supabase cron 없이도 플랫폼 관리자가 큐 생성과 실행을 수동으로 점검할 수 있습니다."
-                    actions={
-                      <>
-                        <button className="btn-secondary" onClick={() => void runAction("ops-dispatch-jobs", dispatchInternalJobs, { reload: false })}>
-                          작업 생성
-                        </button>
-                        <button onClick={() => void runAction("ops-run-jobs", runInternalJobs, { reload: false })}>
-                          작업 실행
-                        </button>
-                      </>
-                    }
-                  >
-                    <div className="info-grid">
-                      <div>
-                        <span>생성 API</span>
-                        <strong>/api/internal/jobs/dispatch</strong>
-                      </div>
-                      <div>
-                        <span>실행 API</span>
-                        <strong>/api/internal/jobs/run</strong>
-                      </div>
-                      <div className="full">
-                        <span>운영 메모</span>
-                        <strong>무료 운영 단계에서는 Supabase cron이 이 두 API를 주기적으로 깨우고, 플랫폼 관리자는 여기서 수동 점검을 할 수 있습니다.</strong>
-                      </div>
-                    </div>
-                  </Panel>
-
-                  <Panel
-                    className="panel-ops-partner"
-                    title="팝빌 파트너 운영"
-                    subtitle="고객사 화면에는 보이지 않는 플랫폼 공통 운영 영역입니다."
-                    actions={
-                      <>
-                        <button className="btn-secondary" onClick={() => void runAction("ops-refresh", load)}>
-                          새로고침
-                        </button>
-                        <button onClick={() => void runAction("ops-charge-url", openPartnerChargeUrl, { reload: false })}>
-                          충전 페이지
-                        </button>
-                      </>
-                    }
-                  >
-                    <div className="info-grid">
-                      <div>
-                        <span>파트너 포인트</span>
-                        <strong>
-                          {opsConsole.partnerPoints.available && opsConsole.partnerPoints.partnerRemainPoint !== null
-                            ? `${formatMoney(opsConsole.partnerPoints.partnerRemainPoint)}P`
-                            : "-"}
-                        </strong>
-                      </div>
-                      <div>
-                        <span>현재 연결 모드</span>
-                        <strong>{opsPartnerModeLabel}</strong>
-                      </div>
-                      <div>
-                        <span>조회 기준</span>
-                        <strong>{opsConsole.partnerPoints.referenceCorpNum ?? "-"}</strong>
-                      </div>
-                      <div>
-                        <span>전자세금계산서 단가</span>
-                        <strong>
-                          {opsConsole.partnerPoints.taxInvoiceUnitCost !== null
-                            ? `${formatMoney(opsConsole.partnerPoints.taxInvoiceUnitCost)}P`
-                            : "-"}
-                        </strong>
-                      </div>
-                      <div>
-                        <span>이번 달 추정 사용</span>
-                        <strong>
-                          {totalWorkspaceCurrentMonthEstimatedPointUsage !== null
-                            ? `${formatMoney(totalWorkspaceCurrentMonthEstimatedPointUsage)}P`
-                            : "-"}
-                        </strong>
-                      </div>
-                    </div>
-                    <p className="ops-helper-text">{formatPartnerPointsMessage(opsConsole.partnerPoints)}</p>
-                  </Panel>
-
-                  <Panel
-                    className="panel-ops-agent"
-                    title="로컬 인증서 진단"
-                    subtitle="고객용 설정에서 분리한 내부 진단 화면입니다."
-                    actions={
-                      <button onClick={() => void runAction("ops-bridge-probe", async () => void (await requestRenewalBridgeProbe(null)))}>
-                        전체 진단 실행
-                      </button>
-                    }
-                  >
-                    <div className="info-grid">
-                      <div>
-                        <span>에이전트</span>
-                        <strong>{opsAgentStatusMeta?.label ?? "-"}</strong>
-                      </div>
-                      <div>
-                        <span>호스트</span>
-                        <strong>{opsAgent?.hostname ?? "-"}</strong>
-                      </div>
-                      <div>
-                        <span>브리지</span>
-                        <strong>{opsAgent ? formatRenewalBridgeSummary(opsAgent) : "-"}</strong>
-                      </div>
-                      <div>
-                        <span>최근 heartbeat</span>
-                        <strong>{opsAgent ? formatDateTime(opsAgent.lastHeartbeatAt) : "-"}</strong>
-                      </div>
-                      <div>
-                        <span>버전</span>
-                        <strong>{opsAgent ? formatRenewalVersionSummary(opsAgent) : "-"}</strong>
-                      </div>
-                      <div>
-                        <span>라이선스</span>
-                        <strong>{opsAgent ? formatRenewalLicenseSummary(opsAgent) : "-"}</strong>
-                      </div>
-                      <div>
-                        <span>인증서 저장소</span>
-                        <strong>{opsAgent ? formatRenewalStorageSummary(opsAgent) : "-"}</strong>
-                      </div>
-                      <div>
-                        <span>certID</span>
-                        <strong>{opsAgent ? formatRenewalSelectionSummary(opsAgent) : "-"}</strong>
-                      </div>
-                      <div className="full">
-                        <span>갱신 경로</span>
-                        <strong>{opsAgent ? formatRenewalPreflightSummary(opsAgent) : "-"}</strong>
-                      </div>
-                    </div>
-                    <div className="ops-list">
-                      {opsCertificates.length > 0 ? (
-                        opsCertificates.map((certificate) => (
-                          <article key={`${certificate.index}-${certificate.cn}`} className="ops-card">
-                            <div className="ops-card-head">
-                              <div>
-                                <strong>{certificate.cn || `인증서 #${certificate.index}`}</strong>
-                                <span>{certificate.issuerToName || "-"}</span>
-                              </div>
-                              <span className="chip chip-warn">{certificate.todate ?? "-"}</span>
-                            </div>
-                            <div className="ops-card-meta">
-                              <span>certID: {opsAgent?.bridge.selectionProbe.certificateIndex === certificate.index ? opsAgent.bridge.selectionProbe.certID ?? "-" : "-"}</span>
-                              <span>경로: {formatRenewalPathCell(certificate, opsJobs, opsAgent)}</span>
-                            </div>
-                            <div className="ops-card-actions">
-                              <button
-                                className="btn-secondary"
-                                onClick={() =>
-                                  void runAction(`ops-certid-${certificate.index}`, async () => void (await requestRenewalCertIdProbe(certificate)))
-                                }
-                              >
-                                certID 조회
-                              </button>
-                              <button
-                                onClick={() =>
-                                  void runAction(`ops-preflight-${certificate.index}`, async () => void (await requestRenewalPreflight(certificate)))
-                                }
-                              >
-                                경로 분석
-                              </button>
-                            </div>
-                          </article>
-                        ))
-                      ) : (
-                        <div className="empty">아직 로컬 인증서 목록 진단 결과가 없습니다.</div>
-                      )}
-                    </div>
-                  </Panel>
-                </div>
-
-                <div className="ops-grid">
-                  <Panel className="panel-ops-jobs" title="최근 진단 작업">
-                    <div className="ops-list">
-                      {opsJobs.length > 0 ? (
-                        opsJobs.slice(0, 8).map((job) => (
-                          <article key={job.id} className="ops-card">
-                            <div className="ops-card-head">
-                              <div>
-                                <strong>{formatRenewalJobLabel(job)}</strong>
-                                <span>{job.requestedBy}</span>
-                              </div>
-                              <span className={`chip ${job.status === "completed" ? "chip-success" : job.status === "failed" ? "chip-danger" : "chip-warn"}`}>
-                                {formatRenewalJobStatusLabel(job.status)}
-                              </span>
-                            </div>
-                            <div className="ops-card-meta">
-                              <span>요청 {formatDateTime(job.requestedAt)}</span>
-                              <span>완료 {formatDateTime(job.finishedAt)}</span>
-                              <span>{job.summary || job.error || "-"}</span>
-                            </div>
-                          </article>
-                        ))
-                      ) : (
-                        <div className="empty">최근 진단 작업이 없습니다.</div>
-                      )}
-                    </div>
-                  </Panel>
-
-                  <Panel className="panel-ops-logs" title="최근 운영 로그">
-                    <div className="ops-list">
-                      {opsLogs.length > 0 ? (
-                        opsLogs.slice(0, 12).map((log) => (
-                          <article key={log.id} className="ops-card">
-                            <div className="ops-card-head">
-                              <div>
-                                <strong>{log.message}</strong>
-                                <span>{log.scope}</span>
-                              </div>
-                              <span className={`chip ${log.level === "error" ? "chip-danger" : log.level === "warn" ? "chip-warn" : "chip-success"}`}>
-                                {log.level.toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="ops-card-meta">
-                              <span>{formatDateTime(log.createdAt)}</span>
-                              <span>{log.contextJson || "-"}</span>
-                            </div>
-                          </article>
-                        ))
-                      ) : (
-                        <div className="empty">표시할 운영 로그가 없습니다.</div>
-                      )}
-                    </div>
-                  </Panel>
-                </div>
-              </>
-            ) : (
-              <div className="empty">플랫폼 관리자 데이터를 불러오는 중입니다.</div>
-            )}
-          </div>
-        ) : null}
+        {activeTab === "ops" ? opsContent : null}
         </main>
       </div>
       {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}

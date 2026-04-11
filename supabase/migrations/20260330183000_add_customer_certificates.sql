@@ -23,26 +23,19 @@ create table if not exists public.customer_certificates (
     link_source in ('auto', 'manual')
   )
 );
-
 update public.customer_certificates
 set legacy_id = default
 where legacy_id is null;
-
 alter table public.customer_certificates
   alter column legacy_id set not null;
-
 create unique index if not exists idx_customer_certificates_legacy_id
   on public.customer_certificates (legacy_id);
-
 create index if not exists idx_customer_certificates_org_customer
   on public.customer_certificates (organization_id, managed_customer_id);
-
 create index if not exists idx_customer_certificates_org_serial
   on public.customer_certificates (organization_id, certificate_serial);
-
 create index if not exists idx_customer_certificates_org_user_dn
   on public.customer_certificates (organization_id, certificate_user_dn);
-
 drop trigger if exists trg_customer_certificates_set_updated_at on public.customer_certificates;
 create trigger trg_customer_certificates_set_updated_at
 before update on public.customer_certificates

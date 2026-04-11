@@ -1,5 +1,5 @@
-import type React from "react";
-import { Panel, RevealIcon, SetupPanel } from "../../components/ui";
+import * as React from "react";
+import { Panel, RevealIcon, SetupPanel, SurfaceCard } from "../../components/ui";
 import type { OrganizationMemberSummary } from "../../types";
 
 type SettingsSectionId = "gmail" | "popbill" | "account";
@@ -59,60 +59,104 @@ type SettingsTabProps = {
   formatDateTime: (value: string | null) => string;
 };
 
+function getAutosaveToneClass(state: SettingsTabProps["settingsAutosaveState"]) {
+  if (state === "error") return "chip chip-danger";
+  if (state === "pending" || state === "saving") return "chip chip-warn";
+  return "chip chip-success";
+}
+
 export function SettingsTab(props: SettingsTabProps) {
+  const autosaveToneClass = getAutosaveToneClass(props.settingsAutosaveState);
+  const pendingSections = props.settingsSections.filter((section) => !section.done);
+  const nextPendingSection = pendingSections[0] ?? props.settingsSections[0] ?? null;
+  const [isInstallGuideOpen, setIsInstallGuideOpen] = React.useState(false);
+  const handleSettingsDetailsToggle = (event: React.SyntheticEvent<HTMLDetailsElement>) => {
+    const detailsElement = event.currentTarget;
+    if (!detailsElement.open || typeof window === "undefined") {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const scrollContainer =
+        (detailsElement.closest(".stitch-settings-detail") as HTMLElement | null) ??
+        (detailsElement.closest(".content-settings") as HTMLElement | null);
+
+      if (!scrollContainer) {
+        detailsElement.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        return;
+      }
+
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const detailsRect = detailsElement.getBoundingClientRect();
+      const overshootBottom = detailsRect.bottom - (containerRect.bottom - 20);
+      const overshootTop = detailsRect.top - (containerRect.top + 12);
+
+      if (overshootBottom > 0) {
+        scrollContainer.scrollBy({ top: overshootBottom, behavior: "smooth" });
+      } else if (overshootTop < 0) {
+        scrollContainer.scrollBy({ top: overshootTop, behavior: "smooth" });
+      }
+    });
+  };
+
+  React.useEffect(() => {
+    if (!isInstallGuideOpen || typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsInstallGuideOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousBodyOverflow;
+    };
+  }, [isInstallGuideOpen]);
+
   return (
-    <div className="settings-layout">
-      <aside className="settings-sidebar-stack">
-        <section className="panel settings-sidebar-panel">
-          <header className="panel-header settings-sidebar-header">
-            <div>
-              <h2>처음 설정 순서</h2>
-            </div>
-            <span className={`chip ${props.setupPendingCount === 0 ? "chip-success" : "chip-warn"}`}>
-              {props.setupPendingCount === 0 ? "준비 완료" : `${props.setupPendingCount}개 남음`}
-            </span>
-          </header>
-          <div className="settings-step-list">
-            {props.settingsSections.map((section) => (
-              <button
-                key={section.id}
-                className={props.activeSettingsSection === section.id ? "settings-step-card active" : "settings-step-card"}
-                onClick={() => props.setActiveSettingsSection(section.id)}
-              >
-                <div className="settings-step-head">
-                  <span className="setup-order">{section.step}</span>
-                  <div className="settings-step-copy">
-                    <strong>{section.title}</strong>
+    <div className="stitch-settings-screen">
+      <div className="stitch-settings-layout">
+        <div className="stitch-settings-sidebar-stack">
+          <SurfaceCard as="aside" className="stitch-settings-sidebar">
+            <nav className="stitch-settings-nav">
+              {props.settingsSections.map((section) => (
+                <button
+                  key={section.id}
+                  className={props.activeSettingsSection === section.id ? "stitch-settings-nav-item is-active" : "stitch-settings-nav-item"}
+                  onClick={() => props.setActiveSettingsSection(section.id)}
+                >
+                  <span className="material-symbols-outlined">
+                    {section.id === "gmail" ? "mail" : section.id === "popbill" ? "description" : "person"}
+                  </span>
+                  <div className="stitch-settings-nav-copy">
+                    <div className="stitch-settings-nav-title-row">
+                      <strong>{section.step}. {section.title}</strong>
+                      <span className={section.done ? "chip chip-success" : "chip chip-warn"}>
+                        {section.done ? "완료" : "진행 필요"}
+                      </span>
+                    </div>
                     <span>{section.summary}</span>
                   </div>
-                </div>
-                <span className={`chip ${section.done ? "chip-success" : "chip-danger"}`}>{section.done ? "완료" : "입력 필요"}</span>
-              </button>
-            ))}
-          </div>
-          {props.activeSettingsSection !== "account" ? (
-            <div className="settings-sidebar-actions settings-sidebar-actions-passive">
-              <span
-                className={
-                  props.settingsAutosaveState === "error"
-                    ? "chip chip-danger"
-                    : props.settingsAutosaveState === "saving"
-                      ? "chip chip-warn"
-                      : "chip chip-success"
-                }
-              >
-                {props.settingsAutosaveLabel}
-              </span>
-            </div>
-          ) : null}
-          <div className="settings-inline-note">
-            <strong>{props.customerRegistrationReady ? `고객 ${props.customerCount}명 등록됨` : "고객 등록이 필요합니다."}</strong>
-            <button className="btn-secondary" onClick={() => void props.runAction("refresh-certificates", props.refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
-          </div>
-        </section>
-      </aside>
+                </button>
+              ))}
+            </nav>
 
-      <div className="settings-detail">
+            <div className="stitch-settings-sidebar-statusline">
+              <span className={autosaveToneClass}>{props.settingsAutosaveLabel}</span>
+              <span>{props.setupPendingCount === 0 ? "남은 설정 없음" : `남은 설정 ${props.setupPendingCount}개`}</span>
+              {nextPendingSection ? <span>{`다음: ${nextPendingSection.title}`}</span> : null}
+            </div>
+          </SurfaceCard>
+        </div>
+
+        <div className="stitch-settings-detail">
         {props.activeSettingsSection === "gmail" ? (
           <SetupPanel
             step={1}
@@ -126,6 +170,13 @@ export function SettingsTab(props: SettingsTabProps) {
               </button>
             }
           >
+            <div className="settings-autosave-banner">
+              <div>
+                <strong>자동 저장</strong>
+                <span>메일 연결 값은 입력 후 잠시 뒤 저장됩니다.</span>
+              </div>
+              <span className={autosaveToneClass}>{props.settingsAutosaveLabel}</span>
+            </div>
             {props.isMailTesting ? (
               <div className="settings-action-feedback">
                 <span className="chip chip-warn">테스트 중</span>
@@ -171,7 +222,7 @@ export function SettingsTab(props: SettingsTabProps) {
                 <textarea rows={4} value={props.settingsForm.notificationEmailsText} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, notificationEmailsText: event.target.value })} />
                 <span className="field-hint">파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나 쉼표로 구분합니다.</span>
               </label>
-              <details className="settings-advanced-panel full">
+              <details className="settings-advanced-panel full" onToggle={handleSettingsDetailsToggle}>
                 <summary>월 자동 발행 일정 보기</summary>
                 <div className="helper-box">
                   <strong>매달 자동 실행 일정</strong>
@@ -364,20 +415,11 @@ export function SettingsTab(props: SettingsTabProps) {
                   <span>마지막 확인: {props.formatDateTime(props.customerRenewalAssistantCheckedAt)}</span>
                   <span>현재 읽은 공동인증서: {props.customerRenewalLoadedCertificateCount}건</span>
                 </div>
-                <details className="settings-advanced-panel">
-                  <summary>설치 안내와 세부 정보 보기</summary>
-                  <div className="helper-box-stack settings-install-guide">
-                    <strong>설치 안내</strong>
-                    <span>
-                      고객 PC에서는 위 <code>헬퍼 압축 다운로드</code>로 받은 <code>renewal-local-helper</code> 압축을 푼 뒤 <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
-                    </span>
-                    <span>설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시 실행됩니다.</span>
-                    <span>
-                      문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>, <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code> 바로가기로 확인할 수 있습니다.
-                    </span>
-                    <span>자동실행만 꺼도 Start / Stop / Status 바로가기는 그대로 남습니다.</span>
-                  </div>
-                </details>
+                <div className="settings-install-guide-trigger-wrap">
+                  <button type="button" className="btn-secondary settings-install-guide-trigger" onClick={() => setIsInstallGuideOpen(true)}>
+                    설치 안내와 세부 정보 보기
+                  </button>
+                </div>
               </section>
             </div>
           </SetupPanel>
@@ -537,7 +579,54 @@ export function SettingsTab(props: SettingsTabProps) {
             </Panel>
           </div>
         ) : null}
+        </div>
       </div>
+      {isInstallGuideOpen ? (
+        <div className="app-dialog-backdrop" role="presentation" onClick={() => setIsInstallGuideOpen(false)}>
+          <section
+            className="app-dialog settings-install-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-install-guide-title"
+            aria-describedby="settings-install-guide-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="app-dialog-head">
+              <span className="chip">설치 안내</span>
+              <div>
+                <h2 id="settings-install-guide-title">헬퍼 설치와 상태 확인</h2>
+                <p id="settings-install-guide-description" className="app-dialog-message">
+                  고객 PC에서 인증서 작업 도구를 연결할 때 필요한 순서와 상태 확인 방법입니다.
+                </p>
+              </div>
+            </div>
+
+            <div className="settings-install-modal-body">
+              <section className="helper-box-stack settings-install-guide">
+                <strong>설치 순서</strong>
+                <span>
+                  고객 PC에서는 위 <code>헬퍼 압축 다운로드</code>로 받은 <code>renewal-local-helper</code> 압축을 푼 뒤 <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
+                </span>
+                <span>설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시 실행됩니다.</span>
+              </section>
+
+              <section className="helper-box-stack settings-install-guide">
+                <strong>상태 확인</strong>
+                <span>
+                  문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>, <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code> 바로가기로 확인할 수 있습니다.
+                </span>
+                <span>자동실행만 꺼도 Start / Stop / Status 바로가기는 그대로 남습니다.</span>
+              </section>
+            </div>
+
+            <div className="app-dialog-actions">
+              <button type="button" className="btn-secondary" onClick={() => setIsInstallGuideOpen(false)}>
+                닫기
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

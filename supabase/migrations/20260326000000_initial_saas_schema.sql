@@ -1,5 +1,4 @@
 create extension if not exists pgcrypto;
-
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'organization_member_role') then
@@ -34,7 +33,6 @@ begin
     create type public.job_status as enum ('queued', 'claimed', 'completed', 'failed', 'cancelled');
   end if;
 end $$;
-
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -44,18 +42,15 @@ begin
   return new;
 end;
 $$;
-
 create table if not exists public.organizations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   business_number text,
   plan_code text not null default 'starter',
   status public.organization_status not null default 'trial',
-  managed_customer_limit integer not null default 50,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create table if not exists public.organization_members (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -67,7 +62,6 @@ create table if not exists public.organization_members (
   updated_at timestamptz not null default timezone('utc', now()),
   unique (organization_id, user_id)
 );
-
 create table if not exists public.organization_settings (
   organization_id uuid primary key references public.organizations(id) on delete cascade,
   timezone text not null default 'Asia/Seoul',
@@ -81,7 +75,6 @@ create table if not exists public.organization_settings (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create table if not exists public.organization_integrations (
   organization_id uuid primary key references public.organizations(id) on delete cascade,
   imap_host text not null default '',
@@ -100,7 +93,7 @@ create table if not exists public.organization_integrations (
   popbill_link_id text not null default '',
   popbill_secret_key_encrypted text not null default '',
   popbill_partner_corp_num text not null default '',
-  popbill_user_id_prefix text not null default 'TEST_',
+  popbill_user_id_prefix text not null default 'HAE_',
   popbill_shared_password_encrypted text not null default '',
   operator_contact_name text not null default '',
   operator_contact_email text not null default '',
@@ -108,7 +101,6 @@ create table if not exists public.organization_integrations (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create table if not exists public.managed_customers (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -133,7 +125,6 @@ create table if not exists public.managed_customers (
   updated_at timestamptz not null default timezone('utc', now()),
   unique (organization_id, business_number)
 );
-
 create table if not exists public.managed_customer_plants (
   id uuid primary key default gen_random_uuid(),
   managed_customer_id uuid not null references public.managed_customers(id) on delete cascade,
@@ -142,10 +133,8 @@ create table if not exists public.managed_customer_plants (
   created_at timestamptz not null default timezone('utc', now()),
   unique (managed_customer_id, normalized_plant_name)
 );
-
 create index if not exists idx_managed_customer_plants_normalized_name
   on public.managed_customer_plants (normalized_plant_name);
-
 create table if not exists public.managed_customer_match_addresses (
   id uuid primary key default gen_random_uuid(),
   managed_customer_id uuid not null references public.managed_customers(id) on delete cascade,
@@ -154,10 +143,8 @@ create table if not exists public.managed_customer_match_addresses (
   created_at timestamptz not null default timezone('utc', now()),
   unique (managed_customer_id, normalized_match_address)
 );
-
 create index if not exists idx_managed_customer_match_addresses_normalized_address
   on public.managed_customer_match_addresses (normalized_match_address);
-
 create table if not exists public.inbox_messages (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -177,13 +164,10 @@ create table if not exists public.inbox_messages (
   updated_at timestamptz not null default timezone('utc', now()),
   unique (organization_id, message_uid)
 );
-
 create index if not exists idx_inbox_messages_org_received_at
   on public.inbox_messages (organization_id, received_at desc);
-
 create index if not exists idx_inbox_messages_org_parse_status
   on public.inbox_messages (organization_id, parse_status);
-
 create table if not exists public.invoice_drafts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -217,13 +201,10 @@ create table if not exists public.invoice_drafts (
   updated_at timestamptz not null default timezone('utc', now()),
   unique (organization_id, popbill_mgt_key)
 );
-
 create index if not exists idx_invoice_drafts_org_status
   on public.invoice_drafts (organization_id, status);
-
 create index if not exists idx_invoice_drafts_org_billing_month
   on public.invoice_drafts (organization_id, billing_month);
-
 create table if not exists public.app_logs (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -234,10 +215,8 @@ create table if not exists public.app_logs (
   context_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now())
 );
-
 create index if not exists idx_app_logs_org_created_at
   on public.app_logs (organization_id, created_at desc);
-
 create table if not exists public.job_queue (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -254,10 +233,8 @@ create table if not exists public.job_queue (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create index if not exists idx_job_queue_org_status_run_after
   on public.job_queue (organization_id, status, run_after);
-
 do $$
 begin
   if not exists (
@@ -272,47 +249,38 @@ begin
       on delete set null;
   end if;
 end $$;
-
 drop trigger if exists trg_organizations_set_updated_at on public.organizations;
 create trigger trg_organizations_set_updated_at
 before update on public.organizations
 for each row execute function public.set_updated_at();
-
 drop trigger if exists trg_organization_members_set_updated_at on public.organization_members;
 create trigger trg_organization_members_set_updated_at
 before update on public.organization_members
 for each row execute function public.set_updated_at();
-
 drop trigger if exists trg_organization_settings_set_updated_at on public.organization_settings;
 create trigger trg_organization_settings_set_updated_at
 before update on public.organization_settings
 for each row execute function public.set_updated_at();
-
 drop trigger if exists trg_organization_integrations_set_updated_at on public.organization_integrations;
 create trigger trg_organization_integrations_set_updated_at
 before update on public.organization_integrations
 for each row execute function public.set_updated_at();
-
 drop trigger if exists trg_managed_customers_set_updated_at on public.managed_customers;
 create trigger trg_managed_customers_set_updated_at
 before update on public.managed_customers
 for each row execute function public.set_updated_at();
-
 drop trigger if exists trg_inbox_messages_set_updated_at on public.inbox_messages;
 create trigger trg_inbox_messages_set_updated_at
 before update on public.inbox_messages
 for each row execute function public.set_updated_at();
-
 drop trigger if exists trg_invoice_drafts_set_updated_at on public.invoice_drafts;
 create trigger trg_invoice_drafts_set_updated_at
 before update on public.invoice_drafts
 for each row execute function public.set_updated_at();
-
 drop trigger if exists trg_job_queue_set_updated_at on public.job_queue;
 create trigger trg_job_queue_set_updated_at
 before update on public.job_queue
 for each row execute function public.set_updated_at();
-
 create or replace function public.is_org_member(target_org_id uuid)
 returns boolean
 language sql
@@ -327,7 +295,6 @@ as $$
       and om.user_id = auth.uid()
   );
 $$;
-
 create or replace function public.has_org_role(target_org_id uuid, allowed_roles public.organization_member_role[])
 returns boolean
 language sql
@@ -343,7 +310,6 @@ as $$
       and om.role = any(allowed_roles)
   );
 $$;
-
 alter table public.organizations enable row level security;
 alter table public.organization_members enable row level security;
 alter table public.organization_settings enable row level security;
@@ -355,14 +321,12 @@ alter table public.inbox_messages enable row level security;
 alter table public.invoice_drafts enable row level security;
 alter table public.app_logs enable row level security;
 alter table public.job_queue enable row level security;
-
 drop policy if exists organizations_select_member on public.organizations;
 create policy organizations_select_member
 on public.organizations
 for select
 to authenticated
 using (public.is_org_member(id));
-
 drop policy if exists organizations_update_admin on public.organizations;
 create policy organizations_update_admin
 on public.organizations
@@ -370,14 +334,12 @@ for update
 to authenticated
 using (public.has_org_role(id, array['owner', 'admin']::public.organization_member_role[]))
 with check (public.has_org_role(id, array['owner', 'admin']::public.organization_member_role[]));
-
 drop policy if exists organization_members_select_member on public.organization_members;
 create policy organization_members_select_member
 on public.organization_members
 for select
 to authenticated
 using (public.is_org_member(organization_id));
-
 drop policy if exists organization_members_manage_admin on public.organization_members;
 create policy organization_members_manage_admin
 on public.organization_members
@@ -385,14 +347,12 @@ for all
 to authenticated
 using (public.has_org_role(organization_id, array['owner', 'admin']::public.organization_member_role[]))
 with check (public.has_org_role(organization_id, array['owner', 'admin']::public.organization_member_role[]));
-
 drop policy if exists organization_settings_select_member on public.organization_settings;
 create policy organization_settings_select_member
 on public.organization_settings
 for select
 to authenticated
 using (public.is_org_member(organization_id));
-
 drop policy if exists organization_settings_update_admin on public.organization_settings;
 create policy organization_settings_update_admin
 on public.organization_settings
@@ -400,14 +360,12 @@ for all
 to authenticated
 using (public.has_org_role(organization_id, array['owner', 'admin']::public.organization_member_role[]))
 with check (public.has_org_role(organization_id, array['owner', 'admin']::public.organization_member_role[]));
-
 drop policy if exists organization_integrations_select_admin on public.organization_integrations;
 create policy organization_integrations_select_admin
 on public.organization_integrations
 for select
 to authenticated
 using (public.has_org_role(organization_id, array['owner', 'admin']::public.organization_member_role[]));
-
 drop policy if exists organization_integrations_manage_admin on public.organization_integrations;
 create policy organization_integrations_manage_admin
 on public.organization_integrations
@@ -415,14 +373,12 @@ for all
 to authenticated
 using (public.has_org_role(organization_id, array['owner', 'admin']::public.organization_member_role[]))
 with check (public.has_org_role(organization_id, array['owner', 'admin']::public.organization_member_role[]));
-
 drop policy if exists managed_customers_select_member on public.managed_customers;
 create policy managed_customers_select_member
 on public.managed_customers
 for select
 to authenticated
 using (public.is_org_member(organization_id));
-
 drop policy if exists managed_customers_manage_operator on public.managed_customers;
 create policy managed_customers_manage_operator
 on public.managed_customers
@@ -430,7 +386,6 @@ for all
 to authenticated
 using (public.has_org_role(organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[]))
 with check (public.has_org_role(organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[]));
-
 drop policy if exists managed_customer_plants_select_member on public.managed_customer_plants;
 create policy managed_customer_plants_select_member
 on public.managed_customer_plants
@@ -444,7 +399,6 @@ using (
       and public.is_org_member(mc.organization_id)
   )
 );
-
 drop policy if exists managed_customer_plants_manage_operator on public.managed_customer_plants;
 create policy managed_customer_plants_manage_operator
 on public.managed_customer_plants
@@ -466,7 +420,6 @@ with check (
       and public.has_org_role(mc.organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[])
   )
 );
-
 drop policy if exists managed_customer_match_addresses_select_member on public.managed_customer_match_addresses;
 create policy managed_customer_match_addresses_select_member
 on public.managed_customer_match_addresses
@@ -480,7 +433,6 @@ using (
       and public.is_org_member(mc.organization_id)
   )
 );
-
 drop policy if exists managed_customer_match_addresses_manage_operator on public.managed_customer_match_addresses;
 create policy managed_customer_match_addresses_manage_operator
 on public.managed_customer_match_addresses
@@ -502,14 +454,12 @@ with check (
       and public.has_org_role(mc.organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[])
   )
 );
-
 drop policy if exists inbox_messages_select_member on public.inbox_messages;
 create policy inbox_messages_select_member
 on public.inbox_messages
 for select
 to authenticated
 using (public.is_org_member(organization_id));
-
 drop policy if exists inbox_messages_manage_operator on public.inbox_messages;
 create policy inbox_messages_manage_operator
 on public.inbox_messages
@@ -517,14 +467,12 @@ for all
 to authenticated
 using (public.has_org_role(organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[]))
 with check (public.has_org_role(organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[]));
-
 drop policy if exists invoice_drafts_select_member on public.invoice_drafts;
 create policy invoice_drafts_select_member
 on public.invoice_drafts
 for select
 to authenticated
 using (public.is_org_member(organization_id));
-
 drop policy if exists invoice_drafts_manage_operator on public.invoice_drafts;
 create policy invoice_drafts_manage_operator
 on public.invoice_drafts
@@ -532,28 +480,24 @@ for all
 to authenticated
 using (public.has_org_role(organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[]))
 with check (public.has_org_role(organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[]));
-
 drop policy if exists app_logs_select_member on public.app_logs;
 create policy app_logs_select_member
 on public.app_logs
 for select
 to authenticated
 using (public.is_org_member(organization_id));
-
 drop policy if exists app_logs_insert_operator on public.app_logs;
 create policy app_logs_insert_operator
 on public.app_logs
 for insert
 to authenticated
 with check (public.has_org_role(organization_id, array['owner', 'admin', 'operator']::public.organization_member_role[]));
-
 drop policy if exists job_queue_select_member on public.job_queue;
 create policy job_queue_select_member
 on public.job_queue
 for select
 to authenticated
 using (public.is_org_member(organization_id));
-
 drop policy if exists job_queue_manage_operator on public.job_queue;
 create policy job_queue_manage_operator
 on public.job_queue

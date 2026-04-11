@@ -1,6 +1,5 @@
 alter table public.invoice_drafts
-  add column if not exists popbill_environment text;
-
+  add column if not exists popbill_environment text;;
 do $$
 begin
   if not exists (
@@ -13,7 +12,6 @@ begin
       check (popbill_environment in ('test', 'production'));
   end if;
 end
-$$;
-
+$$;;
 create index if not exists idx_invoice_drafts_org_popbill_environment
-  on public.invoice_drafts (organization_id, popbill_environment);
+  on public.invoice_drafts (organization_id, popbill_environment);;

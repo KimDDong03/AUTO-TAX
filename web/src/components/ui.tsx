@@ -11,21 +11,25 @@ function getStatIcon(label: string): string {
 
 export function Icon(props: { name: string; className?: string }) {
   const glyphs: Record<string, string> = {
-    dashboard: "DS",
-    group: "CU",
-    initial: "IN",
-    review: "TX",
-    settings: "SY",
-    ops: "OP",
-    issue: "IS",
-    unmatched: "ML",
-    cert: "CT",
-    complete: "OK",
-    refresh: "↻",
-    sync: "⇄"
+    dashboard: "assignment_turned_in",
+    group: "groups",
+    initial: "preliminary",
+    review: "warning",
+    settings: "settings_applications",
+    ops: "admin_panel_settings",
+    issue: "description",
+    unmatched: "mail",
+    cert: "verified_user",
+    complete: "task_alt",
+    refresh: "refresh",
+    sync: "sync"
   };
 
-  return <span className={props.className ? `glyph ${props.className}` : "glyph"}>{glyphs[props.name] ?? props.name.slice(0, 2).toUpperCase()}</span>;
+  return (
+    <span className={props.className ? `material-symbols-outlined ui-icon ${props.className}` : "material-symbols-outlined ui-icon"}>
+      {glyphs[props.name] ?? "radio_button_checked"}
+    </span>
+  );
 }
 
 export function RevealIcon(props: { open: boolean }) {
@@ -52,14 +56,21 @@ export function RevealIcon(props: { open: boolean }) {
   );
 }
 
-export function StatCard(props: { label: string; value: number; tone?: "default" | "warn" | "error" }) {
+export function StatCard(props: {
+  label: string;
+  value: number;
+  tone?: "default" | "warn" | "error";
+  meta?: string;
+  icon?: string;
+}) {
   return (
     <div className={`stat-card stat-${props.tone ?? "default"}`}>
       <div className="stat-card-head">
         <span>{props.label}</span>
-        <Icon name={getStatIcon(props.label)} className="stat-card-icon" />
+        <Icon name={props.icon ?? getStatIcon(props.label)} className="stat-card-icon" />
       </div>
       <strong>{props.value}</strong>
+      {props.meta ? <p className="stat-card-meta">{props.meta}</p> : null}
     </div>
   );
 }
@@ -77,6 +88,22 @@ export function Panel(props: { title: string; subtitle?: string; children: React
       {props.children}
     </section>
   );
+}
+
+export function SurfaceCard(props: {
+  as?: React.ElementType;
+  className?: string;
+  tone?: "default" | "dark";
+  children: React.ReactNode;
+}) {
+  const Tag = props.as ?? "section";
+  const toneClass = props.tone === "dark" ? "stitch-surface stitch-surface-dark" : "stitch-surface";
+  return <Tag className={props.className ? `${toneClass} ${props.className}` : toneClass}>{props.children}</Tag>;
+}
+
+export function SurfaceButton(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  const { className, type, ...rest } = props;
+  return <button type={type ?? "button"} className={className ? `stitch-surface-button ${className}` : "stitch-surface-button"} {...rest} />;
 }
 
 export type AppDialogTone = "default" | "success" | "warn" | "danger";
@@ -146,12 +173,13 @@ export function SetupPanel(props: {
   actions?: React.ReactNode;
   className?: string;
   note?: string;
+  showStepOrder?: boolean;
 }) {
   return (
     <section className={props.className ? `panel setup-panel ${props.className}` : "panel setup-panel"}>
       <header className="panel-header setup-panel-header">
         <div className="setup-panel-title">
-          <span className="setup-order">{props.step}</span>
+          {props.showStepOrder === false ? null : <span className="setup-order">{props.step}</span>}
           <div>
             <h2>{props.title}</h2>
             {props.note ? <p>{props.note}</p> : null}
