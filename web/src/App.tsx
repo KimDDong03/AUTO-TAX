@@ -7316,13 +7316,14 @@ export function App() {
                       />
                     </label>
                     <label>
-                      사업자번호
+                      사업자번호 (선택)
                       <input
                         disabled={busyKey !== null}
                         value={opsWorkspaceForm.organizationBusinessNumber}
                         onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationBusinessNumber: event.target.value }))}
-                        placeholder="숫자만 입력"
+                        placeholder="숫자만 입력 · 개인 사용 작업공간이면 비워두기"
                       />
+                      <span className="field-hint">이 작업공간을 쓰는 운영 주체의 선택 정보입니다. 관리 고객의 사업자번호와는 별개입니다.</span>
                     </label>
                     <label>
                       관리 고객 한도
@@ -7432,7 +7433,7 @@ export function App() {
                             <div className="ops-card-head">
                               <div>
                                 <strong>{workspace.organizationName}</strong>
-                                <span>{workspace.organizationBusinessNumber || "사업자번호 없음"}</span>
+                                <span>{workspace.organizationBusinessNumber || "사업자번호(선택) 미입력"}</span>
                               </div>
                               <span className={`chip ${workspace.organizationStatus === "active" ? "chip-success" : workspace.organizationStatus === "trial" ? "chip-warn" : "chip-danger"}`}>
                                 {getOrganizationStatusLabel(workspace.organizationStatus)}
@@ -7827,4 +7828,3 @@ export function App() {
     </>
   );
 }
-
