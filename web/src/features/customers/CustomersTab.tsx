@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
-import { SurfaceCard } from "../../components/ui";
+import { StatusBadge, SurfaceCard, type StatusBadgeTone } from "../../components/ui";
 import type { Customer, InvoiceDraft } from "../../types";
+import { CustomerAlerts } from "./components/CustomerAlerts";
+import { CustomerDetailOverview, type CustomerDetailStatusCard } from "./components/CustomerDetailOverview";
+import { CustomerHistorySection } from "./components/CustomerHistorySection";
+import { CustomerListEmptyState } from "./components/CustomerListEmptyState";
+import { CustomerReadSection } from "./components/CustomerReadSection";
 
 type CustomerFormState = {
   id: number | null;
@@ -48,16 +53,16 @@ type CustomerRenewalCandidateView = {
   canOpenPayment: boolean;
 };
 
-function getToneChipClass(tone: "success" | "warn" | "danger" | "default") {
+function getStatusBadgeTone(tone: "success" | "warn" | "danger" | "default"): StatusBadgeTone {
   switch (tone) {
     case "success":
-      return "chip chip-success";
+      return "success";
     case "warn":
-      return "chip chip-warn";
+      return "warning";
     case "danger":
-      return "chip chip-danger";
+      return "danger";
     default:
-      return "chip";
+      return "neutral";
   }
 }
 
@@ -289,7 +294,7 @@ export function CustomersTab(props: CustomersTabProps) {
       : isDateWithinDays(selectedCustomer.popbillCertExpireDate, 30)
         ? "warn"
         : "success";
-  const selectedCustomerStatusCards =
+  const selectedCustomerStatusCards: CustomerDetailStatusCard[] =
     selectedCustomer && selectedCustomerReadiness
       ? [
           {
@@ -396,18 +401,11 @@ export function CustomersTab(props: CustomersTabProps) {
 
   return (
     <div className="stitch-customer-screen">
-      {props.expiredCertCustomers.length > 0 ? (
-        <div className="alert error">
-          인증서 만료 고객 {props.expiredCertCustomers.length}건: {props.expiredCertCustomers.map((customer) => customer.customerName).join(", ")}
-        </div>
-      ) : null}
-      {props.expiringSoonCustomers.length > 0 ? (
-        <div className="alert warn">
-          인증서 만료 예정 30일 이내 {props.expiringSoonCustomers.length}건: {props.expiringSoonCustomers
-            .map((customer) => `${customer.customerName}(${props.formatCertificateExpireDate(customer.popbillCertExpireDate)})`)
-            .join(", ")}
-        </div>
-      ) : null}
+      <CustomerAlerts
+        expiredCertCustomers={props.expiredCertCustomers}
+        expiringSoonCustomers={props.expiringSoonCustomers}
+        formatCertificateExpireDate={props.formatCertificateExpireDate}
+      />
 
       <div className="stitch-customer-grid">
         <SurfaceCard as="aside" className="stitch-customer-sidebar">
@@ -514,7 +512,9 @@ export function CustomersTab(props: CustomersTabProps) {
                         <td className="stitch-customer-table-business-number">{customer.businessNumber}</td>
                         <td>
                           <div className="stitch-customer-table-status">
-                            <span className={getToneChipClass(readiness.tone)}>{readiness.label}</span>
+                            <StatusBadge compact tone={getStatusBadgeTone(readiness.tone)}>
+                              {readiness.label}
+                            </StatusBadge>
                             <small>{readiness.reason}</small>
                           </div>
                         </td>
@@ -530,69 +530,20 @@ export function CustomersTab(props: CustomersTabProps) {
                   {props.filteredCustomers.length === 0 ? (
                     <tr>
                       <td className="stitch-customer-table-empty" colSpan={4}>
-                        <div className="stitch-customer-table-empty-state">
-                          <strong>{props.customerSearchQuery.trim() !== "" ? "검색 결과가 없습니다." : activeFilterCopy[props.customerListFilter].empty}</strong>
-                          <span>
-                            {props.customerSearchQuery.trim() !== ""
+                        <CustomerListEmptyState
+                          title={props.customerSearchQuery.trim() !== "" ? "검색 결과가 없습니다." : activeFilterCopy[props.customerListFilter].empty}
+                          description={
+                            props.customerSearchQuery.trim() !== ""
                               ? "검색어를 줄이거나 다른 필터를 선택해 보세요."
-                              : "준비 고객을 먼저 보거나 새 고객 등록으로 운영 목록을 채울 수 있습니다."}
-                          </span>
-                          <div className="stitch-customer-table-empty-preview">
-                            <span>대표자·사업자번호 저장</span>
-                            <span>팝빌/인증서 연결</span>
-                            <span>즉시 발행 고객 분류</span>
-                          </div>
-                            <div className="stitch-customer-table-empty-sample">
-                              <div className="stitch-empty-sample-meta">
-                                <span>예시 고객</span>
-                                <span>등록 직후</span>
-                              </div>
-                              <div className="stitch-empty-preview-table">
-                                <div className="stitch-empty-preview-head">
-                                  <span>고객</span>
-                                  <span>사업자번호</span>
-                                  <span>발행 준비</span>
-                                  <span>연결 상태</span>
-                                </div>
-                                <div className="stitch-empty-preview-row">
-                                  <strong>해성태양광</strong>
-                                  <span>123-45-67890</span>
-                                  <span className="chip chip-warn">검수 후 발행</span>
-                                  <span>연결 필요</span>
-                                </div>
-                                <div className="stitch-empty-preview-row">
-                                  <strong>동해에너지</strong>
-                                  <span>234-56-78901</span>
-                                  <span className="chip chip-success">즉시 발행</span>
-                                  <span>연결 완료</span>
-                                </div>
-                              </div>
-                              <small>첫 고객을 등록하면 고객 목록과 상세 운영 화면이 바로 활성화됩니다.</small>
-                            </div>
-                          <div className="stitch-customer-table-empty-actions">
-                            <button
-                              type="button"
-                              onClick={customerEmptyPrimaryAction.onClick}
-                              disabled={customerEmptyPrimaryCreatesCustomer && props.hasReachedManagedCustomerLimit}
-                            >
-                              {customerEmptyPrimaryAction.label}
-                            </button>
-                            {props.customerSearchQuery.trim() === "" ? (
-                              <button type="button" className="btn-secondary" onClick={() => focusCustomerList("all")}>
-                                전체 고객 보기
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn-secondary"
-                                onClick={props.onCreateCustomer}
-                                disabled={props.hasReachedManagedCustomerLimit}
-                              >
-                                새 고객 등록
-                              </button>
-                            )}
-                          </div>
-                        </div>
+                              : "준비 고객을 먼저 보거나 새 고객 등록으로 운영 목록을 채울 수 있습니다."
+                          }
+                          onPrimaryAction={customerEmptyPrimaryAction.onClick}
+                          primaryActionLabel={customerEmptyPrimaryAction.label}
+                          primaryActionDisabled={customerEmptyPrimaryCreatesCustomer && props.hasReachedManagedCustomerLimit}
+                          onSecondaryAction={props.customerSearchQuery.trim() === "" ? () => focusCustomerList("all") : props.onCreateCustomer}
+                          secondaryActionLabel={props.customerSearchQuery.trim() === "" ? "전체 고객 보기" : "새 고객 등록"}
+                          secondaryActionDisabled={props.customerSearchQuery.trim() !== "" ? props.hasReachedManagedCustomerLimit : false}
+                        />
                       </td>
                     </tr>
                   ) : null}
@@ -634,22 +585,47 @@ export function CustomersTab(props: CustomersTabProps) {
         <section className="stitch-customer-detail">
           <SurfaceCard as="div" className="stitch-customer-detail-shell">
           {selectedCustomer && selectedCustomerReadiness ? (
-            <div className="stitch-customer-detail-top">
-              <div className="stitch-customer-detail-hero">
-                <div className="stitch-customer-detail-copy">
-                  <span className="stitch-customer-detail-overline">선택 고객</span>
-                  <strong>{selectedCustomer.corpName}</strong>
-                  <span>{selectedCustomer.customerName} · {selectedCustomer.businessNumber}</span>
-                </div>
-                <div className="stitch-customer-detail-actions">
-                  {selectedCustomer.popbillState !== "joined" ? (
-                    <button
-                      type="button"
-                      onClick={() => void props.runAction(`join-${selectedCustomer.id}`, async () => props.onJoinCustomerPopbill(selectedCustomer.id))}
-                    >
-                      팝빌 가입
-                    </button>
-                  ) : !selectedCustomer.popbillCertRegistered ? (
+            <CustomerDetailOverview
+              customer={selectedCustomer}
+              readiness={{
+                label: selectedCustomerReadiness.label,
+                tone: selectedCustomerReadiness.tone,
+                reason: selectedCustomerReadiness.reason,
+                actionLabel: inlineCustomerIssue?.actionLabel,
+                onAction: inlineCustomerIssue?.actionLabel ? () => runSelectedCustomerIssueAction(inlineCustomerIssue) : undefined
+              }}
+              statusCards={selectedCustomerStatusCards}
+              issues={stackedCustomerIssues.map((issue) => ({
+                key: issue.key,
+                label: issue.label,
+                tone: issue.tone,
+                actionLabel: issue.actionLabel,
+                onAction: issue.actionLabel ? () => runSelectedCustomerIssueAction(issue) : undefined
+              }))}
+              certificateNotice={props.customerCertNotice}
+              heroActions={
+                selectedCustomer.popbillState !== "joined" ? (
+                  <button
+                    type="button"
+                    onClick={() => void props.runAction(`join-${selectedCustomer.id}`, async () => props.onJoinCustomerPopbill(selectedCustomer.id))}
+                  >
+                    팝빌 가입
+                  </button>
+                ) : !selectedCustomer.popbillCertRegistered ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void props.runAction(
+                        `cert-url-${selectedCustomer.id}`,
+                        async () => props.onOpenCustomerCertRegistration(selectedCustomer.id),
+                        { reload: false }
+                      )
+                    }
+                  >
+                    인증서 등록
+                  </button>
+                ) : (
+                  <>
                     <button
                       type="button"
                       onClick={() =>
@@ -660,97 +636,25 @@ export function CustomersTab(props: CustomersTabProps) {
                         )
                       }
                     >
-                      인증서 등록
+                      인증서 재등록
                     </button>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void props.runAction(
-                            `cert-url-${selectedCustomer.id}`,
-                            async () => props.onOpenCustomerCertRegistration(selectedCustomer.id),
-                            { reload: false }
-                          )
-                        }
-                      >
-                        인증서 재등록
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() =>
-                          void props.runAction(
-                            `cert-status-${selectedCustomer.id}`,
-                            async () => props.onRefreshCustomerCertificateStatus(selectedCustomer.id)
-                          )
-                        }
-                      >
-                        만료일 확인
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <p className="stitch-customer-detail-address">{selectedCustomer.addr}</p>
-              <div className="stitch-customer-detail-status-row">
-                <span className={getToneChipClass(selectedCustomerReadiness.tone)}>
-                  {selectedCustomerReadiness.label}
-                </span>
-                {selectedCustomerReadiness.reason !== "준비 완료" ? <span className="stitch-customer-detail-status-note">{selectedCustomerReadiness.reason}</span> : null}
-                {inlineCustomerIssue?.actionLabel ? (
-                  <button type="button" className="btn-secondary" onClick={() => runSelectedCustomerIssueAction(inlineCustomerIssue)}>
-                    {inlineCustomerIssue.actionLabel}
-                  </button>
-                ) : null}
-              </div>
-              <div className="stitch-customer-status-grid" aria-label="고객 상태 요약">
-                {selectedCustomerStatusCards.map((card) => (
-                  <article key={card.label} className={`stitch-customer-status-card tone-${card.tone}`}>
-                    <span>{card.label}</span>
-                    <strong>{card.value}</strong>
-                    <p>{card.note}</p>
-                  </article>
-                ))}
-              </div>
-              {stackedCustomerIssues.length > 0 ? (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() =>
+                        void props.runAction(
+                          `cert-status-${selectedCustomer.id}`,
+                          async () => props.onRefreshCustomerCertificateStatus(selectedCustomer.id)
+                        )
+                      }
+                    >
+                      만료일 확인
+                    </button>
+                  </>
+                )
+              }
+              secondaryActions={
                 <>
-                  <div className="stitch-customer-section-head">
-                    <strong>확인 필요 항목</strong>
-                    <span>{stackedCustomerIssues.length}건</span>
-                  </div>
-                  <div className="stitch-customer-issue-list" aria-label="발행 준비 상태">
-                    {stackedCustomerIssues.map((issue) => (
-                      <article
-                        key={issue.key}
-                        className={
-                          issue.tone === "danger"
-                            ? "stitch-customer-issue-card tone-danger"
-                            : issue.tone === "warn"
-                              ? "stitch-customer-issue-card tone-warn"
-                              : "stitch-customer-issue-card tone-success"
-                        }
-                      >
-                        <div className="stitch-customer-issue-card-copy">
-                          <span className={getToneChipClass(issue.tone)}>
-                            {issue.tone === "danger" ? "중요" : issue.tone === "warn" ? "점검" : "완료"}
-                          </span>
-                          <span className="stitch-customer-issue-text">{issue.label}</span>
-                        </div>
-                        {issue.actionLabel ? (
-                          <button type="button" className="btn-secondary" onClick={() => runSelectedCustomerIssueAction(issue)}>
-                            {issue.actionLabel}
-                          </button>
-                        ) : null}
-                      </article>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-              {props.customerCertNotice ? <div className="helper-box customer-cert-notice"><span>{props.customerCertNotice}</span></div> : null}
-              <details className="stitch-customer-detail-secondary">
-                <summary>더보기</summary>
-                <div className="stitch-customer-detail-secondary-actions">
                   {selectedCustomer.popbillState === "joined" ? (
                     <button className="btn-ghost" onClick={() => void props.runAction(`reset-popbill-${selectedCustomer.id}`, async () => props.onResetPopbillLink(selectedCustomer))}>
                       연결 해제
@@ -759,9 +663,9 @@ export function CustomersTab(props: CustomersTabProps) {
                   <button className="btn-ghost btn-danger" onClick={() => void props.runAction(`delete-customer-${selectedCustomer.id}`, async () => props.onDeleteCustomer(selectedCustomer))}>
                     고객 삭제
                   </button>
-                </div>
-              </details>
-            </div>
+                </>
+              }
+            />
           ) : null}
           {props.selectedCustomer ? (
             <div className="stitch-customer-detail-tabs">
@@ -783,84 +687,29 @@ export function CustomersTab(props: CustomersTabProps) {
           ) : null}
 
           {props.selectedCustomer && props.customerDetailTab === "history" ? (
-            <div className="stitch-customer-history-list">
-              {props.mailboxDataLoading && props.selectedCustomerIssuedDrafts.length === 0 ? (
-                <div className="empty">발행 이력을 불러오는 중입니다.</div>
-              ) : props.selectedCustomerIssuedDrafts.length > 0 ? (
-                props.selectedCustomerIssuedDrafts.map((draft) => {
-                  const confirmNumber = props.getDraftConfirmNumber(draft);
-                  return (
-                    <article key={draft.id} className="stitch-customer-history-card">
-                      <div className="stitch-customer-history-head">
-                        <div>
-                          <strong>{draft.itemName}</strong>
-                          <span>{props.formatDateTime(draft.issuedAt)}</span>
-                        </div>
-                        <span className="chip chip-success">발행 완료</span>
-                      </div>
-                      <div className="stitch-customer-history-meta">
-                        <span>공급가액 {props.formatMoney(draft.supplyCost)}원</span>
-                        <span>합계 {props.formatMoney(draft.totalAmount)}원</span>
-                        <span>관리번호 {draft.popbillMgtKey || "-"}</span>
-                        <span>승인번호 {confirmNumber ?? "-"}</span>
-                      </div>
-                      <div className="stitch-customer-history-actions">
-                        <button
-                          className="btn-secondary"
-                          disabled={props.busyKey !== null}
-                          onClick={() => void props.runAction(`draft-info-${draft.id}`, async () => props.onShowDraftPopbillInfo(draft.id))}
-                        >
-                          상태조회
-                        </button>
-                        <button
-                          className="btn-secondary"
-                          disabled={props.busyKey !== null}
-                          onClick={() => void props.runAction(`draft-view-customer-${draft.id}`, async () => props.onOpenDraftPopbillUrl(draft.id, "view-url"))}
-                        >
-                          보기
-                        </button>
-                        <button
-                          className="btn-secondary"
-                          disabled={props.busyKey !== null}
-                          onClick={() => void props.runAction(`draft-print-customer-${draft.id}`, async () => props.onOpenDraftPopbillUrl(draft.id, "print-url"))}
-                        >
-                          인쇄
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })
-              ) : (
-                <div className="empty">이 고객의 발행 이력이 없습니다.</div>
-              )}
-            </div>
+            <CustomerHistorySection
+              mailboxDataLoading={props.mailboxDataLoading}
+              drafts={props.selectedCustomerIssuedDrafts}
+              busyKey={props.busyKey}
+              runAction={props.runAction}
+              onShowDraftPopbillInfo={props.onShowDraftPopbillInfo}
+              onOpenDraftPopbillUrl={props.onOpenDraftPopbillUrl}
+              formatDateTime={props.formatDateTime}
+              formatMoney={props.formatMoney}
+              getDraftConfirmNumber={props.getDraftConfirmNumber}
+            />
           ) : props.selectedCustomer ? (
             <div className="stitch-customer-info-stack">
-              <section className="stitch-customer-read-section">
-                <div className="stitch-customer-section-head">
-                  <div className="stitch-customer-section-copy">
-                    <strong>기본 정보</strong>
-                    <span>평소에는 읽기 화면으로 보고, 필요할 때만 수정합니다.</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={detailEditSection === "core" ? "btn-secondary active-filter" : "btn-secondary"}
-                    onClick={() => setDetailEditSection((previous) => (previous === "core" ? "none" : "core"))}
-                  >
-                    {detailEditSection === "core" ? "수정 닫기" : "기본 정보 수정"}
-                  </button>
-                </div>
-                <div className="stitch-customer-read-grid">
-                  {selectedCustomerCoreFields.map((field) => (
-                    <article key={field.label} className={field.full ? "stitch-customer-read-item is-full" : "stitch-customer-read-item"}>
-                      <span>{field.label}</span>
-                      <strong>{field.value}</strong>
-                    </article>
-                  ))}
-                </div>
-              </section>
-
-              {detailEditSection === "core" ? (
+              <CustomerReadSection
+                title="기본 정보"
+                description="평소에는 읽기 화면으로 보고, 필요할 때만 수정합니다."
+                isEditing={detailEditSection === "core"}
+                openLabel="기본 정보 수정"
+                closeLabel="수정 닫기"
+                onToggle={() => setDetailEditSection((previous) => (previous === "core" ? "none" : "core"))}
+                fields={selectedCustomerCoreFields}
+              >
+                {detailEditSection === "core" ? (
                 <form className="stitch-customer-edit-panel" onSubmit={handleCustomerFormSubmit}>
                   <div className="stitch-customer-form-banner">
                     <strong>기본 정보 수정</strong>
@@ -908,33 +757,19 @@ export function CustomersTab(props: CustomersTabProps) {
                     </button>
                   </div>
                 </form>
-              ) : null}
+                ) : null}
+              </CustomerReadSection>
 
-              <section className="stitch-customer-read-section">
-                <div className="stitch-customer-section-head">
-                  <div className="stitch-customer-section-copy">
-                    <strong>운영 설정</strong>
-                    <span>발행 방식과 추가 운영값은 여기서 확인합니다.</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={detailEditSection === "advanced" ? "btn-secondary active-filter" : "btn-secondary"}
-                    onClick={() => setDetailEditSection((previous) => (previous === "advanced" ? "none" : "advanced"))}
-                  >
-                    {detailEditSection === "advanced" ? "수정 닫기" : "운영 정보 수정"}
-                  </button>
-                </div>
-                <div className="stitch-customer-read-grid">
-                  {selectedCustomerOperatingFields.map((field) => (
-                    <article key={field.label} className={field.full ? "stitch-customer-read-item is-full" : "stitch-customer-read-item"}>
-                      <span>{field.label}</span>
-                      <strong>{field.value}</strong>
-                    </article>
-                  ))}
-                </div>
-              </section>
-
-              {detailEditSection === "advanced" ? (
+              <CustomerReadSection
+                title="운영 설정"
+                description="발행 방식과 추가 운영값은 여기서 확인합니다."
+                isEditing={detailEditSection === "advanced"}
+                openLabel="운영 정보 수정"
+                closeLabel="수정 닫기"
+                onToggle={() => setDetailEditSection((previous) => (previous === "advanced" ? "none" : "advanced"))}
+                fields={selectedCustomerOperatingFields}
+              >
+                {detailEditSection === "advanced" ? (
                 <form className="stitch-customer-edit-panel" onSubmit={handleCustomerFormSubmit}>
                   <div className="stitch-customer-form-banner">
                     <strong>운영 정보 수정</strong>
@@ -990,7 +825,8 @@ export function CustomersTab(props: CustomersTabProps) {
                     </button>
                   </div>
                 </form>
-              ) : null}
+                ) : null}
+              </CustomerReadSection>
 
               <section className="stitch-customer-read-section">
                 <div className="stitch-customer-section-head">

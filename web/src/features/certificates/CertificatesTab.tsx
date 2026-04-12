@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { SurfaceCard } from "../../components/ui";
+import { EmptyState, SectionMessage, StatusBadge, SurfaceCard, type StatusBadgeTone } from "../../components/ui";
 import type { Customer, CustomerCertificateKind } from "../../types";
 
 export type CertificateCustomerFilter =
@@ -81,6 +81,53 @@ function getCertificateExpireTime(value: string | null) {
 }
 
 type CertificateStatusBadgeTone = "success" | "warn" | "danger" | "default";
+
+function mapCertificateStatusBadgeTone(tone: CertificateStatusBadgeTone): StatusBadgeTone {
+  switch (tone) {
+    case "success":
+      return "success";
+    case "warn":
+      return "warning";
+    case "danger":
+      return "danger";
+    case "default":
+    default:
+      return "neutral";
+  }
+}
+
+function getQueueNoticeTone(queueNotice: string, batchPrepareActive: boolean): StatusBadgeTone {
+  if (batchPrepareActive || queueNotice.includes("진행 중")) return "info";
+  if (queueNotice.includes("실패")) return "danger";
+  if (queueNotice.includes("완료") || queueNotice.includes("열었습니다")) return "success";
+  if (
+    queueNotice.includes("먼저") ||
+    queueNotice.includes("없습니다") ||
+    queueNotice.includes("일시중지") ||
+    queueNotice.includes("멈춥니다")
+  ) {
+    return "warning";
+  }
+
+  return "info";
+}
+
+function getQueueNoticeBadgeLabel(tone: StatusBadgeTone, batchPrepareActive: boolean) {
+  if (batchPrepareActive) return "진행 중";
+
+  switch (tone) {
+    case "success":
+      return "완료";
+    case "warning":
+      return "확인 필요";
+    case "danger":
+      return "오류";
+    case "neutral":
+    case "info":
+    default:
+      return "안내";
+  }
+}
 
 export function CertificatesTab(props: CertificatesTabProps) {
   const assistantBusyKey =
@@ -378,6 +425,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
     (selectedManagedRows.length > 0
       ? "선택 고객 기준으로 일괄 갱신 준비 또는 다음 결제 열기를 바로 실행할 수 있습니다."
       : "고객을 선택하면 준비 필요와 결제 대기 인증서를 여기서 바로 처리할 수 있습니다.");
+  const queueNoticeTone = getQueueNoticeTone(queueNotice, batchPrepareState.active);
 
   const pauseBatchPrepareForInteractiveAction = async (reason: string) => {
     if (!batchPreparePromiseRef.current) {
@@ -695,10 +743,14 @@ export function CertificatesTab(props: CertificatesTabProps) {
               </details>
             </div>
             {queueNotice ? (
-              <div className="stitch-certificate-inline-note" role="status">
-                <span className="chip chip-warn">안내</span>
-                <span>{queueNotice}</span>
-              </div>
+              <SectionMessage
+                tone={queueNoticeTone}
+                badgeLabel={getQueueNoticeBadgeLabel(queueNoticeTone, batchPrepareState.active)}
+                title={batchPrepareState.active ? "일괄 갱신 준비를 진행하고 있습니다." : "인증서 작업 상태를 확인하세요."}
+                iconName="cert"
+              >
+                {queueNotice}
+              </SectionMessage>
             ) : null}
           </div>
         ) : null}
@@ -768,16 +820,13 @@ export function CertificatesTab(props: CertificatesTabProps) {
                             </strong>
                             <div className="certificate-status-badges">
                               {statusBadges.map((badge) => (
-                                <span
+                                <StatusBadge
                                   key={`${row.customer.id}-${badge.label}`}
-                                  className={
-                                    badge.tone === "default"
-                                      ? "certificate-status-badge"
-                                      : `certificate-status-badge ${badge.tone}`
-                                  }
+                                  compact
+                                  tone={mapCertificateStatusBadgeTone(badge.tone)}
                                 >
                                   {badge.label}
-                                </span>
+                                </StatusBadge>
                               ))}
                             </div>
                           </div>
@@ -788,32 +837,36 @@ export function CertificatesTab(props: CertificatesTabProps) {
                 </tbody>
               </table>
             ) : (
-              <div className="stitch-certificate-empty-state">
-                <strong>
-                  {linkedCustomerRows.length > 0
+              <EmptyState
+                iconName="cert"
+                title={
+                  linkedCustomerRows.length > 0
                     ? "현재 검색/필터 조건에 맞는 고객이 없습니다."
-                    : "고객과 연결된 공동인증서가 아직 없습니다."}
-                </strong>
-                <p>
-                  {linkedCustomerRows.length > 0
+                    : "고객과 연결된 공동인증서가 아직 없습니다."
+                }
+                description={
+                  linkedCustomerRows.length > 0
                     ? "검색어를 줄이거나 필터를 바꿔서 결제 가능 고객, 준비 필요 고객을 다시 확인하세요."
                     : hasNoCertificateData
                       ? "고객 PC에서 공동인증서를 읽고 필요한 고객부터 연결하면 갱신·결제 대기 흐름이 자동으로 정리됩니다."
-                      : "로컬에서 읽은 공동인증서를 고객에 연결하면 상태와 만료 위험을 함께 관리할 수 있습니다."}
-                </p>
-                <div className="stitch-certificate-empty-actions">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    disabled={!props.customerRenewalAssistantOnline || assistantBusyKey !== null}
-                    onClick={() => void props.runAction("customer-renewal-bridge-probe", props.onLoadCustomerRenewalCertificates, { reload: false })}
-                  >
-                    공동인증서 다시 읽기
-                  </button>
-                  <button type="button" className="btn-secondary" onClick={() => setShowUnlinkedCertificates(true)}>
-                    미연결 인증서 펼치기
-                  </button>
-                </div>
+                      : "로컬에서 읽은 공동인증서를 고객에 연결하면 상태와 만료 위험을 함께 관리할 수 있습니다."
+                }
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={!props.customerRenewalAssistantOnline || assistantBusyKey !== null}
+                      onClick={() => void props.runAction("customer-renewal-bridge-probe", props.onLoadCustomerRenewalCertificates, { reload: false })}
+                    >
+                      공동인증서 다시 읽기
+                    </button>
+                    <button type="button" className="btn-secondary" onClick={() => setShowUnlinkedCertificates(true)}>
+                      미연결 인증서 펼치기
+                    </button>
+                  </>
+                }
+              >
                 <div className="stitch-certificate-empty-checklist">
                   <span>1. 로컬 헬퍼 연결 확인</span>
                   <span>2. 공동인증서 읽기</span>
@@ -837,19 +890,23 @@ export function CertificatesTab(props: CertificatesTabProps) {
                     <div className="stitch-empty-preview-row">
                       <strong>해성태양광</strong>
                       <span>전자세금 인증서</span>
-                      <span className="chip chip-warn">준비 필요</span>
+                      <StatusBadge compact tone="warning">
+                        준비 필요
+                      </StatusBadge>
                       <span>결제 대기 확인</span>
                     </div>
                     <div className="stitch-empty-preview-row">
                       <strong>동해에너지</strong>
                       <span>범용 인증서</span>
-                      <span className="chip chip-success">결제 대기</span>
+                      <StatusBadge compact tone="success">
+                        결제 대기
+                      </StatusBadge>
                       <span>다음 결제 열기</span>
                     </div>
                   </div>
                   <small>예: 전자세금 인증서 만료 14일 전 · 결제 대기 1건</small>
                 </div>
-              </div>
+              </EmptyState>
             )}
           </div>
         </SurfaceCard>
@@ -949,23 +1006,26 @@ export function CertificatesTab(props: CertificatesTabProps) {
                 </tbody>
               </table>
             ) : (
-              <div className="stitch-certificate-empty-state compact">
-                <strong>
-                  {props.customerRenewalAssistantOnline
+              <EmptyState
+                compact
+                iconName={props.customerRenewalAssistantOnline ? "cert" : "info"}
+                title={
+                  props.customerRenewalAssistantOnline
                     ? unlinkedCertificates.length > 0
                       ? "현재 검색 조건에 맞는 미연결 공동인증서가 없습니다."
                       : "미연결 공동인증서가 없습니다."
-                    : "먼저 로컬 헬퍼 연결을 확인하세요."}
-                </strong>
-                <p>
-                  {props.customerRenewalAssistantOnline
+                    : "먼저 로컬 헬퍼 연결을 확인하세요."
+                }
+                description={
+                  props.customerRenewalAssistantOnline
                     ? "자동 후보가 잡히지 않는 경우에만 이 영역을 펼쳐 예외 연결을 처리하면 됩니다."
-                    : "고객 PC에서 로컬 헬퍼를 실행하면 인증서를 읽고 연결 후보를 다시 계산할 수 있습니다."}
-                </p>
+                    : "고객 PC에서 로컬 헬퍼를 실행하면 인증서를 읽고 연결 후보를 다시 계산할 수 있습니다."
+                }
+              >
                 <div className="stitch-certificate-empty-preview">
                   <span>예외 연결이 필요할 때만 펼치기</span>
                 </div>
-              </div>
+              </EmptyState>
             )}
           </div>
           ) : (
@@ -983,9 +1043,9 @@ export function CertificatesTab(props: CertificatesTabProps) {
                 <strong>우선 조치 패널</strong>
                 <span>선택 고객, 로컬 헬퍼, 다음 액션을 함께 봅니다.</span>
               </div>
-              <span className={props.customerRenewalAssistantOnline ? "chip chip-success" : "chip chip-danger"}>
+              <StatusBadge tone={props.customerRenewalAssistantOnline ? "success" : "danger"}>
                 {props.customerRenewalAssistantOnline ? "헬퍼 연결됨" : "헬퍼 연결 안 됨"}
-              </span>
+              </StatusBadge>
             </div>
             <div className="stitch-certificate-side-meta">
               <span>선택 고객 {selectedManagedRows.length}명</span>

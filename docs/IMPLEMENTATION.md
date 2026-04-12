@@ -28,6 +28,12 @@ The product is multi-tenant. A logged-in session always operates against an acti
   - managed customer CRUD
   - Popbill actions
   - certificate refresh shortcuts
+  - extracted presentation sections now live under `web/src/features/customers/components/`
+    - `CustomerAlerts`
+    - `CustomerDetailOverview`
+    - `CustomerReadSection`
+    - `CustomerHistorySection`
+    - `CustomerListEmptyState`
 - `web/src/features/initial-registration/`
   - workbook download/upload
   - quick customer registration from unmatched mail

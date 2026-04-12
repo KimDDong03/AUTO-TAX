@@ -1,4 +1,8 @@
-import type React from "react";
+import React from "react";
+
+function joinClassNames(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
 
 function getStatIcon(label: string): string {
   if (label.includes("고객")) return "group";
@@ -21,6 +25,10 @@ export function Icon(props: { name: string; className?: string }) {
     unmatched: "mail",
     cert: "verified_user",
     complete: "task_alt",
+    info: "info",
+    success: "task_alt",
+    danger: "error",
+    empty: "inbox",
     refresh: "refresh",
     sync: "sync"
   };
@@ -53,6 +61,135 @@ export function RevealIcon(props: { open: boolean }) {
         />
       )}
     </svg>
+  );
+}
+
+export type StatusBadgeTone = "neutral" | "info" | "success" | "warning" | "danger";
+
+function getStatusBadgeClassName(tone: StatusBadgeTone) {
+  switch (tone) {
+    case "info":
+      return "ui-status-badge-info";
+    case "success":
+      return "ui-status-badge-success";
+    case "warning":
+      return "ui-status-badge-warning";
+    case "danger":
+      return "ui-status-badge-danger";
+    case "neutral":
+    default:
+      return "ui-status-badge-neutral";
+  }
+}
+
+function getSectionMessageBadgeLabel(tone: StatusBadgeTone) {
+  switch (tone) {
+    case "success":
+      return "정상";
+    case "warning":
+      return "주의";
+    case "danger":
+      return "오류";
+    case "neutral":
+      return "안내";
+    case "info":
+    default:
+      return "진행";
+  }
+}
+
+function getSectionMessageIconName(tone: StatusBadgeTone) {
+  switch (tone) {
+    case "success":
+      return "success";
+    case "warning":
+      return "review";
+    case "danger":
+      return "danger";
+    case "neutral":
+    case "info":
+    default:
+      return "info";
+  }
+}
+
+export function StatusBadge(props: React.HTMLAttributes<HTMLSpanElement> & { tone?: StatusBadgeTone; compact?: boolean }) {
+  const { className, tone = "neutral", compact = false, ...rest } = props;
+
+  return (
+    <span
+      className={joinClassNames("ui-status-badge", getStatusBadgeClassName(tone), compact && "is-compact", className)}
+      {...rest}
+    />
+  );
+}
+
+export function SectionMessage(props: {
+  title: string;
+  children?: React.ReactNode;
+  tone?: StatusBadgeTone;
+  className?: string;
+  actions?: React.ReactNode;
+  badgeLabel?: string;
+  iconName?: string;
+}) {
+  const tone = props.tone ?? "info";
+  const liveMode = tone === "danger" || tone === "warning" ? "assertive" : "polite";
+
+  return (
+    <section
+      className={joinClassNames("ui-section-message", `ui-section-message-${tone}`, props.className)}
+      role={tone === "danger" ? "alert" : "status"}
+      aria-live={liveMode}
+    >
+      <div className="ui-section-message-main">
+        <span className="ui-section-message-icon" aria-hidden="true">
+          <Icon name={props.iconName ?? getSectionMessageIconName(tone)} />
+        </span>
+        <div className="ui-section-message-body">
+          <StatusBadge tone={tone}>{props.badgeLabel ?? getSectionMessageBadgeLabel(tone)}</StatusBadge>
+          <div className="ui-section-message-copy">
+            <strong>{props.title}</strong>
+            {typeof props.children === "string" ? <p>{props.children}</p> : props.children}
+          </div>
+        </div>
+      </div>
+      {props.actions ? <div className="ui-section-message-actions">{props.actions}</div> : null}
+    </section>
+  );
+}
+
+export function EmptyState(props: {
+  title: string;
+  description?: React.ReactNode;
+  className?: string;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+  iconName?: string;
+  compact?: boolean;
+  align?: "left" | "center";
+}) {
+  return (
+    <section
+      className={joinClassNames(
+        "ui-empty-state",
+        props.compact && "is-compact",
+        props.align === "center" && "is-centered",
+        props.className
+      )}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="ui-empty-state-icon" aria-hidden="true">
+        <Icon name={props.iconName ?? "empty"} />
+      </span>
+      <div className="ui-empty-state-copy">
+        <strong>{props.title}</strong>
+        {typeof props.description === "string" ? <p>{props.description}</p> : props.description}
+      </div>
+      {props.actions ? <div className="ui-empty-state-actions">{props.actions}</div> : null}
+      {props.children ? <div className="ui-empty-state-extra">{props.children}</div> : null}
+    </section>
   );
 }
 
@@ -108,6 +245,20 @@ export function SurfaceButton(props: React.ButtonHTMLAttributes<HTMLButtonElemen
 
 export type AppDialogTone = "default" | "success" | "warn" | "danger";
 
+function getAppDialogStatusTone(tone: AppDialogTone): StatusBadgeTone {
+  switch (tone) {
+    case "success":
+      return "success";
+    case "warn":
+      return "warning";
+    case "danger":
+      return "danger";
+    case "default":
+    default:
+      return "neutral";
+  }
+}
+
 export type AppDialogState = {
   kind: "alert" | "confirm";
   title: string;
@@ -132,19 +283,9 @@ export function AppDialog(props: {
         aria-describedby="app-dialog-message"
       >
         <div className="app-dialog-head">
-          <span
-            className={
-              props.dialog.tone === "danger"
-                ? "chip chip-danger"
-                : props.dialog.tone === "warn"
-                  ? "chip chip-warn"
-                  : props.dialog.tone === "success"
-                    ? "chip chip-success"
-                    : "chip"
-            }
-          >
+          <StatusBadge tone={getAppDialogStatusTone(props.dialog.tone)}>
             {props.dialog.kind === "confirm" ? "확인 필요" : "안내"}
-          </span>
+          </StatusBadge>
           <div>
             <h2 id="app-dialog-title">{props.dialog.title}</h2>
             <p id="app-dialog-message" className="app-dialog-message">{props.dialog.message}</p>
@@ -186,7 +327,7 @@ export function SetupPanel(props: {
           </div>
         </div>
         <div className="panel-actions">
-          <span className={`chip ${props.done ? "chip-success" : "chip-danger"}`}>{props.done ? "완료" : "설정 필요"}</span>
+          <StatusBadge tone={props.done ? "success" : "danger"}>{props.done ? "완료" : "설정 필요"}</StatusBadge>
           {props.actions}
         </div>
       </header>

@@ -2,31 +2,80 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
 
 :root {
-  --bg: #f6fafe;
-  --bg-accent: #eef4fa;
-  --surface: #ffffff;
-  --surface-soft: #f0f4f8;
+  /* Canonical foundation tokens (Stage 1 alias layer). */
+  --color-bg-canvas: #f6fafe;
+  --color-bg-canvas-subtle: #eef4fa;
+  --color-bg-surface: #ffffff;
+  --color-bg-surface-subtle: #f0f4f8;
+  --color-bg-surface-raised: #ffffff;
+  --color-border-default: rgba(195, 198, 215, 0.7);
+  --color-border-strong: rgba(115, 118, 134, 0.28);
+  --color-border-focus: rgba(0, 74, 198, 0.42);
+  --color-text-default: #171c1f;
+  --color-text-subtle: #434655;
+  --color-text-muted: #57657a;
+  --color-text-inverse: #ffffff;
+  --color-brand-default: #004ac6;
+  --color-brand-strong: #003ea8;
+  --color-brand-subtle: #dbe1ff;
+  --color-success-default: #006242;
+  --color-success-subtle: #e8f7ef;
+  --color-success-border: #badccf;
+  --color-warning-default: #b56b00;
+  --color-warning-subtle: #fff1d6;
+  --color-warning-border: #eed19a;
+  --color-danger-default: #ba1a1a;
+  --color-danger-subtle: #ffdad6;
+  --color-danger-border: #f2b8b5;
+  --color-info-default: #004ac6;
+  --color-info-subtle: #e8efff;
+  --color-info-border: #bfd0ff;
+  --shadow-1: 0 10px 24px rgba(0, 74, 198, 0.06);
+  --shadow-2: 0 12px 32px -4px rgba(0, 74, 198, 0.08);
+  --radius-1: 4px;
+  --radius-2: 8px;
+  --radius-3: 10px;
+  --font-family-base: "Pretendard", "Inter", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --font-size-body: 0.875rem;
+  --font-size-body-dense: 0.8125rem;
+  --font-size-caption: 0.75rem;
+  --font-size-title-page: 1.5rem;
+  --font-size-title-section: 1.125rem;
+  --size-control-sm: 30px;
+  --size-control-md: 38px;
+  --size-control-lg: 44px;
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-overlay: 100;
+  --z-dialog: 200;
+
+  /* Legacy compatibility aliases. Keep until screen migration is complete. */
+  --bg: var(--color-bg-canvas);
+  --bg-accent: var(--color-bg-canvas-subtle);
+  --surface: var(--color-bg-surface);
+  --surface-soft: var(--color-bg-surface-subtle);
   --surface-muted: #eaeef2;
   --surface-strong: #dfe3e7;
-  --text: #171c1f;
-  --text-subtle: #434655;
-  --text-faint: #57657a;
-  --primary: #004ac6;
-  --primary-strong: #003ea8;
-  --primary-soft: #dbe1ff;
-  --success: #006242;
-  --success-soft: #e8f7ef;
-  --danger: #ba1a1a;
-  --danger-soft: #ffdad6;
-  --warning: #b56b00;
-  --warning-soft: #fff1d6;
-  --border: rgba(195, 198, 215, 0.7);
-  --border-strong: rgba(115, 118, 134, 0.28);
-  --shadow-sm: 0 10px 24px rgba(0, 74, 198, 0.06);
-  --shadow-md: 0 12px 32px -4px rgba(0, 74, 198, 0.08);
-  --radius-lg: 10px;
-  --radius-md: 8px;
-  --radius-sm: 4px;
+  --text: var(--color-text-default);
+  --text-subtle: var(--color-text-subtle);
+  --text-faint: var(--color-text-muted);
+  --primary: var(--color-brand-default);
+  --primary-strong: var(--color-brand-strong);
+  --primary-soft: var(--color-brand-subtle);
+  --success: var(--color-success-default);
+  --success-soft: var(--color-success-subtle);
+  --danger: var(--color-danger-default);
+  --danger-soft: var(--color-danger-subtle);
+  --warning: var(--color-warning-default);
+  --warning-soft: var(--color-warning-subtle);
+  --border: var(--color-border-default);
+  --border-strong: var(--color-border-strong);
+  --shadow-sm: var(--shadow-1);
+  --shadow-md: var(--shadow-2);
+  --radius-lg: var(--radius-3);
+  --radius-md: var(--radius-2);
+  --radius-sm: var(--radius-1);
+  /* Existing spacing tokens stay unchanged in this alias pass to avoid layout churn. */
   --space-1: 0.28rem;
   --space-2: 0.44rem;
   --space-3: 0.62rem;
@@ -36,11 +85,11 @@
   --screen-gap: 0.9rem;
   --panel-pad: 1rem;
   --panel-pad-mobile: 0.88rem;
-  font-family: "Pretendard", "Inter", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  font-family: var(--font-family-base);
   line-height: 1.5;
   font-weight: 400;
-  color: var(--text);
-  background: var(--bg);
+  color: var(--color-text-default);
+  background: var(--color-bg-canvas);
 }
 
 * {
@@ -48,16 +97,16 @@
 }
 
 html {
-  background: var(--bg);
+  background: var(--color-bg-canvas);
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  color: var(--text);
-  background: var(--bg);
+  color: var(--color-text-default);
+  background: var(--color-bg-canvas);
   overflow-x: hidden;
-  font-family: "Pretendard", "Inter", "Noto Sans KR", sans-serif;
+  font-family: var(--font-family-base);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -127,7 +176,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 38px;
+  min-height: var(--size-control-md);
   padding: 0.64rem 0.92rem;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -207,7 +256,7 @@ button.btn-danger:hover {
 }
 
 button.btn-ghost {
-  min-height: 30px;
+  min-height: var(--size-control-sm);
   padding: 0.2rem 0;
   justify-content: flex-start;
   background: transparent;
@@ -2417,6 +2466,238 @@ textarea {
   background: var(--warning-soft);
   border-color: #ffe6ae;
   color: #c37700;
+}
+
+.ui-status-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 26px;
+  padding: 0.24rem 0.62rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.ui-status-badge.is-compact {
+  min-height: 24px;
+  padding: 0.16rem 0.48rem;
+  font-size: 0.72rem;
+}
+
+.ui-status-badge-neutral {
+  background: var(--color-bg-surface-subtle);
+  border-color: var(--color-border-default);
+  color: var(--color-text-subtle);
+}
+
+.ui-status-badge-info {
+  background: var(--color-info-subtle);
+  border-color: var(--color-info-border);
+  color: var(--color-info-default);
+}
+
+.ui-status-badge-success {
+  background: var(--color-success-subtle);
+  border-color: var(--color-success-border);
+  color: var(--color-success-default);
+}
+
+.ui-status-badge-warning {
+  background: var(--color-warning-subtle);
+  border-color: var(--color-warning-border);
+  color: var(--color-warning-default);
+}
+
+.ui-status-badge-danger {
+  background: var(--color-danger-subtle);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-default);
+}
+
+.ui-section-message {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0.94rem 1rem;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-2);
+  background: var(--color-bg-surface-subtle);
+}
+
+.ui-section-message-neutral {
+  background: var(--color-bg-surface-subtle);
+  border-color: var(--color-border-default);
+}
+
+.ui-section-message-info {
+  background: var(--color-info-subtle);
+  border-color: var(--color-info-border);
+}
+
+.ui-section-message-success {
+  background: var(--color-success-subtle);
+  border-color: var(--color-success-border);
+}
+
+.ui-section-message-warning {
+  background: var(--color-warning-subtle);
+  border-color: var(--color-warning-border);
+}
+
+.ui-section-message-danger {
+  background: var(--color-danger-subtle);
+  border-color: var(--color-danger-border);
+}
+
+.ui-section-message-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  flex: 1;
+}
+
+.ui-section-message-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-1);
+  background: var(--color-bg-surface);
+  color: var(--color-brand-default);
+  border: 1px solid rgba(0, 74, 198, 0.08);
+}
+
+.ui-section-message-success .ui-section-message-icon {
+  color: var(--color-success-default);
+  border-color: var(--color-success-border);
+}
+
+.ui-section-message-warning .ui-section-message-icon {
+  color: var(--color-warning-default);
+  border-color: var(--color-warning-border);
+}
+
+.ui-section-message-danger .ui-section-message-icon {
+  color: var(--color-danger-default);
+  border-color: var(--color-danger-border);
+}
+
+.ui-section-message-body,
+.ui-section-message-copy {
+  display: grid;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.ui-section-message-copy strong {
+  color: var(--color-text-default);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.ui-section-message-copy p {
+  margin: 0;
+  color: var(--color-text-subtle);
+  line-height: 1.55;
+  white-space: pre-line;
+}
+
+.ui-section-message-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.ui-empty-state {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  padding: 1rem;
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-2);
+  background: linear-gradient(180deg, var(--color-bg-surface) 0%, var(--color-bg-surface-subtle) 100%);
+}
+
+.ui-empty-state.is-compact {
+  gap: var(--space-2);
+  padding: 0.9rem 0.95rem;
+}
+
+.ui-empty-state.is-centered {
+  justify-items: center;
+  text-align: center;
+}
+
+.ui-empty-state.is-centered .ui-empty-state-actions {
+  justify-content: center;
+}
+
+.ui-empty-state.is-centered .ui-empty-state-extra {
+  justify-items: center;
+}
+
+.ui-empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-1);
+  background: var(--color-brand-subtle);
+  color: var(--color-brand-default);
+}
+
+.ui-empty-state-copy,
+.ui-empty-state-extra {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.ui-empty-state-copy strong {
+  color: var(--color-text-default);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.ui-empty-state-copy p {
+  margin: 0;
+  max-width: 42rem;
+  color: var(--color-text-subtle);
+  line-height: 1.55;
+}
+
+.ui-empty-state-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.feature-customers-alert-stack {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+@media (max-width: 720px) {
+  .ui-section-message {
+    flex-direction: column;
+  }
+
+  .ui-section-message-actions,
+  .ui-empty-state-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .app-dialog-backdrop {
