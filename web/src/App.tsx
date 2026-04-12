@@ -6358,13 +6358,9 @@ export function App() {
   const renewalHelperDownloadUrl = import.meta.env.VITE_RENEWAL_HELPER_DOWNLOAD_URL?.trim() || "/downloads/renewal-local-helper.zip";
   const opsActiveWorkspaceCount = opsWorkspaces.filter((workspace) => workspace.organizationStatus === "active").length;
   const opsOwnerMissingCount = opsWorkspaces.filter((workspace) => !workspace.ownerLoginId).length;
-  const opsBusinessNumberMissingCount = opsWorkspaces.filter((workspace) => !workspace.organizationBusinessNumber).length;
   const opsWorkspaceAlerts = opsWorkspaces
     .flatMap((workspace) => {
       const issues: string[] = [];
-      if (!workspace.organizationBusinessNumber) {
-        issues.push("사업자번호 미입력");
-      }
       if (!workspace.ownerLoginId) {
         issues.push("owner 미연결");
       }
@@ -7224,12 +7220,12 @@ export function App() {
                   />
                 </label>
                 <label>
-                  사업자번호
+                  사업자번호 (선택)
                   <input
                     disabled={busyKey !== null}
                     value={opsWorkspaceForm.organizationBusinessNumber}
                     onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationBusinessNumber: event.target.value }))}
-                    placeholder="숫자만 입력"
+                    placeholder="숫자만 입력 · 개인 사용 작업공간이면 비워두기"
                   />
                 </label>
                 <label>
@@ -7293,7 +7289,7 @@ export function App() {
                     <span className="material-symbols-outlined">monitoring</span>
                     고객사 운영 현황
                   </h3>
-                  <p>운영자 화면에서는 고객사 작업공간 상태, 사업자번호, owner 계정만 관리합니다.</p>
+                  <p>운영자 화면에서는 고객사 작업공간 상태, 선택 사업자번호, owner 계정만 관리합니다.</p>
                 </div>
               </div>
 
@@ -7346,7 +7342,7 @@ export function App() {
                     <span className="material-symbols-outlined">list_alt</span>
                     개통된 고객사 작업공간 목록
                   </h3>
-                  <p>고객사 상태, 사업자번호, owner 연결, 관리 고객 한도를 한 화면에서 관리합니다.</p>
+                  <p>고객사 상태, 선택 사업자번호, owner 연결, 관리 고객 한도를 한 화면에서 관리합니다.</p>
                 </div>
               </div>
 
@@ -7354,7 +7350,7 @@ export function App() {
                 <span className="is-active">전체 목록 {opsWorkspaces.length}</span>
                 <span>운영 중 {opsActiveWorkspaceCount}</span>
                 <span>확인 필요 {opsAttentionWorkspaceCount}</span>
-                <span>사업자번호 미입력 {opsBusinessNumberMissingCount}</span>
+                <span>owner 미연결 {opsOwnerMissingCount}</span>
               </div>
 
               {opsWorkspaces.length > 0 ? (
@@ -7364,7 +7360,7 @@ export function App() {
                       <thead>
                         <tr>
                           <th>고객사명</th>
-                          <th>사업자번호</th>
+                          <th>사업자번호(선택)</th>
                           <th>개통일자</th>
                           <th>작업상태</th>
                           <th>관리자</th>
@@ -7405,7 +7401,7 @@ export function App() {
                               </p>
                             </div>
                             <div className="stitch-ops-workspace-card-meta">
-                              <span>사업자번호 {workspace.organizationBusinessNumber || "-"}</span>
+                              <span>사업자번호(선택) {workspace.organizationBusinessNumber || "-"}</span>
                               <span>상태 {getOrganizationStatusLabel(workspace.organizationStatus)}</span>
                               <span>등록 고객 {workspace.managedCustomerCount}명 / 한도 {workspace.managedCustomerLimit ?? "-"}</span>
                               <span>멤버 {workspace.memberCount}명</span>
