@@ -26,6 +26,9 @@ import type {
 } from "../route-types.js";
 
 type CustomerTargetPayload = { customerId?: number | null };
+type ParseSchema<T> = {
+  parse: (input: unknown) => T;
+};
 
 async function getCustomerStoreForCustomerId(customerId: number): Promise<{ customerStore: AppStore; customer: NonNullable<Awaited<ReturnType<AppStore["getCustomer"]>>> }> {
   const adminClient = createSupabaseAdminClient();
@@ -116,24 +119,24 @@ type RouteDeps = {
   requireWorkspaceEditor: RequireWorkspaceEditor;
   requireRenewalAgentAccess: RequireRenewalAgentAccess;
   renewalAutomation: RenewalAutomationManager;
-  renewalBridgeProbeRequestSchema: z.ZodType<{
+  renewalBridgeProbeRequestSchema: ParseSchema<{
     customerId?: number | null;
   }>;
-  renewalCertIdProbeRequestSchema: z.ZodType<{
+  renewalCertIdProbeRequestSchema: ParseSchema<{
     customerId?: number | null;
     certificateIndex: number;
     certificateCn?: string | null;
   }>;
-  renewalPreflightRequestSchema: z.ZodType<{
+  renewalPreflightRequestSchema: ParseSchema<{
     customerId?: number | null;
     certificateIndex: number;
     certificateCn?: string | null;
     executeSubmit?: boolean;
   }>;
-  renewalAgentHeartbeatSchema: z.ZodType<RenewalAgentHeartbeat>;
-  renewalAgentClaimSchema: z.ZodType<{ agentId: string }>;
-  renewalAgentCompleteSchema: z.ZodType<{ agentId: string; result: RenewalBridgeProbeResult }>;
-  renewalAgentFailSchema: z.ZodType<{ agentId: string; error: string }>;
+  renewalAgentHeartbeatSchema: ParseSchema<RenewalAgentHeartbeat>;
+  renewalAgentClaimSchema: ParseSchema<{ agentId: string }>;
+  renewalAgentCompleteSchema: ParseSchema<{ agentId: string; result: RenewalBridgeProbeResult }>;
+  renewalAgentFailSchema: ParseSchema<{ agentId: string; error: string }>;
 };
 
 function buildWorkspaceRequesterKey(session: { userId: string; activeOrganizationId?: string | null }) {
