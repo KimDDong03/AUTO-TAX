@@ -26,8 +26,8 @@ import type {
 } from "../route-types.js";
 
 type CustomerTargetPayload = { customerId?: number | null };
-type ParseSchema<T> = {
-  parse: (input: unknown) => T;
+type ParseSchema = {
+  parse: (input: unknown) => unknown;
 };
 
 async function getCustomerStoreForCustomerId(customerId: number): Promise<{ customerStore: AppStore; customer: NonNullable<Awaited<ReturnType<AppStore["getCustomer"]>>> }> {
@@ -119,24 +119,13 @@ type RouteDeps = {
   requireWorkspaceEditor: RequireWorkspaceEditor;
   requireRenewalAgentAccess: RequireRenewalAgentAccess;
   renewalAutomation: RenewalAutomationManager;
-  renewalBridgeProbeRequestSchema: ParseSchema<{
-    customerId?: number | null;
-  }>;
-  renewalCertIdProbeRequestSchema: ParseSchema<{
-    customerId?: number | null;
-    certificateIndex: number;
-    certificateCn?: string | null;
-  }>;
-  renewalPreflightRequestSchema: ParseSchema<{
-    customerId?: number | null;
-    certificateIndex: number;
-    certificateCn?: string | null;
-    executeSubmit?: boolean;
-  }>;
-  renewalAgentHeartbeatSchema: ParseSchema<RenewalAgentHeartbeat>;
-  renewalAgentClaimSchema: ParseSchema<{ agentId: string }>;
-  renewalAgentCompleteSchema: ParseSchema<{ agentId: string; result: RenewalBridgeProbeResult }>;
-  renewalAgentFailSchema: ParseSchema<{ agentId: string; error: string }>;
+  renewalBridgeProbeRequestSchema: ParseSchema;
+  renewalCertIdProbeRequestSchema: ParseSchema;
+  renewalPreflightRequestSchema: ParseSchema;
+  renewalAgentHeartbeatSchema: ParseSchema;
+  renewalAgentClaimSchema: ParseSchema;
+  renewalAgentCompleteSchema: ParseSchema;
+  renewalAgentFailSchema: ParseSchema;
 };
 
 function buildWorkspaceRequesterKey(session: { userId: string; activeOrganizationId?: string | null }) {
@@ -243,7 +232,7 @@ export function registerRenewalRoutes(deps: RouteDeps) {
 
   app.post("/api/automation/renewal-jobs/bridge-probe", async (req, res) => {
     requirePlatformAdmin(res);
-    const payload = renewalBridgeProbeRequestSchema.parse(req.body ?? {});
+    const payload = renewalBridgeProbeRequestSchema.parse(req.body ?? {}) as CustomerTargetPayload;
     const { customerName, requestStore } = await resolveCustomerContext(payload, { store, getRequestStore }, res);
 
     const job = await renewalAutomation.queueBridgeProbe({
@@ -263,7 +252,10 @@ export function registerRenewalRoutes(deps: RouteDeps) {
 
   app.post("/api/automation/renewal-jobs/certid-probe", async (req, res) => {
     requirePlatformAdmin(res);
-    const payload = renewalCertIdProbeRequestSchema.parse(req.body ?? {});
+    const payload = renewalCertIdProbeRequestSchema.parse(req.body ?? {}) as CustomerTargetPayload & {
+      certificateIndex: number;
+      certificateCn?: string | null;
+    };
     const { customerName, requestStore } = await resolveCustomerContext(payload, { store, getRequestStore }, res);
 
     const job = await renewalAutomation.queueCertIdProbe({
@@ -287,7 +279,11 @@ export function registerRenewalRoutes(deps: RouteDeps) {
 
   app.post("/api/automation/renewal-jobs/preflight", async (req, res) => {
     requirePlatformAdmin(res);
-    const payload = renewalPreflightRequestSchema.parse(req.body ?? {});
+    const payload = renewalPreflightRequestSchema.parse(req.body ?? {}) as CustomerTargetPayload & {
+      certificateIndex: number;
+      certificateCn?: string | null;
+      executeSubmit?: boolean;
+    };
     const { customerName, comparisonProfile, submissionProfile, requestStore } = await resolveCustomerContext(payload, { store, getRequestStore }, res);
 
     const job = await renewalAutomation.queueRenewalPreflight({
@@ -314,14 +310,14 @@ export function registerRenewalRoutes(deps: RouteDeps) {
 
   app.post("/api/automation/renewal-agent/heartbeat", async (req, res) => {
     requireRenewalAgentAccess(req);
-    const payload = renewalAgentHeartbeatSchema.parse(req.body);
+    const payload = renewalAgentHeartbeatSchema.parse(req.body) as RenewalAgentHeartbeat;
     const agent = await renewalAutomation.recordHeartbeat(payload);
     res.json({ ok: true, agent });
   });
 
   app.post("/api/automation/renewal-agent/jobs/claim", async (req, res) => {
     requireRenewalAgentAccess(req);
-    const payload = renewalAgentClaimSchema.parse(req.body);
+    const payload = renewalAgentClaimSchema.parse(req.body) as { agentId: string };
     const job = await renewalAutomation.claimNextJob(payload.agentId);
     res.json({ job });
   });
@@ -329,7 +325,10 @@ export function registerRenewalRoutes(deps: RouteDeps) {
   app.post("/api/automation/renewal-agent/jobs/:id/complete", async (req, res) => {
     requireRenewalAgentAccess(req);
     const params = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
-    const payload = renewalAgentCompleteSchema.parse(req.body);
+    const payload = renewalAgentCompleteSchema.parse(req.body) as {
+      agentId: string;
+      result: RenewalBridgeProbeResult;
+    };
     const job = await renewalAutomation.completeJob(params.id, payload.agentId, payload.result);
     let taxProfileSync: {
       synced: boolean;
@@ -410,7 +409,7 @@ export function registerRenewalRoutes(deps: RouteDeps) {
   app.post("/api/automation/renewal-agent/jobs/:id/fail", async (req, res) => {
     requireRenewalAgentAccess(req);
     const params = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
-    const payload = renewalAgentFailSchema.parse(req.body);
+    const payload = renewalAgentFailSchema.parse(req.body) as { agentId: string; error: string };
     const job = await renewalAutomation.failJob(params.id, payload.agentId, payload.error);
 
     if (store) {
