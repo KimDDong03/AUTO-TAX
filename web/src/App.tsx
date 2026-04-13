@@ -8174,6 +8174,63 @@ export function App() {
 
         {activeTab === "ops" ? (
           <div className="ops-layout">
+            <Panel
+              title="플랫폼 관리자 계정 보안"
+              subtitle={`현재 로그인한 플랫폼 관리자 계정(${data.auth.email ?? "이메일 없음"})의 비밀번호를 바꿉니다.`}
+              actions={<button onClick={() => void runAction("change-password", changePassword, { reload: false })}>비밀번호 변경</button>}
+            >
+              <div className="form-grid">
+                <label>
+                  새 비밀번호
+                  <div className="password-field">
+                    <input
+                      type={revealedFields.nextPassword ? "text" : "password"}
+                      value={passwordChangeForm.nextPassword}
+                      onChange={(event) =>
+                        setPasswordChangeForm((prev) => ({
+                          ...prev,
+                          nextPassword: event.target.value
+                        }))
+                      }
+                      placeholder="8자 이상 입력"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      aria-label={revealedFields.nextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
+                      onClick={() => toggleRevealField("nextPassword")}
+                    >
+                      <RevealIcon open={Boolean(revealedFields.nextPassword)} />
+                    </button>
+                  </div>
+                </label>
+                <label>
+                  새 비밀번호 확인
+                  <div className="password-field">
+                    <input
+                      type={revealedFields.confirmPassword ? "text" : "password"}
+                      value={passwordChangeForm.confirmPassword}
+                      onChange={(event) =>
+                        setPasswordChangeForm((prev) => ({
+                          ...prev,
+                          confirmPassword: event.target.value
+                        }))
+                      }
+                      placeholder="한 번 더 입력"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      aria-label={revealedFields.confirmPassword ? "비밀번호 확인 숨기기" : "비밀번호 확인 보기"}
+                      onClick={() => toggleRevealField("confirmPassword")}
+                    >
+                      <RevealIcon open={Boolean(revealedFields.confirmPassword)} />
+                    </button>
+                  </div>
+                  <span className="field-hint">플랫폼 운영 계정도 여기서 직접 새 비밀번호를 저장할 수 있습니다.</span>
+                </label>
+              </div>
+            </Panel>
             {opsConsole ? (
               <>
                 <Panel

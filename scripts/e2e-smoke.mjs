@@ -582,11 +582,10 @@ try {
       helperReadButton.click()
     ]);
 
-    await page.getByText("공동인증서 읽기까지 완료했습니다.", { exact: false }).waitFor();
-    await page.getByText("읽은 공동인증서", { exact: false }).waitFor();
     await page.locator(".onboarding-wizard-copy strong").filter({ hasText: "고객 초기 등록" }).waitFor();
     const onboardingPanel = page.locator(".panel-initial-onboarding");
     await onboardingPanel.waitFor();
+    await onboardingPanel.getByText("현재 PC에서 공동인증서 2건을 읽었습니다.", { exact: false }).waitFor();
     await onboardingPanel.getByRole("button", { name: "양식 다운로드", exact: true }).waitFor();
   });
 
