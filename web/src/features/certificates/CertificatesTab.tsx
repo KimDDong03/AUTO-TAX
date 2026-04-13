@@ -271,6 +271,26 @@ export function CertificatesTab(props: CertificatesTabProps) {
   const filteredUnlinkedCertificates = unlinkedCertificates.filter((item) =>
     matchesSearch(item.certificateCn, item.issuerName, item.suggestedCustomerLabel, item.certificateUsage)
   );
+  const unlinkedSuggestionMap = useMemo(() => {
+    const grouped = new Map<number, { electronic: number; general: number; total: number }>();
+
+    for (const item of unlinkedCertificates) {
+      if (item.suggestedCustomerId === null) {
+        continue;
+      }
+
+      const entry = grouped.get(item.suggestedCustomerId) ?? { electronic: 0, general: 0, total: 0 };
+      entry.total += 1;
+      if (item.certificateKind === "electronic_tax") {
+        entry.electronic += 1;
+      } else {
+        entry.general += 1;
+      }
+      grouped.set(item.suggestedCustomerId, entry);
+    }
+
+    return grouped;
+  }, [unlinkedCertificates]);
   const actionNeededCustomerCount = linkedCustomerRows.filter(
     (row) => row.hasPaymentReady || row.hasPrepareNeeded || row.hasExpiringSoon || !row.hasGeneral || !row.hasElectronicTax
   ).length;
@@ -297,37 +317,37 @@ export function CertificatesTab(props: CertificatesTabProps) {
   > = {
     action_needed: {
       label: "조치 필요",
-      summary: "결제·준비·만료 고객만 표시",
+      summary: "먼저 해결할 고객만 보기",
       count: actionNeededCustomerCount
     },
     all: {
       label: "전체 보기",
-      summary: "연결 고객 전체",
+      summary: "연결된 고객 전체 상태",
       count: linkedCustomerRows.length
     },
     prepare_needed: {
       label: "준비 필요",
-      summary: "갱신 준비 필요만",
+      summary: "범용으로 준비부터",
       count: prepareNeededCustomerCount
     },
     payment_ready: {
       label: "결제 가능",
-      summary: "바로 결제 가능",
+      summary: "결제 창만 열면 됨",
       count: paymentReadyCustomerCount
     },
     expiring_30: {
       label: "30일 내 만료",
-      summary: "30일 내 만료",
+      summary: "만료 전 점검 필요",
       count: expiringCustomerCount
     },
     missing_general: {
       label: "범용 없음",
-      summary: "범용 없음",
+      summary: "갱신 준비용 연결 필요",
       count: missingGeneralCustomerCount
     },
     missing_electronic: {
       label: "전자세금 없음",
-      summary: "전자세금 없음",
+      summary: "실제 발행용 연결 필요",
       count: missingElectronicCustomerCount
     }
   };
@@ -340,6 +360,39 @@ export function CertificatesTab(props: CertificatesTabProps) {
     { key: "prepare_needed", tone: prepareNeededCustomerCount > 0 ? "warn" : "success" },
     { key: "expiring_30", tone: expiringCustomerCount > 0 ? "warn" : "success" }
   ];
+  const certificateGuideCards = [
+    {
+      key: "electronic",
+      title: "전자세금용",
+      description: "실제 전자세금계산서를 발행할 때 꼭 필요한 인증서입니다. 없으면 고객이 바로 발행 막힘으로 보입니다."
+    },
+    {
+      key: "general",
+      title: "범용",
+      description: "갱신 준비와 결제 진행에 쓰는 보조 인증서입니다. 준비 필요 또는 결제 가능 단계에서 주로 사용합니다."
+    },
+    {
+      key: "unlinked",
+      title: "미연결",
+      description: "아직 고객과 묶지 않은 인증서입니다. 자동 후보가 보이면 예외 처리로 필요한 고객에만 연결하세요."
+    }
+  ];
+  const certificateStatusLead = !props.customerRenewalAssistantOnline
+    ? "먼저 로컬 헬퍼를 준비하세요."
+    : actionNeededCustomerCount > 0
+      ? `지금 조치할 고객 ${actionNeededCustomerCount}명부터 처리하세요.`
+      : props.customerRenewalLoadedCertificateCount === 0
+        ? "먼저 공동인증서 목록을 읽어오세요."
+        : linkedCustomerRows.length === 0
+          ? "읽은 인증서를 고객과 연결하면 이 화면에서 계속 관리할 수 있습니다."
+          : "지금 막힌 고객은 없습니다.";
+  const certificateStatusBody = !props.customerRenewalAssistantOnline
+    ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 로컬 헬퍼를 실행한 뒤 다시 시도하세요."
+    : actionNeededCustomerCount > 0
+      ? "기본 보기는 조치 필요 고객만 먼저 보여줍니다. 결제만 남았는지, 준비부터 해야 하는지, 인증서가 빠졌는지를 고객별로 바로 읽을 수 있게 정리했습니다."
+      : props.customerRenewalLoadedCertificateCount === 0
+        ? "공동인증서 읽기를 누르면 전자세금용/범용/미연결 상태가 자동으로 정리됩니다."
+        : "현재는 문제가 없어서 조치 필요 필터가 비어 있을 수 있습니다. 필요하면 전체 보기나 미연결 공동인증서를 확인하세요.";
 
   const pauseBatchPrepareForInteractiveAction = async (reason: string) => {
     if (!batchPreparePromiseRef.current) {
@@ -453,6 +506,168 @@ export function CertificatesTab(props: CertificatesTabProps) {
     setQueueNotice(`${nextCertificate.certificateCn} 결제 창을 열었습니다. 결제를 마치고 돌아오면 다음 결제를 이어서 열면 됩니다.`);
   };
 
+  type LinkedCustomerRow = (typeof linkedCustomerRows)[number];
+  const focusCustomerUnlinkedCertificates = (row: LinkedCustomerRow, kind: "electronic" | "general") => {
+    setShowUnlinkedCertificates(true);
+    setSearchQuery(row.customer.customerName);
+    setQueueNotice(
+      `${row.customer.customerName} 고객의 ${kind === "electronic" ? "전자세금용" : "범용"} 후보 인증서를 아래 미연결 목록에서 바로 확인하세요.`
+    );
+  };
+  const getCustomerRowStory = (row: LinkedCustomerRow) => {
+    const suggestion = unlinkedSuggestionMap.get(row.customer.id) ?? { electronic: 0, general: 0, total: 0 };
+    const nextPaymentCertificate = row.electronicTaxCertificates.concat(row.generalCertificates).find((item) => item.canOpenPayment) ?? null;
+    const nextPrepareCertificate = row.electronicTaxCertificates.concat(row.generalCertificates).find((item) => !item.canOpenPayment) ?? null;
+
+    if (!row.hasElectronicTax) {
+      return {
+        headline: "전자세금용 연결 필요",
+        body:
+          suggestion.electronic > 0
+            ? `미연결 목록에 이 고객 후보 전자세금용 ${suggestion.electronic}건이 잡혀 있습니다.`
+            : "전자세금용 인증서가 없으면 실제 세금계산서 발행이 바로 막힙니다.",
+        actionLabel: "미연결 보기",
+        actionKind: "show-electronic" as const
+      };
+    }
+
+    if (!row.hasGeneral) {
+      return {
+        headline: "범용 연결 권장",
+        body:
+          suggestion.general > 0
+            ? `미연결 목록에 이 고객 후보 범용 ${suggestion.general}건이 잡혀 있습니다.`
+            : "범용 인증서는 갱신 준비와 결제 흐름을 진행할 때 쓰는 보조 인증서입니다.",
+        actionLabel: "미연결 보기",
+        actionKind: "show-general" as const
+      };
+    }
+
+    if (nextPaymentCertificate) {
+      return {
+        headline: "결제만 남았습니다",
+        body: "갱신 준비가 끝났습니다. 결제 창만 열면 다음 단계로 넘어갈 수 있습니다.",
+        actionLabel: "결제 열기",
+        actionKind: "open-payment" as const,
+        certificate: nextPaymentCertificate
+      };
+    }
+
+    if (nextPrepareCertificate) {
+      return {
+        headline: "갱신 준비부터 하세요",
+        body: "범용 인증서로 준비를 먼저 실행하면 결제 가능 상태로 바뀝니다.",
+        actionLabel: "준비 시작",
+        actionKind: "prepare" as const,
+        certificate: nextPrepareCertificate
+      };
+    }
+
+    if (row.hasExpiringSoon) {
+      return {
+        headline: "만료 전 점검 필요",
+        body: "30일 안에 만료됩니다. 이 행을 선택해 상단 일괄 준비 목록에 담아 두세요.",
+        actionLabel: null,
+        actionKind: "select-row" as const
+      };
+    }
+
+    return {
+      headline: "지금 막힌 작업 없음",
+      body: "전자세금용과 범용이 모두 연결돼 있어 지금은 추가 조치 없이 유지 점검만 하면 됩니다.",
+      actionLabel: null,
+      actionKind: "select-row" as const
+    };
+  };
+  const runCustomerRowPrimaryAction = (row: LinkedCustomerRow) => {
+    const story = getCustomerRowStory(row);
+
+    switch (story.actionKind) {
+      case "show-electronic":
+        focusCustomerUnlinkedCertificates(row, "electronic");
+        return;
+      case "show-general":
+        focusCustomerUnlinkedCertificates(row, "general");
+        return;
+      case "open-payment":
+        if (!story.certificate) return;
+        return void props.runAction(
+          `customer-certificate-open-payment-${story.certificate.certificateIndex}`,
+          async () => {
+            await pauseBatchPrepareForInteractiveAction("결제를 진행하기 위해 일괄 갱신 준비를 잠시 멈춥니다.");
+            await props.onOpenCustomerCertificatePayment(story.certificate.certificateIndex, { showAlert: false });
+          },
+          { reload: false }
+        );
+      case "prepare":
+        if (!story.certificate) return;
+        return void props.runAction(
+          `customer-certificate-prepare-${story.certificate.certificateIndex}`,
+          async () => props.onPrepareCustomerCertificateRenewal(story.certificate.certificateIndex, { showAlert: false }),
+          { reload: false }
+        );
+      default:
+        return;
+    }
+  };
+  const linkedTableEmptyState = (() => {
+    if (filteredLinkedCustomerRows.length > 0) return null;
+
+    if (linkedCustomerRows.length > 0) {
+      if (customerFilter === "action_needed") {
+        return {
+          title: "문제가 없어서 비어 있습니다.",
+          body: "지금 조치 필요 고객이 없습니다. 필요하면 전체 보기로 바꿔 전체 연결 상태를 확인하세요.",
+          tone: "success" as const
+        };
+      }
+      return {
+        title: "현재 조건에 맞는 고객이 없습니다.",
+        body: "검색어 또는 필터를 바꾸면 다른 고객 상태를 바로 확인할 수 있습니다.",
+        tone: "info" as const
+      };
+    }
+
+    if (props.customerRenewalLoadedCertificateCount > 0) {
+      return {
+        title: "아직 고객 연결 데이터가 없습니다.",
+        body: "읽은 공동인증서를 고객과 연결하면 이 표에 고객별 발행 막힘과 다음 행동이 나타납니다.",
+        tone: "info" as const
+      };
+    }
+
+    return {
+      title: "아직 데이터가 없습니다.",
+      body: "먼저 공동인증서 읽기를 눌러 현재 PC 인증서를 가져오면 고객별 상태를 정리할 수 있습니다.",
+      tone: "info" as const
+    };
+  })();
+  const unlinkedTableEmptyState = (() => {
+    if (!props.customerRenewalAssistantOnline) {
+      return {
+        title: "먼저 로컬 헬퍼 연결을 확인하세요.",
+        body: "헬퍼가 켜져 있어야 미연결 공동인증서 목록도 읽어 올 수 있습니다.",
+        tone: "info" as const
+      };
+    }
+
+    if (filteredUnlinkedCertificates.length > 0) return null;
+
+    if (unlinkedCertificates.length > 0) {
+      return {
+        title: "현재 검색 조건에 맞는 미연결 공동인증서가 없습니다.",
+        body: "검색어를 지우거나 고객명을 바꾸면 다른 예외 후보를 다시 볼 수 있습니다.",
+        tone: "info" as const
+      };
+    }
+
+    return {
+      title: "문제가 없어서 비어 있습니다.",
+      body: "현재는 고객과 묶이지 않은 공동인증서가 없습니다. 예외 처리할 목록이 없는 정상 상태입니다.",
+      tone: "success" as const
+    };
+  })();
+
   const toggleManagedCustomer = (customerId: number) => {
     setSelectedManagedCustomerIds((prev) => ({
       ...prev,
@@ -486,7 +701,11 @@ export function CertificatesTab(props: CertificatesTabProps) {
 
   const renderLinkedCertificateList = (items: CertificateTabItem[], typeLabel: string) => {
     if (items.length === 0) {
-      return <span className="certificate-cell-empty">-</span>;
+      return (
+        <span className="certificate-cell-empty">
+          {typeLabel === "전자세금" ? "없음 · 실제 발행용 필요" : "없음 · 갱신 준비용 권장"}
+        </span>
+      );
     }
 
     return (
@@ -537,8 +756,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
                 {activeStartCertificateIndex === item.certificateIndex || batchPrepareState.currentCertificateCn === item.certificateCn
                   ? "진행 중..."
                   : item.canOpenPayment
-                    ? "결제"
-                    : "준비"}
+                    ? "결제 열기"
+                    : "준비 시작"}
               </button>
               {item.linkedCertificateId !== null ? (
                 <button
@@ -552,7 +771,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
                     )
                   }
                 >
-                  {activeUnlinkCertificateId === item.linkedCertificateId ? "해제 중..." : "해제"}
+                  {activeUnlinkCertificateId === item.linkedCertificateId ? "연결 해제 중..." : "연결 해제"}
                 </button>
               ) : null}
             </div>
@@ -574,8 +793,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
     <div className="certificate-screen">
       <Panel
         className="panel-customer-renewal"
-        title="공동인증서"
-        subtitle="조치가 필요한 고객만 먼저 봅니다."
+        title="발행 막힘 해결"
+        subtitle="전자세금용·범용·미연결 공동인증서를 보고 조치가 필요한 고객부터 해결합니다."
         actions={(
           <>
             <button
@@ -600,6 +819,21 @@ export function CertificatesTab(props: CertificatesTabProps) {
             <span>{props.customerRenewalAssistantHelperMessage || "고객 PC에서 로컬 헬퍼를 실행한 뒤 다시 시도하세요."}</span>
           </div>
         ) : null}
+
+        <div className="certificate-guide-shell">
+          <div className="certificate-guide-lead">
+            <strong>{certificateStatusLead}</strong>
+            <span>{certificateStatusBody}</span>
+          </div>
+          <div className="certificate-guide-grid">
+            {certificateGuideCards.map((card) => (
+              <article key={card.key} className="certificate-guide-card">
+                <strong>{card.title}</strong>
+                <p>{card.description}</p>
+              </article>
+            ))}
+          </div>
+        </div>
 
         {props.customerRenewalAssistantOnline ? (
           <div className="certificate-overview">
@@ -695,7 +929,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
             {customerFilter === "action_needed" ? (
               <div className="certificate-focus-note">
                 <span className="chip chip-warn">기본 보기</span>
-                <span>결제 가능·준비 필요·만료 임박만 표시</span>
+                <span>지금 막힌 고객만 먼저 보여 줍니다. 문제가 없으면 비어 있을 수 있습니다.</span>
               </div>
             ) : (
               <div className="certificate-focus-note">
@@ -760,7 +994,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
 
         <div className="certificate-table-section">
           <div className="certificate-table-section-head">
-            <strong>{customerFilter === "action_needed" ? "조치 필요 고객" : "고객별 공동인증서"}</strong>
+            <strong>{customerFilter === "action_needed" ? "지금 조치할 고객" : "고객별 공동인증서"}</strong>
             <span>{filteredLinkedCustomerRows.length}명</span>
           </div>
           <div className="certificate-table-wrap">
@@ -776,6 +1010,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
                 </thead>
                 <tbody>
                   {filteredLinkedCustomerRows.map((row) => {
+                    const rowStory = getCustomerRowStory(row);
+                    const isRowSelected = Boolean(selectedManagedCustomerIds[row.customer.id]);
                     const rowToneClass = !row.hasElectronicTax
                       ? "is-danger"
                       : row.hasPaymentReady
@@ -797,7 +1033,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
                     return (
                       <tr
                         key={`customer-certificate-row-${row.customer.id}`}
-                        className={`certificate-table-row ${rowToneClass}${selectedManagedCustomerIds[row.customer.id] ? " is-selected" : ""}`}
+                        className={`certificate-table-row ${rowToneClass}${isRowSelected ? " is-selected" : ""}`}
                         onClick={() => toggleManagedCustomer(row.customer.id)}
                       >
                         <td>
@@ -811,15 +1047,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
                         <td>{renderLinkedCertificateList(row.generalCertificates, "범용")}</td>
                         <td>
                           <div className="certificate-table-status certificate-table-status-list compact">
-                            <strong>
-                              {row.hasPaymentReady
-                                ? "결제 대기"
-                                : row.hasPrepareNeeded
-                                  ? "준비 필요"
-                                  : row.hasExpiringSoon
-                                    ? "만료 임박"
-                                    : "정상"}
-                            </strong>
+                            <strong>{rowStory.headline}</strong>
+                            <span>{rowStory.body}</span>
                             <div className="certificate-status-badges">
                               {statusBadges.map((badge) => (
                                 <span
@@ -834,6 +1063,24 @@ export function CertificatesTab(props: CertificatesTabProps) {
                                 </span>
                               ))}
                             </div>
+                            <div className="certificate-row-actions" onClick={stopRowSelection}>
+                              {rowStory.actionLabel ? (
+                                <button
+                                  type="button"
+                                  className={rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare" ? undefined : "btn-secondary"}
+                                  disabled={
+                                    (rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare") &&
+                                    (assistantBusyKey !== null || batchPrepareState.active)
+                                  }
+                                  onClick={() => runCustomerRowPrimaryAction(row)}
+                                >
+                                  {rowStory.actionLabel}
+                                </button>
+                              ) : null}
+                              <span className="certificate-row-hint">
+                                {isRowSelected ? "선택됨 · 상단 일괄 준비/다음 결제에 포함됩니다." : "이 행을 누르면 상단 일괄 준비 목록에 담깁니다."}
+                              </span>
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -842,10 +1089,9 @@ export function CertificatesTab(props: CertificatesTabProps) {
                 </tbody>
               </table>
             ) : (
-              <div className="empty">
-                {linkedCustomerRows.length > 0
-                  ? "현재 검색/필터 조건에 맞는 고객이 없습니다."
-                  : "고객과 연결된 공동인증서가 없습니다."}
+              <div className={`context-empty-state ${linkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}>
+                <strong>{linkedTableEmptyState?.title}</strong>
+                <p>{linkedTableEmptyState?.body}</p>
               </div>
             )}
           </div>
@@ -853,7 +1099,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
 
         <div className="certificate-table-section">
           <div className="certificate-table-section-head">
-            <strong>{customerFilter === "action_needed" ? "바로 연결할 미연결 공동인증서" : "미연결 공동인증서"}</strong>
+            <strong>{customerFilter === "action_needed" ? "예외 처리용 미연결 공동인증서" : "미연결 공동인증서"}</strong>
             <div className="certificate-table-section-actions">
               <span>
                 {filteredUnlinkedCertificates.length}건
@@ -946,18 +1192,15 @@ export function CertificatesTab(props: CertificatesTabProps) {
                 </tbody>
               </table>
             ) : (
-              <div className="empty">
-                {props.customerRenewalAssistantOnline
-                  ? unlinkedCertificates.length > 0
-                    ? "현재 검색 조건에 맞는 미연결 공동인증서가 없습니다."
-                    : "미연결 공동인증서가 없습니다."
-                  : "먼저 로컬 헬퍼 연결을 확인하세요."}
+              <div className={`context-empty-state ${unlinkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}>
+                <strong>{unlinkedTableEmptyState?.title}</strong>
+                <p>{unlinkedTableEmptyState?.body}</p>
               </div>
             )}
           </div>
           ) : (
             <div className="certificate-collapsed-note">
-              미연결 공동인증서는 예외 처리용입니다. 필요할 때만 펼쳐서 연결하세요.
+              미연결 공동인증서는 아직 고객과 묶지 않은 예외 처리용 목록입니다. 필요할 때만 펼쳐서 연결하세요.
             </div>
           )}
         </div>

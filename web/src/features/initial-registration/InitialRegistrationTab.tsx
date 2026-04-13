@@ -11,6 +11,7 @@ type QuickRegisterFormState = {
   corpName: string;
   addr: string;
 };
+
 type BillingMonthSummary = {
   billingMonth: string;
   totalCount: number;
@@ -18,9 +19,154 @@ type BillingMonthSummary = {
   latestReceivedAt: string | null;
   completed: boolean;
 };
+
 type InboxMessage = BootstrapPayload["inbox"][number];
+type InitialRegistrationTabMode = "registration" | "exceptions";
+export type InitialRegistrationStage = "download" | "upload" | "commit" | "done";
+type InitialRegistrationStepStatus = "complete" | "current" | "locked";
+
+type InitialRegistrationFlowStateInput = {
+  helperReady: boolean;
+  helperCertificateCount: number;
+  registrationReady: boolean;
+  templateDownloaded: boolean;
+  previewReady: boolean;
+  commitDone: boolean;
+  importableCount: number;
+  blockedCount: number;
+  hasSelectedFile: boolean;
+};
+
+type InitialRegistrationStepItem = {
+  step: number;
+  title: string;
+  description: string;
+  status: InitialRegistrationStepStatus;
+  statusLabel: string;
+  chipClass: string;
+};
+
+export type InitialRegistrationFlowState = {
+  stage: InitialRegistrationStage;
+  primaryActionLabel: string;
+  blockedReason?: string;
+  headline: string;
+  description: string;
+  downloadCompleted: boolean;
+  uploadCompleted: boolean;
+  commitCompleted: boolean;
+  needsUploadRetry: boolean;
+  stepItems: InitialRegistrationStepItem[];
+};
+
+function getInitialRegistrationStepMeta(status: InitialRegistrationStepStatus) {
+  if (status === "complete") {
+    return { statusLabel: "완료", chipClass: "chip chip-success" };
+  }
+
+  if (status === "current") {
+    return { statusLabel: "지금 하기", chipClass: "chip chip-warn" };
+  }
+
+  return { statusLabel: "대기", chipClass: "chip" };
+}
+
+export function getInitialRegistrationFlowState(input: InitialRegistrationFlowStateInput): InitialRegistrationFlowState {
+  const commitCompleted = input.commitDone || input.registrationReady;
+  const uploadCompleted = input.previewReady || commitCompleted;
+  const downloadCompleted = input.templateDownloaded || uploadCompleted;
+  const canCommit = input.importableCount > 0;
+  const needsUploadRetry = uploadCompleted && !commitCompleted && !canCommit;
+  const stage: InitialRegistrationStage = commitCompleted ? "done" : canCommit && input.previewReady ? "commit" : downloadCompleted ? "upload" : "download";
+  const blockedReason =
+    !input.helperReady && !downloadCompleted
+      ? "먼저 3단계에서 공동인증서 읽기를 끝내세요."
+      : needsUploadRetry
+        ? "업로드 확인까지는 끝났지만 반영 가능 행이 없습니다. 막힌 행을 수정한 뒤 같은 단계에서 다시 업로드하세요."
+        : undefined;
+  const headline = commitCompleted
+    ? "고객 초기 등록 반영이 끝났습니다."
+    : stage === "download"
+      ? "지금은 양식 다운로드 차례입니다."
+      : stage === "commit"
+        ? "지금은 고객 등록 반영 버튼을 누를 차례입니다."
+        : needsUploadRetry
+          ? "업로드 확인은 끝났고, 이제 막힌 행을 고쳐 다시 업로드할 차례입니다."
+          : "지금은 작성한 양식을 업로드할 차례입니다.";
+  const description = commitCompleted
+    ? "이 단계는 끝났습니다. 이제 다음 단계에서 전자세금용 인증서 연결 마무리를 이어가면 됩니다."
+    : stage === "download"
+      ? input.helperReady
+        ? `현재 PC에서 공동인증서 ${input.helperCertificateCount}건을 읽었습니다. 이 목록 기준으로 엑셀 양식을 생성합니다.`
+        : "엑셀 양식은 현재 PC 인증서 목록 기준으로 만들어집니다. 먼저 3단계 로컬 헬퍼 준비를 끝내세요."
+      : stage === "commit"
+        ? `반영 가능 ${input.importableCount}건을 확인했습니다. 지금 반영하면 범용 공동인증서 자동 연결도 함께 시도합니다.`
+        : needsUploadRetry
+          ? `업로드 확인은 끝났지만 검토 필요 ${input.blockedCount}건을 먼저 수정해야 합니다. 양식을 다시 올리면 반영 가능 상태를 다시 계산합니다.`
+          : "양식을 작성한 뒤 업로드하면 반영 가능/검토 필요 상태를 먼저 확인합니다.";
+  const primaryActionLabel = commitCompleted
+    ? "고객 초기 등록 완료"
+    : stage === "download"
+      ? "양식 다운로드"
+      : stage === "commit"
+        ? "고객 등록 반영"
+        : uploadCompleted || input.hasSelectedFile
+          ? "수정한 양식 다시 업로드"
+          : "작성한 양식 업로드";
+  const stepItems: InitialRegistrationStepItem[] = [
+    {
+      step: 1,
+      title: "양식 다운로드",
+      description: downloadCompleted
+        ? "실제 다운로드를 마쳤습니다. 필요하면 최신 공동인증서 목록 기준으로 다시 내려받을 수 있습니다."
+        : input.helperReady
+          ? "현재 PC에서 읽은 공동인증서 기준으로 등록 양식을 만듭니다."
+          : "먼저 3단계에서 공동인증서 읽기를 끝내야 양식을 만들 수 있습니다.",
+      status: downloadCompleted ? "complete" : stage === "download" ? "current" : "locked",
+      ...getInitialRegistrationStepMeta(downloadCompleted ? "complete" : stage === "download" ? "current" : "locked")
+    },
+    {
+      step: 2,
+      title: "작성한 양식 업로드",
+      description: uploadCompleted
+        ? needsUploadRetry
+          ? "업로드 확인은 끝났지만 막힌 행 수정 후 같은 단계에서 다시 업로드해야 합니다."
+          : "업로드한 파일을 읽어 고객·인증서 반영 가능 여부를 미리 확인했습니다."
+        : "양식을 작성한 뒤 업로드하면 반영 가능/검토 필요 상태를 먼저 보여줍니다.",
+      status: uploadCompleted ? "complete" : stage === "upload" ? "current" : "locked",
+      ...getInitialRegistrationStepMeta(uploadCompleted ? "complete" : stage === "upload" ? "current" : "locked")
+    },
+    {
+      step: 3,
+      title: "고객 등록 반영",
+      description: commitCompleted
+        ? "고객과 범용 공동인증서 반영이 끝났습니다."
+        : canCommit
+          ? "미리 보기에서 반영 가능으로 나온 행만 한 번에 등록합니다."
+          : uploadCompleted
+            ? "반영 가능 행이 생길 때까지 잠겨 있습니다. 먼저 양식을 수정한 뒤 다시 업로드하세요."
+            : "양식 업로드 확인이 끝나면 이 단계가 열립니다.",
+      status: commitCompleted ? "complete" : stage === "commit" ? "current" : "locked",
+      ...getInitialRegistrationStepMeta(commitCompleted ? "complete" : stage === "commit" ? "current" : "locked")
+    }
+  ];
+
+  return {
+    stage,
+    primaryActionLabel,
+    blockedReason,
+    headline,
+    description,
+    downloadCompleted,
+    uploadCompleted,
+    commitCompleted,
+    needsUploadRetry,
+    stepItems
+  };
+}
 
 type InitialRegistrationTabProps = {
+  mode: InitialRegistrationTabMode;
   busyKey: string | null;
   customerOnboardingFileName: string;
   customerOnboardingPreview: CustomerOnboardingPreviewResponse | null;
@@ -35,10 +181,18 @@ type InitialRegistrationTabProps = {
   quickRegisterError: string;
   billingMonthSummaries: BillingMonthSummary[];
   completedBillingNotice: string;
+  helperReady: boolean;
+  helperCertificateCount: number;
+  registrationReady?: boolean;
+  registrationStage?: InitialRegistrationStage;
+  registrationBlockedReason?: string;
+  registrationTemplateDownloaded?: boolean;
+  registrationPreviewReady?: boolean;
+  registrationCommitDone?: boolean;
+  showBillingMonthCompletion?: boolean;
   downloadCustomerOnboardingTemplate: () => Promise<void>;
   handleCustomerOnboardingFileChange: (file: File | null) => Promise<void>;
   commitCustomerOnboardingWorkbook: () => Promise<void>;
-  proceedOnboardingCertificateRegistration: () => Promise<void>;
   setQuickRegisterForm: React.Dispatch<React.SetStateAction<QuickRegisterFormState>>;
   selectQuickRegisterMessage: (messageId: number) => void;
   submitQuickRegister: () => Promise<void>;
@@ -55,206 +209,319 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const isDownloadingOnboardingTemplate = onboardingBusyKey === "customer-onboarding-template";
   const isPreviewingOnboarding = onboardingBusyKey === "customer-onboarding-preview";
   const isCommittingOnboarding = onboardingBusyKey === "customer-onboarding-commit";
-  const isProceedingOnboardingCertificateRegistration = onboardingBusyKey === "customer-onboarding-cert-registration";
   const onboardingImportableCount =
     (props.customerOnboardingPreview?.createCount ?? 0) + (props.customerOnboardingPreview?.updateCount ?? 0);
   const onboardingBlockedCount = props.customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
-
-  return (
-    <div className="initial-screen">
-      <Panel
-        className="panel-initial-onboarding"
-        title="여러 고객 한 번에 등록"
-        subtitle="엑셀 양식을 받고, 작성한 파일을 올린 뒤 고객 반영만 누르면 됩니다."
-        actions={
-          <>
-            <input
-              ref={onboardingFileInputRef}
-              type="file"
-              accept=".xlsx,.xlsm"
-              hidden
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null;
-                void props.runAction(
-                  "customer-onboarding-preview",
-                  async () => props.handleCustomerOnboardingFileChange(file),
-                  { reload: false }
-                );
-                event.currentTarget.value = "";
-              }}
-            />
-            <button
-              className="btn-secondary"
-              disabled={props.busyKey !== null}
-              onClick={() => void props.runAction("customer-onboarding-template", props.downloadCustomerOnboardingTemplate, { reload: false })}
-            >
-              {isDownloadingOnboardingTemplate ? "받는 중..." : "엑셀 양식 받기"}
-            </button>
-            <button
-              className="btn-secondary"
-              disabled={props.busyKey !== null}
-              onClick={() => onboardingFileInputRef.current?.click()}
-            >
-              {isPreviewingOnboarding ? "읽는 중..." : "작성한 엑셀 올리기"}
-            </button>
-            <button
-              disabled={props.busyKey !== null || !props.customerOnboardingPreview || onboardingImportableCount === 0}
-              onClick={() => void props.runAction("customer-onboarding-commit", props.commitCustomerOnboardingWorkbook, { reload: false })}
-            >
-              {isCommittingOnboarding ? "반영 중..." : "고객 반영"}
-            </button>
-            {props.pendingOnboardingCertificateRegistrationCount > 0 ? (
+  const showBillingMonthCompletion = props.showBillingMonthCompletion ?? props.mode === "exceptions";
+  const hasExceptionMessages = props.quickRegisterMessages.length > 0;
+  const registrationReady = props.registrationReady ?? false;
+  const registrationFlow = getInitialRegistrationFlowState({
+    helperReady: props.helperReady,
+    helperCertificateCount: props.helperCertificateCount,
+    registrationReady,
+    templateDownloaded: props.registrationTemplateDownloaded ?? false,
+    previewReady: props.registrationPreviewReady ?? Boolean(props.customerOnboardingPreview),
+    commitDone: props.registrationCommitDone ?? registrationReady,
+    importableCount: onboardingImportableCount,
+    blockedCount: onboardingBlockedCount,
+    hasSelectedFile: Boolean(props.customerOnboardingFileName)
+  });
+  const registrationStage = props.registrationStage ?? registrationFlow.stage;
+  const billingMonthCompletionList = props.billingMonthSummaries.length > 0 ? (
+    <div className="list month-completion-list">
+      {props.billingMonthSummaries.map((summary) => (
+        <div key={summary.billingMonth} className={summary.completed ? "month-summary completed" : "month-summary"}>
+          <div className="customer-summary-head">
+            <div>
+              <strong>{summary.billingMonth}</strong>
+              <p>
+                메일 {summary.totalCount}건
+                {summary.actionableCount > 0 ? ` · 확인 필요 ${summary.actionableCount}건` : ""}
+                {summary.latestReceivedAt ? ` · 최근 수신 ${props.formatDateTime(summary.latestReceivedAt)}` : ""}
+              </p>
+            </div>
+            {summary.completed ? (
+              <span className="status status-ignored">완료 처리</span>
+            ) : (
               <button
+                type="button"
                 className="btn-secondary"
                 disabled={props.busyKey !== null}
                 onClick={() =>
-                  void props.runAction(
-                    "customer-onboarding-cert-registration",
-                    props.proceedOnboardingCertificateRegistration,
-                    { reload: false }
-                  )
+                  void props.runAction(`complete-billing-month-${summary.billingMonth}`, () => props.markBillingMonthCompleted(summary), {
+                    reload: false
+                  })
                 }
               >
-                {isProceedingOnboardingCertificateRegistration ? "연결 마무리 중..." : `인증서 연결 마무리 (${props.pendingOnboardingCertificateRegistrationCount}건 남음)`}
+                완료 처리
               </button>
-            ) : null}
-          </>
-        }
-      >
-        <div className="initial-onboarding-summary">
-          <div>
-            <span>업로드 파일</span>
-            <strong>{props.customerOnboardingFileName || "아직 없음"}</strong>
-          </div>
-          <div>
-            <span>고객</span>
-            <strong>{props.customerOnboardingPreview?.totalCustomers ?? 0}건</strong>
-          </div>
-          <div>
-            <span>반영 가능</span>
-            <strong>{onboardingImportableCount}건</strong>
-          </div>
-          <div>
-            <span>검토 필요</span>
-            <strong>{onboardingBlockedCount}건</strong>
+            )}
           </div>
         </div>
-        {props.customerOnboardingNotice ? (
-          <div className="helper-box import-helper-box">
-            <strong>안내</strong>
-            <span>{props.customerOnboardingNotice}</span>
-          </div>
-        ) : null}
-        {props.pendingOnboardingCertificateRegistrationCount > 0 ? (
-          <div className="helper-box import-helper-box">
-            <strong>다음 단계</strong>
-            <span>
-              고객 등록은 끝났고, 팝빌 전자세금용 인증서 등록이 {props.pendingOnboardingCertificateRegistrationCount}건 남아 있습니다.
-              위 `인증서 연결 마무리` 버튼으로 순서대로 진행하면 됩니다.
-            </span>
-          </div>
-        ) : null}
-        {props.customerOnboardingError ? (
-          <div className="helper-box import-helper-box">
-            <strong>확인 필요</strong>
-            <span className="helper-multiline-text">{props.customerOnboardingError}</span>
-          </div>
-        ) : null}
-        {props.customerOnboardingPreview?.fileErrors.length ? (
-          <div className="helper-box import-helper-box">
-            <strong>시트 연결 오류</strong>
-            <span className="helper-multiline-text">{props.customerOnboardingPreview.fileErrors.join("\n")}</span>
-          </div>
-        ) : null}
-        {props.customerOnboardingPreview?.rows.length ? (
-          <details className="initial-onboarding-preview-details">
-            <summary>
-              <span>반영 미리 보기</span>
-              <span className="chip">{props.customerOnboardingPreview.rows.length}건</span>
-            </summary>
-            <div className="ops-list initial-onboarding-preview-list">
-              {props.customerOnboardingPreview.rows.map((row) => {
-                const toneClass =
-                  row.status === "blocked" ? "chip-danger" : row.status === "update" ? "chip-warn" : "chip-success";
-                const statusLabel = row.status === "blocked" ? "검토 필요" : row.status === "update" ? "기존 고객 갱신" : "신규 등록";
+      ))}
+    </div>
+  ) : (
+    <div className="empty">정산월이 파싱된 메일이 아직 없습니다.</div>
+  );
+  const registrationPrimaryAction =
+    props.mode !== "registration" || registrationFlow.commitCompleted
+      ? null
+      : registrationStage === "download"
+        ? {
+            label: isDownloadingOnboardingTemplate ? "다운로드 중..." : "양식 다운로드",
+            disabled: props.busyKey !== null || !props.helperReady,
+            title: props.helperReady ? undefined : "먼저 로컬 헬퍼 준비 단계에서 공동인증서 읽기 상태를 확인하세요.",
+            onClick: () => void props.runAction("customer-onboarding-template", props.downloadCustomerOnboardingTemplate, { reload: false })
+          }
+        : registrationStage === "upload"
+          ? {
+              label: isPreviewingOnboarding ? "업로드 확인 중..." : registrationFlow.primaryActionLabel,
+              disabled: props.busyKey !== null,
+              title: undefined,
+              onClick: () => onboardingFileInputRef.current?.click()
+            }
+          : {
+              label: isCommittingOnboarding ? "반영 중..." : "고객 등록 반영",
+              disabled: props.busyKey !== null || !props.customerOnboardingPreview || onboardingImportableCount === 0,
+              title: undefined,
+              onClick: () => void props.runAction("customer-onboarding-commit", props.commitCustomerOnboardingWorkbook, { reload: false })
+            };
 
-                return (
-                  <article key={`customer-onboarding-${row.rowIndex}-${row.businessNumber}`} className="ops-card">
-                    <div className="ops-card-head">
-                      <div>
-                        <strong>{row.corpName || row.customerName || `고객 ${row.rowIndex}행`}</strong>
-                        <span>{row.businessNumber || "-"}</span>
-                      </div>
-                      <span className={`chip ${toneClass}`}>{statusLabel}</span>
-                    </div>
-                    <div className="ops-card-meta">
-                      <span>발전소 {row.plantCount}건</span>
-                      <span>공동인증서 {row.certificateCount}건</span>
-                      {row.errors.length > 0 ? <span className="text-danger">{row.errors.join(" ")}</span> : null}
-                      {row.warnings.length > 0 ? <span className="text-warn">{row.warnings.join(" ")}</span> : null}
-                    </div>
-                  </article>
-                );
-              })}
+  return (
+    <div className="initial-screen">
+      {props.mode === "registration" ? (
+        <>
+          <input
+            ref={onboardingFileInputRef}
+            type="file"
+            accept=".xlsx,.xlsm"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              void props.runAction(
+                "customer-onboarding-preview",
+                async () => props.handleCustomerOnboardingFileChange(file),
+                { reload: false }
+              );
+              event.currentTarget.value = "";
+            }}
+          />
+          <section className="onboarding-main-card panel-initial-onboarding">
+            <div className="onboarding-main-copy">
+              <strong>{registrationFlow.headline}</strong>
+              <p>{registrationFlow.description}</p>
+              {props.registrationBlockedReason || registrationFlow.blockedReason ? (
+                <p className="onboarding-inline-warning">{props.registrationBlockedReason ?? registrationFlow.blockedReason}</p>
+              ) : null}
             </div>
-          </details>
-        ) : null}
-      </Panel>
 
-      {props.quickRegisterMessages.length > 0 || props.selectedQuickRegisterMessage ? (
-        <details className="import-manual-fallback">
-          <summary>
-            <div className="import-manual-summary">
-              <div className="import-manual-summary-copy">
-                <strong>예외 메일 수동 처리</strong>
-                <span>엑셀로 바로 처리하기 어려운 메일만 여기서 1건씩 등록합니다.</span>
+            {registrationPrimaryAction ? (
+              <div className="button-row onboarding-primary-row">
+                <button
+                  type="button"
+                  disabled={registrationPrimaryAction.disabled}
+                  title={registrationPrimaryAction.title}
+                  onClick={registrationPrimaryAction.onClick}
+                >
+                  {registrationPrimaryAction.label}
+                </button>
               </div>
-              <span className="chip chip-warn">
-                {props.selectedQuickRegisterMessage ? "선택됨" : `${props.quickRegisterMessages.length}건 남음`}
+            ) : null}
+
+            <ol className="onboarding-stage-list">
+              {registrationFlow.stepItems.map((item) => (
+                <li
+                  key={`onboarding-registration-step-${item.step}`}
+                  className={[
+                    "onboarding-stage-item",
+                    item.status === "current" ? "is-current" : "",
+                    item.status === "complete" ? "is-complete" : "",
+                    item.status === "locked" ? "is-locked" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <span className="onboarding-stage-number">{item.step}</span>
+                  <div className="onboarding-stage-copy">
+                    <div className="initial-onboarding-step-head">
+                      <strong>{item.title}</strong>
+                      <span className={item.chipClass}>{item.statusLabel}</span>
+                    </div>
+                    <p>{item.description}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+
+            <div className="onboarding-inline-status">
+              <div>
+                <span>업로드 파일</span>
+                <strong>{props.customerOnboardingFileName || "아직 없음"}</strong>
+              </div>
+              <div>
+                <span>반영 가능</span>
+                <strong>{onboardingImportableCount}건</strong>
+              </div>
+              <div>
+                <span>검토 필요</span>
+                <strong>{onboardingBlockedCount}건</strong>
+              </div>
+            </div>
+          </section>
+
+          {!registrationFlow.commitCompleted ? (
+            <details className="onboarding-advanced-details">
+              <summary>다른 작업은 필요할 때만 보기</summary>
+              <div className="helper-box-stack">
+                <strong>보조 작업</strong>
+                <span>지금 해야 할 버튼은 위에 1개만 남겨 두었습니다. 다시 다운로드하거나 다시 업로드해야 할 때만 아래 버튼을 사용하세요.</span>
+                <div className="button-row">
+                  {registrationStage !== "download" ? (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={props.busyKey !== null || !props.helperReady}
+                      onClick={() => void props.runAction("customer-onboarding-template", props.downloadCustomerOnboardingTemplate, { reload: false })}
+                      title={props.helperReady ? undefined : "먼저 로컬 헬퍼 준비 단계에서 공동인증서 읽기 상태를 확인하세요."}
+                    >
+                      양식 다시 다운로드
+                    </button>
+                  ) : null}
+                  {registrationStage !== "upload" ? (
+                    <button type="button" className="btn-secondary" disabled={props.busyKey !== null} onClick={() => onboardingFileInputRef.current?.click()}>
+                      양식 업로드
+                    </button>
+                  ) : null}
+                  {registrationStage !== "commit" && onboardingImportableCount > 0 ? (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={props.busyKey !== null || !props.customerOnboardingPreview || onboardingImportableCount === 0}
+                      onClick={() => void props.runAction("customer-onboarding-commit", props.commitCustomerOnboardingWorkbook, { reload: false })}
+                    >
+                      고객 등록 반영
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </details>
+          ) : null}
+
+          {props.customerOnboardingNotice ? (
+            <div className="helper-box import-helper-box">
+              <strong>안내</strong>
+              <span className="helper-multiline-text">{props.customerOnboardingNotice}</span>
+            </div>
+          ) : null}
+          {props.pendingOnboardingCertificateRegistrationCount > 0 ? (
+            <div className="helper-box import-helper-box">
+              <strong>다음 단계</strong>
+              <span>
+                고객 등록은 끝났고, 팝빌 전자세금용 인증서 후속 등록이 {props.pendingOnboardingCertificateRegistrationCount}건 남아 있습니다.
+                다음 단계인 <code>인증서 연결 마무리</code>에서 이어서 처리하세요.
               </span>
             </div>
-          </summary>
+          ) : null}
+          {props.customerOnboardingError ? (
+            <div className="helper-box import-helper-box">
+              <strong>확인 필요</strong>
+              <span className="helper-multiline-text">{props.customerOnboardingError}</span>
+            </div>
+          ) : null}
+          {props.customerOnboardingPreview?.fileErrors.length ? (
+            <div className="helper-box import-helper-box">
+              <strong>시트 연결 오류</strong>
+              <span className="helper-multiline-text">{props.customerOnboardingPreview.fileErrors.join("\n")}</span>
+            </div>
+          ) : null}
+          {props.customerOnboardingPreview?.rows.length ? (
+            <details className="initial-onboarding-preview-details">
+              <summary>
+                <span>반영 미리 보기</span>
+                <span className="chip">{props.customerOnboardingPreview.rows.length}건</span>
+              </summary>
+              <div className="ops-list initial-onboarding-preview-list">
+                {props.customerOnboardingPreview.rows.map((row) => {
+                  const toneClass =
+                    row.status === "blocked" ? "chip-danger" : row.status === "update" ? "chip-warn" : "chip-success";
+                  const statusLabel = row.status === "blocked" ? "검토 필요" : row.status === "update" ? "기존 고객 갱신" : "신규 등록";
+
+                  return (
+                    <article key={`customer-onboarding-${row.rowIndex}-${row.businessNumber}`} className="ops-card">
+                      <div className="ops-card-head">
+                        <div>
+                          <strong>{row.corpName || row.customerName || `고객 ${row.rowIndex}행`}</strong>
+                          <span>{row.businessNumber || "-"}</span>
+                        </div>
+                        <span className={`chip ${toneClass}`}>{statusLabel}</span>
+                      </div>
+                      <div className="ops-card-meta">
+                        <span>발전소 {row.plantCount}건</span>
+                        <span>공동인증서 {row.certificateCount}건</span>
+                        {row.errors.length > 0 ? <span className="text-danger">{row.errors.join(" ")}</span> : null}
+                        {row.warnings.length > 0 ? <span className="text-warn">{row.warnings.join(" ")}</span> : null}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </details>
+          ) : null}
+        </>
+      ) : !hasExceptionMessages ? (
+        <div className="context-empty-state tone-success">
+          <strong>지금 처리할 예외 메일이 없습니다.</strong>
+          <p>이 단계는 첫 메일 동기화 뒤 자동 매칭에서 남은 주소 예외나 특수 케이스만 다룹니다. 지금은 마지막 8단계에서 첫 발행 결과를 확인하면 됩니다.</p>
+        </div>
+      ) : (
+        <>
+          <div className="helper-box import-helper-box">
+            <strong>미매칭 메일 예외 처리</strong>
+            <span>
+              첫 메일 동기화 뒤 자동 매칭에서 남은 주소 예외나 특수 케이스만 여기서 처리합니다.
+              메인 onboarding은 고객 등록과 인증서 준비를 먼저 끝낸 뒤 진행하는 것이 좋습니다.
+            </span>
+          </div>
+
           <div className="import-layout">
             <Panel
               className="panel-initial-unmatched"
-              title={`미등록 메일 ${props.quickRegisterMessages.length}건`}
-              subtitle="주소까지 읽힌 예외 메일만 모아 둔 목록입니다."
+              title={`예외 메일 ${props.quickRegisterMessages.length}건`}
+              subtitle="자동 매칭에서 바로 처리하기 어려운 메일만 모아 둔 목록입니다."
             >
-              {props.quickRegisterMessages.length > 0 ? (
-                <div className="list initial-unmatched-list">
-                  {props.quickRegisterMessages.map((message) => {
-                    const isSelected = props.quickRegisterForm.messageId === message.id;
-                    return (
-                      <button
-                        key={message.id}
-                        type="button"
-                        className={isSelected ? "customer-summary selected" : "customer-summary"}
-                        onClick={() => props.selectQuickRegisterMessage(message.id)}
-                      >
-                        <div className="customer-summary-head">
-                          <div>
-                            <strong>{message.parsedData?.plantAddress || "주소 없음"}</strong>
-                            <p>{message.subject}</p>
-                          </div>
-                          <span className={`status status-${props.getInboxDisplayParseStatus(message)}`}>{props.getParseStatusLabel(props.getInboxDisplayParseStatus(message))}</span>
+              <div className="list initial-unmatched-list">
+                {props.quickRegisterMessages.map((message) => {
+                  const isSelected = props.quickRegisterForm.messageId === message.id;
+                  return (
+                    <button
+                      key={message.id}
+                      type="button"
+                      className={isSelected ? "customer-summary selected" : "customer-summary"}
+                      onClick={() => props.selectQuickRegisterMessage(message.id)}
+                    >
+                      <div className="customer-summary-head">
+                        <div>
+                          <strong>{message.parsedData?.plantAddress || "주소 없음"}</strong>
+                          <p>{message.subject}</p>
                         </div>
-                        <div className="customer-summary-meta">
-                          <span>{message.parsedData?.billingMonth || "-"}</span>
-                          <span>{props.formatDateTime(message.receivedAt)}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="empty">주소까지 파싱된 미등록 고객 메일이 없습니다.</div>
-              )}
+                        <span className={`status status-${props.getInboxDisplayParseStatus(message)}`}>
+                          {props.getParseStatusLabel(props.getInboxDisplayParseStatus(message))}
+                        </span>
+                      </div>
+                      <div className="customer-summary-meta">
+                        <span>{message.parsedData?.billingMonth || "-"}</span>
+                        <span>{props.formatDateTime(message.receivedAt)}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </Panel>
 
             <Panel
               className="panel-initial-quick-register"
-              title="선택 메일 등록"
-              subtitle="필수값만 적고 바로 고객으로 연결합니다."
+              title="선택 메일 예외 처리"
+              subtitle="필수 정보 4개만 보완해 고객과 메일을 바로 연결합니다."
             >
               {props.selectedQuickRegisterMessage ? (
                 <>
@@ -274,8 +541,8 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                     }}
                   >
                     <div className="customer-form-lead quick-register-lead">
-                      <strong>필수값 4개만 확인하면 됩니다.</strong>
-                      <span>대표자명, 주소, 사업자번호, 세금계산서 상호만 맞으면 바로 등록할 수 있습니다.</span>
+                      <strong>자동 매칭에서 빠진 값만 확인하면 됩니다.</strong>
+                      <span>대표자명, 주소, 사업자번호, 세금계산서 상호만 맞으면 예외 메일도 바로 등록할 수 있습니다.</span>
                     </div>
                     <div className="form-grid quick-register-grid">
                       <label>
@@ -310,63 +577,45 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                     </div>
                     <div className="button-row quick-register-actions">
                       <button type="submit" disabled={props.busyKey !== null}>
-                        {props.isQuickRegistering ? "등록 중..." : "고객 등록하고 연결"}
+                        {props.isQuickRegistering ? "처리 중..." : "예외 고객 등록 후 메일 연결"}
                       </button>
                       {props.isQuickRegistering ? <span className="field-hint">고객 등록, 팝빌 가입, 메일 연결을 처리하고 있습니다.</span> : null}
                     </div>
                   </form>
                 </>
               ) : (
-                <div className="empty">왼쪽에서 미등록 고객 메일을 선택하세요.</div>
+                <div className="empty">왼쪽에서 예외 메일을 선택하세요.</div>
               )}
             </Panel>
           </div>
-        </details>
+        </>
+      )}
+
+      {props.mode === "exceptions" && props.quickRegisterNotice ? <div className="alert success">{props.quickRegisterNotice}</div> : null}
+      {props.mode === "exceptions" && props.quickRegisterError ? <div className="alert error import-error-box">{props.quickRegisterError}</div> : null}
+
+      {showBillingMonthCompletion && props.billingMonthSummaries.length > 0 ? (
+        hasExceptionMessages ? (
+          <Panel
+            className="panel-initial-months"
+            title={`월별 완료 처리 ${props.billingMonthSummaries.length}개`}
+            subtitle="이미 발행이 끝난 정산월은 완료 처리해 두면 이후 메일을 다시 올리지 않습니다."
+          >
+            {billingMonthCompletionList}
+          </Panel>
+        ) : (
+          <details className="onboarding-advanced-details">
+            <summary>{`월별 완료 처리 ${props.billingMonthSummaries.length}개 보기`}</summary>
+            <div className="helper-box-stack">
+              <strong>예외 메일이 없을 때만 필요하면 열어 확인하세요.</strong>
+              <span>이미 발행이 끝난 정산월은 완료 처리해 두면 이후 메일을 다시 올리지 않습니다.</span>
+              {billingMonthCompletionList}
+            </div>
+          </details>
+        )
       ) : null}
 
-      {props.quickRegisterNotice ? <div className="alert success">{props.quickRegisterNotice}</div> : null}
-      {props.quickRegisterError ? <div className="alert error import-error-box">{props.quickRegisterError}</div> : null}
-
-      <Panel
-        className="panel-initial-months"
-        title={`월별 완료 처리 ${props.billingMonthSummaries.length}개`}
-        subtitle="이미 발행이 끝난 정산월은 완료 처리해 두면 이후 메일을 다시 올리지 않습니다."
-      >
-        {props.billingMonthSummaries.length > 0 ? (
-          <div className="list month-completion-list">
-            {props.billingMonthSummaries.map((summary) => (
-              <div key={summary.billingMonth} className={summary.completed ? "month-summary completed" : "month-summary"}>
-                <div className="customer-summary-head">
-                  <div>
-                    <strong>{summary.billingMonth}</strong>
-                    <p>
-                      메일 {summary.totalCount}건
-                      {summary.actionableCount > 0 ? ` · 확인 필요 ${summary.actionableCount}건` : ""}
-                      {summary.latestReceivedAt ? ` · 최근 수신 ${props.formatDateTime(summary.latestReceivedAt)}` : ""}
-                    </p>
-                  </div>
-                  {summary.completed ? (
-                    <span className="status status-ignored">완료 처리</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      disabled={props.busyKey !== null}
-                      onClick={() => void props.runAction(`complete-billing-month-${summary.billingMonth}`, () => props.markBillingMonthCompleted(summary), { reload: false })}
-                    >
-                      완료 처리
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="empty">정산월이 파싱된 메일이 아직 없습니다.</div>
-        )}
-      </Panel>
-
-      {props.completedBillingNotice ? <div className="alert success">{props.completedBillingNotice}</div> : null}
+      {showBillingMonthCompletion && props.completedBillingNotice ? <div className="alert success">{props.completedBillingNotice}</div> : null}
     </div>
   );
 }

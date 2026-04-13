@@ -146,28 +146,28 @@ export function CustomersTab(props: CustomersTabProps) {
   > = {
     all: {
       title: "전체 고객",
-      subtitle: "전체 고객을 확인합니다.",
-      empty: "등록된 고객이 없습니다."
+      subtitle: "전체 고객과 현재 발행 준비 상태를 함께 봅니다.",
+      empty: "아직 등록된 고객이 없습니다."
     },
     blocked: {
-      title: "준비 필요 고객",
-      subtitle: "먼저 처리할 고객만 모아봅니다.",
-      empty: "준비 필요 고객이 없습니다."
+      title: "지금 막힌 고객",
+      subtitle: "발행이 안 되는 이유부터 해결합니다.",
+      empty: "지금 발행이 막힌 고객이 없습니다."
     },
     ready: {
-      title: "즉시 발행 가능 고객",
-      subtitle: "바로 발행 가능한 고객입니다.",
-      empty: "지금 바로 발행 가능한 고객이 없습니다."
+      title: "지금 발행 가능한 고객",
+      subtitle: "바로 초안을 검토하거나 발행할 수 있습니다.",
+      empty: "지금 바로 발행할 고객이 없습니다."
     },
     expiring: {
-      title: "인증서 주의 고객",
-      subtitle: "만료가 가까운 고객입니다.",
-      empty: "인증서 주의 고객이 없습니다."
+      title: "인증서 곧 만료",
+      subtitle: "만료 전 점검이 필요한 고객만 모아봅니다.",
+      empty: "지금 점검이 필요한 인증서 고객이 없습니다."
     },
     unjoined: {
-      title: "팝빌/인증서 연결 필요 고객",
-      subtitle: "연결이 덜 끝난 고객입니다.",
-      empty: "팝빌/인증서 연결이 필요한 고객이 없습니다."
+      title: "연결 마무리 필요",
+      subtitle: "팝빌 가입이나 인증서 연결이 덜 끝난 고객입니다.",
+      empty: "연결 마무리가 필요한 고객이 없습니다."
     }
   };
 
@@ -185,45 +185,270 @@ export function CustomersTab(props: CustomersTabProps) {
   }> = [
     {
       key: "blocked",
-      label: "지금 준비할 고객",
+      label: "발행 막힘",
       count: props.blockedCustomerCount,
       tone: props.blockedCustomerCount > 0 ? "danger" : "success",
       description:
         props.blockedCustomerCount > 0
-          ? "먼저 처리할 고객입니다."
-          : "없음"
+          ? "왜 막혔는지부터 해결하세요."
+          : "지금 막힌 고객이 없습니다."
     },
     {
       key: "expiring",
-      label: "인증서 주의",
+      label: "인증서 만료 주의",
       count: props.expiringSoonCustomerCount,
       tone: props.expiringSoonCustomerCount > 0 ? "warn" : "success",
       description:
         props.expiringSoonCustomerCount > 0
           ? "만료 전 점검이 필요합니다."
-          : "없음"
+          : "지금 만료 주의 대상이 없습니다."
     },
     {
       key: "unjoined",
-      label: "연결 마무리 필요",
+      label: "연결 마무리",
       count: props.popbillPendingCustomerCount,
       tone: props.popbillPendingCustomerCount > 0 ? "warn" : "success",
       description:
         props.popbillPendingCustomerCount > 0
           ? "가입 또는 연결이 필요합니다."
-          : "없음"
+          : "연결 미완료 고객이 없습니다."
     },
     {
       key: "ready",
-      label: "즉시 발행 가능",
+      label: "지금 발행 가능",
       count: props.readyCustomerCount,
       tone: props.readyCustomerCount > 0 ? "success" : "warn",
       description:
         props.readyCustomerCount > 0
           ? "지금 바로 발행 가능합니다."
-          : "없음"
+        : "발행 가능한 고객이 아직 없습니다."
     }
   ];
+  const getCustomerCertificateDays = (customer: Customer) => {
+    if (!customer.popbillCertExpireDate) return null;
+    const expireTime = new Date(customer.popbillCertExpireDate).getTime();
+    if (!Number.isFinite(expireTime)) return null;
+    return Math.ceil((expireTime - Date.now()) / (1000 * 60 * 60 * 24));
+  };
+  const getCustomerNextStep = (customer: Customer) => {
+    const days = getCustomerCertificateDays(customer);
+    if (customer.popbillState !== "joined") {
+      return {
+        title: "팝빌 가입 마무리",
+        body: "이 고객 전용 발행 계정을 먼저 만들어야 실제 발행으로 넘어갈 수 있습니다."
+      };
+    }
+    if (!customer.popbillCertRegistered) {
+      return {
+        title: "전자세금용 인증서 등록",
+        body: "전자세금용 공동인증서를 연결해야 실제 세금계산서 발행이 열립니다."
+      };
+    }
+    if (days !== null && days < 0) {
+      return {
+        title: "인증서 상태 다시 확인",
+        body: "만료된 인증서는 발행이 막힙니다. 만료일을 확인하고 갱신 흐름으로 이어가세요."
+      };
+    }
+    if (days !== null && days <= 30) {
+      return {
+        title: "만료 전 갱신 일정 확인",
+        body: `현재 인증서가 ${days}일 안에 만료됩니다. 인증서 관리에서 준비/결제 흐름을 확인하세요.`
+      };
+    }
+    return {
+      title: "지금 발행 가능",
+      body: "고객 상세에서 기본값과 최근 발행 이력을 확인한 뒤 오늘 작업에서 초안을 검토하면 됩니다."
+    };
+  };
+  const customerListGuide = (() => {
+    if (props.customerSearchQuery.trim() !== "") {
+      return {
+        title: `검색어 "${props.customerSearchQuery.trim()}"로 고객을 좁혀 보고 있습니다.`,
+        body: "왼쪽에서 고객 하나를 열면 발행 가능/불가, 막힌 이유, 다음 버튼이 바로 보입니다.",
+        glossary: "연결 마무리 = 팝빌 가입 또는 전자세금용 인증서 등록이 아직 끝나지 않은 상태입니다."
+      };
+    }
+
+    switch (props.customerListFilter) {
+      case "blocked":
+        return {
+          title: "지금 발행이 막힌 고객만 모아 보고 있습니다.",
+          body: "왼쪽 고객을 열고 가장 위 해결 버튼부터 눌러 한 명씩 풀면 됩니다.",
+          glossary: "발행 막힘 = 팝빌 가입, 전자세금용 인증서, 인증서 만료 중 하나가 문제인 상태입니다."
+        };
+      case "ready":
+        return {
+          title: "지금 바로 발행 가능한 고객만 모아 보고 있습니다.",
+          body: "발행 전 기본값이나 최근 이력을 다시 확인할 고객을 빠르게 고를 때 쓰세요.",
+          glossary: "발행 가능 = 팝빌 가입과 전자세금용 인증서 등록이 모두 끝난 상태입니다."
+        };
+      case "expiring":
+        return {
+          title: "인증서 만료일이 가까운 고객만 보고 있습니다.",
+          body: "만료 전 갱신 준비가 필요한 고객을 먼저 고르고, 인증서 관리 탭에서 이어서 처리하세요.",
+          glossary: "만료 주의 = 30일 안에 인증서 만료일이 도래하는 상태입니다."
+        };
+      case "unjoined":
+        return {
+          title: "팝빌 가입이나 전자세금용 인증서 연결이 덜 끝난 고객만 보고 있습니다.",
+          body: "첫 발행 전 마지막 준비를 마무리할 고객을 빠르게 찾을 때 쓰세요.",
+          glossary: "연결 마무리 = 팝빌 가입 또는 전자세금용 인증서 등록이 남은 상태입니다."
+        };
+      default:
+        return {
+          title: "전체 고객을 발행 준비 상태와 함께 보고 있습니다.",
+          body: "처음이면 막힌 고객부터 확인하고, 준비가 끝난 고객은 발행 가능 목록으로 옮겨 보세요.",
+          glossary: "대표자명, 상호, 사업자번호로 검색하면 고객 상세까지 바로 이어집니다."
+        };
+    }
+  })();
+  const customerListEmptyState = (() => {
+    if (props.customerSearchQuery.trim() !== "") {
+      return {
+        title: "검색 결과가 없습니다.",
+        body: "대표자명, 상호, 사업자번호를 다시 확인하거나 검색어를 지우고 전체 고객에서 다시 찾아보세요.",
+        tone: "info" as const
+      };
+    }
+    if (props.customers.length === 0) {
+      return {
+        title: "아직 데이터가 없습니다.",
+        body: "먼저 새 고객 등록을 눌러 대표자명, 사업자번호, 세금계산서 상호, 주소 4개부터 입력하세요.",
+        tone: "info" as const
+      };
+    }
+    if (props.customerListFilter === "blocked") {
+      return {
+        title: "문제가 없어서 비어 있습니다.",
+        body: "지금 발행이 막힌 고객이 없습니다. 전체 고객으로 돌아가 최근 상태만 가볍게 확인하면 됩니다.",
+        tone: "success" as const
+      };
+    }
+    if (props.customerListFilter === "expiring") {
+      return {
+        title: "문제가 없어서 비어 있습니다.",
+        body: "30일 안에 만료되는 인증서 고객이 없습니다. 지금은 급한 갱신 작업이 없는 상태입니다.",
+        tone: "success" as const
+      };
+    }
+    if (props.customerListFilter === "unjoined") {
+      return {
+        title: "문제가 없어서 비어 있습니다.",
+        body: "팝빌 가입과 전자세금용 인증서 연결이 모두 끝났습니다. 첫 발행 준비가 이 단계에서는 막혀 있지 않습니다.",
+        tone: "success" as const
+      };
+    }
+    if (props.customerListFilter === "ready") {
+      return {
+        title: "아직 발행 가능한 고객이 없습니다.",
+        body:
+          props.blockedCustomerCount > 0
+            ? "막힌 고객부터 열어 해결 버튼을 누르면 이 목록으로 이동합니다."
+            : "고객은 있지만 아직 인증서 연결이나 준비가 덜 끝났을 수 있습니다.",
+        tone: "warn" as const
+      };
+    }
+    return {
+      title: activeFilterCopy[props.customerListFilter].empty,
+      body: "왼쪽 상단의 새 고객 등록 버튼으로 첫 고객을 만들어 주세요.",
+      tone: "info" as const
+    };
+  })();
+  const selectedCustomerPrimaryIssue =
+    inlineCustomerIssue ?? stackedCustomerIssues.find((issue) => Boolean(issue.actionLabel)) ?? null;
+  const selectedCustomerLeadMessage = selectedCustomerReadiness
+    ? selectedCustomerReadiness.canIssueNow
+      ? selectedCustomerReadiness.reason === "준비 완료"
+        ? "지금 바로 발행할 수 있습니다."
+        : `발행은 가능하지만 ${selectedCustomerReadiness.reason}을 먼저 확인하세요.`
+      : `${selectedCustomerReadiness.reason} 때문에 지금은 발행이 막혀 있습니다.`
+    : null;
+  const customerRequiredFieldChecks = [
+    { label: "대표자명", done: props.customerForm.customerName.trim() !== "" },
+    { label: "사업자번호", done: props.customerForm.businessNumber.trim() !== "" },
+    { label: "세금계산서 상호", done: props.customerForm.corpName.trim() !== "" },
+    { label: "주소", done: props.customerForm.addr.trim() !== "" }
+  ];
+  const customerOptionalFieldChecks = [
+    { label: "업태", done: props.customerForm.bizType.trim() !== "" },
+    { label: "업종", done: props.customerForm.bizClass.trim() !== "" },
+    { label: "고객 연락처", done: props.customerForm.renewalContactMobile.trim() !== "" },
+    { label: "메모", done: props.customerForm.memo.trim() !== "" }
+  ];
+  const selectedCustomerGuide = (() => {
+    if (!selectedCustomer || !selectedCustomerReadiness) return null;
+
+    if (!selectedCustomerReadiness.canIssueNow) {
+      switch (selectedCustomerPrimaryIssue?.actionKind) {
+        case "join-popbill":
+          return {
+            reasonLabel: "왜 막혔는지",
+            reasonValue: "팝빌 가입이 아직 없습니다.",
+            reasonBody: "팝빌은 이 고객으로 실제 전자세금계산서를 발행할 계정입니다.",
+            nextTitle: "팝빌 가입 버튼 누르기",
+            nextBody: "가입이 끝나면 다음 단계인 전자세금용 인증서 등록으로 바로 이어집니다."
+          };
+        case "register-certificate":
+          return {
+            reasonLabel: "왜 막혔는지",
+            reasonValue: "전자세금용 인증서가 아직 없습니다.",
+            reasonBody: "전자세금용 공동인증서는 실제 발행 때 꼭 필요한 인증서입니다.",
+            nextTitle: "전자세금용 인증서 등록",
+            nextBody: "인증서 등록이 끝나면 이 고객은 곧바로 발행 가능 상태로 바뀝니다."
+          };
+        case "check-certificate":
+          return {
+            reasonLabel: "왜 막혔는지",
+            reasonValue: "인증서 만료 또는 상태 확인이 필요합니다.",
+            reasonBody: "인증서가 만료되면 발행이 바로 막히므로 먼저 현재 상태를 다시 읽어 와야 합니다.",
+            nextTitle: "만료일 다시 확인",
+            nextBody: "상태를 새로 읽은 뒤 인증서 관리에서 갱신 준비/결제 흐름을 이어가세요."
+          };
+        default:
+          return {
+            reasonLabel: "왜 막혔는지",
+            reasonValue: selectedCustomerReadiness.reason,
+            reasonBody: "위 체크리스트에서 막힌 이유와 해결 버튼을 한 번에 정리해 두었습니다.",
+            nextTitle: "위 해결 버튼부터 진행",
+            nextBody: "한 항목씩 해결하면 이 고객은 다시 발행 가능 상태로 돌아옵니다."
+          };
+      }
+    }
+
+    const days = getCustomerCertificateDays(selectedCustomer);
+    if (days !== null && days <= 30) {
+      return {
+        reasonLabel: "지금 주의할 점",
+        reasonValue: `인증서 만료 ${days}일 전`,
+        reasonBody: "지금 발행은 가능하지만 만료 전 갱신 일정을 잡아 두면 운영 중 막힘을 줄일 수 있습니다.",
+        nextTitle: "인증서 관리에서 일정 확인",
+        nextBody: "인증서 관리 탭에서 준비/결제 상태를 확인하고 미리 갱신 흐름을 진행하세요."
+      };
+    }
+
+    return {
+      reasonLabel: "지금 상태",
+      reasonValue: "필수 준비가 모두 끝났습니다.",
+      reasonBody: "팝빌 가입과 전자세금용 인증서 등록이 끝나 있어 지금 바로 발행 가능한 상태입니다.",
+      nextTitle: "오늘 작업에서 초안 확인",
+      nextBody: "발행 대상 메일이 들어오면 오늘 작업 탭에서 초안 생성과 발행 여부를 바로 확인하면 됩니다."
+    };
+  })();
+  const getCustomerIssueHelpText = (issue: CustomerIssueChecklistItem) => {
+    switch (issue.actionKind) {
+      case "join-popbill":
+        return "팝빌 가입이 끝나야 이 고객 계정으로 전자세금계산서를 발행할 수 있습니다.";
+      case "register-certificate":
+        return "전자세금용 공동인증서를 팝빌에 등록해야 실제 발행이 가능합니다.";
+      case "check-certificate":
+        return "만료일과 현재 상태를 다시 읽어 오면 발행 가능 여부가 갱신됩니다.";
+      default:
+        return issue.tone === "success"
+          ? "추가 조치 없이 바로 발행할 수 있는 상태입니다."
+          : "이 항목을 해결하면 발행 준비 상태가 갱신됩니다.";
+    }
+  };
 
   const runSelectedCustomerIssueAction = (issue: CustomerIssueChecklistItem) => {
     if (!selectedCustomer || !issue.actionKind) return;
@@ -273,7 +498,7 @@ export function CustomersTab(props: CustomersTabProps) {
                 disabled={props.hasReachedManagedCustomerLimit}
                 onClick={props.onCreateCustomer}
               >
-                새 고객
+                새 고객 등록
               </button>
               <button onClick={() => void props.runAction("customers-cert-refresh-all", props.onRefreshAllCertificateStatuses)}>인증서 일괄 점검</button>
             </>
@@ -294,6 +519,7 @@ export function CustomersTab(props: CustomersTabProps) {
                   </span>
                 </div>
                 <strong>{card.count.toLocaleString("ko-KR")}</strong>
+                <p className="customer-focus-description">{card.description}</p>
               </button>
             ))}
           </div>
@@ -318,36 +544,41 @@ export function CustomersTab(props: CustomersTabProps) {
                 className={props.customerListFilter === "blocked" ? "btn-secondary active-filter" : "btn-secondary"}
                 onClick={() => props.setCustomerListFilter("blocked")}
               >
-                준비 필요 {props.blockedCustomerCount}명
+                막힌 고객 {props.blockedCustomerCount}명
               </button>
               <button
                 type="button"
                 className={props.customerListFilter === "ready" ? "btn-secondary active-filter" : "btn-secondary"}
                 onClick={() => props.setCustomerListFilter("ready")}
               >
-                즉시 발행 가능 {props.readyCustomerCount}명
+                발행 가능 {props.readyCustomerCount}명
               </button>
               <button
                 type="button"
                 className={props.customerListFilter === "expiring" ? "btn-secondary active-filter" : "btn-secondary"}
                 onClick={() => props.setCustomerListFilter("expiring")}
               >
-                인증서 주의 {props.expiringSoonCustomerCount}명
+                만료 주의 {props.expiringSoonCustomerCount}명
               </button>
               <button
                 type="button"
                 className={props.customerListFilter === "unjoined" ? "btn-secondary active-filter" : "btn-secondary"}
                 onClick={() => props.setCustomerListFilter("unjoined")}
               >
-                팝빌 미등록 {props.popbillPendingCustomerCount}명
+                연결 마무리 {props.popbillPendingCustomerCount}명
               </button>
             </div>
           </div>
           <div className="customer-list-summary-line">
             <span>전체 {props.customers.length}명</span>
             <span>검색 결과 {props.filteredCustomers.length}명</span>
-            <span>즉시 발행 가능 {props.readyCustomerCount}명</span>
+            <span>발행 가능 {props.readyCustomerCount}명</span>
             {props.customerSearchQuery.trim() !== "" ? <span>검색어 {props.customerSearchQuery.trim()}</span> : null}
+          </div>
+          <div className="customer-list-guide" aria-live="polite">
+            <strong>{customerListGuide.title}</strong>
+            <span>{customerListGuide.body}</span>
+            <span className="customer-list-guide-glossary">{customerListGuide.glossary}</span>
           </div>
           {recentCustomers.length > 0 ? (
             <div className="customer-recent-strip" aria-label="최근 본 고객">
@@ -378,6 +609,7 @@ export function CustomersTab(props: CustomersTabProps) {
             {props.filteredCustomers.map((customer) => {
               const readiness = props.getCustomerIssueReadiness(customer);
               const isSelected = props.customerForm.id === customer.id;
+              const nextStep = getCustomerNextStep(customer);
 
               return (
                 <button
@@ -399,15 +631,19 @@ export function CustomersTab(props: CustomersTabProps) {
                     <span>{props.getCustomerCertificateSummary(customer)}</span>
                   </div>
                   <p className="customer-summary-reason">{readiness.reason}</p>
+                  <div className="customer-summary-next-step">
+                    <span>다음 행동</span>
+                    <strong>{nextStep.title}</strong>
+                    <p>{nextStep.body}</p>
+                  </div>
                   {isSelected || props.customerSearchQuery.trim() !== "" ? <p className="customer-summary-address">{customer.addr}</p> : null}
                 </button>
               );
             })}
             {props.filteredCustomers.length === 0 ? (
-              <div className="empty">
-                {props.customerSearchQuery.trim() !== ""
-                  ? "검색 결과가 없습니다."
-                  : activeFilterCopy[props.customerListFilter].empty}
+              <div className={`context-empty-state ${customerListEmptyState.tone === "success" ? "tone-success" : customerListEmptyState.tone === "warn" ? "tone-warn" : "tone-info"}`}>
+                <strong>{customerListEmptyState.title}</strong>
+                <p>{customerListEmptyState.body}</p>
               </div>
             ) : null}
           </div>
@@ -432,10 +668,49 @@ export function CustomersTab(props: CustomersTabProps) {
                 <strong>{selectedCustomer.corpName}</strong>
                 <span>{selectedCustomer.customerName}</span>
               </div>
+              <div className="customer-readiness-callout">
+                <div className="customer-readiness-copy">
+                  <span className={`chip ${selectedCustomerReadiness.tone === "success" ? "chip-success" : selectedCustomerReadiness.tone === "warn" ? "chip-warn" : "chip-danger"}`}>
+                    {selectedCustomerReadiness.canIssueNow ? "발행 가능" : "발행 막힘"}
+                  </span>
+                  <strong>{selectedCustomerLeadMessage}</strong>
+                  <p>
+                    {selectedCustomerReadiness.canIssueNow
+                      ? selectedCustomerReadiness.reason === "준비 완료"
+                        ? "팝빌과 발행용 인증서 기준이 모두 갖춰진 상태입니다."
+                        : "지금 발행은 가능하지만, 아래 이유를 먼저 확인하면 운영 중 예외를 줄일 수 있습니다."
+                      : "왜 막혔는지와 바로 해결 버튼을 아래에서 한눈에 볼 수 있게 정리했습니다."}
+                  </p>
+                </div>
+                {selectedCustomerPrimaryIssue?.actionLabel ? (
+                  <button type="button" onClick={() => runSelectedCustomerIssueAction(selectedCustomerPrimaryIssue)}>
+                    {selectedCustomerPrimaryIssue.actionLabel}
+                  </button>
+                ) : null}
+              </div>
+              {selectedCustomerGuide ? (
+                <div className="customer-decision-grid" aria-label="고객 상태 빠른 요약">
+                  <article className="customer-decision-card">
+                    <span>발행 가능 여부</span>
+                    <strong>{selectedCustomerReadiness.canIssueNow ? "지금 발행 가능" : "지금 발행 불가"}</strong>
+                    <p>{selectedCustomerLeadMessage}</p>
+                  </article>
+                  <article className="customer-decision-card">
+                    <span>{selectedCustomerGuide.reasonLabel}</span>
+                    <strong>{selectedCustomerGuide.reasonValue}</strong>
+                    <p>{selectedCustomerGuide.reasonBody}</p>
+                  </article>
+                  <article className="customer-decision-card">
+                    <span>다음 행동</span>
+                    <strong>{selectedCustomerGuide.nextTitle}</strong>
+                    <p>{selectedCustomerGuide.nextBody}</p>
+                  </article>
+                </div>
+              ) : null}
               <div className="customer-detail-stats">
                 <div>
-                  <span>사업자번호</span>
-                  <strong>{selectedCustomer.businessNumber}</strong>
+                  <span>발행 상태</span>
+                  <strong>{selectedCustomerReadiness.label}</strong>
                 </div>
                 <div>
                   <span>팝빌</span>
@@ -445,6 +720,10 @@ export function CustomersTab(props: CustomersTabProps) {
                   <span>인증서</span>
                   <strong>{props.getCustomerCertificateSummary(selectedCustomer)}</strong>
                 </div>
+                <div>
+                  <span>발행 방식</span>
+                  <strong>{props.getIssueModeLabel(props.customerForm.issueMode)}</strong>
+                </div>
               </div>
               <p className="customer-detail-address">{selectedCustomer.addr}</p>
               <div className="customer-detail-status-row">
@@ -452,38 +731,47 @@ export function CustomersTab(props: CustomersTabProps) {
                   {selectedCustomerReadiness.label}
                 </span>
                 {selectedCustomerReadiness.reason !== "준비 완료" ? <span className="customer-detail-status-note">{selectedCustomerReadiness.reason}</span> : null}
-                {inlineCustomerIssue?.actionLabel ? (
-                  <button type="button" className="btn-secondary" onClick={() => runSelectedCustomerIssueAction(inlineCustomerIssue)}>
-                    {inlineCustomerIssue.actionLabel}
+                {selectedCustomerPrimaryIssue?.actionLabel ? (
+                  <button type="button" className="btn-secondary" onClick={() => runSelectedCustomerIssueAction(selectedCustomerPrimaryIssue)}>
+                    {selectedCustomerPrimaryIssue.actionLabel}
                   </button>
                 ) : null}
               </div>
               {stackedCustomerIssues.length > 0 ? (
-                <div className="customer-issue-list" aria-label="발행 준비 상태">
+                <div className="customer-issue-section">
+                  <div className="customer-issue-section-head">
+                    <strong>왜 막혔는지 / 바로 해결</strong>
+                    <span>한 항목씩 해결하면 이 고객은 다시 발행 가능 상태로 돌아옵니다.</span>
+                  </div>
+                  <div className="customer-issue-list" aria-label="발행 준비 상태">
                   {stackedCustomerIssues.map((issue) => (
-                  <article
-                    key={issue.key}
-                    className={
-                      issue.tone === "danger"
-                        ? "customer-issue-card tone-danger"
-                        : issue.tone === "warn"
-                          ? "customer-issue-card tone-warn"
-                          : "customer-issue-card tone-success"
-                    }
-                  >
-                    <div className="customer-issue-card-copy">
-                      <span className={`chip ${issue.tone === "danger" ? "chip-danger" : issue.tone === "warn" ? "chip-warn" : "chip-success"}`}>
-                        {issue.tone === "danger" ? "중요" : issue.tone === "warn" ? "점검" : "완료"}
-                      </span>
-                      <span className="customer-issue-text">{issue.label}</span>
-                    </div>
-                    {issue.actionLabel ? (
-                      <button type="button" className="btn-secondary" onClick={() => runSelectedCustomerIssueAction(issue)}>
-                        {issue.actionLabel}
-                      </button>
-                    ) : null}
-                  </article>
+                    <article
+                      key={issue.key}
+                      className={
+                        issue.tone === "danger"
+                          ? "customer-issue-card tone-danger"
+                          : issue.tone === "warn"
+                            ? "customer-issue-card tone-warn"
+                            : "customer-issue-card tone-success"
+                      }
+                    >
+                      <div className="customer-issue-card-copy">
+                        <span className={`chip ${issue.tone === "danger" ? "chip-danger" : issue.tone === "warn" ? "chip-warn" : "chip-success"}`}>
+                          {issue.tone === "danger" ? "중요" : issue.tone === "warn" ? "점검" : "완료"}
+                        </span>
+                        <div className="customer-issue-text-block">
+                          <span className="customer-issue-text">{issue.label}</span>
+                          <span className="customer-issue-help">{getCustomerIssueHelpText(issue)}</span>
+                        </div>
+                      </div>
+                      {issue.actionLabel ? (
+                        <button type="button" className="btn-secondary" onClick={() => runSelectedCustomerIssueAction(issue)}>
+                          {issue.actionLabel}
+                        </button>
+                      ) : null}
+                    </article>
                   ))}
+                </div>
                 </div>
               ) : null}
               {selectedCustomer.popbillState === "joined" &&
@@ -613,6 +901,36 @@ export function CustomersTab(props: CustomersTabProps) {
                 void props.runAction(props.customerForm.id === null ? "save-customer" : `save-customer-${props.customerForm.id}`, props.onSaveCustomer);
               }}
             >
+              {!props.selectedCustomer ? (
+                <div className="customer-form-lead">
+                  <strong>먼저 입력할 필수 4개</strong>
+                  <span>대표자명, 사업자번호, 세금계산서 상호, 주소만 입력하면 저장할 수 있습니다. 나머지는 아래의 추가 입력에서 나중에 채워도 됩니다.</span>
+                </div>
+              ) : null}
+              <div className="customer-form-scope-grid" aria-label="고객 정보 입력 범위">
+                <article className="customer-form-scope-card">
+                  <span>지금 꼭 입력</span>
+                  <strong>
+                    {customerRequiredFieldChecks.filter((field) => field.done).length}/{customerRequiredFieldChecks.length} 완료
+                  </strong>
+                  <p>
+                    {customerRequiredFieldChecks.every((field) => field.done)
+                      ? "대표자명, 사업자번호, 세금계산서 상호, 주소가 모두 준비됐습니다."
+                      : `남은 항목: ${customerRequiredFieldChecks.filter((field) => !field.done).map((field) => field.label).join(", ")}`}
+                  </p>
+                </article>
+                <article className="customer-form-scope-card optional">
+                  <span>나중에 입력 가능</span>
+                  <strong>
+                    {customerOptionalFieldChecks.filter((field) => field.done).length}/{customerOptionalFieldChecks.length} 입력
+                  </strong>
+                  <p>
+                    {customerOptionalFieldChecks.every((field) => field.done)
+                      ? "업태, 업종, 고객 연락처, 메모까지 채워져 있어 운영 메모도 바로 확인할 수 있습니다."
+                      : `업태, 업종, 고객 연락처, 메모는 저장 후 천천히 입력해도 됩니다.${customerOptionalFieldChecks.some((field) => !field.done) ? ` 아직 비어 있음: ${customerOptionalFieldChecks.filter((field) => !field.done).map((field) => field.label).join(", ")}` : ""}`}
+                  </p>
+                </article>
+              </div>
               <div className="form-grid customer-form-primary-grid">
                 <label>
                   대표자명

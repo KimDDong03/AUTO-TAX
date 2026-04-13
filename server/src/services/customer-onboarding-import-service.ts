@@ -254,7 +254,7 @@ async function prepareCustomerOnboardingWorkbook(
       entry.errors.add("업종이 비어 있습니다.");
     }
     if (existingEntry) {
-      entry.errors.add("고객 시트 안에 같은 사업자번호가 중복되어 있습니다.");
+      entry.errors.add("등록 대상 안에 같은 사업자번호가 중복되어 있습니다.");
     }
   }
 
@@ -268,27 +268,27 @@ async function prepareCustomerOnboardingWorkbook(
         .map((row) => entriesByBusinessNumber.get(entryKeyForCustomerRow(row)))
         .find((candidate) => candidate?.row.normalizedBusinessNumber === plant.normalizedBusinessNumber) ?? null;
     if (!entry) {
-      fileErrors.push(`발전소 시트 ${plant.rowIndex}행: 고객 시트에 없는 사업자번호입니다.`);
+      fileErrors.push(`발전소 시트 ${plant.rowIndex}행: 등록 대상 고객 목록에 없는 사업자번호입니다.`);
       continue;
     }
     if (!plant.plantName) {
       entry.errors.add(`발전소 시트 ${plant.rowIndex}행: 발전소명이 비어 있습니다.`);
     }
     if (!plant.normalizedMatchAddress) {
-      entry.errors.add(`발전소 시트 ${plant.rowIndex}행: 메일 매칭 주소를 확인할 수 없습니다.`);
+      entry.errors.add(`발전소 시트 ${plant.rowIndex}행: 자동 매칭에 사용할 기본 주소를 확인할 수 없습니다.`);
       continue;
     }
 
     const existingOwner = existingAddressOwners.get(plant.normalizedMatchAddress);
     if (existingOwner && digitsOnly(existingOwner.businessNumber) !== entry.row.normalizedBusinessNumber) {
-      entry.errors.add(`이미 다른 고객에 등록된 메일 매칭 주소입니다. (${existingOwner.customerName})`);
+      entry.errors.add(`이미 다른 고객에 등록된 기본 매칭 주소입니다. (${existingOwner.customerName})`);
     }
 
     const workbookOwner = workbookAddressOwners.get(plant.normalizedMatchAddress);
     if (workbookOwner && workbookOwner !== entry.row.normalizedBusinessNumber) {
-      entry.errors.add("업로드 파일 안에 다른 고객과 같은 메일 매칭 주소가 중복되어 있습니다.");
+      entry.errors.add("업로드 파일 안에 다른 고객과 같은 기본 매칭 주소가 중복되어 있습니다.");
       const duplicateOwner = entriesByBusinessNumber.get(workbookOwner);
-      duplicateOwner?.errors.add("업로드 파일 안에 다른 고객과 같은 메일 매칭 주소가 중복되어 있습니다.");
+      duplicateOwner?.errors.add("업로드 파일 안에 다른 고객과 같은 기본 매칭 주소가 중복되어 있습니다.");
     } else if (!workbookOwner) {
       workbookAddressOwners.set(plant.normalizedMatchAddress, entry.row.normalizedBusinessNumber);
     }
@@ -302,7 +302,7 @@ async function prepareCustomerOnboardingWorkbook(
         .map((row) => entriesByBusinessNumber.get(entryKeyForCustomerRow(row)))
         .find((candidate) => candidate?.row.normalizedBusinessNumber === certificate.normalizedBusinessNumber) ?? null;
     if (!entry) {
-      fileErrors.push(`공동인증서 시트 ${certificate.rowIndex}행: 고객 시트에 없는 사업자번호입니다.`);
+      fileErrors.push(`공동인증서 시트 ${certificate.rowIndex}행: 등록 대상 고객 목록에 없는 사업자번호입니다.`);
       continue;
     }
     if (!certificate.certificateName) {
@@ -325,14 +325,14 @@ async function prepareCustomerOnboardingWorkbook(
 
   for (const entry of entriesByBusinessNumber.values()) {
     if (entry.plants.length === 0) {
-      entry.warnings.add("발전소/메일 매칭 주소가 없어 사업자 주소를 메일 매칭 주소로 사용합니다.");
+      entry.warnings.add("발전소 정보가 없어 고객 기본 주소를 자동 매칭 기본 주소로 사용합니다.");
     }
 
     const effectiveMatchAddresses = entry.plants.length > 0 ? entry.plants.map((row) => row.normalizedMatchAddress) : [entry.row.normalizedAddress];
     for (const matchAddress of effectiveMatchAddresses) {
       const existingOwner = existingAddressOwners.get(matchAddress);
       if (existingOwner && digitsOnly(existingOwner.businessNumber) !== entry.row.normalizedBusinessNumber) {
-        entry.errors.add(`이미 다른 고객에 등록된 메일 매칭 주소입니다. (${existingOwner.customerName})`);
+        entry.errors.add(`이미 다른 고객에 등록된 기본 매칭 주소입니다. (${existingOwner.customerName})`);
       }
     }
   }

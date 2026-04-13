@@ -60,13 +60,18 @@ type SettingsTabProps = {
 };
 
 export function SettingsTab(props: SettingsTabProps) {
+  const nextSettingsSection = props.settingsSections.find((section) => !section.done)?.id ?? "account";
+  const nextSettingsSectionLabel =
+    nextSettingsSection === "gmail" ? "메일 연결" : nextSettingsSection === "popbill" ? "발행 기본값" : "계정 보안";
+
   return (
     <div className="settings-layout">
       <aside className="settings-sidebar-stack">
         <section className="panel settings-sidebar-panel">
           <header className="panel-header settings-sidebar-header">
             <div>
-              <h2>처음 설정 순서</h2>
+              <h2>작업공간 공통 설정</h2>
+              <p className="settings-sidebar-purpose">도입 준비에서 막히지 않도록 메일, 발행 기본값, 로컬 헬퍼 같은 공통값을 보조로 관리합니다.</p>
             </div>
             <span className={`chip ${props.setupPendingCount === 0 ? "chip-success" : "chip-warn"}`}>
               {props.setupPendingCount === 0 ? "준비 완료" : `${props.setupPendingCount}개 남음`}
@@ -106,8 +111,26 @@ export function SettingsTab(props: SettingsTabProps) {
             </div>
           ) : null}
           <div className="settings-inline-note">
-            <strong>{props.customerRegistrationReady ? `고객 ${props.customerCount}명 등록됨` : "고객 등록이 필요합니다."}</strong>
-            <button className="btn-secondary" onClick={() => void props.runAction("refresh-certificates", props.refreshAllCertificateStatuses)}>인증서 일괄 점검</button>
+            <div className="settings-inline-copy">
+              <strong>
+                {props.setupPendingCount === 0
+                  ? "기본 설정을 모두 마쳤습니다."
+                  : `지금은 ${nextSettingsSectionLabel}부터 마무리하세요.`}
+              </strong>
+              <span>
+                {props.customerRegistrationReady
+                  ? `등록 고객 ${props.customerCount}명 기준으로 설정이 적용됩니다.`
+                  : "실제 순서 진행은 도입 준비 탭에서 이어가고, 이 화면은 필요한 설정만 보조로 수정하면 됩니다."}
+              </span>
+            </div>
+            <div className="button-row settings-inline-actions">
+              <button type="button" onClick={() => props.setActiveSettingsSection(nextSettingsSection)}>
+                {nextSettingsSectionLabel} 열기
+              </button>
+              <button className="btn-secondary" onClick={() => void props.runAction("refresh-certificates", props.refreshAllCertificateStatuses)}>
+                인증서 일괄 점검
+              </button>
+            </div>
           </div>
         </section>
       </aside>
@@ -119,10 +142,10 @@ export function SettingsTab(props: SettingsTabProps) {
             className="panel-settings-mail"
             title="메일 연결"
             done={props.settingsHealth.mailReady}
-            note="한전 메일을 읽고 알림을 보내는 메일 계정을 연결합니다."
+            note="한전 메일 계정을 연결하고 테스트합니다. 실제 첫 메일 동기화는 도입 준비 단계에서 나중에 실행합니다."
             actions={
               <button disabled={props.busyKey !== null} onClick={() => void props.runAction("mail-test", props.testMailSettings, { reload: false })}>
-                {props.isMailTesting ? "메일 연결 확인 중..." : "메일 연결 테스트"}
+                {props.isMailTesting ? "연결 테스트 중..." : "메일 연결 테스트"}
               </button>
             }
           >
@@ -134,9 +157,9 @@ export function SettingsTab(props: SettingsTabProps) {
             ) : null}
             <div className="form-grid">
               <div className="settings-detected-provider full">
-                <span>바로 읽어오는 범위</span>
-                <strong>최근 메일 1000통까지 함께 확인</strong>
-                <p className="settings-inline-help">예전 메일까지 함께 읽어서 첫 도입 때도 바로 확인할 수 있습니다.</p>
+                <span>첫 동기화 시 읽는 기본 범위</span>
+                <strong>최근 메일 1000통</strong>
+                <p className="settings-inline-help">이 단계는 테스트만 하고, 실제 메일 수집은 도입 준비 단계에서 별도로 실행합니다.</p>
               </div>
               <div className="settings-detected-provider full">
                 <span>자동으로 찾은 메일 서비스</span>
@@ -145,7 +168,7 @@ export function SettingsTab(props: SettingsTabProps) {
               <label>
                 메일 주소
                 <input placeholder="example@mail.com" value={props.settingsForm.mailAddress} onChange={(event) => props.onMailAddressChange(event.target.value)} />
-                <span className="field-hint">한전 메일을 읽고 알림 메일을 보낼 때 함께 사용하는 주소입니다. 도메인을 보고 서비스가 자동 감지됩니다.</span>
+                <span className="field-hint">한전 메일을 읽고 알림 메일을 보낼 때 함께 사용할 계정입니다. 도메인을 보고 서비스가 자동 감지됩니다.</span>
               </label>
               <label>
                 앱 비밀번호
@@ -163,7 +186,7 @@ export function SettingsTab(props: SettingsTabProps) {
                 <span className="field-hint">
                   {props.mailPasswordConfigured
                     ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 연결 시 빈칸이면 서버에 저장된 값을 사용합니다."
-                    : "위 메일 주소로 로그인할 때 쓰는 비밀번호입니다. 수신/발신 모두 이 값을 사용합니다."}
+                    : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다. 수신/발신 모두 이 값을 사용합니다."}
                 </span>
               </label>
               <label className="full">
@@ -172,7 +195,7 @@ export function SettingsTab(props: SettingsTabProps) {
                 <span className="field-hint">파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나 쉼표로 구분합니다.</span>
               </label>
               <details className="settings-advanced-panel full">
-                <summary>월 자동 발행 일정 보기</summary>
+                <summary>월 자동 발행 일정은 나중에 보기</summary>
                 <div className="helper-box">
                   <strong>매달 자동 실행 일정</strong>
                   <div className="fields three-column">
@@ -207,21 +230,21 @@ export function SettingsTab(props: SettingsTabProps) {
           <SetupPanel
             step={2}
             className="panel-settings-popbill"
-            title="발행 기본 설정"
+            title="발행 기본값"
             done={props.settingsHealth.popbillReady && props.settingsHealth.operatorReady}
-            note="고객 등록과 세금계산서 발행에 필요한 회사 공통값입니다."
+            note="신규 고객 생성과 첫 발행 준비에 필요한 작업공간 공통값입니다."
           >
             <div className="settings-field-stack">
               <section className="settings-field-group">
                 <div className="settings-field-group-head">
-                  <strong>먼저 입력할 공통값</strong>
-                  <span>신규 고객 계정 생성과 기본 발행 처리에 쓰는 값입니다.</span>
+                  <strong>고객 생성과 발행에 쓰는 공통값</strong>
+                  <span>팝빌 접두어, 담당자 정보, 기본 비밀번호를 먼저 정리합니다.</span>
                 </div>
                 <div className="settings-defaults-grid">
                   <label className="settings-defaults-cell">
-                    신규 고객 계정 시작 문자
+                    팝빌 접두어
                     <input value={props.settingsForm.popbillUserIdPrefix} onChange={(event) => props.setSettingsForm((prev: any) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} placeholder="예: TEST_" />
-                    <span className="field-hint">예: `TEST_001` · 다른 작업공간과 겹치면 저장할 수 없습니다.</span>
+                    <span className="field-hint">예: `TEST_001` · 신규 고객 팝빌 아이디 앞에 붙고, 다른 작업공간과 겹치면 저장할 수 없습니다.</span>
                   </label>
                   <label className="settings-defaults-cell">
                     담당자 이름
@@ -264,7 +287,7 @@ export function SettingsTab(props: SettingsTabProps) {
                     </div>
                   </label>
                   <label className="settings-defaults-cell">
-                    발급용 임시번호
+                    공동인증서 발급용 임시번호
                     <div className="password-field">
                       <input
                         type={props.revealedFields.renewalIssuePassword ? "text" : "password"}
@@ -331,8 +354,8 @@ export function SettingsTab(props: SettingsTabProps) {
 
               <section className="settings-field-group">
                 <div className="settings-field-group-head">
-                  <strong>인증서 작업 도구</strong>
-                  <span>인증서 읽기나 갱신 준비가 필요할 때만 확인하면 됩니다.</span>
+                  <strong>로컬 헬퍼 준비</strong>
+                  <span>엑셀 양식 다운로드 전에 현재 PC의 공동인증서 읽기 상태를 먼저 확인합니다.</span>
                 </div>
                 <div className="helper-box-stack settings-helper-status-card">
                   <div className="settings-helper-status-head">
@@ -348,7 +371,7 @@ export function SettingsTab(props: SettingsTabProps) {
                         className="btn-secondary"
                         onClick={() => window.location.assign(props.renewalHelperDownloadUrl)}
                       >
-                        헬퍼 압축 다운로드
+                        헬퍼 다운로드
                       </button>
                       <button
                         type="button"
@@ -369,7 +392,7 @@ export function SettingsTab(props: SettingsTabProps) {
                   <div className="helper-box-stack settings-install-guide">
                     <strong>설치 안내</strong>
                     <span>
-                      고객 PC에서는 위 <code>헬퍼 압축 다운로드</code>로 받은 <code>renewal-local-helper</code> 압축을 푼 뒤 <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
+                      고객 PC에서는 위 <code>헬퍼 다운로드</code>로 받은 <code>renewal-local-helper</code> 압축을 푼 뒤 <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
                     </span>
                     <span>설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시 실행됩니다.</span>
                     <span>
@@ -541,4 +564,3 @@ export function SettingsTab(props: SettingsTabProps) {
     </div>
   );
 }
-

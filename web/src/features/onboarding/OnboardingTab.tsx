@@ -1,181 +1,178 @@
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
-import { Panel } from "../../components/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-type OnboardingStep = {
+type OnboardingStepTone = "default" | "muted";
+
+export type OnboardingStep = {
   id: string;
   step: number;
   title: string;
   summary: string;
+  why: string;
+  primaryActionLabel: string;
+  blockedReason?: string;
+  tone?: OnboardingStepTone;
   done: boolean;
+  content: React.ReactNode;
 };
 
-type OnboardingSectionId = "mail" | "defaults" | "registration" | "first-run";
-
 type OnboardingTabProps = {
-  setupPendingCount: number;
+  pendingStepCount: number;
   customerCount: number;
   quickRegisterMessageCount: number;
   pendingCertificateRegistrationCount: number;
   linkedCertificateCount: number;
   steps: OnboardingStep[];
+  requestedStepId?: string | null;
   onOpenSettings: () => void;
-  mailSetupContent: React.ReactNode;
-  defaultsContent: React.ReactNode;
-  registrationContent: React.ReactNode;
-  firstRunContent: React.ReactNode;
 };
 
 export function OnboardingTab(props: OnboardingTabProps) {
-  const stepToSectionId = (stepId: string): OnboardingSectionId => {
-    switch (stepId) {
-      case "mail":
-        return "mail";
-      case "defaults":
-        return "defaults";
-      case "customers":
-      case "certificates":
-        return "registration";
-      case "first-run":
-        return "first-run";
-      default:
-        return "mail";
-    }
-  };
-
-  const defaultActiveStepId = useMemo(
+  const recommendedStepId = useMemo(
     () => props.steps.find((step) => !step.done)?.id ?? props.steps[props.steps.length - 1]?.id ?? "mail",
     [props.steps]
   );
-  const [activeStepId, setActiveStepId] = useState(defaultActiveStepId);
+  const [activeStepId, setActiveStepId] = useState(recommendedStepId);
+  const previousRecommendedStepIdRef = useRef(recommendedStepId);
 
   useEffect(() => {
     setActiveStepId((current) => {
       const currentStep = props.steps.find((step) => step.id === current);
       if (!currentStep) {
-        return defaultActiveStepId;
+        return recommendedStepId;
       }
       return current;
     });
-  }, [defaultActiveStepId, props.steps]);
+  }, [recommendedStepId, props.steps]);
 
-  const activeStep = props.steps.find((step) => step.id === activeStepId) ?? props.steps[0] ?? null;
-  const activeStepIndex = activeStep ? props.steps.findIndex((step) => step.id === activeStep.id) : -1;
-  const previousStep = activeStepIndex > 0 ? props.steps[activeStepIndex - 1] : null;
-  const nextStep = activeStepIndex >= 0 && activeStepIndex < props.steps.length - 1 ? props.steps[activeStepIndex + 1] : null;
-  const activeSectionId = activeStep ? stepToSectionId(activeStep.id) : "mail";
-  const activeContent =
-    activeSectionId === "mail"
-      ? props.mailSetupContent
-      : activeSectionId === "defaults"
-        ? props.defaultsContent
-        : activeSectionId === "registration"
-          ? props.registrationContent
-          : props.firstRunContent;
-  const focusStep = (stepId: string) => {
-    setActiveStepId(stepId);
-    const sectionId = stepToSectionId(stepId);
+  useEffect(() => {
+    const previousRecommendedStepId = previousRecommendedStepIdRef.current;
+    if (previousRecommendedStepId !== recommendedStepId && activeStepId === previousRecommendedStepId) {
+      setActiveStepId(recommendedStepId);
+    }
+    previousRecommendedStepIdRef.current = recommendedStepId;
+  }, [activeStepId, recommendedStepId]);
+
+  useEffect(() => {
+    if (!props.requestedStepId || !props.steps.some((step) => step.id === props.requestedStepId)) {
+      return;
+    }
+
+    setActiveStepId(props.requestedStepId);
     window.requestAnimationFrame(() => {
-      document.getElementById(`onboarding-${sectionId}`)?.scrollIntoView({
+      document.getElementById("onboarding-active-step")?.scrollIntoView({
         behavior: "smooth",
         block: "start"
       });
     });
-  };
+  }, [props.requestedStepId, props.steps]);
+
+  const recommendedStep = props.steps.find((step) => step.id === recommendedStepId) ?? props.steps[0] ?? null;
+  const activeStep = props.steps.find((step) => step.id === activeStepId) ?? recommendedStep;
+  const activeStepIndex = activeStep ? props.steps.findIndex((step) => step.id === activeStep.id) : -1;
+  const activeStepNext = activeStepIndex >= 0 && activeStepIndex < props.steps.length - 1 ? props.steps[activeStepIndex + 1] : null;
+  const completedSteps = props.steps.filter((step) => step.done);
+  const remainingSteps = props.steps.filter((step) => !step.done);
+  const futureStepCount = activeStepIndex >= 0 ? Math.max(props.steps.length - activeStepIndex - 1, 0) : 0;
+  const activeStepStatusLabel = activeStep?.done
+    ? "완료한 단계"
+    : activeStep?.id === recommendedStepId
+      ? "현재 단계"
+      : "선택한 단계";
 
   return (
     <div className="onboarding-screen">
-      <Panel
-        className="panel-onboarding-overview"
-        title="첫 발행까지 5단계"
-        subtitle="단계만 바꿔서 아래에서 처리합니다."
-        actions={
-          <button type="button" className="btn-secondary" onClick={props.onOpenSettings}>
-            고급 설정 열기
-          </button>
-        }
-      >
-        <div className="onboarding-overview-head">
-          <div className="onboarding-overview-copy">
-            <strong>{props.setupPendingCount === 0 ? "기본 준비를 마쳤습니다." : `기본 준비 ${props.setupPendingCount}개가 남아 있습니다.`}</strong>
-            <span>남은 단계만 처리하면 됩니다.</span>
-          </div>
-          <div className="onboarding-overview-metrics">
-            <div>
-              <span>등록 고객</span>
-              <strong>{props.customerCount}명</strong>
-            </div>
-            <div>
-              <span>미등록 메일</span>
-              <strong>{props.quickRegisterMessageCount}건</strong>
-            </div>
-            <div>
-              <span>연결된 인증서</span>
-              <strong>{props.linkedCertificateCount}건</strong>
-            </div>
-            <div>
-              <span>자동 등록 남음</span>
-              <strong>{props.pendingCertificateRegistrationCount}건</strong>
-            </div>
-          </div>
-        </div>
-        <div className="onboarding-step-grid">
-          {props.steps.map((step) => (
-            <article
-              key={step.id}
-              className={[
-                "onboarding-step-card",
-                step.done ? "is-done" : "",
-                step.id === activeStepId ? "is-active" : ""
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              <div className="onboarding-step-card-head">
-                <div className="onboarding-step-title-row">
-                  <span className="setup-order">{step.step}</span>
-                  <strong>{step.title}</strong>
-                </div>
-                <span className={`chip ${step.done ? "chip-success" : "chip-warn"}`}>{step.done ? "완료" : "진행 필요"}</span>
-              </div>
-              <p>{step.summary}</p>
-              <button
-                type="button"
-                className={step.id === activeStepId ? "btn-primary" : "btn-secondary"}
-                onClick={() => focusStep(step.id)}
-              >
-                {step.id === activeStepId ? "현재 단계" : "이 단계 열기"}
-              </button>
-            </article>
-          ))}
-        </div>
-      </Panel>
-
       {activeStep ? (
-        <div className="onboarding-flow-stack">
-          <section className="onboarding-active-stage">
-            <div className="onboarding-active-stage-head">
-              <div className="onboarding-active-stage-copy">
-                <span className="chip chip-default">현재 단계 {activeStep.step}</span>
-                <strong>{activeStep.title}</strong>
-                <p>{activeStep.summary}</p>
+        <section className={activeStep.tone === "muted" ? "onboarding-wizard-shell is-muted" : "onboarding-wizard-shell"} id="onboarding-active-step">
+          <header className={activeStep.tone === "muted" ? "onboarding-wizard-hero is-muted" : "onboarding-wizard-hero"}>
+            <div className="onboarding-wizard-progress-row">
+              <span className={activeStep.done ? "chip chip-success" : activeStep.id === recommendedStepId ? "chip chip-warn" : "chip"}>
+                {activeStepStatusLabel}
+              </span>
+              <span className="onboarding-wizard-progress-count">{`${activeStep.step}/${props.steps.length} 단계`}</span>
+            </div>
+
+            <div className="onboarding-wizard-copy">
+              <strong>{activeStep.title}</strong>
+              <p>{activeStep.why}</p>
+            </div>
+
+            <div className="onboarding-wizard-focus">
+              <div>
+                <span>지금 눌러야 할 버튼</span>
+                <strong>{activeStep.primaryActionLabel}</strong>
               </div>
-              <div className="onboarding-active-stage-actions">
-                <button type="button" className="btn-secondary" disabled={!previousStep} onClick={() => previousStep && focusStep(previousStep.id)}>
-                  이전 단계
-                </button>
-                <button type="button" className="btn-secondary" disabled={!nextStep} onClick={() => nextStep && focusStep(nextStep.id)}>
-                  다음 단계
-                </button>
+              <div>
+                <span>끝나면 다음</span>
+                <strong>
+                  {activeStepNext ? `${activeStepNext.step}단계 · ${activeStepNext.title}` : "첫 발행 확인까지 마쳤습니다."}
+                </strong>
               </div>
             </div>
 
-            <section className="onboarding-flow-section" id={`onboarding-${activeSectionId}`}>
-              {activeContent}
-            </section>
-          </section>
-        </div>
+            <div className={activeStep.tone === "muted" ? "onboarding-wizard-current-note is-muted" : "onboarding-wizard-current-note"}>
+              <strong>{activeStep.summary}</strong>
+              <span>
+                {!activeStep.done && activeStep.blockedReason
+                  ? activeStep.blockedReason
+                  : activeStep.done
+                  ? "완료한 단계 내용은 아래에서 다시 확인할 수 있습니다."
+                  : activeStep.id === recommendedStepId
+                    ? "지금은 이 단계만 보고, 나머지 단계는 아래 약한 진행 요약으로만 확인하면 됩니다."
+                    : "지금 해야 할 단계가 따로 있어도, 이 단계만 미리 열어 확인할 수 있습니다."}
+              </span>
+            </div>
+          </header>
+
+          <section className="onboarding-flow-section">{activeStep.content}</section>
+        </section>
       ) : null}
+
+      <section className="onboarding-progress-footer">
+        <div className="onboarding-progress-block">
+          <span className="onboarding-progress-label">완료한 단계</span>
+          {completedSteps.length > 0 ? (
+            <ul className="onboarding-progress-list">
+              {completedSteps.map((step) => (
+                <li key={`completed-${step.id}`}>{`${step.step}단계 · ${step.title}`}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="onboarding-progress-note">아직 완료한 단계가 없습니다.</p>
+          )}
+        </div>
+
+        <div className="onboarding-progress-block is-current">
+          <span className="onboarding-progress-label">지금 위치</span>
+          <strong>{activeStep ? `${activeStep.step}단계 · ${activeStep.title}` : "단계를 확인하는 중입니다."}</strong>
+          <p className="onboarding-progress-note">
+            {props.pendingStepCount === 0
+              ? "첫 발행까지 필요한 기본 흐름을 모두 확인했습니다."
+              : `남은 기본 단계 ${remainingSteps.length}개 중 현재 단계 1개만 크게 보여줍니다.`}
+          </p>
+        </div>
+
+        <div className="onboarding-progress-block">
+          <span className="onboarding-progress-label">다음 미리 보기</span>
+          <strong>{activeStepNext ? `${activeStepNext.step}단계 · ${activeStepNext.title}` : "이후 남은 단계가 없습니다."}</strong>
+          <p className="onboarding-progress-note">
+            {futureStepCount > 1 ? `이후 ${futureStepCount - 1}단계는 지금 숨겨 두고, 다음 단계가 끝날 때만 순서대로 드러납니다.` : "먼 미래 단계는 여기서 크게 보이지 않게 유지합니다."}
+          </p>
+        </div>
+
+        <details className="onboarding-advanced-details onboarding-progress-details">
+          <summary>문제 해결 / 작업공간 설정은 필요할 때만 보기</summary>
+          <div className="helper-box-stack">
+            <strong>메인 흐름 밖의 보조 작업</strong>
+            <span>설정 수정, 상태 재확인, 문제 해결은 현재 단계를 끝내는 데 꼭 필요할 때만 여세요.</span>
+            <div className="button-row">
+              <button type="button" className="btn-secondary" onClick={props.onOpenSettings}>
+                작업공간 설정 열기
+              </button>
+            </div>
+          </div>
+        </details>
+      </section>
     </div>
   );
 }

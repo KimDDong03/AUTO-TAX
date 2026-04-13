@@ -37,7 +37,6 @@ export type CustomerOnboardingTemplateWorkbookInput = {
     rowIndex: number;
     certificateIndex: string;
     certificateKindLabel: string;
-    linkBusinessNumber: string;
     certificateName: string;
     usageName: string;
     issuerName: string;
@@ -49,7 +48,7 @@ export type CustomerOnboardingTemplateWorkbookInput = {
     certificateIndex: string;
     certificateName: string;
     plantName: string;
-    matchAddress: string;
+    certificatePassword: string;
   }>;
 };
 
@@ -163,16 +162,17 @@ export function downloadCustomerOnboardingTemplate(
 ) {
   const workbook = XLSX.utils.book_new();
   const electronicTaxCertificates = certificates.filter((certificate) => certificate.usageToName.includes("전자세금"));
+  const generalCertificates = certificates.filter((certificate) => !certificate.usageToName.includes("전자세금"));
 
   const guideRows = [
     ["시트", "작성 방법"],
-    ["공동인증서", "이 PC에서 읽은 공동인증서 목록이 자동으로 들어갑니다. 전자세금용은 고객 생성 기준으로 쓰고, 범용 공동인증서는 같은 이름과 주소의 고객이면 자동 연결합니다. 자동 연결이 안 되면 `연결할 사업자번호`를 적어 같은 고객에 추가 연결합니다. `인증서 비밀번호`가 비어 있으면 시스템 설정의 공통 비밀번호를 사용합니다."],
-    ["발전소", "메일과 매칭할 태양광 설치 주소를 적습니다. 전자세금용 공동인증서 기준으로만 작성하면 됩니다. 사업자 주소와 다른 태양광 주소를 여기에 적습니다."],
-    ["업로드 순서", "1) 양식 다운로드 2) 인증서 비밀번호 입력 3) 범용 공동인증서는 같은 이름과 주소면 자동 연결 확인, 아니면 연결할 사업자번호 입력 4) 전자세금용 인증서에 맞춰 발전소 주소 입력 5) 양식 업로드"]
+    ["공동인증서", "이 시트에는 전자세금용을 제외한 범용 공동인증서만 들어갑니다. 연결 정보는 적지 않고 인증서 비밀번호만 입력하면 됩니다. 업로드 후 사이트가 이번 등록 고객만 대상으로 자동 연결을 시도합니다. 비밀번호가 비어 있으면 시스템 설정의 공통 비밀번호를 사용합니다."],
+    ["발전소", "이 시트가 고객 등록 기준입니다. 전자세금용 공동인증서만 자동으로 들어가며, 등록할 대상 행만 남기고 나머지는 삭제하거나 비워 두세요. 행이 남아 있으면 등록 대상으로 보고, 완전히 빈 행은 오류 없이 건너뜁니다. 주소 예외는 첫 동기화 후 도입 준비의 미매칭 메일 예외 처리 단계에서 수동 처리합니다."],
+    ["업로드 순서", "1) 로컬 헬퍼 실행 후 공동인증서 읽기 확인 2) 양식 다운로드 3) 발전소 시트에서 등록할 고객 행만 남기고 발전소명과 필요 시 인증서 비밀번호 입력 4) 공동인증서 시트에 범용 인증서 비밀번호 입력 5) 양식 업로드 후 고객 등록 및 범용 인증서 자동 연결 결과 확인 6) 전자세금용 후속 등록과 첫 메일 동기화 뒤 예외 메일만 수동 처리"]
   ];
   const certificateRows = [
-    ["로컬인증서번호", "인증서 종류", "인증서명(CN)", "용도표시명", "발급기관", "만료일", "연결할 사업자번호", "인증서 비밀번호"],
-    ...certificates.map((certificate) => [
+    ["로컬인증서번호", "인증서 종류", "인증서명(CN)", "용도표시명", "발급기관", "만료일", "인증서 비밀번호"],
+    ...generalCertificates.map((certificate) => [
       String(certificate.index),
       certificate.usageToName.includes("전자세금")
         ? "전자세금용"
@@ -185,12 +185,11 @@ export function downloadCustomerOnboardingTemplate(
       certificate.usageToName,
       certificate.issuerToName,
       buildCertificateExpireDate(certificate),
-      "",
       ""
     ])
   ];
   const plantRows = [
-    ["로컬인증서번호", "인증서명(CN)", "발전소명", "메일 매칭 주소"],
+    ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"],
     ...electronicTaxCertificates.map((certificate) => [String(certificate.index), certificate.cn, "", ""])
   ];
 
@@ -250,9 +249,8 @@ export async function parseCustomerOnboardingWorkbook(
         const usageName = getCell(row, certificateHeaderMap, "용도표시명", "용도");
         const issuerName = getCell(row, certificateHeaderMap, "발급기관", "기관");
         const expireDate = getCell(row, certificateHeaderMap, "만료일");
-        const linkBusinessNumber = getCell(row, certificateHeaderMap, "연결할 사업자번호", "사업자번호");
         const certificatePassword = getCell(row, certificateHeaderMap, "인증서 비밀번호", "비밀번호");
-        if (!certificateIndex && !certificateKindLabel && !certificateName && !usageName && !issuerName && !expireDate && !linkBusinessNumber && !certificatePassword) {
+        if (!certificateIndex && !certificateKindLabel && !certificateName && !usageName && !issuerName && !expireDate && !certificatePassword) {
           return [];
         }
 
@@ -261,7 +259,6 @@ export async function parseCustomerOnboardingWorkbook(
             rowIndex: index + 2,
             certificateIndex,
             certificateKindLabel,
-            linkBusinessNumber,
             certificateName,
             usageName,
             issuerName,
@@ -274,8 +271,8 @@ export async function parseCustomerOnboardingWorkbook(
         const certificateIndex = getCell(row, plantHeaderMap, "로컬인증서번호", "인증서번호", "인증서 index");
         const certificateName = getCell(row, plantHeaderMap, "인증서명(CN)", "인증서명", "CN");
         const plantName = getCell(row, plantHeaderMap, "발전소명", "설치명");
-        const matchAddress = getCell(row, plantHeaderMap, "메일 매칭 주소", "발전소 주소", "매칭 주소");
-        if (!certificateIndex && !certificateName && !plantName && !matchAddress) {
+        const certificatePassword = getCell(row, plantHeaderMap, "인증서 비밀번호", "비밀번호");
+        if (!certificateIndex && !certificateName && !plantName && !certificatePassword) {
           return [];
         }
 
@@ -285,7 +282,7 @@ export async function parseCustomerOnboardingWorkbook(
             certificateIndex,
             certificateName,
             plantName,
-            matchAddress
+            certificatePassword
           }
         ];
       })

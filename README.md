@@ -1,5 +1,8 @@
 # AUTO-TAX
 
+AUTO-TAX는 한전 정산 메일을 읽고, 고객/인증서 준비 상태를 확인한 뒤, 세금계산서 초안 생성과 발행을 자동화하는 도구입니다.
+흐름은 `입력(메일 연결·고객 등록·인증서 준비) → 자동화(메일 파싱·초안 생성·발행) → 사람 검수/예외 처리(미매칭 메일·발행 막힘 해결)` 순서로 이해하면 됩니다.
+
 KEPCO solar mail ingestion + invoice draft/issuance system for solar operators. Current product shape is a multi-tenant web app with workspace auth, Popbill integration, IMAP ingestion, and local certificate assistance.
 
 ## Start

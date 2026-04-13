@@ -2,11 +2,11 @@ import type React from "react";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api, setActiveOrganizationId } from "./api";
-import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, SetupPanel, StatCard } from "./components/ui";
+import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
 import { CertificatesTab } from "./features/certificates/CertificatesTab";
 import { CustomersTab } from "./features/customers/CustomersTab";
-import { InitialRegistrationTab } from "./features/initial-registration/InitialRegistrationTab";
-import { OnboardingTab } from "./features/onboarding/OnboardingTab";
+import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
+import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
 import {
   downloadCustomerOnboardingTemplate,
   parseCustomerOnboardingWorkbook,
@@ -110,6 +110,12 @@ type CustomerOnboardingResolutionResult = {
   errors: string[];
 };
 
+type CustomerOnboardingSessionState = {
+  templateDownloaded: boolean;
+  previewReady: boolean;
+  commitDone: boolean;
+};
+
 type InternalJobDispatchResponse = {
   ok: true;
   accessMode: "secret" | "ops";
@@ -125,6 +131,12 @@ type InternalJobRunResponse = {
   claimed: number;
   completed: number;
   failed: number;
+};
+
+const emptyCustomerOnboardingSessionState: CustomerOnboardingSessionState = {
+  templateDownloaded: false,
+  previewReady: false,
+  commitDone: false
 };
 
 function shouldLoadMailboxData(activeTab: TabId, customerDetailTab: CustomerDetailTabId): boolean {
@@ -1981,25 +1993,43 @@ function getCustomerOnboardingTemplateCertificateLabel(row: {
   return row.certificateName.trim() || (row.certificateIndex.trim() ? `인증서 #${row.certificateIndex.trim()}` : "인증서");
 }
 
-function matchesCustomerOnboardingTemplateCertificate(
-  certificate: {
-    certificateIndex: string;
-    certificateName: string;
-  },
-  plant: {
-    certificateIndex: string;
-    certificateName: string;
+function deriveCustomerOnboardingTemplateCertificateKind(row: {
+  certificateKindLabel: string;
+  usageName: string;
+}): CustomerCertificateKind {
+  const normalized = `${row.certificateKindLabel} ${row.usageName}`.replace(/\s+/g, "");
+  if (normalized.includes("전자세금")) {
+    return "electronic_tax";
   }
-) {
-  const certificateIndex = normalizeRenewalCertificateKey(certificate.certificateIndex);
-  const plantIndex = normalizeRenewalCertificateKey(plant.certificateIndex);
-  if (certificateIndex && plantIndex) {
-    return certificateIndex === plantIndex;
+  if (normalized.includes("개인") && normalized.includes("범용")) {
+    return "general_personal";
   }
+  if (normalized.includes("사업자") && normalized.includes("범용")) {
+    return "general_business";
+  }
+  return "unknown";
+}
 
-  const certificateName = normalizeRenewalCertificateKey(certificate.certificateName);
-  const plantName = normalizeRenewalCertificateKey(plant.certificateName);
-  return Boolean(certificateName && plantName && certificateName === plantName);
+function findMatchingRenewalCertificateFromList(
+  certificates: RenewalAgentCertificate[],
+  selection: {
+    certificateIndex: string;
+    certificateName: string;
+  }
+): RenewalAgentCertificate | null {
+  return (
+    certificates.find((certificate) =>
+      matchesRenewalCertificate(certificate, {
+        certificateIndex: selection.certificateIndex,
+        certificateCn: selection.certificateName
+      })
+    ) ??
+    certificates.find(
+      (certificate) =>
+        normalizeRenewalCertificateKey(certificate.cn) === normalizeRenewalCertificateKey(selection.certificateName)
+    ) ??
+    null
+  );
 }
 
 function getCustomerDraftSnapshotForCertificate(
@@ -2116,6 +2146,7 @@ export function App() {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     return getTabFromHash(hash) ?? "work";
   });
+  const [requestedOnboardingStepId, setRequestedOnboardingStepId] = useState<string | null>(null);
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
   const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [customerListFilter, setCustomerListFilter] = useState<CustomerListFilter>("all");
@@ -2144,7 +2175,11 @@ export function App() {
   const [customerImportNotice, setCustomerImportNotice] = useState("");
   const [customerOnboardingFileName, setCustomerOnboardingFileName] = useState("");
   const [customerOnboardingWorkbook, setCustomerOnboardingWorkbook] = useState<CustomerOnboardingWorkbookInput | null>(null);
+  const [customerOnboardingTemplateWorkbook, setCustomerOnboardingTemplateWorkbook] =
+    useState<CustomerOnboardingTemplateWorkbookInput | null>(null);
   const [customerOnboardingPreview, setCustomerOnboardingPreview] = useState<CustomerOnboardingPreviewResponse | null>(null);
+  const [customerOnboardingSessionState, setCustomerOnboardingSessionState] =
+    useState<CustomerOnboardingSessionState>(emptyCustomerOnboardingSessionState);
   const [customerOnboardingNotice, setCustomerOnboardingNotice] = useState("");
   const [customerOnboardingError, setCustomerOnboardingError] = useState("");
   const [quickRegisterForm, setQuickRegisterForm] = useState<QuickRegisterFormState>(createQuickRegisterForm());
@@ -2695,6 +2730,27 @@ export function App() {
   }, [
     activeTab,
     activeSettingsSection,
+    customerRenewalAssistant?.helperCheckedAt,
+    data?.auth.activeOrganizationId,
+    data?.auth.activeOrganizationRole
+  ]);
+
+  useEffect(() => {
+    if (activeTab !== "onboarding") {
+      return;
+    }
+
+    if (!data?.auth.activeOrganizationId || data.auth.activeOrganizationRole === "viewer") {
+      return;
+    }
+
+    if (customerRenewalAssistant?.helperCheckedAt) {
+      return;
+    }
+
+    void refreshCustomerRenewalAssistant().catch(() => undefined);
+  }, [
+    activeTab,
     customerRenewalAssistant?.helperCheckedAt,
     data?.auth.activeOrganizationId,
     data?.auth.activeOrganizationRole
@@ -3296,8 +3352,6 @@ export function App() {
     const bridgeProbe = await requestLocalRenewalBridgeProbe();
     const availableCertificates = bridgeProbe.result.bridge.storageProbe.ok ? bridgeProbe.result.bridge.storageProbe.certificates : [];
     const errors: string[] = [];
-    const existingCustomers = data?.customers ?? [];
-    const existingCustomerCertificates = data?.customerCertificates ?? [];
     const customersByBusinessNumber = new Map<
       string,
       {
@@ -3311,25 +3365,15 @@ export function App() {
         renewalContactMobile: string;
         memo: string;
         fallbackAddress: string;
-        plantNames: Set<string>;
-        matchAddresses: Set<string>;
+        plantRows: Array<{
+          rowIndex: number;
+          plantName: string;
+        }>;
         certificateRows: CustomerOnboardingWorkbookInput["certificates"];
       }
     >();
-    const existingCustomersByBusinessNumber = new Map(
-      existingCustomers.map((customer) => [digitsOnly(customer.businessNumber), customer] as const)
-    );
-    const existingCustomersById = new Map(existingCustomers.map((customer) => [customer.id, customer] as const));
     let resolvedCertificateCount = 0;
     let skippedCertificateCount = 0;
-
-    const resolvedTemplateCertificates: Array<{
-      row: CustomerOnboardingTemplateWorkbookInput["certificates"][number];
-      matchedCertificate: RenewalAgentCertificate;
-      certificateLabel: string;
-      effectivePassword: string;
-      certificateKind: CustomerCertificateKind;
-    }> = [];
 
     const ensureWorkbookCustomerEntry = (
       businessNumber: string,
@@ -3363,137 +3407,131 @@ export function App() {
         renewalContactMobile: options.renewalContactMobile.trim(),
         memo: "",
         fallbackAddress: options.fallbackAddress.trim(),
-        plantNames: new Set<string>(),
-        matchAddresses: new Set<string>(),
+        plantRows: [],
         certificateRows: []
       };
       customersByBusinessNumber.set(businessNumber, createdEntry);
       return createdEntry;
     };
 
-    const applyMatchedPlantRowsToEntry = (
-      certificateRow: CustomerOnboardingTemplateWorkbookInput["certificates"][number],
+    const applyPlantRowsToEntry = (
+      plantRows: CustomerOnboardingTemplateWorkbookInput["plants"],
+      fallbackPlantName: string,
       entry: ReturnType<typeof ensureWorkbookCustomerEntry>
     ) => {
-      for (const plantRow of templateWorkbook.plants.filter((plant) =>
-        matchesCustomerOnboardingTemplateCertificate(certificateRow, plant)
-      )) {
-        const matchAddress = plantRow.matchAddress.trim();
-        if (!matchAddress) {
-          continue;
-        }
-
-        entry.matchAddresses.add(matchAddress);
-        entry.plantNames.add(plantRow.plantName.trim() || certificateRow.certificateName.trim() || entry.corpName);
+      for (const plantRow of plantRows) {
+        entry.plantRows.push({
+          rowIndex: plantRow.rowIndex,
+          plantName: plantRow.plantName.trim() || fallbackPlantName.trim() || entry.corpName
+        });
       }
     };
 
-    const findAutoLinkBusinessNumber = async (
-      certificate: RenewalAgentCertificate,
-      certificatePassword: string
-    ) => {
-      const response = await requestLocalRenewalPreflight({
-        certificateIndex: Number(certificate.index),
-        certificateCn: certificate.cn || null,
-        certificatePassword
+    const plantCertificateGroups = Array.from(
+      templateWorkbook.plants
+        .reduce(
+          (groups, plantRow) => {
+            const key =
+              normalizeRenewalCertificateKey(plantRow.certificateIndex) ||
+              `name:${normalizeRenewalCertificateKey(plantRow.certificateName)}`;
+            if (!key) {
+              errors.push(`발전소 시트 ${plantRow.rowIndex}행: 로컬인증서번호 또는 인증서명(CN)을 확인하세요.`);
+              skippedCertificateCount += 1;
+              return groups;
+            }
+
+            const existingGroup = groups.get(key);
+            if (existingGroup) {
+              existingGroup.plantRows.push(plantRow);
+              return groups;
+            }
+
+            groups.set(key, {
+              certificateIndex: plantRow.certificateIndex,
+              certificateName: plantRow.certificateName,
+              plantRows: [plantRow]
+            });
+            return groups;
+          },
+          new Map<
+            string,
+            {
+              certificateIndex: string;
+              certificateName: string;
+              plantRows: CustomerOnboardingTemplateWorkbookInput["plants"];
+            }
+          >()
+        )
+        .values()
+    );
+    const electronicTaxSelections: Array<{
+      rowIndex: number;
+      certificateIndex: string;
+      certificateName: string;
+      certificateLabel: string;
+      matchedCertificate: RenewalAgentCertificate;
+      effectivePassword: string;
+      plantRows: CustomerOnboardingTemplateWorkbookInput["plants"];
+      certificatePassword: string;
+    }> = [];
+
+    for (const plantGroup of plantCertificateGroups) {
+      const certificateLabel = getCustomerOnboardingTemplateCertificateLabel({
+        certificateIndex: plantGroup.certificateIndex,
+        certificateName: plantGroup.certificateName
       });
-      const snapshot = response.result.bridge.preflightProbe?.renewInfoSnapshot;
-      if (!response.result.bridge.preflightProbe?.ok || !snapshot) {
-        return null;
-      }
-
-      const candidateBusinessNumbers = new Set<string>();
-      for (const customer of data?.customers ?? []) {
-        if (!matchesCustomerCertificateAutoLinkFromSnapshot(certificate, snapshot, customer)) {
-          continue;
-        }
-        const businessNumber = digitsOnly(customer.businessNumber);
-        if (businessNumber) {
-          candidateBusinessNumbers.add(businessNumber);
-        }
-      }
-
-      for (const entry of customersByBusinessNumber.values()) {
-        if (matchesCustomerCertificateAutoLinkFromSnapshot(certificate, snapshot, entry)) {
-          candidateBusinessNumbers.add(entry.businessNumber);
-        }
-      }
-
-      if (candidateBusinessNumbers.size !== 1) {
-        return null;
-      }
-
-      return Array.from(candidateBusinessNumbers)[0] ?? null;
-    };
-
-    for (const certificateRow of templateWorkbook.certificates) {
-      const certificateLabel = getCustomerOnboardingTemplateCertificateLabel(certificateRow);
-      const matchedCertificate =
-        availableCertificates.find((certificate) =>
-          matchesRenewalCertificate(certificate, {
-            certificateIndex: certificateRow.certificateIndex,
-            certificateCn: certificateRow.certificateName
-          })
-        ) ??
-        availableCertificates.find(
-          (certificate) =>
-            normalizeRenewalCertificateKey(certificate.cn) === normalizeRenewalCertificateKey(certificateRow.certificateName)
-        ) ??
-        null;
-
+      const matchedCertificate = findMatchingRenewalCertificateFromList(availableCertificates, plantGroup);
       if (!matchedCertificate) {
-        errors.push(`공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 이 PC에서 같은 공동인증서를 다시 찾지 못했습니다.`);
+        errors.push(`발전소 시트 (${certificateLabel}): 이 PC에서 같은 전자세금용 공동인증서를 다시 찾지 못했습니다.`);
         skippedCertificateCount += 1;
         continue;
       }
 
-      const effectivePassword = certificateRow.certificatePassword.trim() || sharedPassword;
+      if (deriveCustomerCertificateKind(matchedCertificate as RenewalAgentCertificate) !== "electronic_tax") {
+        errors.push(`발전소 시트 (${certificateLabel}): 전자세금용 공동인증서만 고객 등록에 사용할 수 있습니다.`);
+        skippedCertificateCount += 1;
+        continue;
+      }
+
+      const explicitPlantPasswords = Array.from(
+        new Set(plantGroup.plantRows.map((row) => row.certificatePassword.trim()).filter(Boolean))
+      );
+      if (explicitPlantPasswords.length > 1) {
+        errors.push(`발전소 시트 (${certificateLabel}): 같은 인증서에 서로 다른 인증서 비밀번호가 입력되어 있습니다.`);
+        skippedCertificateCount += 1;
+        continue;
+      }
+
+      const enteredPlantPassword = explicitPlantPasswords[0] ?? "";
+      const effectivePassword = enteredPlantPassword || sharedPassword;
       if (!effectivePassword) {
-        errors.push(`공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 인증서 비밀번호를 입력하세요. 비워둘 경우 시스템 설정의 공통 비밀번호가 필요합니다.`);
+        errors.push(
+          `발전소 시트 (${certificateLabel}): 인증서 비밀번호를 입력하거나 시스템 설정의 공통 비밀번호를 먼저 저장하세요.`
+        );
         skippedCertificateCount += 1;
         continue;
       }
 
-      resolvedTemplateCertificates.push({
-        row: certificateRow,
-        matchedCertificate: matchedCertificate as RenewalAgentCertificate,
+      electronicTaxSelections.push({
+        rowIndex: plantGroup.plantRows[0]?.rowIndex ?? 0,
+        certificateIndex: plantGroup.certificateIndex,
+        certificateName: plantGroup.certificateName,
         certificateLabel,
+        matchedCertificate: matchedCertificate as RenewalAgentCertificate,
         effectivePassword,
-        certificateKind: deriveCustomerCertificateKind(matchedCertificate as RenewalAgentCertificate)
+        plantRows: plantGroup.plantRows,
+        certificatePassword: enteredPlantPassword
       });
     }
 
     const electronicTaxResults = await mapWithConcurrency(
-      resolvedTemplateCertificates.filter((item) => item.certificateKind === "electronic_tax"),
+      electronicTaxSelections,
       onboardingPreflightConcurrency,
-      async (resolvedCertificate) => {
-        const { row: certificateRow, matchedCertificate, certificateLabel, effectivePassword } = resolvedCertificate;
-        const linkedStoredCertificate = findStoredCustomerCertificateForLocalCertificate(
-          matchedCertificate,
-          existingCustomerCertificates
-        );
-        const linkedCustomer = linkedStoredCertificate
-          ? existingCustomersById.get(linkedStoredCertificate.customerId) ?? null
-          : null;
-
-        if (linkedCustomer) {
-          return {
-            ok: true as const,
-            certificateRow,
-            matchedCertificate,
-            businessNumber: digitsOnly(linkedCustomer.businessNumber),
-            customerName: linkedCustomer.customerName,
-            corpName: linkedCustomer.corpName,
-            addr: linkedCustomer.addr,
-            bizType: linkedCustomer.bizType,
-            bizClass: linkedCustomer.bizClass,
-            renewalContactMobile: linkedCustomer.renewalContactMobile
-          };
-        }
-
+      async (selection) => {
+        const { matchedCertificate, certificateLabel, effectivePassword } = selection;
         const response = await requestLocalRenewalPreflight({
           certificateIndex: Number(matchedCertificate.index),
-          certificateCn: matchedCertificate.cn || certificateRow.certificateName || null,
+          certificateCn: matchedCertificate.cn || selection.certificateName || null,
           certificatePassword: effectivePassword
         });
         const preflightProbe = response.result.bridge.preflightProbe;
@@ -3501,7 +3539,7 @@ export function App() {
         if (!preflightProbe?.ok || !snapshot) {
           return {
             ok: false as const,
-            message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): ${
+            message: `발전소 시트 (${certificateLabel}): ${
               preflightProbe?.error ?? preflightProbe?.message ?? "사업자 정보를 읽지 못했습니다."
             }`
           };
@@ -3510,7 +3548,7 @@ export function App() {
         const basePayload = buildCustomerCreatePayloadFromRenewalSnapshot(
           {
             index: String(matchedCertificate.index),
-            cn: matchedCertificate.cn || certificateRow.certificateName || certificateLabel
+            cn: matchedCertificate.cn || selection.certificateName || certificateLabel
           } as RenewalAgentCertificate,
           snapshot
         );
@@ -3518,13 +3556,13 @@ export function App() {
         if (!businessNumber) {
           return {
             ok: false as const,
-            message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 사업자번호를 읽지 못했습니다.`
+            message: `발전소 시트 (${certificateLabel}): 사업자번호를 읽지 못했습니다.`
           };
         }
 
         return {
           ok: true as const,
-          certificateRow,
+          selection,
           matchedCertificate,
           businessNumber,
           customerName: basePayload.customerName,
@@ -3545,7 +3583,7 @@ export function App() {
       }
 
       const entry = ensureWorkbookCustomerEntry(result.businessNumber, {
-        rowIndex: result.certificateRow.rowIndex,
+        rowIndex: result.selection.rowIndex,
         customerName: result.customerName,
         corpName: result.corpName,
         addr: result.addr,
@@ -3555,98 +3593,20 @@ export function App() {
         fallbackAddress: result.addr
       });
 
-      applyMatchedPlantRowsToEntry(result.certificateRow, entry);
+      applyPlantRowsToEntry(
+        result.selection.plantRows,
+        result.matchedCertificate.cn?.trim() || result.selection.certificateLabel,
+        entry
+      );
       entry.certificateRows.push({
-        rowIndex: result.certificateRow.rowIndex,
+        rowIndex: result.selection.rowIndex,
         businessNumber: result.businessNumber,
         certificateKind: "electronic_tax",
-        certificateName:
-          result.matchedCertificate.cn?.trim() || result.certificateRow.certificateName.trim() || entry.corpName,
+        certificateName: result.matchedCertificate.cn?.trim() || result.selection.certificateName.trim() || entry.corpName,
         certificateUsageName: "전자세금용",
-        issuerName: result.certificateRow.issuerName.trim() || result.matchedCertificate.issuerToName.trim(),
-        certificatePassword: result.certificateRow.certificatePassword.trim(),
+        issuerName: result.matchedCertificate.issuerToName.trim(),
+        certificatePassword: result.selection.certificatePassword,
         isPrimary: entry.certificateRows.length === 0
-      });
-      resolvedCertificateCount += 1;
-    }
-
-    const generalCertificateResults = await mapWithConcurrency(
-      resolvedTemplateCertificates.filter((item) => item.certificateKind !== "electronic_tax"),
-      onboardingPreflightConcurrency,
-      async (resolvedCertificate) => {
-        const { row: certificateRow, matchedCertificate, certificateLabel, effectivePassword, certificateKind } =
-          resolvedCertificate;
-        const linkedStoredCertificate = findStoredCustomerCertificateForLocalCertificate(
-          matchedCertificate,
-          existingCustomerCertificates
-        );
-        const linkedCustomer = linkedStoredCertificate
-          ? existingCustomersById.get(linkedStoredCertificate.customerId) ?? null
-          : null;
-        const linkedBusinessNumber =
-          digitsOnly(certificateRow.linkBusinessNumber) ||
-          digitsOnly(linkedCustomer?.businessNumber ?? "") ||
-          (await findAutoLinkBusinessNumber(matchedCertificate, effectivePassword)) ||
-          "";
-
-        if (!linkedBusinessNumber) {
-          return {
-            ok: false as const,
-            message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 같은 이름과 주소의 고객을 자동으로 찾지 못했습니다. \`연결할 사업자번호\`를 적어주세요.`
-          };
-        }
-
-        return {
-          ok: true as const,
-          certificateRow,
-          matchedCertificate,
-          certificateKind,
-          linkedBusinessNumber
-        };
-      }
-    );
-
-    for (const result of generalCertificateResults) {
-      if (!result.ok) {
-        errors.push(result.message);
-        skippedCertificateCount += 1;
-        continue;
-      }
-
-      const existingCustomer = existingCustomersByBusinessNumber.get(result.linkedBusinessNumber) ?? null;
-      const entry =
-        customersByBusinessNumber.get(result.linkedBusinessNumber) ??
-        (existingCustomer
-          ? ensureWorkbookCustomerEntry(result.linkedBusinessNumber, {
-              rowIndex: result.certificateRow.rowIndex,
-              customerName: existingCustomer.customerName,
-              corpName: existingCustomer.corpName,
-              addr: existingCustomer.addr,
-              bizType: existingCustomer.bizType,
-              bizClass: existingCustomer.bizClass,
-              renewalContactMobile: existingCustomer.renewalContactMobile,
-              fallbackAddress: existingCustomer.addr
-            })
-          : null);
-
-      if (!entry) {
-        errors.push(
-          `공동인증서 ${result.certificateRow.rowIndex}행 (${result.certificateRow.certificateName || result.matchedCertificate.cn || "공동인증서"}): 연결할 사업자번호 ${result.linkedBusinessNumber} 고객을 찾지 못했습니다.`
-        );
-        skippedCertificateCount += 1;
-        continue;
-      }
-
-      entry.certificateRows.push({
-        rowIndex: result.certificateRow.rowIndex,
-        businessNumber: result.linkedBusinessNumber,
-        certificateKind: result.certificateKind,
-        certificateName:
-          result.matchedCertificate.cn?.trim() || result.certificateRow.certificateName.trim() || entry.corpName,
-        certificateUsageName: result.matchedCertificate.usageToName?.trim() || result.certificateRow.usageName.trim(),
-        issuerName: result.certificateRow.issuerName.trim() || result.matchedCertificate.issuerToName.trim(),
-        certificatePassword: result.certificateRow.certificatePassword.trim(),
-        isPrimary: false
       });
       resolvedCertificateCount += 1;
     }
@@ -3658,12 +3618,16 @@ export function App() {
     };
 
     for (const entry of customersByBusinessNumber.values()) {
-      const matchAddresses =
-        entry.matchAddresses.size > 0
-          ? Array.from(entry.matchAddresses)
-          : entry.fallbackAddress
-            ? [entry.fallbackAddress]
-            : [];
+      const defaultMatchAddress = entry.addr.trim() || entry.fallbackAddress.trim();
+      const plantRows =
+        entry.plantRows.length > 0
+          ? entry.plantRows
+          : [
+              {
+                rowIndex: entry.rowIndex,
+                plantName: entry.corpName
+              }
+            ];
 
       workbook.customers.push({
         rowIndex: entry.rowIndex,
@@ -3677,11 +3641,11 @@ export function App() {
         memo: entry.memo
       });
       workbook.plants.push(
-        ...Array.from(matchAddresses).map((matchAddress, index) => ({
-          rowIndex: entry.rowIndex * 100 + index,
+        ...plantRows.map((plantRow, index) => ({
+          rowIndex: plantRow.rowIndex || entry.rowIndex * 100 + index,
           businessNumber: entry.businessNumber,
-          plantName: Array.from(entry.plantNames)[index] ?? entry.corpName,
-          matchAddress
+          plantName: plantRow.plantName || entry.corpName,
+          matchAddress: defaultMatchAddress
         }))
       );
       workbook.certificates.push(...entry.certificateRows);
@@ -3695,6 +3659,144 @@ export function App() {
     };
   };
 
+  const autoLinkImportedOnboardingGeneralCertificates = async (
+    templateWorkbook: CustomerOnboardingTemplateWorkbookInput,
+    onboardingWorkbook: CustomerOnboardingWorkbookInput
+  ) => {
+    const candidateRows = templateWorkbook.certificates.filter(
+      (row) => deriveCustomerOnboardingTemplateCertificateKind(row) !== "electronic_tax"
+    );
+    if (candidateRows.length === 0) {
+      return {
+        linkedCount: 0,
+        skippedCount: 0,
+        warnings: [] as string[]
+      };
+    }
+
+    const importedBusinessNumbers = new Set(
+      onboardingWorkbook.customers
+        .map((row) => digitsOnly(row.businessNumber))
+        .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
+    );
+    if (importedBusinessNumbers.size === 0) {
+      return {
+        linkedCount: 0,
+        skippedCount: candidateRows.length,
+        warnings: ["범용 공동인증서를 연결할 등록 고객을 찾지 못했습니다."]
+      };
+    }
+
+    const [customers, bridgeProbe] = await Promise.all([
+      api<Customer[]>("/api/customers"),
+      requestLocalRenewalBridgeProbe()
+    ]);
+    const importedCustomers = customers.filter((customer) => importedBusinessNumbers.has(digitsOnly(customer.businessNumber)));
+    const availableCertificates = bridgeProbe.result.bridge.storageProbe.ok ? bridgeProbe.result.bridge.storageProbe.certificates : [];
+    const sharedPassword = await resolveCustomerRenewalPassword({ promptIfMissing: false });
+
+    if (availableCertificates.length === 0) {
+      return {
+        linkedCount: 0,
+        skippedCount: candidateRows.length,
+        warnings: ["이 PC에서 범용 공동인증서를 다시 찾지 못해 자동 연결을 진행하지 못했습니다."]
+      };
+    }
+
+    const results = await mapWithConcurrency(candidateRows, 6, async (certificateRow) => {
+      const certificateLabel = getCustomerOnboardingTemplateCertificateLabel(certificateRow);
+      const matchedCertificate = findMatchingRenewalCertificateFromList(availableCertificates, {
+        certificateIndex: certificateRow.certificateIndex,
+        certificateName: certificateRow.certificateName
+      });
+
+      if (!matchedCertificate) {
+        return {
+          status: "skipped" as const,
+          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 이 PC에서 같은 범용 공동인증서를 다시 찾지 못했습니다.`
+        };
+      }
+
+      const certificateKind = deriveCustomerCertificateKind(matchedCertificate);
+      if (certificateKind !== "general_personal" && certificateKind !== "general_business") {
+        return {
+          status: "skipped" as const,
+          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 범용 공동인증서가 아니라 자동 연결을 건너뜁니다.`
+        };
+      }
+
+      const effectivePassword = certificateRow.certificatePassword.trim() || sharedPassword;
+      if (!effectivePassword) {
+        return {
+          status: "skipped" as const,
+          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 인증서 비밀번호가 없어 자동 연결을 건너뜁니다.`
+        };
+      }
+
+      const response = await requestLocalRenewalPreflight({
+        certificateIndex: Number(matchedCertificate.index),
+        certificateCn: matchedCertificate.cn || certificateRow.certificateName || null,
+        certificatePassword: effectivePassword
+      });
+      const preflightProbe = response.result.bridge.preflightProbe;
+      const snapshot = preflightProbe?.renewInfoSnapshot;
+      if (!preflightProbe?.ok || !snapshot) {
+        return {
+          status: "skipped" as const,
+          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): ${
+            preflightProbe?.error ?? preflightProbe?.message ?? "사업자 정보를 읽지 못했습니다."
+          }`
+        };
+      }
+
+      const businessNumber = digitsOnly(snapshot.businessNumber ?? "");
+      const businessNumberMatches = businessNumber
+        ? importedCustomers.filter((customer) => digitsOnly(customer.businessNumber) === businessNumber)
+        : [];
+      const matchedCustomer =
+        businessNumberMatches.length === 1
+          ? (businessNumberMatches[0] ?? null)
+          : importedCustomers.filter((customer) =>
+              matchesCustomerCertificateAutoLinkFromSnapshot(matchedCertificate, snapshot, customer)
+            ).length === 1
+            ? importedCustomers.filter((customer) =>
+                matchesCustomerCertificateAutoLinkFromSnapshot(matchedCertificate, snapshot, customer)
+              )[0] ?? null
+            : null;
+
+      if (!matchedCustomer) {
+        const autoMatchCandidates = importedCustomers.filter((customer) =>
+          matchesCustomerCertificateAutoLinkFromSnapshot(matchedCertificate, snapshot, customer)
+        );
+        return {
+          status: "skipped" as const,
+          message:
+            autoMatchCandidates.length > 1
+              ? `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 자동 연결 후보가 여러 명이라 건너뜁니다.`
+              : `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 이번 등록 고객 중 자동 연결 대상을 찾지 못했습니다.`
+        };
+      }
+
+      await linkCustomerCertificate(matchedCustomer.id, matchedCertificate, {
+        linkSource: "auto",
+        certificatePassword: effectivePassword
+      });
+      return {
+        status: "linked" as const,
+        customerName: matchedCustomer.customerName,
+        certificateLabel
+      };
+    });
+
+    return {
+      linkedCount: results.filter((result) => result.status === "linked").length,
+      skippedCount: results.filter((result) => result.status === "skipped").length,
+      warnings: results
+        .filter((result): result is Extract<(typeof results)[number], { status: "skipped"; message: string }> => result.status === "skipped")
+        .map((result) => result.message)
+    };
+  };
+
   const downloadCustomerOnboardingImportTemplate = async () => {
     const [XLSX, response] = await Promise.all([loadXlsxModule(), requestLocalRenewalBridgeProbe()]);
     const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
@@ -3705,8 +3807,17 @@ export function App() {
     }
 
     downloadCustomerOnboardingTemplate(XLSX, certificates);
+    setCustomerOnboardingFileName("");
+    setCustomerOnboardingWorkbook(null);
+    setCustomerOnboardingTemplateWorkbook(null);
+    setCustomerOnboardingPreview(null);
+    setCustomerOnboardingSessionState({
+      templateDownloaded: true,
+      previewReady: false,
+      commitDone: false
+    });
     setCustomerOnboardingNotice(
-      `공동인증서 ${certificates.length}건 기준으로 양식을 다운로드했습니다. 전자세금용은 고객 생성에 쓰고, 범용 공동인증서는 같은 이름과 주소의 고객이면 자동 연결되며, 아니면 연결할 사업자번호를 적으면 됩니다.`
+      `공동인증서 ${certificates.length}건 기준으로 양식을 다운로드했습니다. 발전소 시트에서 등록할 대상 행만 남기고, 공동인증서 시트에는 범용 인증서 비밀번호만 입력하세요. 주소 예외는 첫 메일 동기화 후 도입 준비의 미매칭 메일 예외 처리 단계에서 나중에 처리하면 됩니다.`
     );
     setCustomerOnboardingError("");
   };
@@ -3715,7 +3826,13 @@ export function App() {
     if (!file) {
       setCustomerOnboardingFileName("");
       setCustomerOnboardingWorkbook(null);
+      setCustomerOnboardingTemplateWorkbook(null);
       setCustomerOnboardingPreview(null);
+      setCustomerOnboardingSessionState((prev) => ({
+        ...prev,
+        previewReady: false,
+        commitDone: false
+      }));
       setCustomerOnboardingNotice("");
       setCustomerOnboardingError("");
       return;
@@ -3727,10 +3844,16 @@ export function App() {
       const resolved = await resolveCustomerOnboardingTemplateWorkbook(parsed.workbook);
       setCustomerOnboardingFileName(parsed.fileName);
       setCustomerOnboardingWorkbook(resolved.workbook);
+      setCustomerOnboardingTemplateWorkbook(parsed.workbook);
+      setCustomerOnboardingSessionState({
+        templateDownloaded: true,
+        previewReady: false,
+        commitDone: false
+      });
 
       if (resolved.workbook.customers.length === 0) {
         setCustomerOnboardingPreview(null);
-        setCustomerOnboardingNotice(`${parsed.fileName}에서 고객으로 읽을 수 있는 전자세금용 공동인증서가 없습니다.`);
+        setCustomerOnboardingNotice(`${parsed.fileName}에서 발전소 시트에 남긴 등록 대상 행을 찾지 못했습니다.`);
         setCustomerOnboardingError(resolved.errors.join("\n"));
         return;
       }
@@ -3740,24 +3863,35 @@ export function App() {
         body: JSON.stringify(resolved.workbook)
       });
       setCustomerOnboardingPreview(preview);
+      setCustomerOnboardingSessionState({
+        templateDownloaded: true,
+        previewReady: true,
+        commitDone: false
+      });
       setCustomerOnboardingNotice(
-        `${parsed.fileName} 업로드 확인을 마쳤습니다. 전자세금용 공동인증서 ${resolved.resolvedCertificateCount}건에서 사업자 정보를 읽었습니다.${
-          resolved.skippedCertificateCount > 0 ? ` 읽지 못한 인증서 ${resolved.skippedCertificateCount}건은 아래에서 확인하세요.` : ""
+        `${parsed.fileName} 업로드 확인을 마쳤습니다. 발전소 시트 기준 고객 ${resolved.workbook.customers.length}건을 등록 대상으로 읽었습니다. 범용 공동인증서는 등록 후 이번 업로드 고객만 대상으로 자동 연결을 시도합니다. 전자세금용 인증서는 다음 단계에서 후속 등록을 마무리하세요.${
+          resolved.skippedCertificateCount > 0 ? ` 건너뛴 공동인증서 ${resolved.skippedCertificateCount}건은 아래에서 확인하세요.` : ""
         }`
       );
       setCustomerOnboardingError(resolved.errors.join("\n"));
     } catch (importError) {
       setCustomerOnboardingFileName("");
       setCustomerOnboardingWorkbook(null);
+      setCustomerOnboardingTemplateWorkbook(null);
       setCustomerOnboardingPreview(null);
+      setCustomerOnboardingSessionState((prev) => ({
+        ...prev,
+        previewReady: false,
+        commitDone: false
+      }));
       setCustomerOnboardingNotice("");
       setCustomerOnboardingError(importError instanceof Error ? importError.message : "엑셀 양식을 읽지 못했습니다.");
     }
   };
 
   const commitCustomerOnboardingWorkbook = async () => {
-    if (!customerOnboardingWorkbook || !customerOnboardingPreview) {
-      setCustomerOnboardingError("먼저 초기 등록 엑셀 파일을 업로드하세요.");
+    if (!customerOnboardingWorkbook || !customerOnboardingTemplateWorkbook || !customerOnboardingPreview) {
+      setCustomerOnboardingError("먼저 고객 초기 등록 양식을 업로드하세요.");
       return;
     }
 
@@ -3772,18 +3906,38 @@ export function App() {
       method: "POST",
       body: JSON.stringify(customerOnboardingWorkbook)
     });
+    const autoLinkResult = await autoLinkImportedOnboardingGeneralCertificates(
+      customerOnboardingTemplateWorkbook,
+      customerOnboardingWorkbook
+    ).catch((error) => ({
+      linkedCount: 0,
+      skippedCount: 0,
+      warnings: [error instanceof Error ? `범용 공동인증서 자동 연결 실패: ${error.message}` : "범용 공동인증서 자동 연결에 실패했습니다."]
+    }));
 
     const summary = `가져오기 완료 · 신규 ${result.createdCount}건 / 갱신 ${result.updatedCount}건 / 인증서 ${result.linkedCertificateCount}건`;
+    const autoLinkSummary =
+      autoLinkResult.linkedCount > 0 || autoLinkResult.skippedCount > 0
+        ? `\n범용 공동인증서 자동 연결 · 성공 ${autoLinkResult.linkedCount}건 / 건너뜀 ${autoLinkResult.skippedCount}건`
+        : "";
     const warningSummary =
-      result.warnings.length > 0 ? `\n경고 ${result.warnings.length}건은 아래 메시지에서 확인하세요.` : "";
-    setCustomerOnboardingNotice(summary + warningSummary);
+      result.warnings.length > 0 || autoLinkResult.warnings.length > 0
+        ? `\n경고 ${result.warnings.length + autoLinkResult.warnings.length}건은 아래 메시지에서 확인하세요.`
+        : "";
+    setCustomerOnboardingNotice(summary + autoLinkSummary + warningSummary);
 
     const failedMessages = result.failedRows.map((row) => `${row.rowIndex}행: ${row.message}`);
     const warningMessages = result.warnings.map((warning) => `${warning.rowIndex}행: ${warning.message}`);
-    setCustomerOnboardingError([...failedMessages, ...warningMessages].join("\n"));
+    setCustomerOnboardingError([...failedMessages, ...warningMessages, ...autoLinkResult.warnings].join("\n"));
 
     await load();
     setCustomerOnboardingPreview(null);
+    setCustomerOnboardingSessionState((prev) => ({
+      ...prev,
+      templateDownloaded: true,
+      previewReady: true,
+      commitDone: true
+    }));
   };
 
   const selectQuickRegisterMessage = (messageId: number) => {
@@ -3795,7 +3949,7 @@ export function App() {
 
   const submitQuickRegister = async () => {
     if (!quickRegisterForm.messageId) {
-      setQuickRegisterError("등록할 미매칭 메일을 선택하세요.");
+      setQuickRegisterError("처리할 예외 메일을 선택하세요.");
       return;
     }
 
@@ -4598,7 +4752,7 @@ export function App() {
   const linkCustomerCertificate = async (
     customerId: number,
     certificate: RenewalAgentCertificate,
-    options?: { linkSource?: CustomerCertificate["linkSource"] }
+    options?: { linkSource?: CustomerCertificate["linkSource"]; certificatePassword?: string }
   ) => {
     return await api<CustomerCertificate>("/api/customer-certificates/link", {
       method: "POST",
@@ -4613,6 +4767,7 @@ export function App() {
         oid: certificate.oid || null,
         expireDate: certificate.todate || certificate.detailValidateTo || null,
         certDirPath: certificate.certDirPath || null,
+        certificatePassword: options?.certificatePassword ?? "",
         isPrimary: deriveCustomerCertificateKind(certificate) === "electronic_tax",
         linkSource: options?.linkSource ?? "manual"
       })
@@ -5949,9 +6104,14 @@ export function App() {
   const blockedCustomerCount = blockedIssueCustomers.length;
   const setupChecklist = [
     { key: "gmail", label: "메일 계정 연결", done: settingsHealth.mailReady },
-    { key: "popbill", label: "팝빌 연결 준비", done: settingsHealth.popbillReady },
-    { key: "operator", label: "운영 정보 준비", done: settingsHealth.operatorReady },
-    { key: "customer", label: "고객 1명 이상 등록", done: customerRegistrationReady }
+    { key: "defaults", label: "발행 기본값 입력", done: settingsHealth.popbillReady && settingsHealth.operatorReady },
+    {
+      key: "helper",
+      label: "로컬 헬퍼 준비",
+      done: Boolean(customerRenewalAssistant?.agentOnline) && (customerRenewalAssistant?.certificates ?? []).length > 0
+    },
+    { key: "customer", label: "고객 초기 등록", done: customerRegistrationReady },
+    { key: "certificate", label: "발행용 인증서 준비", done: customerRegistrationReady && popbillPendingCustomers.length === 0 }
   ];
   const setupPendingCount = setupChecklist.filter((step) => !step.done).length;
   const certAttentionCount = expiredCertCustomers.length + expiringSoonCustomers.length;
@@ -6124,49 +6284,16 @@ export function App() {
     ? "gmail"
     : "popbill";
   const linkedCustomerCertificateCount = customerCertificateItems.filter((item) => item.linkedCustomerId !== null).length;
-  const onboardingCertificateReady =
-    linkedCustomerCertificateCount > 0 || data.customers.some((customer) => customer.popbillCertRegistered);
+  const helperReady =
+    Boolean(customerRenewalAssistant?.agentOnline) && customerRenewalAssistantAllCertificates.length > 0;
+  const issueSetupPendingCount = popbillPendingCustomers.length;
+  const onboardingCertificateReady = customerRegistrationReady && issueSetupPendingCount === 0;
   const onboardingFirstSyncReady = data.inbox.length > 0 || data.drafts.length > 0;
-  const onboardingSteps = [
-    {
-      id: "mail",
-      step: 1,
-      title: "메일 연결",
-      summary: settingsHealth.mailReady ? "메일 연결 완료" : "메일 연결 필요",
-      done: settingsHealth.mailReady
-    },
-    {
-      id: "defaults",
-      step: 2,
-      title: "발행 기본값 입력",
-      summary:
-        settingsHealth.popbillReady && settingsHealth.operatorReady
-          ? "기본값 완료"
-          : "기본값 입력",
-      done: settingsHealth.popbillReady && settingsHealth.operatorReady
-    },
-    {
-      id: "customers",
-      step: 3,
-      title: "엑셀 고객 등록",
-      summary: customerRegistrationReady ? `${data.customers.length}명 등록됨` : "고객 등록 필요",
-      done: customerRegistrationReady
-    },
-    {
-      id: "certificates",
-      step: 4,
-      title: "인증서 연결 마무리",
-      summary: onboardingCertificateReady ? "인증서 연결됨" : "인증서 연결 필요",
-      done: onboardingCertificateReady
-    },
-    {
-      id: "first-run",
-      step: 5,
-      title: "첫 동기화 / 첫 발행 확인",
-      summary: onboardingFirstSyncReady ? "첫 실행 완료" : "첫 동기화 필요",
-      done: onboardingFirstSyncReady
-    }
-  ];
+  const exceptionHandlingReady = onboardingFirstSyncReady && unmatchedMessages.length === 0;
+  const firstIssueCheckReady =
+    onboardingFirstSyncReady &&
+    unmatchedMessages.length === 0 &&
+    (issuedDrafts.length > 0 || reviewDrafts.length === 0);
   const workPriorityCards = [
     ...(setupPendingCount > 0
       ? [
@@ -6177,7 +6304,10 @@ export function App() {
             description: "남은 준비",
             tone: "warn" as const,
             actionLabel: "도입 준비 열기",
-            onAction: () => setActiveTab("onboarding")
+            onAction: () => {
+              setRequestedOnboardingStepId(null);
+              setActiveTab("onboarding");
+            }
           }
         ]
       : []),
@@ -6187,10 +6317,13 @@ export function App() {
             key: "unmatched",
             title: "미매칭 메일",
             count: unmatchedMessages.length,
-            description: "고객 연결 필요",
+            description: "예외 처리 필요",
             tone: "warn" as const,
-            actionLabel: "초기 등록 확인",
-            onAction: () => setActiveTab("onboarding")
+            actionLabel: "예외 메일 처리",
+            onAction: () => {
+              setRequestedOnboardingStepId("exceptions");
+              setActiveTab("onboarding");
+            }
           }
         ]
       : []),
@@ -6236,12 +6369,12 @@ export function App() {
       step: 1,
       title: "메일 연결",
       done: settingsHealth.mailReady,
-      summary: settingsHealth.mailReady ? data.settings.imapUser || "연결 완료" : "테스트 필요"
+      summary: settingsHealth.mailReady ? data.settings.imapUser || "연결 테스트 완료" : "연결 테스트 필요"
     },
     {
       id: "popbill",
       step: 2,
-      title: "팝빌 / 담당자",
+      title: "발행 기본값",
       done: settingsHealth.popbillReady && settingsHealth.operatorReady,
       summary: settingsHealth.popbillReady && settingsHealth.operatorReady
         ? "기본값 완료"
@@ -6264,17 +6397,17 @@ export function App() {
           ? "저장 대기"
           : "자동 저장";
   const isMailTesting = busyKey === "mail-test";
-  const navItems: Array<{ id: TabId; label: string; icon: string }> = [
+  const navItems: Array<{ id: TabId; label: string; description?: string; icon: string }> = [
     ...(hasActiveWorkspace
       ? [
-          { id: "work" as const, label: "오늘 작업", icon: "dashboard" },
-          { id: "onboarding" as const, label: "도입 준비", icon: "initial" },
-          { id: "customers" as const, label: "고객 운영", icon: "group" },
-          { id: "certificates" as const, label: "인증서 관리", icon: "cert" },
-          { id: "settings" as const, label: "작업공간 설정", icon: "settings" }
+          { id: "work" as const, label: "오늘 작업", description: "지금 해야 할 일", icon: "dashboard" },
+          { id: "onboarding" as const, label: "도입 준비", description: "첫 성공까지 순서", icon: "initial" },
+          { id: "customers" as const, label: "고객 운영", description: "고객별 발행 상태", icon: "group" },
+          { id: "certificates" as const, label: "인증서 관리", description: "발행 막힘 해결", icon: "cert" },
+          { id: "settings" as const, label: "작업공간 설정", description: "공통 준비와 계정", icon: "settings" }
         ]
       : []),
-    ...(isPlatformAdmin ? [{ id: "ops" as const, label: "플랫폼 관리자", icon: "ops" }] : [])
+    ...(isPlatformAdmin ? [{ id: "ops" as const, label: "플랫폼 관리자", description: "플랫폼 운영", icon: "ops" }] : [])
   ];
   const startCreatingCustomer = () => {
     setCreatingCustomer(true);
@@ -6430,7 +6563,7 @@ export function App() {
     ].filter((value): value is string => Boolean(value));
 
     setCustomerOnboardingNotice(
-      `전자세금용 인증서 자동 등록을 마쳤습니다. ${summaryParts.join(" · ") || "처리된 대상이 없습니다."}${
+      `전자세금용 인증서 후속 등록을 마쳤습니다. ${summaryParts.join(" · ") || "처리된 대상이 없습니다."}${
         failedDetails.length > 0
           ? `\n\n실패 내역\n${failedDetails.slice(0, 8).join("\n")}`
           : ""
@@ -6463,145 +6596,179 @@ export function App() {
       };
     });
   };
-  const onboardingSettingsStatusChipClass =
-    settingsAutosaveState === "error"
-      ? "chip chip-danger"
-      : settingsAutosaveState === "saving"
-        ? "chip chip-warn"
-        : settingsAutosaveState === "pending"
-          ? "chip chip-warn"
-          : "chip chip-success";
-  const canRunOnboardingFirstSync = setupPendingCount === 0 && customerRegistrationReady;
+  const canRunOnboardingFirstSync = setupPendingCount === 0;
+  const helperStatusSummary = !customerRenewalAssistant?.helperCheckedAt
+    ? "상태 확인 전"
+    : helperReady
+      ? `공동인증서 ${customerRenewalAssistantAllCertificates.length}건 읽힘`
+      : customerRenewalAssistant?.agentOnline
+        ? "헬퍼 연결됨 · 인증서 읽기 추가 확인 필요"
+        : "헬퍼 실행 및 상태 확인 필요";
+  const hasSavedOnboardingDefaults =
+    data.settings.popbillSharedPasswordConfigured ||
+    data.settings.renewalIssuePasswordConfigured ||
+    data.settings.renewalCertificatePasswordConfigured;
+  const onboardingImportableCount =
+    (customerOnboardingPreview?.createCount ?? 0) + (customerOnboardingPreview?.updateCount ?? 0);
+  const onboardingBlockedCount = customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
+  const onboardingRegistrationFlow = getInitialRegistrationFlowState({
+    helperReady,
+    helperCertificateCount: customerRenewalAssistantAllCertificates.length,
+    registrationReady: customerRegistrationReady,
+    templateDownloaded: customerOnboardingSessionState.templateDownloaded,
+    previewReady: customerOnboardingSessionState.previewReady,
+    commitDone: customerOnboardingSessionState.commitDone,
+    importableCount: onboardingImportableCount,
+    blockedCount: onboardingBlockedCount,
+    hasSelectedFile: Boolean(customerOnboardingFileName)
+  });
+  const onboardingRegistrationStage = onboardingRegistrationFlow.stage;
+  const onboardingRegistrationPrimaryActionLabel = onboardingRegistrationFlow.primaryActionLabel;
+  const onboardingRegistrationBlockedReason = onboardingRegistrationFlow.blockedReason;
+  const onboardingFirstSyncBlockedSteps = [
+    !settingsHealth.mailReady ? "메일 연결" : null,
+    !(settingsHealth.popbillReady && settingsHealth.operatorReady) ? "발행 기본값 입력" : null,
+    !helperReady ? "로컬 헬퍼 준비" : null,
+    !customerRegistrationReady ? "고객 초기 등록" : null,
+    !onboardingCertificateReady ? "인증서 연결 마무리" : null
+  ].filter((value): value is string => Boolean(value));
   const onboardingMailSetupContent = (
-    <SetupPanel
-      step={1}
-      className="panel-settings-mail"
-      title="메일 연결"
-      done={settingsHealth.mailReady}
-      note="도입 준비 탭 안에서 바로 연결하면 됩니다. 저장은 자동으로 처리됩니다."
-      actions={
-        <button disabled={busyKey !== null} onClick={() => void runAction("mail-test", testMailSettings, { reload: false })}>
-          {isMailTesting ? "메일 연결 확인 중..." : "메일 연결 테스트"}
-        </button>
-      }
-    >
-      <div className="settings-action-feedback">
-        <span className={onboardingSettingsStatusChipClass}>{settingsAutosaveLabel}</span>
-        <span>{settingsHealth.mailReady ? "메일 연결 테스트까지 완료되었습니다." : "입력은 자동 저장되지만, 메일 연결 테스트 성공 전에는 완료되지 않습니다."}</span>
-      </div>
-      {isMailTesting ? (
-        <div className="settings-action-feedback">
-          <span className="chip chip-warn">테스트 중</span>
-          <span>IMAP/SMTP 연결을 확인하고 있습니다.</span>
+    <div className="onboarding-step-body">
+      <section className="onboarding-main-card">
+        <div className="onboarding-main-copy">
+          <strong>
+            {settingsHealth.mailReady
+              ? "메일 연결 테스트를 마쳤습니다."
+              : "메일 주소와 앱 비밀번호를 입력한 뒤 메일 연결 테스트를 누르세요."}
+          </strong>
+          <p>지금 단계는 메일 로그인 가능 여부만 확인합니다. 실제 메일 읽기는 6단계 `첫 메일 동기화`에서 처음 실행합니다.</p>
         </div>
-      ) : null}
-      <div className="form-grid">
-        <div className="settings-detected-provider full">
-          <span>바로 읽어오는 범위</span>
-          <strong>최근 메일 1000통까지 함께 확인</strong>
-          <p className="settings-inline-help">예전 메일까지 함께 읽어서 첫 도입 때도 바로 확인할 수 있습니다.</p>
-        </div>
-        <div className="settings-detected-provider full">
-          <span>자동으로 찾은 메일 서비스</span>
-          <strong>{detectedMailProviderLabel}</strong>
-        </div>
-        <label>
-          메일 주소
-          <input placeholder="example@mail.com" value={settingsForm.mailAddress} onChange={(event) => handleSettingsMailAddressChange(event.target.value)} />
-          <span className="field-hint">한전 메일을 읽고 알림 메일을 보낼 때 함께 사용하는 주소입니다.</span>
-        </label>
-        <label>
-          앱 비밀번호
-          <div className="password-field">
-            <input
-              type={revealedFields.mailPassword ? "text" : "password"}
-              value={settingsForm.mailPassword}
-              onChange={(event) => setSettingsForm((prev) => prev && { ...prev, mailPassword: event.target.value })}
-              placeholder={data.settings.mailPasswordConfigured ? "변경할 때만 다시 입력" : "앱 비밀번호 입력"}
-            />
-            <button type="button" className="password-toggle" aria-label={revealedFields.mailPassword ? "앱 비밀번호 숨기기" : "앱 비밀번호 보기"} onClick={() => toggleRevealField("mailPassword")}>
-              <RevealIcon open={Boolean(revealedFields.mailPassword)} />
-            </button>
+
+        <div className="onboarding-inline-status">
+          <div>
+            <span>자동 저장</span>
+            <strong>{settingsAutosaveLabel}</strong>
           </div>
-          <span className="field-hint">
-            {data.settings.mailPasswordConfigured
-              ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요."
-              : "위 메일 주소로 로그인할 때 쓰는 비밀번호입니다."}
-          </span>
-        </label>
-        <label className="full">
-          알림 수신 메일
-          <textarea rows={4} value={settingsForm.notificationEmailsText} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, notificationEmailsText: event.target.value })} />
-          <span className="field-hint">파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나 쉼표로 구분합니다.</span>
-        </label>
-        <details className="settings-advanced-panel full">
-          <summary>월 자동 발행 일정 보기</summary>
-          <div className="helper-box">
-            <strong>매달 자동 실행 일정</strong>
-            <div className="fields three-column">
-              <label>
-                자동 실행
-                <select value={settingsForm.schedulerEnabled ? "on" : "off"} onChange={(event) => setSettingsForm((prev) => prev ? { ...prev, schedulerEnabled: event.target.value === "on" } : prev)}>
-                  <option value="on">사용</option>
-                  <option value="off">중지</option>
-                </select>
-              </label>
-              <label>
-                실행일
-                <input type="number" min="1" max="31" value={settingsForm.defaultIssueDay} onChange={(event) => setSettingsForm((prev) => (prev ? { ...prev, defaultIssueDay: event.target.value } : prev))} />
-              </label>
-              <label>
-                실행 시각
-                <div className="inline-time-fields">
-                  <input type="number" min="0" max="23" value={settingsForm.defaultIssueHour} onChange={(event) => setSettingsForm((prev) => (prev ? { ...prev, defaultIssueHour: event.target.value } : prev))} />
-                  <span>:</span>
-                  <input type="number" min="0" max="59" value={settingsForm.defaultIssueMinute} onChange={(event) => setSettingsForm((prev) => (prev ? { ...prev, defaultIssueMinute: event.target.value } : prev))} />
-                </div>
-              </label>
+          <div>
+            <span>메일 서비스</span>
+            <strong>{detectedMailProviderLabel}</strong>
+          </div>
+          <div>
+            <span>테스트 의미</span>
+            <strong>지금은 연결 확인만</strong>
+          </div>
+        </div>
+
+        <div className="onboarding-field-grid">
+          <label>
+            메일 주소
+            <input placeholder="example@mail.com" value={settingsForm.mailAddress} onChange={(event) => handleSettingsMailAddressChange(event.target.value)} />
+            <span className="field-hint">한전 메일을 읽고 알림 메일을 보낼 때 함께 사용할 계정입니다.</span>
+          </label>
+          <label>
+            앱 비밀번호
+            <div className="password-field">
+              <input
+                type={revealedFields.mailPassword ? "text" : "password"}
+                value={settingsForm.mailPassword}
+                onChange={(event) => setSettingsForm((prev) => prev && { ...prev, mailPassword: event.target.value })}
+                placeholder={data.settings.mailPasswordConfigured ? "변경할 때만 다시 입력" : "앱 비밀번호 입력"}
+              />
+              <button type="button" className="password-toggle" aria-label={revealedFields.mailPassword ? "앱 비밀번호 숨기기" : "앱 비밀번호 보기"} onClick={() => toggleRevealField("mailPassword")}>
+                <RevealIcon open={Boolean(revealedFields.mailPassword)} />
+              </button>
             </div>
-            <span>기본값은 매월 26일입니다. 이 일정이 되면 메일을 읽고, 자동 발행 고객은 바로 세금계산서를 발행합니다.</span>
-          </div>
-        </details>
-      </div>
-    </SetupPanel>
+            <span className="field-hint">
+              {data.settings.mailPasswordConfigured
+                ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 시 빈칸이면 저장된 값을 사용합니다."
+                : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다."}
+            </span>
+          </label>
+        </div>
+
+        <div className="button-row onboarding-primary-row">
+          <button type="button" disabled={busyKey !== null} onClick={() => void runAction("mail-test", testMailSettings, { reload: false })}>
+            {isMailTesting ? "연결 테스트 중..." : "메일 연결 테스트"}
+          </button>
+        </div>
+      </section>
+
+      <details className="settings-advanced-panel">
+        <summary>알림 메일 / 추가 설정은 나중에 보기</summary>
+        <div className="onboarding-secondary-stack">
+          <label>
+            알림 수신 메일
+            <textarea rows={4} value={settingsForm.notificationEmailsText} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, notificationEmailsText: event.target.value })} />
+            <span className="field-hint">파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나 쉼표로 구분합니다.</span>
+          </label>
+        </div>
+      </details>
+    </div>
   );
   const onboardingDefaultsContent = (
-    <SetupPanel
-      step={2}
-      className="panel-settings-popbill"
-      title="발행 기본 설정"
-      done={settingsHealth.popbillReady && settingsHealth.operatorReady}
-      note="고객 등록 전에 필요한 공통값만 여기서 먼저 입력하면 됩니다."
-    >
-      <div className="settings-action-feedback">
-        <span className={onboardingSettingsStatusChipClass}>{settingsAutosaveLabel}</span>
-        <span>입력하면 자동 저장됩니다.</span>
-      </div>
-      <div className="settings-field-stack">
-        <section className="settings-field-group">
-          <div className="settings-field-group-head">
-            <strong>먼저 입력할 공통값</strong>
-            <span>신규 고객 계정 생성과 기본 발행 처리에 쓰는 값입니다.</span>
+    <div className="onboarding-step-body">
+      <section className="onboarding-main-card">
+        <div className="onboarding-main-copy">
+          <strong>
+            {settingsHealth.popbillReady && settingsHealth.operatorReady
+              ? "발행 기본값 입력을 마쳤습니다."
+              : "신규 고객 생성과 첫 발행에 쓰는 필수 입력부터 채우세요."}
+          </strong>
+          <p>필수 입력만 끝나면 바로 다음 단계로 넘어갈 수 있습니다. 선택 입력은 나중에 보강해도 됩니다.</p>
+        </div>
+
+        <div className="onboarding-inline-status">
+          <div>
+            <span>자동 저장</span>
+            <strong>{settingsAutosaveLabel}</strong>
           </div>
-          <div className="settings-defaults-grid">
-            <label className="settings-defaults-cell">
-              신규 고객 계정 시작 문자
-              <input value={settingsForm.popbillUserIdPrefix} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} placeholder="예: TEST_" />
-              <span className="field-hint">예: `TEST_001`</span>
+          <div>
+            <span>팝빌 연결</span>
+            <strong>{settingsHealth.popbillReady ? "준비됨" : "입력 필요"}</strong>
+          </div>
+          <div>
+            <span>운영값</span>
+            <strong>{settingsHealth.operatorReady ? "준비됨" : "입력 필요"}</strong>
+          </div>
+        </div>
+
+        <div className="button-row onboarding-primary-row">
+          <button
+            type="button"
+            onClick={() => {
+              const firstRequiredField = document.getElementById("onboarding-popbill-user-id-prefix") as HTMLInputElement | null;
+              firstRequiredField?.focus();
+              firstRequiredField?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+          >
+            필수 입력 시작
+          </button>
+        </div>
+
+        <section className="onboarding-section">
+          <div className="onboarding-section-head">
+            <strong>필수 입력</strong>
+            <span>처음 도입할 때 반드시 필요한 공통값입니다.</span>
+          </div>
+          <div className="onboarding-field-grid">
+            <label>
+              팝빌 접두어
+              <input id="onboarding-popbill-user-id-prefix" value={settingsForm.popbillUserIdPrefix} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })} placeholder="예: TEST_" />
+              <span className="field-hint">예: `TEST_001` · 신규 고객 팝빌 아이디 앞에 붙습니다.</span>
             </label>
-            <label className="settings-defaults-cell">
+            <label>
               담당자 이름
               <input value={settingsForm.operatorContactName} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })} placeholder="담당자 이름" />
             </label>
-            <label className="settings-defaults-cell">
+            <label>
               담당자 연락처
               <input value={settingsForm.operatorContactTel} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })} placeholder="01012345678" />
             </label>
-            <label className="settings-defaults-cell">
+            <label>
               담당자 이메일
               <input type="email" value={settingsForm.operatorContactEmail} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })} placeholder="operator@example.com" />
             </label>
-            <label className="settings-defaults-cell">
+            <label>
               신규 고객 기본 비밀번호
               <div className="password-field">
                 <input
@@ -6614,23 +6781,14 @@ export function App() {
                   <RevealIcon open={Boolean(revealedFields.popbillSharedPassword)} />
                 </button>
               </div>
-              <div className="field-meta-row">
-                <span className="field-hint">
-                  {data.settings.popbillSharedPasswordConfigured
-                    ? "이미 저장된 값이 있습니다. 필요하면 불러오세요."
-                    : "신규 고객 계정 초기 비밀번호"}
-                </span>
-                {data.settings.popbillSharedPasswordConfigured ? (
-                  <div className="field-action-row">
-                    <button type="button" className="btn-secondary field-inline-action" disabled={busyKey !== null} onClick={() => void runAction("load-popbill-shared-password", loadCurrentPopbillSharedPassword, { reload: false })}>
-                      저장된 비밀번호 불러오기
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+              <span className="field-hint">
+                {data.settings.popbillSharedPasswordConfigured
+                  ? "이미 저장된 값이 있습니다. 필요하면 아래 보조 영역에서 다시 불러오세요."
+                  : "신규 고객 계정 초기 비밀번호"}
+              </span>
             </label>
-            <label className="settings-defaults-cell">
-              발급용 임시번호
+            <label>
+              공동인증서 발급용 임시번호
               <div className="password-field">
                 <input
                   type={revealedFields.renewalIssuePassword ? "text" : "password"}
@@ -6644,22 +6802,22 @@ export function App() {
                   <RevealIcon open={Boolean(revealedFields.renewalIssuePassword)} />
                 </button>
               </div>
-              <div className="field-meta-row">
-                <span className="field-hint">
-                  {data.settings.renewalIssuePasswordConfigured
-                    ? "공동인증서 신청 및 갱신 신청용 6자리입니다. 필요하면 불러오세요."
-                    : "공동인증서 신청 및 갱신 신청용 6자리"}
-                </span>
-                {data.settings.renewalIssuePasswordConfigured ? (
-                  <div className="field-action-row">
-                    <button type="button" className="btn-secondary field-inline-action" disabled={busyKey !== null} onClick={() => void runAction("load-renewal-issue-password", loadCurrentRenewalIssuePassword, { reload: false })}>
-                      저장된 임시번호 불러오기
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+              <span className="field-hint">
+                {data.settings.renewalIssuePasswordConfigured
+                  ? "공동인증서 신청 및 갱신 신청용 6자리입니다. 필요하면 아래 보조 영역에서 다시 불러오세요."
+                  : "공동인증서 신청 및 갱신 신청용 6자리"}
+              </span>
             </label>
-            <label className="settings-defaults-cell settings-defaults-cell-span-2">
+          </div>
+        </section>
+
+        <section className="onboarding-section onboarding-section-muted">
+          <div className="onboarding-section-head">
+            <strong>나중에 입력 가능</strong>
+            <span>같은 비밀번호를 쓰는 경우에만 추가하면 됩니다.</span>
+          </div>
+          <div className="onboarding-field-grid onboarding-field-grid-single">
+            <label>
               인증서 공통 비밀번호 (선택)
               <div className="password-field">
                 <input
@@ -6672,96 +6830,784 @@ export function App() {
                   <RevealIcon open={Boolean(revealedFields.renewalCertificatePassword)} />
                 </button>
               </div>
-              <div className="field-meta-row">
-                <span className="field-hint">
-                  {data.settings.renewalCertificatePasswordConfigured
-                    ? "이미 저장된 값이 있습니다. 필요하면 불러오세요."
-                    : "비밀번호가 모두 같을 때만 사용"}
-                </span>
-                {data.settings.renewalCertificatePasswordConfigured ? (
-                  <div className="field-action-row">
-                    <button type="button" className="btn-secondary field-inline-action" disabled={busyKey !== null} onClick={() => void runAction("load-renewal-certificate-password", loadCurrentRenewalCertificatePassword, { reload: false })}>
-                      저장된 비밀번호 불러오기
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+              <span className="field-hint">
+                {data.settings.renewalCertificatePasswordConfigured
+                  ? "이미 저장된 값이 있습니다. 필요하면 아래 보조 영역에서 다시 불러오세요. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."
+                  : "비밀번호가 모두 같을 때만 사용합니다. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."}
+              </span>
             </label>
-            <div className="settings-defaults-status">
-              <strong>입력 상태</strong>
-              <span>팝빌 연결: {settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</span>
-              <span>작업공간 운영값: {settingsHealth.operatorReady ? "준비됨" : "설정 필요"}</span>
-            </div>
           </div>
         </section>
+      </section>
+
+      {hasSavedOnboardingDefaults ? (
         <details className="settings-advanced-panel">
-          <summary>인증서 도구와 추가 설정은 작업공간 설정에서 보기</summary>
+          <summary>저장된 값 다시 불러오기는 필요할 때만 보기</summary>
           <div className="helper-box-stack">
-            <strong>고급 설정 분리</strong>
-            <span>인증서 작업 도구 상태, 설치 안내, 계정 관리 같은 세부 항목은 작업공간 설정 탭에 그대로 있습니다.</span>
+            <strong>보조 작업</strong>
+            <span>현재 단계의 메인 흐름은 위 필수 입력을 채우는 것입니다. 저장된 값은 정말 필요할 때만 불러오세요.</span>
             <div className="button-row">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  setActiveSettingsSection("popbill");
-                  setActiveTab("settings");
-                }}
-              >
-                작업공간 설정 열기
-              </button>
+              {data.settings.popbillSharedPasswordConfigured ? (
+                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction("load-popbill-shared-password", loadCurrentPopbillSharedPassword, { reload: false })}>
+                  신규 고객 기본 비밀번호 불러오기
+                </button>
+              ) : null}
+              {data.settings.renewalIssuePasswordConfigured ? (
+                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction("load-renewal-issue-password", loadCurrentRenewalIssuePassword, { reload: false })}>
+                  발급용 임시번호 불러오기
+                </button>
+              ) : null}
+              {data.settings.renewalCertificatePasswordConfigured ? (
+                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction("load-renewal-certificate-password", loadCurrentRenewalCertificatePassword, { reload: false })}>
+                  인증서 공통 비밀번호 불러오기
+                </button>
+              ) : null}
             </div>
           </div>
         </details>
-      </div>
-    </SetupPanel>
+      ) : null}
+    </div>
   );
-  const onboardingFirstRunContent = (
-    <Panel
-      title="첫 동기화와 첫 발행 확인"
-      subtitle="기본 준비와 고객 등록이 끝났으면 여기서 바로 시작합니다."
-      actions={
-        <button
-          disabled={busyKey !== null || !canRunOnboardingFirstSync}
-          onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))}
-        >
-          메일 즉시 동기화
-        </button>
+  const onboardingHelperContent = (
+    <div className="onboarding-step-body">
+      <section className="onboarding-main-card">
+        <div className="onboarding-main-copy">
+          <strong>
+            {helperReady
+              ? "공동인증서 읽기까지 완료했습니다."
+              : customerRenewalAssistant?.agentOnline
+                ? "지금은 공동인증서 읽기를 눌러 현재 PC 인증서를 확인할 차례입니다."
+                : "먼저 로컬 헬퍼를 설치하고 실행해야 합니다."}
+          </strong>
+          <p>{customerRenewalAssistant?.helperMessage || "로컬 헬퍼 상태를 아직 확인하지 않았습니다."}</p>
+        </div>
+
+        <div className="onboarding-inline-status">
+          <div>
+            <span>헬퍼 상태</span>
+            <strong>{customerRenewalAssistant?.agentOnline ? "연결됨" : "연결 안 됨"}</strong>
+          </div>
+          <div>
+            <span>읽은 공동인증서</span>
+            <strong>{customerRenewalAssistantAllCertificates.length}건</strong>
+          </div>
+          <div>
+            <span>마지막 확인</span>
+            <strong>{formatDateTime(customerRenewalAssistant?.helperCheckedAt ?? null)}</strong>
+          </div>
+        </div>
+
+        <div className="button-row onboarding-primary-row">
+          <button
+            type="button"
+            disabled={busyKey !== null || !customerRenewalAssistant?.agentOnline}
+            title={customerRenewalAssistant?.agentOnline ? undefined : "먼저 헬퍼를 설치하고 실행한 뒤 아래 보조 영역에서 상태를 다시 확인하세요."}
+            onClick={() =>
+              void runAction(
+                "customer-renewal-bridge-probe",
+                async () => {
+                  await syncCustomerRenewalCertificates({ showAlert: false });
+                },
+                { reload: false }
+              )
+            }
+          >
+            {busyKey === "customer-renewal-bridge-probe" ? "공동인증서 읽는 중..." : "공동인증서 읽기"}
+          </button>
+        </div>
+
+        <p className="onboarding-inline-note">{helperStatusSummary}</p>
+      </section>
+
+      <details className="settings-advanced-panel">
+        <summary>상태 다시 확인 / 설치 안내 / 다운로드는 필요할 때만 보기</summary>
+        <div className="helper-box-stack settings-install-guide">
+          <strong>문제 해결과 보조 작업</strong>
+          <div className="button-row">
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={busyKey !== null}
+              onClick={() => void runAction("refresh-customer-renewal-helper", refreshCustomerRenewalAssistant, { reload: false })}
+            >
+              상태 다시 확인
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => window.location.assign(renewalHelperDownloadUrl)}
+            >
+              헬퍼 다운로드
+            </button>
+          </div>
+          <span>
+            고객 PC에서는 <code>renewal-local-helper</code> 압축을 푼 뒤 <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
+          </span>
+          <span>설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시 실행됩니다.</span>
+          <span>
+            문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>, <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code> 바로가기로 확인할 수 있습니다.
+          </span>
+        </div>
+      </details>
+    </div>
+  );
+  const onboardingCertificateAutoTargetCount = pendingOnboardingCertificateRegistrationTargets.length;
+  const onboardingCertificateNeedsManualFollowUp =
+    customerRegistrationReady && onboardingCertificateAutoTargetCount === 0 && issueSetupPendingCount > 0;
+  const onboardingCertificatePrimaryActionLabel = !customerRegistrationReady
+    ? "먼저 고객 초기 등록 완료"
+    : onboardingCertificateAutoTargetCount > 0
+      ? "전자세금용 등록 마무리"
+      : issueSetupPendingCount > 0
+        ? "인증서 관리 열기"
+        : "첫 메일 동기화 단계 보기";
+  const onboardingCertificateCompletionContent = (
+    <div className="onboarding-step-body">
+      <section className="onboarding-main-card">
+        <div className="onboarding-main-copy">
+          <strong>
+            {!customerRegistrationReady
+              ? "먼저 고객 초기 등록을 끝내세요."
+              : issueSetupPendingCount === 0
+                ? "발행용 인증서 준비가 완료되었습니다."
+                : onboardingCertificateAutoTargetCount > 0
+                  ? "전자세금용 인증서 후속 등록을 마무리하세요."
+                  : "자동 대상은 없지만 아직 인증서 확인이 필요한 고객이 있습니다."}
+          </strong>
+          <p>
+            {!customerRegistrationReady
+              ? "고객 등록 후에야 실제 발행 준비 상태를 확인할 수 있습니다."
+              : onboardingCertificateAutoTargetCount > 0
+                ? "이번 업로드로 만든 고객은 여기서 전자세금용 인증서를 순서대로 마무리할 수 있습니다."
+                : issueSetupPendingCount > 0
+                  ? "자동으로 바로 이어갈 대상은 없으므로, 이제 인증서 관리 화면에서 미연결 고객을 확인하면 됩니다."
+                  : "이 단계는 끝났습니다. 다음 단계인 첫 메일 동기화로 바로 넘어가면 됩니다."}
+          </p>
+        </div>
+
+        <div className="onboarding-inline-status">
+          <div>
+            <span>자동 마무리 대상</span>
+            <strong>{onboardingCertificateAutoTargetCount}건</strong>
+          </div>
+          <div>
+            <span>발행 준비 미완료</span>
+            <strong>{issueSetupPendingCount}명</strong>
+          </div>
+          <div>
+            <span>현재 해야 할 일</span>
+            <strong>
+              {!customerRegistrationReady
+                ? "고객 초기 등록"
+                : onboardingCertificateAutoTargetCount > 0
+                  ? "전자세금용 등록 마무리"
+                  : issueSetupPendingCount > 0
+                    ? "인증서 관리에서 확인"
+                    : "첫 메일 동기화"}
+            </strong>
+          </div>
+        </div>
+
+        <div className="button-row onboarding-primary-row">
+          <button
+            type="button"
+            disabled={busyKey !== null || !customerRegistrationReady}
+            title={
+              !customerRegistrationReady
+                ? "먼저 고객 초기 등록을 끝내세요."
+                : undefined
+            }
+            onClick={() => {
+              if (onboardingCertificateAutoTargetCount > 0) {
+                void runAction(
+                  "customer-onboarding-cert-registration",
+                  proceedOnboardingCertificateRegistration,
+                  { reload: false }
+                );
+                return;
+              }
+
+              if (issueSetupPendingCount > 0) {
+                setActiveTab("certificates");
+                return;
+              }
+
+              setRequestedOnboardingStepId("first-sync");
+            }}
+          >
+            {busyKey === "customer-onboarding-cert-registration" && onboardingCertificateAutoTargetCount > 0
+              ? "전자세금용 등록 마무리 중..."
+              : onboardingCertificatePrimaryActionLabel}
+          </button>
+        </div>
+      </section>
+
+      {issueSetupPendingCount > 0 ? (
+        <details className="settings-advanced-panel">
+          <summary>{onboardingCertificateNeedsManualFollowUp ? "인증서 관리에서 확인할 고객 보기" : "수동 확인이 필요한 고객 보기"}</summary>
+          <div className="ops-list">
+            {popbillPendingCustomers.slice(0, 6).map((customer) => (
+              <article key={`onboarding-pending-cert-${customer.id}`} className="ops-card">
+                <div className="ops-card-head">
+                  <div>
+                    <strong>{customer.customerName}</strong>
+                    <span>{customer.corpName || customer.businessNumber}</span>
+                  </div>
+                  <span className="chip chip-warn">준비 필요</span>
+                </div>
+                <div className="ops-card-meta">
+                  <span>{customer.popbillState !== "joined" ? "팝빌 가입 필요" : "전자세금용 인증서 등록 필요"}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
+      <details className="settings-advanced-panel">
+        <summary>인증서 관리 화면은 필요할 때만 열기</summary>
+        <div className="button-row">
+          <button type="button" className="btn-secondary" onClick={() => setActiveTab("certificates")}>
+            인증서 관리 열기
+          </button>
+        </div>
+      </details>
+    </div>
+  );
+  const onboardingFirstSyncContent = (
+    <div className="onboarding-step-body">
+      <section className="onboarding-main-card">
+        <div className="onboarding-main-copy">
+          <strong>{canRunOnboardingFirstSync ? "이제 실제 메일을 처음 읽어올 차례입니다." : "아직 시작할 수 없습니다."}</strong>
+          <p>
+            {canRunOnboardingFirstSync
+              ? "메일 연결 테스트와 실제 메일 읽기는 분리되어 있습니다. 지금 동기화를 실행하면 자동 매칭이 시작되고, 남은 예외만 다음 단계에서 처리합니다."
+              : "준비가 덜 된 상태에서는 동기화 버튼보다 먼저 막힌 단계를 끝내야 합니다."}
+          </p>
+        </div>
+
+        <div className="onboarding-inline-status">
+          <div>
+            <span>등록 고객</span>
+            <strong>{data.customers.length}명</strong>
+          </div>
+          <div>
+            <span>인증서 준비</span>
+            <strong>{issueSetupPendingCount === 0 ? "완료" : `${issueSetupPendingCount}명 미완료`}</strong>
+          </div>
+          <div>
+            <span>현재 초안</span>
+            <strong>{reviewDrafts.length}건</strong>
+          </div>
+        </div>
+
+        {!canRunOnboardingFirstSync ? (
+          <p className="onboarding-inline-warning">{`먼저 끝낼 단계: ${onboardingFirstSyncBlockedSteps.join(" → ")}`}</p>
+        ) : null}
+
+        {canRunOnboardingFirstSync ? (
+          <div className="button-row onboarding-primary-row">
+            <button type="button" disabled={busyKey !== null} onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))}>
+              {busyKey === "sync" ? "동기화 중..." : "첫 메일 동기화 실행"}
+            </button>
+          </div>
+        ) : null}
+      </section>
+
+      <details className="settings-advanced-panel">
+        <summary>오늘 작업 화면은 필요할 때만 열기</summary>
+        <div className="button-row">
+          <button type="button" className="btn-secondary" onClick={() => setActiveTab("work")}>
+            오늘 작업 열기
+          </button>
+        </div>
+      </details>
+    </div>
+  );
+  const onboardingFirstIssueCheckContent = (
+    <div className="onboarding-step-body">
+      <section className="onboarding-main-card">
+        <div className="onboarding-main-copy">
+          <strong>
+            {!onboardingFirstSyncReady
+              ? "먼저 첫 메일 동기화를 실행하세요."
+              : unmatchedMessages.length > 0
+                ? "예외 메일을 먼저 처리하세요."
+                : reviewDrafts.length > 0
+                  ? "생성된 초안을 검토하고 발행 여부를 확인하세요."
+                  : issuedDrafts.length > 0
+                    ? "첫 발행 결과까지 확인했습니다."
+                    : "현재 발행 대상 메일은 없습니다."}
+          </strong>
+          <p>상세 확인은 `오늘 작업` 탭에서 진행합니다. 이 단계에서는 마지막으로 열어야 할 화면만 분명하게 보여줍니다.</p>
+        </div>
+
+        <div className="onboarding-inline-status">
+          <div>
+            <span>검토할 초안</span>
+            <strong>{reviewDrafts.length}건</strong>
+          </div>
+          <div>
+            <span>발행 완료</span>
+            <strong>{issuedDrafts.length}건</strong>
+          </div>
+          <div>
+            <span>예외 메일</span>
+            <strong>{unmatchedMessages.length}건</strong>
+          </div>
+        </div>
+
+        <div className="button-row onboarding-primary-row">
+          <button type="button" onClick={() => setActiveTab("work")}>
+            오늘 작업 열기
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+  const onboardingSteps: OnboardingStep[] = [
+    {
+      id: "mail",
+      step: 1,
+      title: "메일 연결",
+      summary: settingsHealth.mailReady ? "연결 테스트 완료" : "메일 계정과 앱 비밀번호 연결 테스트 필요",
+      why: "실제 메일을 읽기 전에 한전 메일 계정이 정상 연결되는지 먼저 확인해야 다음 단계가 헛되지 않습니다.",
+      primaryActionLabel: settingsHealth.mailReady ? "메일 연결 테스트 완료" : "메일 연결 테스트",
+      done: settingsHealth.mailReady,
+      content: onboardingMailSetupContent
+    },
+    {
+      id: "defaults",
+      step: 2,
+      title: "발행 기본값 입력",
+      summary:
+        settingsHealth.popbillReady && settingsHealth.operatorReady
+          ? "팝빌 접두어와 담당자 기본값 완료"
+          : "팝빌 접두어, 담당자 정보, 기본 비밀번호 입력 필요",
+      why: "신규 고객 생성과 첫 발행에 공통으로 쓰는 작업공간 기본값을 먼저 정리하는 단계입니다.",
+      primaryActionLabel: settingsHealth.popbillReady && settingsHealth.operatorReady ? "필수 입력 완료" : "필수 입력 시작",
+      done: settingsHealth.popbillReady && settingsHealth.operatorReady,
+      content: onboardingDefaultsContent
+    },
+    {
+      id: "helper",
+      step: 3,
+      title: "로컬 헬퍼 준비",
+      summary: helperReady ? `공동인증서 ${customerRenewalAssistantAllCertificates.length}건 읽힘` : "헬퍼 실행 및 공동인증서 읽기 확인 필요",
+      why: "현재 PC에서 읽힌 공동인증서 목록이 있어야 정확한 엑셀 양식과 인증서 연결 순서를 만들 수 있습니다.",
+      primaryActionLabel: helperReady ? "공동인증서 읽기 완료" : "공동인증서 읽기",
+      blockedReason: customerRenewalAssistant?.agentOnline ? undefined : "먼저 헬퍼를 설치·실행한 뒤 보조 영역에서 상태를 다시 확인하세요.",
+      done: helperReady,
+      content: onboardingHelperContent
+    },
+    {
+      id: "registration",
+      step: 4,
+      title: "고객 초기 등록",
+      summary: customerRegistrationReady
+        ? `${data.customers.length}명 등록됨`
+        : onboardingRegistrationStage === "download"
+          ? "양식 다운로드 필요"
+          : onboardingRegistrationStage === "commit"
+            ? `고객 등록 반영 대기 ${onboardingImportableCount}건`
+            : onboardingRegistrationFlow.needsUploadRetry
+              ? "막힌 행 수정 후 다시 업로드 필요"
+              : "작성한 양식 업로드 필요",
+      why: "고객 정보와 범용 공동인증서를 한 번에 반영해야 다음 전자세금용 연결과 첫 동기화가 정확해집니다.",
+      primaryActionLabel: customerRegistrationReady ? "고객 초기 등록 완료" : onboardingRegistrationPrimaryActionLabel,
+      blockedReason: onboardingRegistrationBlockedReason,
+      done: customerRegistrationReady,
+      content: (
+        <InitialRegistrationTab
+          mode="registration"
+          busyKey={busyKey}
+          customerOnboardingFileName={customerOnboardingFileName}
+          customerOnboardingPreview={customerOnboardingPreview}
+          customerOnboardingNotice={customerOnboardingNotice}
+          customerOnboardingError={customerOnboardingError}
+          pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
+          quickRegisterMessages={quickRegisterMessages}
+          quickRegisterForm={quickRegisterForm}
+          selectedQuickRegisterMessage={selectedQuickRegisterMessage}
+          isQuickRegistering={isQuickRegistering}
+          quickRegisterNotice={quickRegisterNotice}
+          quickRegisterError={quickRegisterError}
+          billingMonthSummaries={billingMonthSummaries}
+          completedBillingNotice={completedBillingNotice}
+          helperReady={helperReady}
+          helperCertificateCount={customerRenewalAssistantAllCertificates.length}
+          registrationReady={customerRegistrationReady}
+          registrationStage={onboardingRegistrationStage}
+          registrationBlockedReason={onboardingRegistrationBlockedReason}
+          registrationTemplateDownloaded={customerOnboardingSessionState.templateDownloaded}
+          registrationPreviewReady={customerOnboardingSessionState.previewReady}
+          registrationCommitDone={customerOnboardingSessionState.commitDone}
+          showBillingMonthCompletion={false}
+          downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
+          handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
+          commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
+          setQuickRegisterForm={setQuickRegisterForm}
+          selectQuickRegisterMessage={selectQuickRegisterMessage}
+          submitQuickRegister={submitQuickRegister}
+          markBillingMonthCompleted={markBillingMonthCompleted}
+          runAction={runAction}
+          formatDateTime={formatDateTime}
+          getInboxDisplayParseStatus={getInboxDisplayParseStatus}
+          getParseStatusLabel={getParseStatusLabel}
+        />
+      )
+    },
+    {
+      id: "certificates",
+      step: 5,
+      title: "인증서 연결 마무리",
+      summary: !customerRegistrationReady
+        ? "고객 등록 후 진행"
+        : issueSetupPendingCount === 0
+          ? "발행용 인증서 준비 완료"
+          : onboardingCertificateAutoTargetCount > 0
+            ? `전자세금용 후속 등록 ${onboardingCertificateAutoTargetCount}건 남음`
+            : `인증서 관리에서 수동 확인 ${issueSetupPendingCount}명`,
+      why: "고객 등록 뒤 전자세금용 인증서를 팝빌 발행 상태까지 연결해야 실제 발행 준비가 끝납니다.",
+      primaryActionLabel: onboardingCertificateReady ? "전자세금용 등록 마무리 완료" : onboardingCertificatePrimaryActionLabel,
+      blockedReason: !customerRegistrationReady ? "먼저 고객 초기 등록을 끝내세요." : undefined,
+      done: onboardingCertificateReady,
+      content: onboardingCertificateCompletionContent
+    },
+    {
+      id: "first-sync",
+      step: 6,
+      title: "첫 메일 동기화",
+      summary: !onboardingCertificateReady
+        ? "이전 단계 완료 후 실행"
+        : onboardingFirstSyncReady
+          ? "첫 메일 동기화 완료"
+          : "고객/인증서 준비 뒤 첫 동기화 필요",
+      why: "메일 연결 테스트와 실제 메일 읽기는 분리되어 있으므로, 준비가 끝난 뒤 여기서 처음 자동 매칭을 시작합니다.",
+      primaryActionLabel: onboardingFirstSyncReady ? "첫 메일 동기화 완료" : "첫 메일 동기화 실행",
+      blockedReason: canRunOnboardingFirstSync ? undefined : `먼저 ${onboardingFirstSyncBlockedSteps.join(" → ")} 단계를 끝내세요.`,
+      done: onboardingFirstSyncReady,
+      content: onboardingFirstSyncContent
+    },
+    {
+      id: "exceptions",
+      step: 7,
+      title: "미매칭 메일 예외 처리",
+      summary: !onboardingFirstSyncReady
+        ? "첫 동기화 후 확인"
+        : unmatchedMessages.length > 0
+          ? `예외 메일 ${unmatchedMessages.length}건 처리 필요`
+          : "예외 메일 없음",
+      why: "자동 매칭에서 남은 주소 예외나 특수 케이스만 마지막에 처리하는 예외 단계입니다.",
+      primaryActionLabel: !onboardingFirstSyncReady ? "첫 메일 동기화 후 예외 확인" : unmatchedMessages.length > 0 ? "예외 고객 등록 후 메일 연결" : "지금 처리할 예외 없음",
+      blockedReason: !onboardingFirstSyncReady
+        ? "먼저 첫 메일 동기화를 실행하세요."
+        : unmatchedMessages.length === 0
+          ? "지금 처리할 예외 메일이 없습니다."
+          : undefined,
+      tone: onboardingFirstSyncReady && unmatchedMessages.length === 0 ? "muted" : "default",
+      done: exceptionHandlingReady,
+      content: (
+        <InitialRegistrationTab
+          mode="exceptions"
+          busyKey={busyKey}
+          customerOnboardingFileName={customerOnboardingFileName}
+          customerOnboardingPreview={customerOnboardingPreview}
+          customerOnboardingNotice={customerOnboardingNotice}
+          customerOnboardingError={customerOnboardingError}
+          pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
+          quickRegisterMessages={quickRegisterMessages}
+          quickRegisterForm={quickRegisterForm}
+          selectedQuickRegisterMessage={selectedQuickRegisterMessage}
+          isQuickRegistering={isQuickRegistering}
+          quickRegisterNotice={quickRegisterNotice}
+          quickRegisterError={quickRegisterError}
+          billingMonthSummaries={billingMonthSummaries}
+          completedBillingNotice={completedBillingNotice}
+          helperReady={helperReady}
+          helperCertificateCount={customerRenewalAssistantAllCertificates.length}
+          registrationTemplateDownloaded={customerOnboardingSessionState.templateDownloaded}
+          registrationPreviewReady={customerOnboardingSessionState.previewReady}
+          registrationCommitDone={customerOnboardingSessionState.commitDone}
+          showBillingMonthCompletion
+          downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
+          handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
+          commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
+          setQuickRegisterForm={setQuickRegisterForm}
+          selectQuickRegisterMessage={selectQuickRegisterMessage}
+          submitQuickRegister={submitQuickRegister}
+          markBillingMonthCompleted={markBillingMonthCompleted}
+          runAction={runAction}
+          formatDateTime={formatDateTime}
+          getInboxDisplayParseStatus={getInboxDisplayParseStatus}
+          getParseStatusLabel={getParseStatusLabel}
+        />
+      )
+    },
+    {
+      id: "first-issue",
+      step: 8,
+      title: "첫 발행 확인",
+      summary: !onboardingFirstSyncReady
+        ? "첫 동기화 후 확인"
+        : unmatchedMessages.length > 0
+          ? "예외 처리 후 초안 확인"
+        : reviewDrafts.length > 0
+          ? `검토할 초안 ${reviewDrafts.length}건`
+          : issuedDrafts.length > 0
+            ? `발행 확인 ${issuedDrafts.length}건`
+            : "발행 대상 없음",
+      why: "첫 자동화 결과가 기대대로 만들어졌는지 초안과 발행 상태를 마지막으로 확인하는 단계입니다.",
+      primaryActionLabel: "오늘 작업 열기",
+      blockedReason: !onboardingFirstSyncReady
+        ? "먼저 첫 메일 동기화를 실행하세요."
+        : unmatchedMessages.length > 0
+          ? "먼저 예외 메일을 처리하세요."
+          : undefined,
+      done: firstIssueCheckReady,
+      content: onboardingFirstIssueCheckContent
+    }
+  ];
+  const onboardingPendingStepCount = onboardingSteps.filter((step) => !step.done).length;
+  const firstPendingOnboardingStep = onboardingSteps.find((step) => !step.done) ?? onboardingSteps[0] ?? null;
+  const openOnboardingStep = (stepId?: string | null) => {
+    setRequestedOnboardingStepId(stepId ?? null);
+    setActiveTab("onboarding");
+  };
+  const workPriorityEmptyState =
+    workPriorityCards.length > 0
+      ? null
+      : !customerRegistrationReady && !onboardingFirstSyncReady
+        ? {
+            title: "아직 작업 데이터가 거의 없습니다.",
+            body: "먼저 도입 준비를 따라가면 여기에는 멈춘 항목과 오늘 처리할 일이 차례대로 쌓입니다."
+          }
+        : !onboardingFirstSyncReady
+          ? {
+              title: "지금 막힌 항목은 없지만, 아직 첫 메일 동기화를 하지 않았습니다.",
+              body: "첫 메일 동기화를 실행하면 실제 발행 대상과 예외 메일이 이 화면에 나타납니다."
+            }
+          : {
+              title: "지금 멈춘 항목이 없습니다.",
+              body: "오늘은 아래의 검토할 초안과 최근 들어온 메일만 확인하면 됩니다."
+            };
+  const workRoutineCards: Array<{
+    key: string;
+    title: string;
+    count: number;
+    description: string;
+    tone: "success" | "warn" | "default";
+    actionLabel: string;
+    onAction: () => void;
+  }> = [
+    {
+      key: "drafts",
+      title: "검토 후 발행",
+      count: reviewDrafts.length,
+      description:
+        reviewDrafts.length > 0
+          ? "초안을 확인하고 지금 바로 발행하거나 오류를 다시 확인합니다."
+          : onboardingFirstSyncReady
+            ? "지금 검토할 초안이 없습니다."
+            : "첫 메일 동기화를 해야 초안이 생성됩니다.",
+      tone: reviewDrafts.length > 0 ? "warn" : onboardingFirstSyncReady ? "success" : "default",
+      actionLabel: reviewDrafts.length > 0 ? "초안 확인하기" : onboardingFirstSyncReady ? "최근 발행 보기" : "첫 메일 동기화 보기",
+      onAction:
+        reviewDrafts.length > 0
+          ? () => scrollToElementById("work-review-queue")
+          : onboardingFirstSyncReady
+            ? () => {
+                setWorkFeedTab("issued");
+                scrollToElementById("work-recent-history");
+              }
+            : () => openOnboardingStep("first-sync")
+    },
+    {
+      key: "customers",
+      title: "고객별 발행 준비",
+      count: blockedCustomerCount,
+      description:
+        blockedCustomerCount > 0
+          ? "발행이 막힌 고객부터 이유를 확인하고 바로 해결합니다."
+          : readyNowCustomers.length > 0
+            ? "지금 발행 가능한 고객이 준비되어 있습니다."
+            : customerRegistrationReady
+              ? "아직 발행 가능한 고객이 없습니다."
+              : "고객 등록을 마치면 고객별 준비 상태가 보입니다.",
+      tone: blockedCustomerCount > 0 ? "warn" : readyNowCustomers.length > 0 ? "success" : "default",
+      actionLabel:
+        blockedCustomerCount > 0
+          ? "막힌 고객 보기"
+          : readyNowCustomers.length > 0
+            ? "발행 가능한 고객 보기"
+            : customerRegistrationReady
+              ? "고객 전체 보기"
+              : "첫 고객 등록 보기",
+      onAction: () => {
+        setActiveTab("customers");
+        setCustomerListFilter(
+          blockedCustomerCount > 0 ? "blocked" : readyNowCustomers.length > 0 ? "ready" : customerRegistrationReady ? "all" : "all"
+        );
+        if (!customerRegistrationReady) {
+          startCreatingCustomer();
+        }
       }
-    >
-      <div className="info-grid">
-        <div>
-          <span>준비 남음</span>
-          <strong>{setupPendingCount}개</strong>
-        </div>
-        <div>
-          <span>등록 고객</span>
-          <strong>{data.customers.length}명</strong>
-        </div>
-        <div>
-          <span>미매칭 메일</span>
-          <strong>{unmatchedMessages.length}건</strong>
-        </div>
-        <div>
-          <span>발행 대기</span>
-          <strong>{reviewDrafts.length}건</strong>
-        </div>
-      </div>
-      <div className="helper-box">
-        <strong>{canRunOnboardingFirstSync ? "여기서 바로 첫 실행을 시작하면 됩니다." : "아직 도입 준비가 남아 있습니다."}</strong>
-        <span>
-          {canRunOnboardingFirstSync
-            ? "메일 즉시 동기화를 한 번 실행한 뒤, 오늘 작업에서 미매칭 메일과 발행 대기를 확인하세요."
-            : "메일 연결, 발행 기본값, 고객 등록을 먼저 마치면 여기서 바로 첫 동기화를 실행할 수 있습니다."}
-        </span>
-      </div>
-      <div className="button-row">
-        <button type="button" className="btn-secondary" onClick={() => setActiveTab("work")}>
-          오늘 작업 열기
-        </button>
-      </div>
-    </Panel>
-  );
+    },
+    {
+      key: "sync",
+      title: onboardingFirstSyncReady ? "최근 수신 점검" : "첫 메일 동기화",
+      count: onboardingFirstSyncReady ? recentInboxPreview.length : data.inbox.length + data.drafts.length,
+      description: onboardingFirstSyncReady
+        ? recentInboxPreview.length > 0
+          ? "방금 들어온 메일과 예외 여부를 빠르게 확인합니다."
+          : "최근 들어온 메일이 없어도 첫 동기화는 끝난 상태입니다."
+        : "메일 연결 테스트와 별개로, 실제 자동 매칭은 여기서 처음 시작합니다.",
+      tone: onboardingFirstSyncReady ? (recentInboxPreview.length > 0 ? "warn" : "success") : "warn",
+      actionLabel: onboardingFirstSyncReady ? "최근 들어온 것 보기" : "동기화 단계 열기",
+      onAction: onboardingFirstSyncReady
+        ? () => {
+            setWorkFeedTab("inbox");
+            scrollToElementById("work-recent-history");
+          }
+        : () => openOnboardingStep("first-sync")
+    }
+  ];
+  const recentInboxEmptyMessage = !onboardingFirstSyncReady
+    ? "아직 첫 메일 동기화를 하지 않았습니다. 도입 준비에서 첫 메일 동기화를 실행하면 최근 수신이 여기에 표시됩니다."
+    : "최근 들어온 메일이 없습니다. 문제가 없어서 비어 있는 상태입니다.";
+  const recentIssuedEmptyMessage =
+    issuedDrafts.length > 0
+      ? "최근 발행 완료 이력이 없습니다."
+      : !onboardingFirstSyncReady
+        ? "아직 발행 결과가 없습니다. 첫 메일 동기화와 초안 확인을 마치면 여기에 쌓입니다."
+        : "아직 발행 완료 이력이 없습니다.";
+  const nextSettingsSection = settingsSections.find((section) => !section.done)?.id ?? "account";
+  const workspaceTabIntro = {
+    work: {
+      purpose: "오늘 바로 처리할 발행·예외·수신 상황을 순서대로 확인합니다.",
+      help: "숫자만 보는 상태판이 아니라, 지금 눌러야 할 화면으로 바로 이동하는 작업 목록입니다.",
+      primaryActionLabel:
+        reviewDrafts.length > 0
+          ? `초안 ${reviewDrafts.length}건 확인`
+          : setupPendingCount > 0
+            ? "도입 준비 이어하기"
+            : unmatchedMessages.length > 0
+              ? "예외 메일 처리"
+              : onboardingFirstSyncReady
+                ? "최근 들어온 것 보기"
+                : "첫 메일 동기화 보기",
+      onPrimaryAction:
+        reviewDrafts.length > 0
+          ? () => scrollToElementById("work-review-queue")
+          : setupPendingCount > 0
+            ? () => openOnboardingStep(firstPendingOnboardingStep?.id)
+            : unmatchedMessages.length > 0
+              ? () => openOnboardingStep("exceptions")
+              : onboardingFirstSyncReady
+                ? () => {
+                    setWorkFeedTab("inbox");
+                    scrollToElementById("work-recent-history");
+                  }
+                : () => openOnboardingStep("first-sync"),
+      metrics: [
+        { label: "남은 도입", value: `${onboardingPendingStepCount}단계`, tone: onboardingPendingStepCount > 0 ? "warn" : "success" },
+        { label: "검토 초안", value: `${reviewDrafts.length}건`, tone: reviewDrafts.length > 0 ? "warn" : "default" },
+        { label: "예외 메일", value: `${unmatchedMessages.length}건`, tone: unmatchedMessages.length > 0 ? "danger" : "success" },
+        { label: "인증서 주의", value: `${certAttentionCount}건`, tone: certAttentionCount > 0 ? "danger" : "success" }
+      ]
+    },
+    onboarding: {
+      purpose: "처음 도입할 때 첫 발행까지 필요한 8단계를 순서대로 완료합니다.",
+      help: "메일 연결 테스트와 실제 메일 동기화는 분리했고, 미매칭 메일은 마지막 예외 처리 단계에서만 다룹니다.",
+      primaryActionLabel: firstPendingOnboardingStep ? `${firstPendingOnboardingStep.title} 열기` : "첫 발행 확인 보기",
+      onPrimaryAction: () => openOnboardingStep(firstPendingOnboardingStep?.id ?? onboardingSteps[onboardingSteps.length - 1]?.id ?? null),
+      metrics: [
+        { label: "남은 단계", value: `${onboardingPendingStepCount}단계`, tone: onboardingPendingStepCount > 0 ? "warn" : "success" },
+        { label: "등록 고객", value: `${data.customers.length}명`, tone: customerRegistrationReady ? "success" : "default" },
+        { label: "연결 인증서", value: `${linkedCustomerCertificateCount}건`, tone: linkedCustomerCertificateCount > 0 ? "success" : "default" },
+        { label: "예외 메일", value: `${quickRegisterMessages.length}건`, tone: quickRegisterMessages.length > 0 ? "warn" : "success" }
+      ]
+    },
+    customers: {
+      purpose: "고객별 발행 가능 여부, 막힌 이유, 바로 해결할 액션을 한곳에서 봅니다.",
+      help: "처음 보는 사람도 고객 상세를 열자마자 지금 발행 가능한지와 무엇을 눌러야 하는지 읽을 수 있게 정리했습니다.",
+      primaryActionLabel:
+        blockedCustomerCount > 0
+          ? `막힌 고객 ${blockedCustomerCount}명 보기`
+          : data.customers.length === 0
+            ? "첫 고객 등록하기"
+            : `발행 가능한 고객 ${readyNowCustomers.length}명 보기`,
+      onPrimaryAction: () => {
+        setCustomerListFilter(blockedCustomerCount > 0 ? "blocked" : data.customers.length === 0 ? "all" : "ready");
+        if (data.customers.length === 0) {
+          startCreatingCustomer();
+        }
+      },
+      metrics: [
+        { label: "전체 고객", value: `${data.customers.length}명`, tone: data.customers.length > 0 ? "success" : "default" },
+        { label: "발행 막힘", value: `${blockedCustomerCount}명`, tone: blockedCustomerCount > 0 ? "danger" : "success" },
+        { label: "발행 가능", value: `${readyNowCustomers.length}명`, tone: readyNowCustomers.length > 0 ? "success" : "default" },
+        { label: "연결 마무리", value: `${popbillPendingCustomers.length}명`, tone: popbillPendingCustomers.length > 0 ? "warn" : "success" }
+      ]
+    },
+    certificates: {
+      purpose: "전자세금용·범용·미연결 공동인증서 상태를 보고 발행 막힘을 해소합니다.",
+      help: "전자세금용은 실제 발행용, 범용은 갱신·결제용, 미연결은 아직 고객과 묶지 않은 인증서입니다.",
+      primaryActionLabel: !customerRenewalAssistant?.agentOnline
+        ? "로컬 헬퍼 준비 열기"
+        : customerRenewalAssistantAllCertificates.length === 0
+          ? "공동인증서 읽기"
+          : "공동인증서 다시 읽기",
+      onPrimaryAction: !customerRenewalAssistant?.agentOnline
+        ? () => {
+            setActiveSettingsSection("popbill");
+            setActiveTab("settings");
+          }
+        : () => void runAction("customer-renewal-bridge-probe", loadCustomerRenewalCertificates, { reload: false }),
+      metrics: [
+        {
+          label: "로컬 읽음",
+          value: `${customerRenewalAssistantAllCertificates.length}건`,
+          tone: customerRenewalAssistantAllCertificates.length > 0 ? "success" : "default"
+        },
+        { label: "연결 완료", value: `${linkedCustomerCertificateCount}건`, tone: linkedCustomerCertificateCount > 0 ? "success" : "default" },
+        { label: "인증서 주의", value: `${certAttentionCount}건`, tone: certAttentionCount > 0 ? "danger" : "success" },
+        { label: "미연결 고객", value: `${issueSetupPendingCount}명`, tone: issueSetupPendingCount > 0 ? "warn" : "success" }
+      ]
+    },
+    settings: {
+      purpose: "메일 연결, 발행 기본값, 로컬 헬퍼 준비 같은 작업공간 공통 설정을 보조로 관리합니다.",
+      help: "실제 첫 성공 흐름은 도입 준비 탭이 중심이고, 이 화면은 세부 설정이나 문제 해결이 필요할 때만 열면 됩니다.",
+      primaryActionLabel:
+        nextSettingsSection === "gmail"
+          ? "메일 연결 열기"
+          : nextSettingsSection === "popbill"
+            ? "발행 기본값 열기"
+            : "계정 보안 보기",
+      onPrimaryAction: () => setActiveSettingsSection(nextSettingsSection),
+      metrics: [
+        { label: "메일", value: settingsHealth.mailReady ? "준비됨" : "입력 필요", tone: settingsHealth.mailReady ? "success" : "warn" },
+        {
+          label: "발행 기본값",
+          value: settingsHealth.popbillReady && settingsHealth.operatorReady ? "준비됨" : "입력 필요",
+          tone: settingsHealth.popbillReady && settingsHealth.operatorReady ? "success" : "warn"
+        },
+        { label: "로컬 헬퍼", value: helperReady ? "준비됨" : "확인 필요", tone: helperReady ? "success" : "warn" },
+        { label: "등록 고객", value: `${data.customers.length}명`, tone: data.customers.length > 0 ? "success" : "default" }
+      ]
+    }
+  } satisfies Record<
+    Exclude<TabId, "ops">,
+    {
+      purpose: string;
+      help: string;
+      primaryActionLabel: string;
+      onPrimaryAction: () => void;
+      metrics: Array<{ label: string; value: string; tone: "default" | "warn" | "danger" | "success" }>;
+    }
+  >;
+  const activeTabIntro =
+    hasActiveWorkspace && activeTab !== "ops" ? workspaceTabIntro[activeTab as Exclude<TabId, "ops">] : null;
   const activeNavLabel = navItems.find((item) => item.id === activeTab)?.label ?? "AUTO-TAX";
 
   return (
@@ -6782,6 +7628,9 @@ export function App() {
               key={item.id}
               className={activeTab === item.id ? "nav-button active" : "nav-button"}
               onClick={() => {
+                if (item.id === "onboarding") {
+                  setRequestedOnboardingStepId(null);
+                }
                 setActiveTab(item.id);
                 if (item.id === "settings") {
                   setActiveSettingsSection(recommendedSettingsSection);
@@ -6791,6 +7640,7 @@ export function App() {
               <Icon name={item.icon} className="nav-icon" />
               <div className="nav-copy">
                 <span className="nav-title">{item.label}</span>
+                {item.description ? <span className="nav-meta">{item.description}</span> : null}
               </div>
             </button>
           ))}
@@ -6837,11 +7687,11 @@ export function App() {
                 : "content"
         }
       >
-        <header className="hero">
+        <header className={activeTab === "onboarding" ? "hero hero-minimal" : "hero"}>
           <div className="hero-main">
             <h2>{activeNavLabel}</h2>
-            <div className="hero-summary">
-              <span className="hero-pill">{activeWorkspaceName}</span>
+            <div className={activeTab === "onboarding" ? "hero-summary hero-summary-minimal" : "hero-summary"}>
+              <span className={activeTab === "onboarding" ? "hero-workspace-label" : "hero-pill"}>{activeWorkspaceName}</span>
               {activeTab === "ops" ? (
                 <>
                   <span className="hero-pill">플랫폼 관리자 전용</span>
@@ -6855,9 +7705,17 @@ export function App() {
                 </>
               ) : (
                 <>
-                  <span className={workspacePopbillIsTest ? "hero-pill hero-pill-warn" : "hero-pill"}>{workspacePopbillModeLabel}</span>
-                  <span className="hero-pill">발행 대상 {data.counts.actionableDrafts}건</span>
-                  <span className={certAttentionCount > 0 ? "hero-pill hero-pill-warn" : "hero-pill"}>인증서 주의 {certAttentionCount}건</span>
+                  {activeTab === "onboarding" ? (
+                    <>
+                      <span className="hero-pill">{onboardingPendingStepCount === 0 ? "첫 발행 준비 완료" : `남은 도입 ${onboardingPendingStepCount}단계`}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className={workspacePopbillIsTest ? "hero-pill hero-pill-warn" : "hero-pill"}>{workspacePopbillModeLabel}</span>
+                      <span className="hero-pill">발행 대상 {data.counts.actionableDrafts}건</span>
+                      <span className={certAttentionCount > 0 ? "hero-pill hero-pill-warn" : "hero-pill"}>인증서 주의 {certAttentionCount}건</span>
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -6867,7 +7725,7 @@ export function App() {
               <Icon name="refresh" className="button-icon" />
               새로고침
             </button>
-            {hasActiveWorkspace && activeTab !== "ops" ? (
+            {hasActiveWorkspace && activeTab !== "ops" && activeTab !== "onboarding" ? (
               <button onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
                 <Icon name="sync" className="button-icon" />
                 메일 즉시 동기화
@@ -6878,6 +7736,43 @@ export function App() {
 
         {error ? <div className="alert error">{error}</div> : null}
 
+        {activeTabIntro && activeTab !== "onboarding" ? (
+          <section className="tab-intro-strip">
+            <div className="tab-intro-copy">
+              <span className="chip">이 탭에서 하는 일</span>
+              <strong>{activeTabIntro.purpose}</strong>
+              <p>{activeTabIntro.help}</p>
+            </div>
+            <div className="tab-intro-actions">
+              <button type="button" onClick={activeTabIntro.onPrimaryAction}>
+                {activeTabIntro.primaryActionLabel}
+              </button>
+            </div>
+            <div className="tab-intro-metrics">
+              {activeTabIntro.metrics.map((metric) => (
+                <div
+                  key={`${activeTab}-${metric.label}`}
+                  className={[
+                    "tab-intro-metric",
+                    metric.tone === "success"
+                      ? "tone-success"
+                      : metric.tone === "warn"
+                        ? "tone-warn"
+                        : metric.tone === "danger"
+                          ? "tone-danger"
+                          : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         {activeTab === "work" ? (
           <div className="work-screen">
             {mailboxDataLoading ? (
@@ -6887,11 +7782,11 @@ export function App() {
             ) : null}
             <Panel
               className="panel-work-priority"
-              title={workPriorityCards.length > 0 ? "긴급 예외" : "운영 상태"}
+              title="지금 멈춰 있는 것"
               subtitle={
                 workPriorityCards.length > 0
-                  ? "먼저 처리할 항목"
-                  : "발행 대기와 최근 처리만 확인"
+                  ? "먼저 해결해야 다음 단계로 넘어갈 수 있는 항목입니다."
+                  : workPriorityEmptyState?.body ?? "지금 막힌 항목이 없습니다."
               }
             >
               {workPriorityCards.length > 0 ? (
@@ -6925,27 +7820,52 @@ export function App() {
               ) : (
                 <div className="work-priority-empty">
                   <span className="chip chip-success">긴급 예외 없음</span>
-                  <strong>발행 대기와 최근 처리만 보면 됩니다.</strong>
+                  <strong>{workPriorityEmptyState?.title}</strong>
+                  <p>{workPriorityEmptyState?.body}</p>
                 </div>
               )}
             </Panel>
 
-            <section className="stats-grid stats-grid-compact work-stats">
-              <StatCard label="발행 대상" value={reviewDrafts.length} tone={reviewDrafts.length > 0 ? "warn" : "default"} />
-              <StatCard label="미매칭 메일" value={unmatchedMessages.length} tone={unmatchedMessages.length > 0 ? "warn" : "default"} />
-              <StatCard label="인증서 주의" value={certAttentionCount} tone={certAttentionCount > 0 ? "error" : "default"} />
-            </section>
-
             <div className={workLayoutClassName}>
               <Panel
                 className="panel-work-queue"
-                title="발행할 건"
+                title="오늘 확인할 것"
+                subtitle="숫자만 보지 말고, 바로 다음 행동으로 이동합니다."
                 actions={
-                  <>
-                    <button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>전체 발행</button>
-                  </>
+                  reviewDrafts.length > 0 ? <button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>전체 발행</button> : undefined
                 }
               >
+                <div className="work-action-grid">
+                  {workRoutineCards.map((card) => (
+                    <article
+                      key={card.key}
+                      className={[
+                        "work-action-card",
+                        card.tone === "success" ? "tone-success" : card.tone === "warn" ? "tone-warn" : ""
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <div className="work-action-card-head">
+                        <div>
+                          <span className="work-priority-label">{card.title}</span>
+                          <strong>{card.count}건</strong>
+                        </div>
+                        <span className={`chip ${card.tone === "success" ? "chip-success" : card.tone === "warn" ? "chip-warn" : ""}`}>
+                          {card.tone === "success" ? "바로 확인 가능" : card.tone === "warn" ? "오늘 확인" : "안내"}
+                        </span>
+                      </div>
+                      <p>{card.description}</p>
+                      <button type="button" className="btn-secondary" onClick={card.onAction}>
+                        {card.actionLabel}
+                      </button>
+                    </article>
+                  ))}
+                </div>
+                <div className="work-section-label" id="work-review-queue">
+                  <strong>검토 후 발행할 초안</strong>
+                  <span>실제 발행은 여기서 마지막으로 확인한 뒤 진행합니다.</span>
+                </div>
                 <div className={reviewDrafts.length === 0 ? "table-wrap queue-table-shell is-empty" : "table-wrap queue-table-shell"}>
                   <table className="responsive-table queue-table">
                     <thead>
@@ -6981,7 +7901,9 @@ export function App() {
                       {reviewDrafts.length === 0 ? (
                         <tr className="queue-empty-row">
                           <td className="queue-empty-cell" colSpan={5}>
-                            지금 발행할 건이 없습니다.
+                            {!onboardingFirstSyncReady
+                              ? "아직 첫 메일 동기화를 하지 않아 초안이 없습니다."
+                              : "지금 검토 후 발행할 초안이 없습니다. 문제가 없어서 비어 있는 상태입니다."}
                           </td>
                         </tr>
                       ) : null}
@@ -6993,39 +7915,17 @@ export function App() {
               <div className="work-side-column">
                 <Panel
                   className="panel-work-status"
-                title="지금 상태"
-                actions={
-                  <>
-                    <button onClick={() => void runAction("cert-refresh-all", refreshAllCertificateStatuses)}>인증서 점검</button>
-                  </>
-                }
-              >
-                <div className="info-grid">
-                    <div>
-                      <span>메일</span>
-                      <strong>{settingsHealth.mailReady ? "준비됨" : "설정 필요"}</strong>
-                    </div>
-                    <div>
-                      <span>팝빌</span>
-                      <strong>{settingsHealth.popbillReady ? "준비됨" : "설정 필요"}</strong>
-                    </div>
-                    <div>
-                      <span>발행 대상</span>
-                      <strong>{reviewDrafts.length}건</strong>
-                    </div>
-                    <div>
-                      <span>인증서 주의</span>
-                      <strong>{certAttentionCount}건</strong>
-                    </div>
-                  </div>
-                    <div className="compact-status-stack">
+                  title="최근 들어온 것"
+                  subtitle="방금 들어온 메일과 최근 발행 결과를 빠르게 확인합니다."
+                >
+                  <div className="compact-status-stack">
                     <div className="history-split">
                       <section className="history-block" id="work-recent-history">
                         <header className="history-block-head">
                           <div className="history-title-row">
                             <div className="history-title-copy">
-                              <strong>최근 처리</strong>
-                              <span className="history-caption">최근 항목만 빠르게 확인합니다.</span>
+                              <strong>최근 흐름</strong>
+                              <span className="history-caption">메일 수신과 발행 결과를 같은 자리에서 확인합니다.</span>
                             </div>
                             <div className="history-tabs">
                               <button
@@ -7033,14 +7933,14 @@ export function App() {
                                 className={workFeedTab === "inbox" ? "btn-secondary active-filter" : "btn-secondary"}
                                 onClick={() => setWorkFeedTab("inbox")}
                               >
-                                수신 {recentInboxPreview.length}
+                                최근 수신 {recentInboxPreview.length}
                               </button>
                               <button
                                 type="button"
                                 className={workFeedTab === "issued" ? "btn-secondary active-filter" : "btn-secondary"}
                                 onClick={() => setWorkFeedTab("issued")}
                               >
-                                발행 {recentIssuedPreview.length}
+                                최근 발행 {recentIssuedPreview.length}
                               </button>
                             </div>
                           </div>
@@ -7061,9 +7961,16 @@ export function App() {
                                     <span>{formatDateTime(message.receivedAt)}</span>
                                   </div>
                                   <div className="history-actions">
-                                    <span className={`status status-${getInboxDisplayParseStatus(message)}`}>{getParseStatusLabel(getInboxDisplayParseStatus(message))}</span>
+                                    <span className={`status status-${getInboxDisplayParseStatus(message)}`}>
+                                      {getParseStatusLabel(getInboxDisplayParseStatus(message))}
+                                    </span>
                                     {isInboxActionable(message) ? (
-                                      <button className="btn-secondary" onClick={() => void runAction(`reprocess-${message.id}`, async () => void (await reprocessInboxMessage(message.id)))}>재처리</button>
+                                      <button
+                                        className="btn-secondary"
+                                        onClick={() => void runAction(`reprocess-${message.id}`, async () => void (await reprocessInboxMessage(message.id)))}
+                                      >
+                                        재처리
+                                      </button>
                                     ) : null}
                                   </div>
                                 </div>
@@ -7075,13 +7982,25 @@ export function App() {
                                     <span>{formatMoney(draft.totalAmount)}원 · {formatDateTime(draft.issuedAt)}</span>
                                   </div>
                                   <div className="history-actions">
-                                    <button className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction(`draft-view-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}>보기</button>
-                                    <button className="btn-danger" disabled={busyKey !== null} onClick={() => void runAction(`draft-cancel-${draft.id}`, async () => void (await cancelIssuedDraft(draft.id)))}>취소</button>
+                                    <button
+                                      className="btn-secondary"
+                                      disabled={busyKey !== null}
+                                      onClick={() => void runAction(`draft-view-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}
+                                    >
+                                      보기
+                                    </button>
+                                    <button
+                                      className="btn-danger"
+                                      disabled={busyKey !== null}
+                                      onClick={() => void runAction(`draft-cancel-${draft.id}`, async () => void (await cancelIssuedDraft(draft.id)))}
+                                    >
+                                      취소
+                                    </button>
                                   </div>
                                 </div>
                               ))}
-                          {workFeedTab === "inbox" && recentInboxPreview.length === 0 ? <div className="empty">최근 수신 메일이 없습니다.</div> : null}
-                          {workFeedTab === "issued" && recentIssuedPreview.length === 0 ? <div className="empty">최근 발행 완료 이력이 없습니다.</div> : null}
+                          {workFeedTab === "inbox" && recentInboxPreview.length === 0 ? <div className="empty">{recentInboxEmptyMessage}</div> : null}
+                          {workFeedTab === "issued" && recentIssuedPreview.length === 0 ? <div className="empty">{recentIssuedEmptyMessage}</div> : null}
                         </div>
                       </section>
                     </div>
@@ -7094,49 +8013,17 @@ export function App() {
 
         {activeTab === "onboarding" ? (
           <OnboardingTab
-            setupPendingCount={setupPendingCount}
+            pendingStepCount={onboardingPendingStepCount}
             customerCount={data.customers.length}
             quickRegisterMessageCount={quickRegisterMessages.length}
-            pendingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
+            pendingCertificateRegistrationCount={issueSetupPendingCount}
             linkedCertificateCount={linkedCustomerCertificateCount}
             steps={onboardingSteps}
+            requestedStepId={requestedOnboardingStepId}
             onOpenSettings={() => {
               setActiveSettingsSection(recommendedSettingsSection);
               setActiveTab("settings");
             }}
-            mailSetupContent={onboardingMailSetupContent}
-            defaultsContent={onboardingDefaultsContent}
-            registrationContent={
-              <InitialRegistrationTab
-                busyKey={busyKey}
-                customerOnboardingFileName={customerOnboardingFileName}
-                customerOnboardingPreview={customerOnboardingPreview}
-                customerOnboardingNotice={customerOnboardingNotice}
-                customerOnboardingError={customerOnboardingError}
-                pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
-                quickRegisterMessages={quickRegisterMessages}
-                quickRegisterForm={quickRegisterForm}
-                selectedQuickRegisterMessage={selectedQuickRegisterMessage}
-                isQuickRegistering={isQuickRegistering}
-                quickRegisterNotice={quickRegisterNotice}
-                quickRegisterError={quickRegisterError}
-                billingMonthSummaries={billingMonthSummaries}
-                completedBillingNotice={completedBillingNotice}
-                downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
-                handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
-                commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
-                proceedOnboardingCertificateRegistration={proceedOnboardingCertificateRegistration}
-                setQuickRegisterForm={setQuickRegisterForm}
-                selectQuickRegisterMessage={selectQuickRegisterMessage}
-                submitQuickRegister={submitQuickRegister}
-                markBillingMonthCompleted={markBillingMonthCompleted}
-                runAction={runAction}
-                formatDateTime={formatDateTime}
-                getInboxDisplayParseStatus={getInboxDisplayParseStatus}
-                getParseStatusLabel={getParseStatusLabel}
-              />
-            }
-            firstRunContent={onboardingFirstRunContent}
           />
         ) : null}
 
