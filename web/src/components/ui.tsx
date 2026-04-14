@@ -52,7 +52,7 @@ export function RevealIcon(props: { open: boolean }) {
   );
 }
 
-export function StatCard(props: { label: string; value: number; tone?: "default" | "warn" | "error" }) {
+export function StatCard(props: { label: string; value: number | string; tone?: "default" | "warn" | "error" }) {
   return (
     <div className={`stat-card stat-${props.tone ?? "default"}`}>
       <div className="stat-card-head">
@@ -64,9 +64,16 @@ export function StatCard(props: { label: string; value: number; tone?: "default"
   );
 }
 
-export function Panel(props: { title: string; subtitle?: string; children: React.ReactNode; actions?: React.ReactNode; className?: string }) {
+export function Panel(props: {
+  id?: string;
+  title: string;
+  subtitle?: React.ReactNode;
+  children: React.ReactNode;
+  actions?: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <section className={props.className ? `panel ${props.className}` : "panel"}>
+    <section id={props.id} className={props.className ? `panel ${props.className}` : "panel"}>
       <header className="panel-header">
         <div>
           <h2>{props.title}</h2>
@@ -120,7 +127,9 @@ export function AppDialog(props: {
           </span>
           <div>
             <h2 id="app-dialog-title">{props.dialog.title}</h2>
-            <p id="app-dialog-message" className="app-dialog-message">{props.dialog.message}</p>
+            <p id="app-dialog-message" className="app-dialog-message">
+              {props.dialog.message}
+            </p>
           </div>
         </div>
         <div className="app-dialog-actions">
@@ -145,7 +154,7 @@ export function SetupPanel(props: {
   children: React.ReactNode;
   actions?: React.ReactNode;
   className?: string;
-  note?: string;
+  note?: React.ReactNode;
 }) {
   return (
     <section className={props.className ? `panel setup-panel ${props.className}` : "panel setup-panel"}>

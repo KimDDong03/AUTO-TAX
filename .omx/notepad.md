@@ -1,0 +1,8 @@
+
+
+## WORKING MEMORY
+[2026-04-13T10:42:04.577Z] Created planning-only artifacts for TeamViewer-inspired AUTO-TAX redesign: .omx/plans/prd-teamviewer-app-shell-redesign-20260413.md and .omx/plans/test-spec-teamviewer-app-shell-redesign-20260413.md. Core recommendation: keep IA/workflows, redesign shell/tokens/shared primitives first, then roll out tab-by-tab starting with work tab.
+
+[2026-04-13T10:45:52.884Z] Revised AUTO-TAX redesign plan from visual refresh to full UI/UX overhaul. New direction: collapse IA to Home/Customers/Settings/Admin, absorb onboarding into Home, absorb certificates into Settings+Customer context, aggressively remove explanatory copy, and make all major screens action-first.
+[2026-04-14T03:38:27.076Z] 2026-04-14 PR C follow-up: audited current worktree vs carried-forward plan/state, kept PR A/PR B untouched, and polished maintenance retention failure handling so saveFailedRun is attempted for broader failures without masking the original prune error. Added failure-path coverage in server/src/maintenance-retention.test.ts. Verified with npm run check and npm run test:server (43 passed).
+[2026-04-14T04:01:43.782Z] 2026-04-14 Supabase migration reconciliation: remote-only history entries 20260401081343, 20260408193000, 20260408195000, 20260408201000 were repaired to reverted via `supabase migration repair --linked`. After repair, `supabase migration list` aligned local/remote and `supabase db push --dry-run` reported remote up to date. `supabase db pull` still failed locally because Docker Desktop is unavailable for the required shadow DB.

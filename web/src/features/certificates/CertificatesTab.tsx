@@ -364,35 +364,35 @@ export function CertificatesTab(props: CertificatesTabProps) {
     {
       key: "electronic",
       title: "전자세금용",
-      description: "실제 전자세금계산서를 발행할 때 꼭 필요한 인증서입니다. 없으면 고객이 바로 발행 막힘으로 보입니다."
+      description: "실발행"
     },
     {
       key: "general",
       title: "범용",
-      description: "갱신 준비와 결제 진행에 쓰는 보조 인증서입니다. 준비 필요 또는 결제 가능 단계에서 주로 사용합니다."
+      description: "갱신 준비"
     },
     {
       key: "unlinked",
       title: "미연결",
-      description: "아직 고객과 묶지 않은 인증서입니다. 자동 후보가 보이면 예외 처리로 필요한 고객에만 연결하세요."
+      description: "예외 목록"
     }
   ];
   const certificateStatusLead = !props.customerRenewalAssistantOnline
-    ? "먼저 로컬 헬퍼를 준비하세요."
+    ? "로컬 헬퍼 필요"
     : actionNeededCustomerCount > 0
-      ? `지금 조치할 고객 ${actionNeededCustomerCount}명부터 처리하세요.`
+      ? `조치 필요 고객 ${actionNeededCustomerCount}명`
       : props.customerRenewalLoadedCertificateCount === 0
-        ? "먼저 공동인증서 목록을 읽어오세요."
+        ? "공동인증서 읽기부터"
         : linkedCustomerRows.length === 0
-          ? "읽은 인증서를 고객과 연결하면 이 화면에서 계속 관리할 수 있습니다."
-          : "지금 막힌 고객은 없습니다.";
+          ? "고객 연결 후 계속 관리"
+          : "지금 막힘 없음";
   const certificateStatusBody = !props.customerRenewalAssistantOnline
-    ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 로컬 헬퍼를 실행한 뒤 다시 시도하세요."
+    ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 헬퍼를 실행하세요."
     : actionNeededCustomerCount > 0
-      ? "기본 보기는 조치 필요 고객만 먼저 보여줍니다. 결제만 남았는지, 준비부터 해야 하는지, 인증서가 빠졌는지를 고객별로 바로 읽을 수 있게 정리했습니다."
+      ? "기본 보기는 조치 필요 고객 우선입니다."
       : props.customerRenewalLoadedCertificateCount === 0
-        ? "공동인증서 읽기를 누르면 전자세금용/범용/미연결 상태가 자동으로 정리됩니다."
-        : "현재는 문제가 없어서 조치 필요 필터가 비어 있을 수 있습니다. 필요하면 전체 보기나 미연결 공동인증서를 확인하세요.";
+        ? "전자세금용 / 범용 / 미연결 상태를 읽어옵니다."
+        : "필요하면 전체 보기나 미연결 목록을 확인하세요.";
 
   const pauseBatchPrepareForInteractiveAction = async (reason: string) => {
     if (!batchPreparePromiseRef.current) {
@@ -793,8 +793,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
     <div className="certificate-screen">
       <Panel
         className="panel-customer-renewal"
-        title="발행 막힘 해결"
-        subtitle="전자세금용·범용·미연결 공동인증서를 보고 조치가 필요한 고객부터 해결합니다."
+        title="인증서 상태"
+        subtitle="설정 안에서 바로 관리"
         actions={(
           <>
             <button
@@ -815,8 +815,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
       >
         {!props.customerRenewalAssistantOnline ? (
           <div className="helper-box import-helper-box">
-            <strong>로컬 헬퍼가 필요합니다.</strong>
-            <span>{props.customerRenewalAssistantHelperMessage || "고객 PC에서 로컬 헬퍼를 실행한 뒤 다시 시도하세요."}</span>
+            <strong>로컬 헬퍼 필요</strong>
+            <span>{props.customerRenewalAssistantHelperMessage || "고객 PC에서 로컬 헬퍼를 실행하세요."}</span>
           </div>
         ) : null}
 
@@ -929,7 +929,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
             {customerFilter === "action_needed" ? (
               <div className="certificate-focus-note">
                 <span className="chip chip-warn">기본 보기</span>
-                <span>지금 막힌 고객만 먼저 보여 줍니다. 문제가 없으면 비어 있을 수 있습니다.</span>
+                <span>막힌 고객만 먼저 보여 줍니다.</span>
               </div>
             ) : (
               <div className="certificate-focus-note">
@@ -994,7 +994,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
 
         <div className="certificate-table-section">
           <div className="certificate-table-section-head">
-            <strong>{customerFilter === "action_needed" ? "지금 조치할 고객" : "고객별 공동인증서"}</strong>
+            <strong>{customerFilter === "action_needed" ? "지금 조치할 고객" : "고객별 인증서 상태"}</strong>
             <span>{filteredLinkedCustomerRows.length}명</span>
           </div>
           <div className="certificate-table-wrap">
@@ -1200,7 +1200,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
           </div>
           ) : (
             <div className="certificate-collapsed-note">
-              미연결 공동인증서는 아직 고객과 묶지 않은 예외 처리용 목록입니다. 필요할 때만 펼쳐서 연결하세요.
+              미연결 공동인증서 예외 목록입니다.
             </div>
           )}
         </div>

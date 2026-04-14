@@ -65,7 +65,7 @@ function getInitialRegistrationStepMeta(status: InitialRegistrationStepStatus) {
   }
 
   if (status === "current") {
-    return { statusLabel: "지금 하기", chipClass: "chip chip-warn" };
+    return { statusLabel: "지금", chipClass: "chip chip-warn" };
   }
 
   return { statusLabel: "대기", chipClass: "chip" };
@@ -80,72 +80,83 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
   const stage: InitialRegistrationStage = commitCompleted ? "done" : canCommit && input.previewReady ? "commit" : downloadCompleted ? "upload" : "download";
   const blockedReason =
     !input.helperReady && !downloadCompleted
-      ? "먼저 3단계에서 공동인증서 읽기를 끝내세요."
+      ? "먼저 공동인증서를 읽으세요."
       : needsUploadRetry
-        ? "업로드 확인까지는 끝났지만 반영 가능 행이 없습니다. 막힌 행을 수정한 뒤 같은 단계에서 다시 업로드하세요."
+        ? `검토 ${input.blockedCount}건 수정 후 다시 업로드하세요.`
         : undefined;
+  const uploadStepStatus: InitialRegistrationStepStatus = needsUploadRetry
+    ? "current"
+    : uploadCompleted
+      ? "complete"
+      : stage === "upload"
+        ? "current"
+        : "locked";
   const headline = commitCompleted
-    ? "고객 초기 등록 반영이 끝났습니다."
+    ? "고객 등록 완료"
     : stage === "download"
-      ? "지금은 양식 다운로드 차례입니다."
-      : stage === "commit"
-        ? "지금은 고객 등록 반영 버튼을 누를 차례입니다."
-        : needsUploadRetry
-          ? "업로드 확인은 끝났고, 이제 막힌 행을 고쳐 다시 업로드할 차례입니다."
-          : "지금은 작성한 양식을 업로드할 차례입니다.";
+      ? "지금 할 일 · 양식 다운로드"
+    : stage === "commit"
+        ? "지금 할 일 · 고객 반영"
+    : needsUploadRetry
+          ? "지금 할 일 · 다시 업로드"
+          : "지금 할 일 · 양식 업로드";
   const description = commitCompleted
-    ? "이 단계는 끝났습니다. 이제 다음 단계에서 전자세금용 인증서 연결 마무리를 이어가면 됩니다."
+    ? "다음 단계로 이동"
     : stage === "download"
       ? input.helperReady
-        ? `현재 PC에서 공동인증서 ${input.helperCertificateCount}건을 읽었습니다. 이 목록 기준으로 엑셀 양식을 생성합니다.`
-        : "엑셀 양식은 현재 PC 인증서 목록 기준으로 만들어집니다. 먼저 3단계 로컬 헬퍼 준비를 끝내세요."
+        ? `인증서 ${input.helperCertificateCount}건 기준`
+        : "헬퍼 필요"
       : stage === "commit"
-        ? `반영 가능 ${input.importableCount}건을 확인했습니다. 지금 반영하면 범용 공동인증서 자동 연결도 함께 시도합니다.`
+        ? `반영 ${input.importableCount}건`
         : needsUploadRetry
-          ? `업로드 확인은 끝났지만 검토 필요 ${input.blockedCount}건을 먼저 수정해야 합니다. 양식을 다시 올리면 반영 가능 상태를 다시 계산합니다.`
-          : "양식을 작성한 뒤 업로드하면 반영 가능/검토 필요 상태를 먼저 확인합니다.";
+          ? `검토 ${input.blockedCount}건`
+          : input.hasSelectedFile
+            ? "업로드 준비"
+            : "파일 선택";
   const primaryActionLabel = commitCompleted
-    ? "고객 초기 등록 완료"
+    ? "등록 완료"
     : stage === "download"
       ? "양식 다운로드"
       : stage === "commit"
         ? "고객 등록 반영"
-        : uploadCompleted || input.hasSelectedFile
-          ? "수정한 양식 다시 업로드"
-          : "작성한 양식 업로드";
+      : uploadCompleted || input.hasSelectedFile
+        ? "다시 업로드"
+        : "양식 업로드";
   const stepItems: InitialRegistrationStepItem[] = [
     {
       step: 1,
-      title: "양식 다운로드",
+      title: "양식 받기",
       description: downloadCompleted
-        ? "실제 다운로드를 마쳤습니다. 필요하면 최신 공동인증서 목록 기준으로 다시 내려받을 수 있습니다."
+        ? "완료"
         : input.helperReady
-          ? "현재 PC에서 읽은 공동인증서 기준으로 등록 양식을 만듭니다."
-          : "먼저 3단계에서 공동인증서 읽기를 끝내야 양식을 만들 수 있습니다.",
+          ? "인증서 기준"
+          : "헬퍼 필요",
       status: downloadCompleted ? "complete" : stage === "download" ? "current" : "locked",
       ...getInitialRegistrationStepMeta(downloadCompleted ? "complete" : stage === "download" ? "current" : "locked")
     },
     {
       step: 2,
-      title: "작성한 양식 업로드",
+      title: "양식 올리기",
       description: uploadCompleted
         ? needsUploadRetry
-          ? "업로드 확인은 끝났지만 막힌 행 수정 후 같은 단계에서 다시 업로드해야 합니다."
-          : "업로드한 파일을 읽어 고객·인증서 반영 가능 여부를 미리 확인했습니다."
-        : "양식을 작성한 뒤 업로드하면 반영 가능/검토 필요 상태를 먼저 보여줍니다.",
-      status: uploadCompleted ? "complete" : stage === "upload" ? "current" : "locked",
-      ...getInitialRegistrationStepMeta(uploadCompleted ? "complete" : stage === "upload" ? "current" : "locked")
+          ? "재업로드"
+          : "완료"
+        : input.hasSelectedFile
+          ? "선택됨"
+          : "업로드",
+      status: uploadStepStatus,
+      ...getInitialRegistrationStepMeta(uploadStepStatus)
     },
     {
       step: 3,
-      title: "고객 등록 반영",
+      title: "고객 반영",
       description: commitCompleted
-        ? "고객과 범용 공동인증서 반영이 끝났습니다."
+        ? "완료"
         : canCommit
-          ? "미리 보기에서 반영 가능으로 나온 행만 한 번에 등록합니다."
-          : uploadCompleted
-            ? "반영 가능 행이 생길 때까지 잠겨 있습니다. 먼저 양식을 수정한 뒤 다시 업로드하세요."
-            : "양식 업로드 확인이 끝나면 이 단계가 열립니다.",
+          ? `반영 ${input.importableCount}건`
+        : uploadCompleted
+            ? "재업로드 후"
+            : "대기",
       status: commitCompleted ? "complete" : stage === "commit" ? "current" : "locked",
       ...getInitialRegistrationStepMeta(commitCompleted ? "complete" : stage === "commit" ? "current" : "locked")
     }
@@ -275,7 +286,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           }
         : registrationStage === "upload"
           ? {
-              label: isPreviewingOnboarding ? "업로드 확인 중..." : registrationFlow.primaryActionLabel,
+              label: isPreviewingOnboarding ? "확인 중..." : registrationFlow.primaryActionLabel,
               disabled: props.busyKey !== null,
               title: undefined,
               onClick: () => onboardingFileInputRef.current?.click()
@@ -286,6 +297,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               title: undefined,
               onClick: () => void props.runAction("customer-onboarding-commit", props.commitCustomerOnboardingWorkbook, { reload: false })
             };
+  const showOnboardingInlineStatus = Boolean(props.customerOnboardingFileName || props.customerOnboardingPreview);
 
   return (
     <div className="initial-screen">
@@ -306,32 +318,34 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               event.currentTarget.value = "";
             }}
           />
-          <section className="onboarding-main-card panel-initial-onboarding">
-            <div className="onboarding-main-copy">
-              <strong>{registrationFlow.headline}</strong>
-              <p>{registrationFlow.description}</p>
-              {props.registrationBlockedReason || registrationFlow.blockedReason ? (
-                <p className="onboarding-inline-warning">{props.registrationBlockedReason ?? registrationFlow.blockedReason}</p>
-              ) : null}
-            </div>
-
-            {registrationPrimaryAction ? (
-              <div className="button-row onboarding-primary-row">
-                <button
-                  type="button"
-                  disabled={registrationPrimaryAction.disabled}
-                  title={registrationPrimaryAction.title}
-                  onClick={registrationPrimaryAction.onClick}
-                >
-                  {registrationPrimaryAction.label}
-                </button>
+          <section className="onboarding-main-card panel-initial-onboarding" data-stage={registrationStage}>
+            <div className="onboarding-main-head">
+              <div className="onboarding-main-copy onboarding-main-copy-focal">
+                <strong>{registrationFlow.headline}</strong>
+                <p>{registrationFlow.description}</p>
+                {props.registrationBlockedReason || registrationFlow.blockedReason ? (
+                  <p className="onboarding-inline-warning">{props.registrationBlockedReason ?? registrationFlow.blockedReason}</p>
+                ) : null}
+                {registrationPrimaryAction ? (
+                  <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
+                    <button
+                      type="button"
+                      disabled={registrationPrimaryAction.disabled}
+                      title={registrationPrimaryAction.title}
+                      onClick={registrationPrimaryAction.onClick}
+                    >
+                      {registrationPrimaryAction.label}
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </div>
 
             <ol className="onboarding-stage-list">
               {registrationFlow.stepItems.map((item) => (
                 <li
                   key={`onboarding-registration-step-${item.step}`}
+                  data-status={item.status}
                   className={[
                     "onboarding-stage-item",
                     item.status === "current" ? "is-current" : "",
@@ -353,28 +367,29 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               ))}
             </ol>
 
-            <div className="onboarding-inline-status">
-              <div>
-                <span>업로드 파일</span>
-                <strong>{props.customerOnboardingFileName || "아직 없음"}</strong>
+            {showOnboardingInlineStatus ? (
+              <div className="onboarding-inline-status">
+                <div>
+                  <span>파일</span>
+                  <strong>{props.customerOnboardingFileName || "선택됨"}</strong>
+                </div>
+                <div>
+                  <span>반영</span>
+                  <strong>{onboardingImportableCount}건</strong>
+                </div>
+                <div>
+                  <span>검토</span>
+                  <strong>{onboardingBlockedCount}건</strong>
+                </div>
               </div>
-              <div>
-                <span>반영 가능</span>
-                <strong>{onboardingImportableCount}건</strong>
-              </div>
-              <div>
-                <span>검토 필요</span>
-                <strong>{onboardingBlockedCount}건</strong>
-              </div>
-            </div>
+            ) : null}
           </section>
 
           {!registrationFlow.commitCompleted ? (
             <details className="onboarding-advanced-details">
-              <summary>다른 작업은 필요할 때만 보기</summary>
+              <summary>보조 작업 보기</summary>
               <div className="helper-box-stack">
                 <strong>보조 작업</strong>
-                <span>지금 해야 할 버튼은 위에 1개만 남겨 두었습니다. 다시 다운로드하거나 다시 업로드해야 할 때만 아래 버튼을 사용하세요.</span>
                 <div className="button-row">
                   {registrationStage !== "download" ? (
                     <button
@@ -415,11 +430,8 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           ) : null}
           {props.pendingOnboardingCertificateRegistrationCount > 0 ? (
             <div className="helper-box import-helper-box">
-              <strong>다음 단계</strong>
-              <span>
-                고객 등록은 끝났고, 팝빌 전자세금용 인증서 후속 등록이 {props.pendingOnboardingCertificateRegistrationCount}건 남아 있습니다.
-                다음 단계인 <code>인증서 연결 마무리</code>에서 이어서 처리하세요.
-              </span>
+              <strong>다음</strong>
+              <span>인증서 연결 {props.pendingOnboardingCertificateRegistrationCount}건</span>
             </div>
           ) : null}
           {props.customerOnboardingError ? (
