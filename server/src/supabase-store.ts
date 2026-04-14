@@ -20,7 +20,7 @@ import type {
 import { createSupabaseAdminClient } from "./supabase.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
 import { decryptSecret, encryptSecret } from "./secret-box.js";
-import type { AppStore } from "./store-contract.js";
+import type { AppStore, CertificateCheckMetadataUpdate } from "./store-contract.js";
 import {
   buildDraftMgtKey,
   buildPopbillUserId,
@@ -952,6 +952,26 @@ export class SupabaseStore implements AppStore {
     );
 
     return this.getSettings();
+  }
+
+  async updateCertificateCheckMetadata(input: CertificateCheckMetadataUpdate): Promise<void> {
+    await this.initialize();
+    const update: Record<string, string | null> = {};
+
+    if (input.certLastCheckedAt !== undefined) {
+      update.cert_last_checked_at = input.certLastCheckedAt;
+    }
+    if (input.certAlertLastSentAt !== undefined) {
+      update.cert_alert_last_sent_at = input.certAlertLastSentAt;
+    }
+    if (Object.keys(update).length === 0) {
+      return;
+    }
+
+    await assertNoError(
+      "인증서 점검 메타데이터 저장 실패",
+      this.client.from("organization_settings").update(update).eq("organization_id", this.requireOrganizationId())
+    );
   }
 
   async listCustomers(): Promise<Customer[]> {

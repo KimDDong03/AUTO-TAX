@@ -36,6 +36,20 @@ type DispatchDetail = {
   draftId?: number;
 };
 
+type RecurringDispatchContext = {
+  settingsRows: Row[];
+  integrationRows: Row[];
+  joinedCustomerOrganizationIds: Set<string>;
+};
+
+type DispatchRecurringJobsDependencies = {
+  loadRecurringDispatchContext: () => Promise<RecurringDispatchContext>;
+  hasOpenJob: typeof hasOpenJob;
+  getLatestJobReferenceAt: typeof getLatestJobReferenceAt;
+  enqueueJob: typeof enqueueJob;
+  enqueueDueAutoIssueJobs: typeof enqueueDueAutoIssueJobs;
+};
+
 export type JobDispatchResult = {
   checkedOrganizations: number;
   dispatched: number;
@@ -348,6 +362,53 @@ async function assertNoError<T>(label: string, promise: PromiseLike<{ data: T; e
     throw new Error(`${label}: ${error.message}`);
   }
   return data;
+}
+
+async function listOrganizationsWithJoinedPopbillCustomers(
+  client: ReturnType<typeof createSupabaseAdminClient>,
+  organizationIds: string[]
+): Promise<Set<string>> {
+  if (organizationIds.length === 0) {
+    return new Set();
+  }
+
+  const rows = await assertNoError(
+    "joined 팝빌 고객 조직 조회 실패",
+    client
+      .from("managed_customers")
+      .select("organization_id")
+      .in("organization_id", organizationIds)
+      .eq("popbill_state", "joined")
+  );
+
+  return new Set(((rows ?? []) as Row[]).map((row) => asString(row.organization_id)).filter(Boolean));
+}
+
+async function loadRecurringDispatchContext(): Promise<RecurringDispatchContext> {
+  const client = createSupabaseAdminClient();
+  const [settingsRows, integrationRows] = await Promise.all([
+    assertNoError(
+      "조직 설정 목록 조회 실패",
+      client.from("organization_settings").select("organization_id, scheduler_enabled, default_issue_day, default_issue_hour, default_issue_minute, timezone, cert_last_checked_at")
+    ),
+    assertNoError(
+      "조직 연동 목록 조회 실패",
+      client.from("organization_integrations").select("organization_id, imap_host, imap_user, imap_pass_encrypted")
+    )
+  ]);
+  const normalizedSettingsRows = ((settingsRows ?? []) as Row[]).map((row) => row);
+
+  return {
+    settingsRows: normalizedSettingsRows,
+    integrationRows: ((integrationRows ?? []) as Row[]).map((row) => row),
+    joinedCustomerOrganizationIds: await listOrganizationsWithJoinedPopbillCustomers(
+      client,
+      normalizedSettingsRows
+        .filter((row) => asBoolean(row.scheduler_enabled, true))
+        .map((row) => asString(row.organization_id))
+        .filter(Boolean)
+    )
+  };
 }
 
 function mapQueueJob(row: Row): QueueJob {
@@ -695,29 +756,26 @@ async function executeJob(job: QueueJob): Promise<Record<string, unknown>> {
   throw new Error(`지원하지 않는 job_type입니다: ${job.jobType}`);
 }
 
-export async function dispatchRecurringJobs(options: { now?: Date } = {}): Promise<JobDispatchResult> {
-  const client = createSupabaseAdminClient();
+export async function dispatchRecurringJobs(
+  options: { now?: Date } = {},
+  dependencies: Partial<DispatchRecurringJobsDependencies> = {}
+): Promise<JobDispatchResult> {
   const now = options.now ?? new Date();
   const nowIsoString = now.toISOString();
   const details: DispatchDetail[] = [];
-
-  const [settingsRows, integrationRows] = await Promise.all([
-    assertNoError(
-      "조직 설정 목록 조회 실패",
-      client.from("organization_settings").select("organization_id, scheduler_enabled, default_issue_day, default_issue_hour, default_issue_minute, timezone, cert_last_checked_at")
-    ),
-    assertNoError(
-      "조직 연동 목록 조회 실패",
-      client.from("organization_integrations").select("organization_id, imap_host, imap_user, imap_pass_encrypted")
-    )
-  ]);
+  const loadRecurringDispatchContextImpl = dependencies.loadRecurringDispatchContext ?? loadRecurringDispatchContext;
+  const hasOpenJobImpl = dependencies.hasOpenJob ?? hasOpenJob;
+  const getLatestJobReferenceAtImpl = dependencies.getLatestJobReferenceAt ?? getLatestJobReferenceAt;
+  const enqueueJobImpl = dependencies.enqueueJob ?? enqueueJob;
+  const enqueueDueAutoIssueJobsImpl = dependencies.enqueueDueAutoIssueJobs ?? enqueueDueAutoIssueJobs;
+  const { settingsRows, integrationRows, joinedCustomerOrganizationIds } = await loadRecurringDispatchContextImpl();
 
   const integrationByOrganizationId = new Map<string, Row>();
-  for (const row of (integrationRows ?? []) as Row[]) {
+  for (const row of integrationRows) {
     integrationByOrganizationId.set(asString(row.organization_id), row);
   }
 
-  for (const row of (settingsRows ?? []) as Row[]) {
+  for (const row of settingsRows) {
     const organizationId = asString(row.organization_id);
     if (!asBoolean(row.scheduler_enabled, true)) {
       details.push({
@@ -739,8 +797,8 @@ export async function dispatchRecurringJobs(options: { now?: Date } = {}): Promi
       asString(integrationRow.imap_host) && asString(integrationRow.imap_user) && asString(integrationRow.imap_pass_encrypted)
     );
     if (mailConfigured) {
-      const mailOpen = await hasOpenJob(organizationId, "mail-sync");
-      const latestMailReference = await getLatestJobReferenceAt(organizationId, "mail-sync");
+      const mailOpen = await hasOpenJobImpl(organizationId, "mail-sync");
+      const latestMailReference = await getLatestJobReferenceAtImpl(organizationId, "mail-sync");
 
       if (mailOpen) {
         details.push({
@@ -766,7 +824,7 @@ export async function dispatchRecurringJobs(options: { now?: Date } = {}): Promi
           reason: "already-ran-this-month"
         });
       } else {
-        const queuedJob = await enqueueJob({
+        const queuedJob = await enqueueJobImpl({
           organizationId,
           jobType: "mail-sync",
           runAfter: nowIsoString,
@@ -805,7 +863,17 @@ export async function dispatchRecurringJobs(options: { now?: Date } = {}): Promi
       });
     }
 
-    const certOpen = await hasOpenJob(organizationId, "certificate-check");
+    if (!joinedCustomerOrganizationIds.has(organizationId)) {
+      details.push({
+        jobType: "certificate-check",
+        organizationId,
+        action: "skipped",
+        reason: "no-joined-customers"
+      });
+      continue;
+    }
+
+    const certOpen = await hasOpenJobImpl(organizationId, "certificate-check");
     const certDue = shouldRefreshCertificateStatuses(asNullableString(row.cert_last_checked_at), nowIsoString);
     if (certOpen) {
       details.push({
@@ -822,7 +890,7 @@ export async function dispatchRecurringJobs(options: { now?: Date } = {}): Promi
         reason: "already-checked-today"
       });
     } else {
-      const queuedJob = await enqueueJob({
+      const queuedJob = await enqueueJobImpl({
         organizationId,
         jobType: "certificate-check",
         runAfter: nowIsoString,
@@ -848,10 +916,10 @@ export async function dispatchRecurringJobs(options: { now?: Date } = {}): Promi
     }
   }
 
-  details.push(...(await enqueueDueAutoIssueJobs({ now })));
+  details.push(...(await enqueueDueAutoIssueJobsImpl({ now })));
 
   return {
-    checkedOrganizations: (settingsRows ?? []).length,
+    checkedOrganizations: settingsRows.length,
     dispatched: details.filter((detail) => detail.action === "queued").length,
     skipped: details.filter((detail) => detail.action === "skipped").length,
     details

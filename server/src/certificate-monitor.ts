@@ -6,6 +6,12 @@ import type { AppStore } from "./store-contract.js";
 import { nowIso } from "./utils.js";
 
 type NotificationStatus = "not-needed" | "sent" | "skipped-already-sent-today" | "skipped-no-target";
+type NotificationCustomer = Pick<Customer, "customerName" | "popbillCertExpireDate">;
+type RefreshAllCertificateStatusesDependencies = {
+  nowIso: () => string;
+  getCertificateExpireDate: typeof getCertificateExpireDate;
+  sendNotification: typeof sendNotification;
+};
 
 export interface CertificateRefreshItem {
   customerId: number;
@@ -61,7 +67,7 @@ export function shouldRefreshCertificateStatuses(lastCheckedAt: string | null, r
   return !sameKstDay(lastCheckedAt, referenceAt);
 }
 
-function formatCustomerLine(customer: Customer): string {
+function formatCustomerLine(customer: NotificationCustomer): string {
   const daysUntil = getDaysUntilDate(customer.popbillCertExpireDate);
   const suffix =
     daysUntil === null
@@ -72,7 +78,7 @@ function formatCustomerLine(customer: Customer): string {
   return `- ${customer.customerName}: ${suffix}`;
 }
 
-function buildNotificationBody(expiredCustomers: Customer[], expiringSoonCustomers: Customer[], checkedAt: string): string {
+function buildNotificationBody(expiredCustomers: NotificationCustomer[], expiringSoonCustomers: NotificationCustomer[], checkedAt: string): string {
   const lines = [
     `[AUTO-TAX] 인증서 만료 점검 결과`,
     `점검시각: ${checkedAt}`,
@@ -95,15 +101,20 @@ function buildNotificationBody(expiredCustomers: Customer[], expiringSoonCustome
   return lines.join("\n");
 }
 
-export async function refreshAllCertificateStatuses(store: AppStore): Promise<CertificateRefreshResult> {
-  const checkedAt = nowIso();
+export async function refreshAllCertificateStatuses(
+  store: AppStore,
+  dependencies: Partial<RefreshAllCertificateStatusesDependencies> = {}
+): Promise<CertificateRefreshResult> {
+  const checkedAt = (dependencies.nowIso ?? nowIso)();
+  const loadCertificateExpireDate = dependencies.getCertificateExpireDate ?? getCertificateExpireDate;
+  const deliverNotification = dependencies.sendNotification ?? sendNotification;
   const settings = applyServerManagedSettings(await store.getSettings());
   const joinedCustomers = (await store.listCustomers()).filter((customer) => customer.popbillState === "joined");
   const results: CertificateRefreshItem[] = [];
 
   for (const customer of joinedCustomers) {
     try {
-      const expireDate = await getCertificateExpireDate(settings, customer);
+      const expireDate = await loadCertificateExpireDate(settings, customer);
       const updated = await store.updateCustomerPopbillState(customer.id, customer.popbillState, true, expireDate);
       results.push({
         customerId: updated.id,
@@ -130,7 +141,10 @@ export async function refreshAllCertificateStatuses(store: AppStore): Promise<Ce
     }
   }
 
-  const latestCustomers = (await store.listCustomers()).filter((customer) => customer.popbillState === "joined");
+  const latestCustomers = results.map((item) => ({
+    customerName: item.customerName,
+    popbillCertExpireDate: item.expireDate
+  }));
   const expiredCustomers = latestCustomers.filter((customer) => {
     const daysUntil = getDaysUntilDate(customer.popbillCertExpireDate);
     return daysUntil !== null && daysUntil < 0;
@@ -140,7 +154,7 @@ export async function refreshAllCertificateStatuses(store: AppStore): Promise<Ce
     return daysUntil !== null && daysUntil >= 0 && daysUntil <= 30;
   });
 
-  const nextSettings: Parameters<AppStore["updateSettings"]>[0] = {
+  const nextMetadata: Parameters<AppStore["updateCertificateCheckMetadata"]>[0] = {
     certLastCheckedAt: checkedAt
   };
 
@@ -152,7 +166,7 @@ export async function refreshAllCertificateStatuses(store: AppStore): Promise<Ce
       notificationStatus = "skipped-already-sent-today";
       notificationMessage = "오늘은 이미 인증서 만료 알림을 발송했습니다.";
     } else {
-      const sent = await sendNotification(
+      const sent = await deliverNotification(
         settings,
         `[AUTO-TAX] 인증서 만료 점검 ${expiredCustomers.length > 0 ? "경고" : "예정"} 안내`,
         buildNotificationBody(expiredCustomers, expiringSoonCustomers, checkedAt)
@@ -161,7 +175,7 @@ export async function refreshAllCertificateStatuses(store: AppStore): Promise<Ce
       if (sent) {
         notificationStatus = "sent";
         notificationMessage = "플랫폼 관리자 알림 메일을 발송했습니다.";
-        nextSettings.certAlertLastSentAt = checkedAt;
+        nextMetadata.certAlertLastSentAt = checkedAt;
       } else {
         notificationStatus = "skipped-no-target";
         notificationMessage = "알림 수신 메일 또는 SMTP 설정이 없어 메일을 보내지 못했습니다.";
@@ -169,11 +183,14 @@ export async function refreshAllCertificateStatuses(store: AppStore): Promise<Ce
     }
   }
 
-  await store.updateSettings(nextSettings);
+  const updatedCount = results.filter((item) => item.ok).length;
+  const failedCount = results.length - updatedCount;
+
+  await store.updateCertificateCheckMetadata(nextMetadata);
   await store.createLog("info", "popbill", "인증서 일괄 점검을 완료했습니다.", {
     checked: joinedCustomers.length,
-    updated: results.filter((item) => item.ok).length,
-    failed: results.filter((item) => !item.ok).length,
+    updated: updatedCount,
+    failed: failedCount,
     expired: expiredCustomers.length,
     expiringSoon: expiringSoonCustomers.length,
     notificationStatus
@@ -182,8 +199,8 @@ export async function refreshAllCertificateStatuses(store: AppStore): Promise<Ce
   return {
     checkedAt,
     checked: joinedCustomers.length,
-    updated: results.filter((item) => item.ok).length,
-    failed: results.filter((item) => !item.ok).length,
+    updated: updatedCount,
+    failed: failedCount,
     expired: expiredCustomers.length,
     expiringSoon: expiringSoonCustomers.length,
     notificationStatus,

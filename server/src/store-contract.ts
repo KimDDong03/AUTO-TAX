@@ -17,6 +17,11 @@ import type {
   PopbillState
 } from "./domain.js";
 
+export interface CertificateCheckMetadataUpdate {
+  certLastCheckedAt?: string | null;
+  certAlertLastSentAt?: string | null;
+}
+
 export interface AppStore {
   initialize(): Promise<void>;
   getSettings(): Promise<AppSettings>;
@@ -94,5 +99,6 @@ export interface AppStore {
   createLog(level: LogEntry["level"], scope: string, message: string, context?: unknown): Promise<void>;
   getDashboard(): Promise<Omit<DashboardPayload, "renewalAutomation">>;
   updateSettings(input: Partial<AppSettings>): Promise<AppSettings>;
+  updateCertificateCheckMetadata(input: CertificateCheckMetadataUpdate): Promise<void>;
   close(): Promise<void>;
 }
