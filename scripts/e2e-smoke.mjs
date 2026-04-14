@@ -521,7 +521,9 @@ try {
 
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
-  const navButton = (label) => page.locator(".nav-list .nav-button").filter({ hasText: label });
+  const navButton = (label) => page.locator(".sidebar .nav-button").filter({ hasText: label });
+  const getSidebarToggleOpacity = () =>
+    page.locator(".sidebar-thumb-toggle").evaluate((element) => Number.parseFloat(window.getComputedStyle(element).opacity || "0"));
   await mockLocalHelperRoutes(page);
 
   page.on("console", (msg) => {
@@ -559,34 +561,152 @@ try {
       page.waitForResponse((response) => response.url().endsWith("/api/bootstrap") && response.status() === 200),
       loginCard.getByRole("button", { name: "로그인" }).click()
     ]);
-    await navButton("오늘 작업").waitFor();
+    await navButton("도입 준비").waitFor();
+    await page.waitForURL((url) => url.hash === "#onboarding", { timeout: 15000 });
+    assert.equal(await navButton("홈").count(), 0);
+    assert.equal(await navButton("고객").count(), 0);
   });
 
-  await recordStep("prepare onboarding settings up to helper step", async () => {
+  await recordStep("blank onboarding highlights required inputs immediately", async () => {
+    const onboardingActiveStep = page.locator("#onboarding-active-step");
+    const mailAddressInput = onboardingActiveStep.getByLabel("메일 주소");
+
+    await page.locator(".onboarding-step-chip").filter({ hasText: "메일 연결" }).first().click();
+    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "메일 연결" }).waitFor();
+    assert.equal(await onboardingActiveStep.locator("[data-required-empty='true']").count(), 2);
+    assert.equal(await onboardingActiveStep.locator(".onboarding-required-hint.is-missing").count(), 2);
+
+    await mailAddressInput.fill("invalid-mail");
+    await page.waitForFunction(() => {
+      const input = document.querySelector("#onboarding-active-step input[aria-describedby='onboarding-mail-address-hint']");
+      const hint = document.getElementById("onboarding-mail-address-hint");
+      return (
+        input instanceof HTMLInputElement &&
+        input.getAttribute("aria-invalid") === "true" &&
+        hint?.textContent?.includes("메일 형식이 올바르지 않습니다.")
+      );
+    }, null, { timeout: 15000 });
+
+    await mailAddressInput.fill(email);
+    await page.waitForFunction(
+      () => {
+        const input = document.querySelector("#onboarding-active-step input[aria-describedby='onboarding-mail-address-hint']");
+        const hint = document.getElementById("onboarding-mail-address-hint");
+        return (
+          input instanceof HTMLInputElement &&
+          input.getAttribute("aria-invalid") !== "true" &&
+          hint?.textContent?.includes("한전 메일을 읽고 알림 메일을 보낼 때 함께 사용할 계정입니다.")
+        );
+      },
+      null,
+      { timeout: 15000 }
+    );
+
+    await page.locator(".onboarding-step-chip").filter({ hasText: "발행 기본값 입력" }).first().click();
+    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "발행 기본값 입력" }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "필수 입력 시작", exact: true }).count(), 0);
+    for (const label of ["팝빌 접두어", "담당자 이름", "담당자 연락처", "담당자 이메일", "신규 고객 기본 비밀번호", "공동인증서 발급용 임시번호"]) {
+      const input = onboardingActiveStep.getByLabel(label);
+      const inputValue = await input.inputValue();
+      assert.equal((await input.getAttribute("aria-invalid")) === "true", inputValue.trim() === "");
+    }
+    assert.ok((await onboardingActiveStep.locator(".onboarding-required-hint.is-missing").count()) >= 5);
+
+    const operatorEmailInput = onboardingActiveStep.getByLabel("담당자 이메일");
+    await operatorEmailInput.fill("ㅁㅈㅇㅁ");
+    await page.waitForFunction(() => {
+      const input = document.querySelector("#onboarding-active-step input[aria-describedby='onboarding-operator-email-hint']");
+      const hint = document.getElementById("onboarding-operator-email-hint");
+      return (
+        input instanceof HTMLInputElement &&
+        input.getAttribute("aria-invalid") === "true" &&
+        hint?.textContent?.includes("메일 형식이 올바르지 않습니다.")
+      );
+    }, null, { timeout: 15000 });
+
+    await onboardingActiveStep.getByLabel("팝빌 접두어").fill(`E2E${suffix.slice(-4)}_`);
+    await page.waitForFunction(() => {
+      const input = document.querySelector("#onboarding-popbill-user-id-prefix");
+      return input instanceof HTMLInputElement && input.getAttribute("aria-invalid") !== "true";
+    }, null, { timeout: 15000 });
+  });
+
+  await recordStep("pre-onboarding routing keeps home and customers hidden", async () => {
     await configureOnboardingSettings();
-    await page.goto(`${baseUrl}/?e2e-onboarding=${suffix}#onboarding`, { waitUntil: "networkidle" });
-    const onboardingScreen = page.locator(".onboarding-screen");
+    await page.goto(`${baseUrl}/?e2e-onboarding=${suffix}#home`, { waitUntil: "networkidle" });
+    await page.waitForURL((url) => url.hash === "#onboarding", { timeout: 15000 });
+    const onboardingScreen = page.locator(".onboarding-screen .onboarding-compact-shell");
     await onboardingScreen.waitFor();
-    await onboardingScreen.locator(".onboarding-wizard-copy strong").filter({ hasText: "로컬 헬퍼 준비" }).waitFor();
+    assert.equal(await navButton("홈").count(), 0);
+    assert.equal(await navButton("고객").count(), 0);
+    assert.equal(await page.getByRole("button", { name: "새로고침", exact: true }).count(), 0);
+    assert.equal(await page.locator(".action-bar.is-onboarding").getByRole("button").count(), 0);
+    assert.equal(await page.locator(".onboarding-wizard-hero").getByRole("button").count(), 0);
+    await page.locator("#onboarding-active-step .onboarding-active-step-copy strong").filter({ hasText: "로컬 헬퍼 준비" }).waitFor();
+    await page.getByRole("button", { name: "공동인증서 읽기", exact: true }).waitFor();
+    const sidebarHoverZone = page.locator(".sidebar-hover-zone");
+    const sidebarToggle = page.locator(".sidebar-thumb-toggle");
+    await sidebarHoverZone.waitFor();
+    assert.equal(await getSidebarToggleOpacity() < 0.2, true);
+    await sidebarHoverZone.hover();
+    await page.waitForFunction(
+      () => {
+        const toggle = document.querySelector(".sidebar-thumb-toggle");
+        return toggle ? Number.parseFloat(window.getComputedStyle(toggle).opacity || "0") > 0.8 : false;
+      },
+      null,
+      { timeout: 15000 }
+    );
+    await sidebarToggle.click();
+    await page.locator(".app-shell.sidebar-collapsed").waitFor();
+    const collapsedHoverZone = page.locator(".app-shell.sidebar-collapsed .sidebar-hover-zone");
+    await collapsedHoverZone.hover();
+    await page.waitForFunction(
+      () => {
+        const toggle = document.querySelector(".app-shell.sidebar-collapsed .sidebar-thumb-toggle");
+        return toggle ? Number.parseFloat(window.getComputedStyle(toggle).opacity || "0") > 0.8 : false;
+      },
+      null,
+      { timeout: 15000 }
+    );
+    await navButton("설정").click();
+    await page.waitForFunction(() => window.location.hash === "#settings", null, { timeout: 15000 });
+    assert.ok((await navButton("설정").first().getAttribute("class"))?.includes("active"));
+    await navButton("도입 준비").click();
+    await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
+    assert.ok((await navButton("도입 준비").first().getAttribute("class"))?.includes("active"));
+  });
+
+  await recordStep("stored onboarding passwords do not show false required errors", async () => {
+    const onboardingActiveStep = page.locator("#onboarding-active-step");
+    await page.locator(".onboarding-step-chip").filter({ hasText: "발행 기본값 입력" }).first().click();
+    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "발행 기본값 입력" }).waitFor();
+    assert.equal(await onboardingActiveStep.locator("[data-required-empty='true']").count(), 0);
+    await page.locator(".onboarding-step-chip").filter({ hasText: "로컬 헬퍼 준비" }).first().click();
+    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "로컬 헬퍼 준비" }).waitFor();
     await page.getByRole("button", { name: "공동인증서 읽기", exact: true }).waitFor();
   });
 
   await recordStep("onboarding helper step reads local certificates", async () => {
-    const helperReadButton = page.getByRole("button", { name: "공동인증서 읽기", exact: true });
+    const helperReadButton = page.locator("#onboarding-active-step").getByRole("button", { name: "공동인증서 읽기", exact: true });
     await helperReadButton.waitFor({ timeout: 15000 });
-    await Promise.all([
-      page.waitForResponse(
-        (response) => response.url().startsWith(`${localRenewalHelperUrl}/api/bridge-probe`) && response.status() === 200,
-        { timeout: 15000 }
-      ),
-      helperReadButton.click()
-    ]);
+    await helperReadButton.click();
 
-    await page.locator(".onboarding-wizard-copy strong").filter({ hasText: "고객 초기 등록" }).waitFor();
+    await page.locator("#onboarding-active-step .onboarding-active-step-copy strong").filter({ hasText: "고객 초기 등록" }).waitFor();
     const onboardingPanel = page.locator(".panel-initial-onboarding");
     await onboardingPanel.waitFor();
-    await onboardingPanel.getByText("현재 PC에서 공동인증서 2건을 읽었습니다.", { exact: false }).waitFor();
+    await onboardingPanel.getByText("인증서 2건 기준", { exact: false }).waitFor();
     await onboardingPanel.getByRole("button", { name: "양식 다운로드", exact: true }).waitFor();
+  });
+
+  await recordStep("customers stay gated until onboarding commit", async () => {
+    await page.evaluate(() => {
+      window.location.hash = "#customers";
+    });
+    await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
+    assert.equal(await navButton("고객").count(), 0);
+    await page.locator(".onboarding-step-chip").filter({ hasText: "고객 초기 등록" }).first().click();
+    await page.locator("#onboarding-active-step .onboarding-active-step-copy strong").filter({ hasText: "고객 초기 등록" }).waitFor();
   });
 
   await recordStep("onboarding download shifts step 4 CTA to upload", async () => {
@@ -596,8 +716,8 @@ try {
     const [download] = await Promise.all([page.waitForEvent("download"), primaryButton.click()]);
     await download.path();
     await page.getByText("양식을 다운로드했습니다.", { exact: false }).waitFor({ timeout: 15000 });
-    await onboardingPanel.getByRole("button", { name: "작성한 양식 업로드", exact: true }).waitFor({ timeout: 15000 });
-    await onboardingPanel.getByText("지금은 작성한 양식을 업로드할 차례입니다.", { exact: false }).waitFor();
+    await onboardingPanel.getByRole("button", { name: "양식 업로드", exact: true }).waitFor({ timeout: 15000 });
+    await onboardingPanel.getByText("지금 할 일 · 양식 업로드", { exact: false }).waitFor();
   });
 
   await recordStep("onboarding upload previews a workbook-driven customer", async () => {
@@ -623,7 +743,7 @@ try {
       }
       await page.getByText("업로드 확인을 마쳤습니다.", { exact: false }).waitFor({ timeout: 15000 });
       await onboardingPanel.getByRole("button", { name: "고객 등록 반영", exact: true }).waitFor({ timeout: 15000 });
-      await onboardingPanel.getByText("지금은 고객 등록 반영 버튼을 누를 차례입니다.", { exact: false }).waitFor();
+      await onboardingPanel.getByText("지금 할 일 · 고객 반영", { exact: false }).waitFor();
     } catch (error) {
       throw new Error(
         `preview did not complete. cause=${error instanceof Error ? error.message : String(error)} helper=${JSON.stringify(helperRequestLog)} panel=${JSON.stringify(
@@ -703,14 +823,31 @@ try {
     );
   });
 
+  await recordStep("onboarding commit unlocks the operating shell", async () => {
+    await navButton("홈").waitFor({ timeout: 15000 });
+    await navButton("고객").waitFor({ timeout: 15000 });
+    await page.waitForURL((url) => url.hash === "#home", { timeout: 15000 });
+    assert.equal(await navButton("도입 준비").count(), 0);
+  });
+
   await recordStep("onboarding-created customer visible after tab round-trip", async () => {
-    await page.goto(`${baseUrl}/#customers`, { waitUntil: "networkidle" });
+    await page.evaluate(() => {
+      window.location.hash = "#customers";
+    });
+    await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
+    await page.locator(".panel-customer-list").waitFor();
+    await page.getByRole("button", { name: /^전체 \d+명$/ }).click();
+    await page.locator(".customer-list-search input").fill(onboardingCorpName);
     await page.locator(".customer-summary").filter({ hasText: onboardingCorpName }).first().waitFor();
   });
 
   await recordStep("settings member management flow", async () => {
-    await page.goto(`${baseUrl}/#settings`, { waitUntil: "networkidle" });
-    await page.locator(".settings-step-card").filter({ hasText: "계정 보안" }).click();
+    await page.evaluate(() => {
+      window.location.hash = "#settings";
+    });
+    await page.waitForFunction(() => window.location.hash === "#settings", null, { timeout: 15000 });
+    await page.locator(".settings-layout").waitFor();
+    await page.locator(".settings-step-card").filter({ hasText: "계정 / 작업공간" }).click();
     const settingsDetail = page.locator(".settings-detail");
     await settingsDetail.locator('label:has-text("로그인 아이디") input').fill(`member${suffix}`);
     await settingsDetail.locator('label:has-text("이름") input').fill(`멤버 ${suffix}`);
@@ -723,9 +860,13 @@ try {
   });
 
   await recordStep("certificates action-needed view renders", async () => {
-    await page.goto(`${baseUrl}/#certificates`, { waitUntil: "networkidle" });
-    await page.getByText("전자세금용·범용·미연결 공동인증서를 보고 조치가 필요한 고객부터 해결합니다.", { exact: true }).waitFor();
-    await page.getByText(/조치 필요 고객 \d+명/).waitFor();
+    await page.evaluate(() => {
+      window.location.hash = "#settings";
+    });
+    await page.waitForFunction(() => window.location.hash === "#settings", null, { timeout: 15000 });
+    await page.locator(".settings-layout").waitFor();
+    await page.locator(".panel-customer-renewal").waitFor();
+    await page.locator(".certificate-guide-lead strong").filter({ hasText: /조치 필요 고객 \d+명/ }).waitFor();
   });
 
   await recordStep("logout returns to public page", async () => {
