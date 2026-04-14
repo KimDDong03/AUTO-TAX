@@ -18,7 +18,9 @@ import {
 } from "./features/initial-registration/customer-onboarding-workbook";
 import { SettingsTab } from "./features/settings/SettingsTab";
 import {
+  getLocalRenewalHelperReleaseMetadata,
   getLocalRenewalHelperStatus,
+  type LocalRenewalHelperReleaseMetadata,
   requestLocalPopbillCertificateRegistration,
   requestLocalRenewalBridgeProbe,
   requestLocalRenewalCertificates,
@@ -26,6 +28,10 @@ import {
   requestLocalRenewalPreparePayment,
   requestLocalRenewalPreflight
 } from "./local-renewal-helper";
+import {
+  evaluateLocalRenewalHelperUpgrade,
+  type LocalRenewalHelperUpgradeState
+} from "./helper-version";
 import { getSessionSafely, supabase } from "./supabase";
 import type {
   AppSettings,
@@ -60,6 +66,12 @@ type CustomerRenewalAssistantData = {
   helperVersion: string | null;
   helperMessage: string;
   helperCheckedAt: string | null;
+  latestVersion: string | null;
+  minSupportedVersion: string | null;
+  releaseDownloadUrl: string | null;
+  releaseReleasedAt: string | null;
+  upgradeState: LocalRenewalHelperUpgradeState;
+  upgradeMessage: string | null;
   jobs: RenewalJob[];
   certificates: RenewalAgentCertificate[];
 };
@@ -2523,18 +2535,82 @@ export function App() {
     };
   };
 
+  const defaultRenewalHelperDownloadUrl =
+    import.meta.env.VITE_RENEWAL_HELPER_DOWNLOAD_URL?.trim() || "/downloads/renewal-local-helper.zip";
+
+  const getCustomerRenewalAssistantReleaseMetadata = (
+    current?: CustomerRenewalAssistantData | null
+  ): LocalRenewalHelperReleaseMetadata | null => {
+    if (!current?.latestVersion || !current.minSupportedVersion || !current.releaseDownloadUrl || !current.releaseReleasedAt) {
+      return null;
+    }
+
+    return {
+      latestVersion: current.latestVersion,
+      minSupportedVersion: current.minSupportedVersion,
+      downloadUrl: current.releaseDownloadUrl,
+      releasedAt: current.releaseReleasedAt
+    };
+  };
+
+  const buildCustomerRenewalAssistant = (options: {
+    current?: CustomerRenewalAssistantData | null;
+    status?: {
+      online: boolean;
+      version: string | null;
+      message: string;
+    };
+    helperVersion?: string | null;
+    helperMessage?: string;
+    jobs?: RenewalJob[];
+    certificates?: RenewalAgentCertificate[];
+    releaseMetadata?: LocalRenewalHelperReleaseMetadata | null;
+  }): CustomerRenewalAssistantData => {
+    const metadata = options.releaseMetadata ?? null;
+    const helperVersion = options.helperVersion ?? options.status?.version ?? options.current?.helperVersion ?? null;
+    const upgrade = evaluateLocalRenewalHelperUpgrade(helperVersion, metadata);
+
+    return {
+      agentOnline: options.status?.online ?? options.current?.agentOnline ?? false,
+      helperVersion,
+      helperMessage: options.helperMessage ?? options.status?.message ?? options.current?.helperMessage ?? "공동인증서를 읽어 헬퍼 연결을 확인하세요.",
+      helperCheckedAt: new Date().toISOString(),
+      latestVersion: metadata?.latestVersion ?? null,
+      minSupportedVersion: metadata?.minSupportedVersion ?? null,
+      releaseDownloadUrl: metadata?.downloadUrl || defaultRenewalHelperDownloadUrl,
+      releaseReleasedAt: metadata?.releasedAt ?? null,
+      upgradeState: upgrade.upgradeState,
+      upgradeMessage: upgrade.upgradeMessage,
+      jobs: options.jobs ?? options.current?.jobs ?? [],
+      certificates: options.certificates ?? options.current?.certificates ?? []
+    };
+  };
+
+  const ensureLocalRenewalHelperActionAllowed = (actionLabel: string) => {
+    if (customerRenewalAssistant?.upgradeState !== "upgrade-required") {
+      return;
+    }
+
+    const helperVersionLabel = customerRenewalAssistant.helperVersion ? `v${customerRenewalAssistant.helperVersion}` : "현재 버전";
+    throw new Error(
+      `${actionLabel} 전에 로컬 헬퍼를 다시 설치하세요. ${customerRenewalAssistant.upgradeMessage ?? `${helperVersionLabel}은(는) 지원되지 않습니다.`} 압축을 다시 받아 ${
+        "scripts\\renewal-helper-install.cmd"
+      } 를 실행한 뒤 상태를 다시 확인하세요.`
+    );
+  };
+
   const loadCustomerRenewalAssistant = async (
     current?: CustomerRenewalAssistantData | null
   ): Promise<CustomerRenewalAssistantData> => {
-    const status = await getLocalRenewalHelperStatus();
-    return {
-      agentOnline: status.online,
-      helperVersion: status.version,
-      helperMessage: status.message,
-      helperCheckedAt: new Date().toISOString(),
-      jobs: current?.jobs ?? [],
-      certificates: current?.certificates ?? []
-    };
+    const [status, releaseMetadata] = await Promise.all([
+      getLocalRenewalHelperStatus(),
+      getLocalRenewalHelperReleaseMetadata()
+    ]);
+    return buildCustomerRenewalAssistant({
+      current,
+      status,
+      releaseMetadata
+    });
   };
 
   const loadMailboxData = async (options?: { force?: boolean }) => {
@@ -2581,14 +2657,26 @@ export function App() {
 
   const buildIdleCustomerRenewalAssistant = (
     current?: CustomerRenewalAssistantData | null
-  ): CustomerRenewalAssistantData => ({
-    agentOnline: current?.agentOnline ?? false,
-    helperVersion: current?.helperVersion ?? null,
-    helperMessage: current?.helperMessage || "공동인증서를 읽어 헬퍼 연결을 확인하세요.",
-    helperCheckedAt: current?.helperCheckedAt ?? null,
-    jobs: current?.jobs ?? [],
-    certificates: current?.certificates ?? []
-  });
+  ): CustomerRenewalAssistantData =>
+    current
+      ? {
+          ...current,
+          helperMessage: current.helperMessage || "공동인증서를 읽어 헬퍼 연결을 확인하세요."
+        }
+      : {
+          agentOnline: false,
+          helperVersion: null,
+          helperMessage: "공동인증서를 읽어 헬퍼 연결을 확인하세요.",
+          helperCheckedAt: null,
+          latestVersion: null,
+          minSupportedVersion: null,
+          releaseDownloadUrl: defaultRenewalHelperDownloadUrl,
+          releaseReleasedAt: null,
+          upgradeState: "unknown",
+          upgradeMessage: null,
+          jobs: [],
+          certificates: []
+        };
 
   const loadOrganizationMembers = async (payload: BootstrapPayload, loadToken: number) => {
     if (payload.auth.activeOrganizationRole !== "owner") {
@@ -3611,12 +3699,28 @@ export function App() {
   };
 
   const loadCustomerOnboardingAvailableCertificates = async (options?: { forceRefresh?: boolean }) => {
+    ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
     if (!options?.forceRefresh && customerOnboardingCertificatesRef.current) {
       return customerOnboardingCertificatesRef.current;
     }
 
     const response = await requestLocalRenewalCertificates();
     const certificates = response.result.storageProbe.ok ? response.result.storageProbe.certificates : [];
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status: {
+          online: true,
+          version: response.version,
+          message: prev?.helperMessage ?? "로컬 헬퍼가 준비되었습니다."
+        },
+        helperVersion: response.version,
+        helperMessage: prev?.helperMessage ?? "로컬 헬퍼가 준비되었습니다.",
+        jobs: prev?.jobs ?? [],
+        certificates: prev?.certificates ?? [],
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+      })
+    );
     customerOnboardingCertificatesRef.current = certificates;
     return certificates;
   };
@@ -3624,6 +3728,7 @@ export function App() {
   const resolveCustomerOnboardingTemplateWorkbook = async (
     templateWorkbook: CustomerOnboardingTemplateWorkbookInput
   ): Promise<CustomerOnboardingResolutionResult> => {
+    ensureLocalRenewalHelperActionAllowed("고객 초기 등록 준비");
     const onboardingPreflightConcurrency = 6;
     const sharedPassword = await resolveCustomerRenewalPassword({ promptIfMissing: false });
     const availableCertificates = await loadCustomerOnboardingAvailableCertificates();
@@ -3947,6 +4052,7 @@ export function App() {
     templateWorkbook: CustomerOnboardingTemplateWorkbookInput,
     onboardingWorkbook: CustomerOnboardingWorkbookInput
   ) => {
+    ensureLocalRenewalHelperActionAllowed("공동인증서 자동 연결");
     const candidateRows = templateWorkbook.certificates.filter(
       (row) => deriveCustomerOnboardingTemplateCertificateKind(row) !== "electronic_tax"
     );
@@ -6596,7 +6702,7 @@ export function App() {
   const opsPartnerIsTest = opsConsole?.partnerPoints.isTest ?? false;
   const workspacePopbillIsTest = data.settings.popbillIsTest;
   const workspacePopbillModeLabel = workspacePopbillIsTest ? "팝빌 테스트" : "팝빌 운영";
-  const renewalHelperDownloadUrl = import.meta.env.VITE_RENEWAL_HELPER_DOWNLOAD_URL?.trim() || "/downloads/renewal-local-helper.zip";
+  const renewalHelperDownloadUrl = customerRenewalAssistant?.releaseDownloadUrl || defaultRenewalHelperDownloadUrl;
   const opsPartnerModeLabel = opsPartnerIsTest ? "테스트 모드" : "운영 모드";
   const opsPartnerModeDescription = opsPartnerIsTest
     ? "현재 팝빌 테스트 환경으로 연결되어 있습니다. 실제 고객 운영 전에는 운영 모드 전환 여부를 다시 확인하세요."
@@ -6614,8 +6720,16 @@ export function App() {
   const opsCertificates = opsAgent?.bridge.storageProbe.certificates ?? [];
   const canManageOrganizationMembers = data.auth.activeOrganizationRole === "owner";
   const linkedCustomerCertificateCount = customerCertificateItems.filter((item) => item.linkedCustomerId !== null).length;
+  const helperUpgradeRequired = customerRenewalAssistant?.upgradeState === "upgrade-required";
+  const helperUpgradeAvailable = customerRenewalAssistant?.upgradeState === "upgrade-available";
+  const helperActionBlockedReason =
+    customerRenewalAssistant?.upgradeMessage
+      ? `${customerRenewalAssistant.upgradeMessage} 압축을 다시 받아 scripts\\renewal-helper-install.cmd 를 실행한 뒤 상태를 다시 확인하세요.`
+      : "지원되지 않는 로컬 헬퍼 버전입니다. 새 버전을 다시 설치한 뒤 상태를 다시 확인하세요.";
   const helperReady =
-    Boolean(customerRenewalAssistant?.agentOnline) && customerRenewalAssistantAllCertificates.length > 0;
+    Boolean(customerRenewalAssistant?.agentOnline) &&
+    customerRenewalAssistantAllCertificates.length > 0 &&
+    !helperUpgradeRequired;
   const issueSetupPendingCount = popbillPendingCustomers.length;
   const onboardingIssueSetupPendingCount = onboardingPendingCertificateCustomers.length;
   const onboardingCertificateReady = onboardingCustomerRegistrationReady && onboardingIssueSetupPendingCount === 0;
@@ -6713,9 +6827,13 @@ export function App() {
       done: helperReady,
       summary: helperReady
         ? `준비됨 · ${customerRenewalAssistantAllCertificates.length}건 읽음`
-        : customerRenewalAssistant?.agentOnline
-          ? "헬퍼 연결됨 · 읽기 확인"
-          : "헬퍼 준비 필요"
+        : helperUpgradeRequired
+          ? "재설치 필요"
+          : customerRenewalAssistant?.agentOnline
+            ? helperUpgradeAvailable
+              ? "업데이트 권장"
+              : "헬퍼 연결됨 · 읽기 확인"
+            : "헬퍼 준비 필요"
     },
     {
       id: "account",
@@ -6782,6 +6900,7 @@ export function App() {
       reloadAfter?: boolean;
     }
   ) => {
+    ensureLocalRenewalHelperActionAllowed("팝빌 인증서 등록");
     const onboardingCertificateRow = options?.onboardingCertificateRow ?? getOnboardingElectronicTaxCertificateRow(customer);
     const linkedCertificate = getPrimaryElectronicTaxCustomerCertificate(customer.id);
     const effectivePassword =
@@ -6807,6 +6926,21 @@ export function App() {
         customer.customerName.trim(),
       certificatePassword: effectivePassword
     });
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status: {
+          online: true,
+          version: registrationResponse.version,
+          message: registrationResponse.result.message
+        },
+        helperVersion: registrationResponse.version,
+        helperMessage: registrationResponse.result.message,
+        jobs: prev?.jobs ?? [],
+        certificates: prev?.certificates ?? [],
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+      })
+    );
 
     let refreshErrorMessage = "";
     try {
@@ -6936,9 +7070,13 @@ export function App() {
   const onboardingBlockedCount = customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
   const onboardingHelperStatusLine = helperReady
     ? `인증서 ${customerRenewalAssistantAllCertificates.length}건 읽음`
-    : customerRenewalAssistant?.agentOnline
-      ? "헬퍼 연결됨"
-      : "상태 미확인";
+    : helperUpgradeRequired
+      ? helperActionBlockedReason
+      : helperUpgradeAvailable && customerRenewalAssistant?.upgradeMessage
+        ? customerRenewalAssistant.upgradeMessage
+        : customerRenewalAssistant?.agentOnline
+          ? "헬퍼 연결됨"
+          : "상태 미확인";
   const onboardingRegistrationFlow = getInitialRegistrationFlowState({
     helperReady,
     helperCertificateCount: customerRenewalAssistantAllCertificates.length,
@@ -7319,9 +7457,13 @@ export function App() {
           <strong>
             {helperReady
               ? "공동인증서 확인 완료"
-              : customerRenewalAssistant?.agentOnline
-                ? "공동인증서를 읽으세요."
-                : "헬퍼를 먼저 실행하세요."}
+              : helperUpgradeRequired
+                ? "헬퍼를 다시 설치하세요."
+                : helperUpgradeAvailable
+                  ? "업데이트 후 다시 확인해 두세요."
+                  : customerRenewalAssistant?.agentOnline
+                    ? "공동인증서를 읽으세요."
+                    : "헬퍼를 먼저 실행하세요."}
           </strong>
           <p>{onboardingHelperStatusLine}</p>
         </div>
@@ -7344,8 +7486,14 @@ export function App() {
         <div className="button-row onboarding-primary-row">
           <button
             type="button"
-            disabled={busyKey !== null || !customerRenewalAssistant?.agentOnline}
-            title={customerRenewalAssistant?.agentOnline ? undefined : "먼저 헬퍼를 설치하고 실행한 뒤 아래 보조 영역에서 상태를 다시 확인하세요."}
+            disabled={busyKey !== null || !customerRenewalAssistant?.agentOnline || helperUpgradeRequired}
+            title={
+              helperUpgradeRequired
+                ? helperActionBlockedReason
+                : customerRenewalAssistant?.agentOnline
+                  ? undefined
+                  : "먼저 헬퍼를 설치하고 실행한 뒤 아래 보조 영역에서 상태를 다시 확인하세요."
+            }
             onClick={() =>
               void runAction(
                 "customer-renewal-bridge-probe",
@@ -7359,6 +7507,14 @@ export function App() {
             {busyKey === "customer-renewal-bridge-probe" ? "공동인증서 읽는 중..." : "공동인증서 읽기"}
           </button>
         </div>
+        {helperUpgradeRequired || helperUpgradeAvailable ? (
+          <div className="helper-box-stack settings-install-guide">
+            <strong>{helperUpgradeRequired ? "헬퍼 재설치 필요" : "헬퍼 업데이트 권장"}</strong>
+            <span>{customerRenewalAssistant?.upgradeMessage}</span>
+            {customerRenewalAssistant?.latestVersion ? <span>최신 버전: v{customerRenewalAssistant.latestVersion}</span> : null}
+            {customerRenewalAssistant?.minSupportedVersion ? <span>최소 지원 버전: v{customerRenewalAssistant.minSupportedVersion}</span> : null}
+          </div>
+        ) : null}
       </section>
 
       <details className="settings-advanced-panel">
@@ -7636,7 +7792,11 @@ export function App() {
       title: "로컬 헬퍼 준비",
       summary: helperReady ? `인증서 ${customerRenewalAssistantAllCertificates.length}건` : "확인 필요",
       primaryActionLabel: helperReady ? "공동인증서 읽기 완료" : "공동인증서 읽기",
-      blockedReason: customerRenewalAssistant?.agentOnline ? undefined : "헬퍼 실행 후 다시 확인하세요.",
+      blockedReason: helperUpgradeRequired
+        ? helperActionBlockedReason
+        : customerRenewalAssistant?.agentOnline
+          ? undefined
+          : "헬퍼 실행 후 다시 확인하세요.",
       done: helperReady,
       content: onboardingHelperContent
     },
@@ -8661,6 +8821,10 @@ export function App() {
               customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
               customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
               customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
+              customerRenewalAssistantUpgradeState={customerRenewalAssistant?.upgradeState ?? "unknown"}
+              customerRenewalAssistantUpgradeMessage={customerRenewalAssistant?.upgradeMessage ?? null}
+              customerRenewalAssistantLatestVersion={customerRenewalAssistant?.latestVersion ?? null}
+              customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
               customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
               customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
               renewalHelperDownloadUrl={renewalHelperDownloadUrl}
@@ -8702,6 +8866,11 @@ export function App() {
               customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
               customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
               customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
+              customerRenewalAssistantUpgradeState={customerRenewalAssistant?.upgradeState ?? "unknown"}
+              customerRenewalAssistantUpgradeMessage={customerRenewalAssistant?.upgradeMessage ?? null}
+              customerRenewalAssistantLatestVersion={customerRenewalAssistant?.latestVersion ?? null}
+              customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
+              renewalHelperDownloadUrl={renewalHelperDownloadUrl}
               customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
               certificateItems={customerCertificateItems}
               onRefreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}

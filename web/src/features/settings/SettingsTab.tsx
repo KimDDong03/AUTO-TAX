@@ -23,6 +23,10 @@ type SettingsTabProps = {
   customerRenewalAssistantOnline: boolean;
   customerRenewalAssistantHelperVersion: string | null;
   customerRenewalAssistantHelperMessage: string;
+  customerRenewalAssistantUpgradeState: "unknown" | "up-to-date" | "upgrade-available" | "upgrade-required";
+  customerRenewalAssistantUpgradeMessage: string | null;
+  customerRenewalAssistantLatestVersion: string | null;
+  customerRenewalAssistantMinSupportedVersion: string | null;
   customerRenewalAssistantCheckedAt: string | null;
   customerRenewalLoadedCertificateCount: number;
   renewalHelperDownloadUrl: string;
@@ -69,6 +73,18 @@ export function SettingsTab(props: SettingsTabProps) {
         : nextSettingsSection === "helper"
           ? "인증서 / 헬퍼"
           : "계정 / 작업공간";
+  const helperUpgradeNotice =
+    props.customerRenewalAssistantUpgradeState === "upgrade-required"
+      ? {
+          title: "헬퍼 재설치 필요",
+          message: props.customerRenewalAssistantUpgradeMessage
+        }
+      : props.customerRenewalAssistantUpgradeState === "upgrade-available"
+        ? {
+            title: "헬퍼 업데이트 권장",
+            message: props.customerRenewalAssistantUpgradeMessage
+          }
+        : null;
 
   return (
     <div className="settings-layout">
@@ -389,6 +405,14 @@ export function SettingsTab(props: SettingsTabProps) {
                     </div>
                   </div>
                   <span>상태: {props.customerRenewalAssistantHelperMessage}</span>
+                  {helperUpgradeNotice ? (
+                    <div className="helper-box-stack settings-install-guide">
+                      <strong>{helperUpgradeNotice.title}</strong>
+                      <span>{helperUpgradeNotice.message}</span>
+                      {props.customerRenewalAssistantLatestVersion ? <span>최신 버전: v{props.customerRenewalAssistantLatestVersion}</span> : null}
+                      {props.customerRenewalAssistantMinSupportedVersion ? <span>최소 지원 버전: v{props.customerRenewalAssistantMinSupportedVersion}</span> : null}
+                    </div>
+                  ) : null}
                   <span>마지막 확인: {props.formatDateTime(props.customerRenewalAssistantCheckedAt)}</span>
                   <span>읽은 공동인증서: {props.customerRenewalLoadedCertificateCount}건</span>
                 </div>
@@ -461,6 +485,14 @@ export function SettingsTab(props: SettingsTabProps) {
                     </div>
                   </div>
                   <span>상태: {props.customerRenewalAssistantHelperMessage}</span>
+                  {helperUpgradeNotice ? (
+                    <div className="helper-box-stack settings-install-guide">
+                      <strong>{helperUpgradeNotice.title}</strong>
+                      <span>{helperUpgradeNotice.message}</span>
+                      {props.customerRenewalAssistantLatestVersion ? <span>최신 버전: v{props.customerRenewalAssistantLatestVersion}</span> : null}
+                      {props.customerRenewalAssistantMinSupportedVersion ? <span>최소 지원 버전: v{props.customerRenewalAssistantMinSupportedVersion}</span> : null}
+                    </div>
+                  ) : null}
                   <span>마지막 확인: {props.formatDateTime(props.customerRenewalAssistantCheckedAt)}</span>
                   <span>읽은 공동인증서: {props.customerRenewalLoadedCertificateCount}건</span>
                 </div>

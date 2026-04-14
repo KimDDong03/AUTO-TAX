@@ -103,6 +103,14 @@ const helperRequestLog = {
   certificateListCount: 0,
   preflightRequests: []
 };
+let fakeHelperVersion = "0.1.0";
+let fakeHelperMetadataMode = "ok";
+let fakeHelperReleaseMetadata = {
+  latestVersion: "0.1.0",
+  minSupportedVersion: "0.1.0",
+  downloadUrl: "/downloads/renewal-local-helper.zip",
+  releasedAt: "2026-04-14T00:00:00.000Z"
+};
 
 const steps = [];
 const apiErrors = [];
@@ -174,7 +182,7 @@ async function cleanup() {
 function buildHelperProbeResponse(extra) {
   return {
     ok: true,
-    version: "e2e-fake-helper",
+    version: fakeHelperVersion,
     result: {
       process: {
         detected: true,
@@ -270,6 +278,27 @@ function buildHelperProbeResponse(extra) {
 }
 
 async function mockLocalHelperRoutes(page) {
+  await page.route("**/downloads/renewal-local-helper.json", async (route) => {
+    if (fakeHelperMetadataMode !== "ok") {
+      await route.fulfill({
+        status: 503,
+        headers: {
+          "content-type": "application/json; charset=utf-8"
+        },
+        body: JSON.stringify({ error: "fake helper release metadata unavailable" })
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify(fakeHelperReleaseMetadata)
+    });
+  });
+
   await page.route(`${localRenewalHelperUrl}/**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -292,7 +321,7 @@ async function mockLocalHelperRoutes(page) {
         headers,
         body: JSON.stringify({
           ok: true,
-          version: "e2e-fake-helper",
+          version: fakeHelperVersion,
           status: {
             processDetected: true,
             bridgeSummary: "ok",
@@ -321,7 +350,7 @@ async function mockLocalHelperRoutes(page) {
         headers,
         body: JSON.stringify({
           ok: true,
-          version: "e2e-fake-helper",
+          version: fakeHelperVersion,
           result: {
             licenseProbe: probeResponse.result.bridge.licenseProbe,
             storageProbe: probeResponse.result.bridge.storageProbe
@@ -386,7 +415,7 @@ async function mockLocalHelperRoutes(page) {
         headers,
         body: JSON.stringify({
           ok: true,
-          version: "e2e-fake-helper",
+          version: fakeHelperVersion,
           result: {
             outcome: "registered",
             browserChannel: "fake",
@@ -547,6 +576,9 @@ try {
 
   page.on("console", (msg) => {
     if (msg.type() === "error") {
+      if (msg.text().includes("status of 503 (Service Unavailable)")) {
+        return;
+      }
       consoleErrors.push(msg.text());
     }
   });
@@ -555,6 +587,9 @@ try {
   });
   page.on("response", async (response) => {
     if (response.status() >= 400) {
+      if (response.url().includes("/downloads/renewal-local-helper.json")) {
+        return;
+      }
       let body = "";
       try {
         body = await response.text();
@@ -857,8 +892,11 @@ try {
     });
     await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
     await page.locator(".panel-customer-list").waitFor();
-    await page.getByRole("button", { name: /^전체 \d+명$/ }).click();
-    await page.locator(".customer-list-search input").fill(onboardingCorpName);
+    const allCustomersButton = page.getByRole("button", { name: /^전체 \d+명$/ }).first();
+    if ((await allCustomersButton.count()) > 0) {
+      await allCustomersButton.click();
+    }
+    await page.locator(".customer-console-search input").fill(onboardingCorpName);
     await page.locator(".customer-summary").filter({ hasText: onboardingCorpName }).first().waitFor();
   });
 
@@ -888,6 +926,95 @@ try {
     await page.locator(".settings-layout").waitFor();
     await page.locator(".panel-customer-renewal").waitFor();
     await page.locator(".certificate-guide-lead strong").filter({ hasText: /조치 필요 고객 \d+명/ }).waitFor();
+  });
+
+  await recordStep("latest helper metadata keeps upgrade notice hidden", async () => {
+    fakeHelperVersion = "0.1.0";
+    fakeHelperMetadataMode = "ok";
+    fakeHelperReleaseMetadata = {
+      latestVersion: "0.1.0",
+      minSupportedVersion: "0.1.0",
+      downloadUrl: "/downloads/renewal-local-helper.zip",
+      releasedAt: "2026-04-14T00:00:00.000Z"
+    };
+
+    await page.locator(".settings-step-card").filter({ hasText: "인증서 / 헬퍼" }).first().click();
+    const helperPanel = page.locator(".panel-settings-helper");
+    await helperPanel.waitFor();
+    const helperRefreshButton = helperPanel.getByRole("button", { name: "상태 다시 확인" }).first();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/health") && response.status() === 200),
+      page.waitForResponse((response) => response.url().endsWith("/downloads/renewal-local-helper.json") && response.status() === 200),
+      helperRefreshButton.click()
+    ]);
+    await page.waitForTimeout(300);
+    assert.equal(await page.getByText("헬퍼 업데이트 권장", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("헬퍼 재설치 필요", { exact: true }).count(), 0);
+  });
+
+  await recordStep("upgrade-available helper shows update notice but keeps actions enabled", async () => {
+    fakeHelperVersion = "0.1.0";
+    fakeHelperMetadataMode = "ok";
+    fakeHelperReleaseMetadata = {
+      latestVersion: "0.1.1",
+      minSupportedVersion: "0.1.0",
+      downloadUrl: "/downloads/renewal-local-helper.zip",
+      releasedAt: "2026-04-14T00:00:00.000Z"
+    };
+
+    const helperPanel = page.locator(".panel-settings-helper");
+    const helperRefreshButton = helperPanel.getByRole("button", { name: "상태 다시 확인" }).first();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/health") && response.status() === 200),
+      page.waitForResponse((response) => response.url().endsWith("/downloads/renewal-local-helper.json") && response.status() === 200),
+      helperRefreshButton.click()
+    ]);
+    await helperPanel.getByText("헬퍼 업데이트 권장", { exact: true }).waitFor();
+    await helperPanel.getByText("최신 버전: v0.1.1", { exact: true }).waitFor();
+    const certificatesReadButton = page.locator(".panel-customer-renewal").getByRole("button", { name: "공동인증서 읽기" });
+    assert.equal(await certificatesReadButton.isDisabled(), false);
+  });
+
+  await recordStep("upgrade-required helper blocks helper-dependent actions", async () => {
+    fakeHelperVersion = "0.1.0";
+    fakeHelperMetadataMode = "ok";
+    fakeHelperReleaseMetadata = {
+      latestVersion: "0.1.2",
+      minSupportedVersion: "0.1.1",
+      downloadUrl: "/downloads/renewal-local-helper.zip",
+      releasedAt: "2026-04-14T00:00:00.000Z"
+    };
+
+    const helperPanel = page.locator(".panel-settings-helper");
+    const helperRefreshButton = helperPanel.getByRole("button", { name: "상태 다시 확인" }).first();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/health") && response.status() === 200),
+      page.waitForResponse((response) => response.url().endsWith("/downloads/renewal-local-helper.json") && response.status() === 200),
+      helperRefreshButton.click()
+    ]);
+    await helperPanel.getByText("헬퍼 재설치 필요", { exact: true }).waitFor();
+    await helperPanel.getByText("최소 지원 버전: v0.1.1", { exact: true }).waitFor();
+    const certificatesReadButton = page.locator(".panel-customer-renewal").getByRole("button", { name: "공동인증서 읽기" });
+    assert.equal(await certificatesReadButton.isDisabled(), true);
+  });
+
+  await recordStep("helper metadata fetch failure falls back without hard block", async () => {
+    fakeHelperVersion = "0.1.0";
+    fakeHelperMetadataMode = "error";
+
+    const helperPanel = page.locator(".panel-settings-helper");
+    const helperRefreshButton = helperPanel.getByRole("button", { name: "상태 다시 확인" }).first();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/health") && response.status() === 200),
+      page.waitForResponse((response) => response.url().endsWith("/downloads/renewal-local-helper.json") && response.status() === 503),
+      helperRefreshButton.click()
+    ]);
+    await page.waitForTimeout(300);
+    assert.equal(await page.getByText("헬퍼 업데이트 권장", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("헬퍼 재설치 필요", { exact: true }).count(), 0);
+    const certificatesReadButton = page.locator(".panel-customer-renewal").getByRole("button", { name: "공동인증서 읽기" });
+    assert.equal(await certificatesReadButton.isDisabled(), false);
+    await helperPanel.getByText("연결됨", { exact: true }).first().waitFor();
   });
 
   await recordStep("logout returns to public page", async () => {

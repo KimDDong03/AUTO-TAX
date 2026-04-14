@@ -30,6 +30,11 @@ type CertificatesTabProps = {
   customerRenewalAssistantOnline: boolean;
   customerRenewalAssistantHelperVersion: string | null;
   customerRenewalAssistantHelperMessage: string;
+  customerRenewalAssistantUpgradeState: "unknown" | "up-to-date" | "upgrade-available" | "upgrade-required";
+  customerRenewalAssistantUpgradeMessage: string | null;
+  customerRenewalAssistantLatestVersion: string | null;
+  customerRenewalAssistantMinSupportedVersion: string | null;
+  renewalHelperDownloadUrl: string;
   customerRenewalLoadedCertificateCount: number;
   certificateItems: CertificateTabItem[];
   onRefreshCustomerRenewalAssistant: () => Promise<void>;
@@ -118,6 +123,19 @@ export function CertificatesTab(props: CertificatesTabProps) {
   });
   const batchPrepareStopRequestedRef = useRef(false);
   const batchPreparePromiseRef = useRef<Promise<void> | null>(null);
+  const helperUpgradeRequired = props.customerRenewalAssistantUpgradeState === "upgrade-required";
+  const helperUpgradeNotice =
+    props.customerRenewalAssistantUpgradeState === "upgrade-required"
+      ? {
+          title: "헬퍼 재설치 필요",
+          message: props.customerRenewalAssistantUpgradeMessage
+        }
+      : props.customerRenewalAssistantUpgradeState === "upgrade-available"
+        ? {
+            title: "헬퍼 업데이트 권장",
+            message: props.customerRenewalAssistantUpgradeMessage
+          }
+        : null;
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const customerOptions = useMemo(
     () =>
@@ -377,22 +395,26 @@ export function CertificatesTab(props: CertificatesTabProps) {
       description: "예외 목록"
     }
   ];
-  const certificateStatusLead = !props.customerRenewalAssistantOnline
-    ? "로컬 헬퍼 필요"
-    : actionNeededCustomerCount > 0
-      ? `조치 필요 고객 ${actionNeededCustomerCount}명`
-      : props.customerRenewalLoadedCertificateCount === 0
-        ? "공동인증서 읽기부터"
-        : linkedCustomerRows.length === 0
-          ? "고객 연결 후 계속 관리"
-          : "지금 막힘 없음";
-  const certificateStatusBody = !props.customerRenewalAssistantOnline
-    ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 헬퍼를 실행하세요."
-    : actionNeededCustomerCount > 0
-      ? "기본 보기는 조치 필요 고객 우선입니다."
-      : props.customerRenewalLoadedCertificateCount === 0
-        ? "전자세금용 / 범용 / 미연결 상태를 읽어옵니다."
-        : "필요하면 전체 보기나 미연결 목록을 확인하세요.";
+  const certificateStatusLead = helperUpgradeRequired
+    ? "로컬 헬퍼 재설치 필요"
+    : !props.customerRenewalAssistantOnline
+      ? "로컬 헬퍼 필요"
+      : actionNeededCustomerCount > 0
+        ? `조치 필요 고객 ${actionNeededCustomerCount}명`
+        : props.customerRenewalLoadedCertificateCount === 0
+          ? "공동인증서 읽기부터"
+          : linkedCustomerRows.length === 0
+            ? "고객 연결 후 계속 관리"
+            : "지금 막힘 없음";
+  const certificateStatusBody = helperUpgradeRequired
+    ? props.customerRenewalAssistantUpgradeMessage || "새 로컬 헬퍼를 다시 설치한 뒤 상태를 다시 확인하세요."
+    : !props.customerRenewalAssistantOnline
+      ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 헬퍼를 실행하세요."
+      : actionNeededCustomerCount > 0
+        ? "기본 보기는 조치 필요 고객 우선입니다."
+        : props.customerRenewalLoadedCertificateCount === 0
+          ? "전자세금용 / 범용 / 미연결 상태를 읽어옵니다."
+          : "필요하면 전체 보기나 미연결 목록을 확인하세요.";
 
   const pauseBatchPrepareForInteractiveAction = async (reason: string) => {
     if (!batchPreparePromiseRef.current) {
@@ -734,7 +756,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
             </div>
             <div className="certificate-managed-actions">
               <button
-                disabled={assistantBusyKey !== null || (batchPrepareState.active && !item.canOpenPayment)}
+                disabled={assistantBusyKey !== null || helperUpgradeRequired || (batchPrepareState.active && !item.canOpenPayment)}
+                title={helperUpgradeRequired ? certificateStatusBody : undefined}
                 onClick={() =>
                   void props.runAction(
                     item.canOpenPayment
@@ -804,8 +827,14 @@ export function CertificatesTab(props: CertificatesTabProps) {
             >
               {isRefreshingRenewalAssistant ? "확인 중..." : "새로고침"}
             </button>
+            {helperUpgradeNotice || !props.customerRenewalAssistantOnline ? (
+              <button className="btn-secondary" type="button" onClick={() => window.location.assign(props.renewalHelperDownloadUrl)}>
+                헬퍼 다운로드
+              </button>
+            ) : null}
             <button
-              disabled={assistantBusyKey !== null}
+              disabled={assistantBusyKey !== null || helperUpgradeRequired}
+              title={helperUpgradeRequired ? certificateStatusBody : undefined}
               onClick={() => void props.runAction("customer-renewal-bridge-probe", props.onLoadCustomerRenewalCertificates, { reload: false })}
             >
               {isLoadingRenewalCertificates ? "읽는 중..." : "공동인증서 읽기"}
@@ -817,6 +846,14 @@ export function CertificatesTab(props: CertificatesTabProps) {
           <div className="helper-box import-helper-box">
             <strong>로컬 헬퍼 필요</strong>
             <span>{props.customerRenewalAssistantHelperMessage || "고객 PC에서 로컬 헬퍼를 실행하세요."}</span>
+          </div>
+        ) : null}
+        {helperUpgradeNotice ? (
+          <div className="helper-box-stack settings-install-guide">
+            <strong>{helperUpgradeNotice.title}</strong>
+            <span>{helperUpgradeNotice.message}</span>
+            {props.customerRenewalAssistantLatestVersion ? <span>최신 버전: v{props.customerRenewalAssistantLatestVersion}</span> : null}
+            {props.customerRenewalAssistantMinSupportedVersion ? <span>최소 지원 버전: v{props.customerRenewalAssistantMinSupportedVersion}</span> : null}
           </div>
         ) : null}
 
@@ -961,7 +998,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
                   선택 해제
                 </button>
                 <button
-                  disabled={assistantBusyKey !== null || batchPrepareState.active || selectedPrepareCertificates.length === 0}
+                  disabled={assistantBusyKey !== null || helperUpgradeRequired || batchPrepareState.active || selectedPrepareCertificates.length === 0}
+                  title={helperUpgradeRequired ? certificateStatusBody : undefined}
                   onClick={() => {
                     void prepareVisibleCertificates();
                   }}
@@ -972,7 +1010,8 @@ export function CertificatesTab(props: CertificatesTabProps) {
                 </button>
                 <button
                   className="btn-secondary"
-                  disabled={assistantBusyKey !== null || selectedPaymentCertificates.length === 0}
+                  disabled={assistantBusyKey !== null || helperUpgradeRequired || selectedPaymentCertificates.length === 0}
+                  title={helperUpgradeRequired ? certificateStatusBody : undefined}
                   onClick={() =>
                     void props.runAction("customer-certificate-open-next-payment", openNextPaymentCertificate, {
                       reload: false
@@ -1070,7 +1109,14 @@ export function CertificatesTab(props: CertificatesTabProps) {
                                   className={rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare" ? undefined : "btn-secondary"}
                                   disabled={
                                     (rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare") &&
-                                    (assistantBusyKey !== null || batchPrepareState.active)
+                                    (assistantBusyKey !== null || batchPrepareState.active || helperUpgradeRequired)
+                                  }
+                                  title={
+                                    rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare"
+                                      ? helperUpgradeRequired
+                                        ? certificateStatusBody
+                                        : undefined
+                                      : undefined
                                   }
                                   onClick={() => runCustomerRowPrimaryAction(row)}
                                 >

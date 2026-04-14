@@ -11,10 +11,30 @@ const DEFAULT_ALLOWED_ORIGINS = ["https://auto-tax-alpha.vercel.app"];
 const PREFLIGHT_TRANSPORT_RETRY_COUNT = 1;
 const PREFLIGHT_TRANSPORT_RETRY_DELAY_MS = 250;
 
-function readPackageVersion(): string {
+function readHelperVersionMetadata(): string {
+  const entryDirectory = process.argv[1] ? path.dirname(process.argv[1]) : null;
+  const candidateVersionFiles = [
+    path.resolve(process.cwd(), "scripts", "renewal-local-helper-release.json"),
+    path.resolve(process.cwd(), "dist", "renewal-local-helper", "app", "renewal-local-helper-release.json"),
+    entryDirectory ? path.resolve(entryDirectory, "renewal-local-helper-release.json") : null,
+    entryDirectory ? path.resolve(entryDirectory, "..", "scripts", "renewal-local-helper-release.json") : null
+  ].filter((value): value is string => Boolean(value));
+
+  for (const versionFile of candidateVersionFiles) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(versionFile, "utf8")) as { version?: string; latestVersion?: string };
+      const version = parsed.version?.trim() || parsed.latestVersion?.trim();
+      if (version) {
+        return version;
+      }
+    } catch {
+      continue;
+    }
+  }
+
   const candidatePackageFiles = [
     path.resolve(process.cwd(), "package.json"),
-    process.argv[1] ? path.resolve(path.dirname(process.argv[1]), "..", "package.json") : null
+    entryDirectory ? path.resolve(entryDirectory, "..", "package.json") : null
   ].filter((value): value is string => Boolean(value));
 
   for (const packageFile of candidatePackageFiles) {
@@ -174,7 +194,7 @@ async function collectPreflightProbeResultWithRetry(
 
 export function createRenewalLocalHelperApp() {
   const app = express();
-  const version = readPackageVersion();
+  const version = readHelperVersionMetadata();
 
   app.disable("x-powered-by");
   app.use((req, res, next) => {

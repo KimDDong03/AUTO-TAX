@@ -7,6 +7,7 @@ import type {
 } from "./types";
 
 export const LOCAL_RENEWAL_HELPER_URL = "http://127.0.0.1:35119";
+export const LOCAL_RENEWAL_HELPER_RELEASE_METADATA_URL = "/downloads/renewal-local-helper.json";
 
 type LocalRenewalHelperHealthResponse = {
   ok: true;
@@ -62,6 +63,13 @@ export type LocalRenewalHelperStatus = {
   message: string;
 };
 
+export type LocalRenewalHelperReleaseMetadata = {
+  latestVersion: string;
+  minSupportedVersion: string;
+  downloadUrl: string;
+  releasedAt: string;
+};
+
 function buildHelperUnavailableMessage(): string {
   return "로컬 헬퍼가 실행 중이지 않습니다. 고객 PC에서 로컬 헬퍼를 먼저 실행하세요.";
 }
@@ -108,6 +116,36 @@ export async function getLocalRenewalHelperStatus(): Promise<LocalRenewalHelperS
       version: null,
       message: error instanceof Error ? error.message : buildHelperUnavailableMessage()
     };
+  }
+}
+
+export async function getLocalRenewalHelperReleaseMetadata(): Promise<LocalRenewalHelperReleaseMetadata | null> {
+  try {
+    const response = await fetch(LOCAL_RENEWAL_HELPER_RELEASE_METADATA_URL, {
+      method: "GET"
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as Partial<LocalRenewalHelperReleaseMetadata>;
+    if (
+      typeof payload.latestVersion !== "string" ||
+      typeof payload.minSupportedVersion !== "string" ||
+      typeof payload.downloadUrl !== "string" ||
+      typeof payload.releasedAt !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      latestVersion: payload.latestVersion,
+      minSupportedVersion: payload.minSupportedVersion,
+      downloadUrl: payload.downloadUrl,
+      releasedAt: payload.releasedAt
+    };
+  } catch {
+    return null;
   }
 }
 

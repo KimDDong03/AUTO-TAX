@@ -12,9 +12,58 @@ const appDir = path.join(outputRoot, "app");
 const appNodeModulesDir = path.join(appDir, "node_modules");
 const runtimeDir = path.join(outputRoot, "runtime");
 const scriptsDir = path.join(outputRoot, "scripts");
+const helperReleaseSourcePath = path.join(repoRoot, "scripts", "renewal-local-helper-release.json");
+const outputMetadataPath = path.join(repoRoot, "dist", "renewal-local-helper.json");
 const outputZipPath = path.join(repoRoot, "dist", "renewal-local-helper.zip");
 const staticDownloadDir = path.join(repoRoot, "web", "public", "downloads");
+const staticDownloadMetadataPath = path.join(staticDownloadDir, "renewal-local-helper.json");
 const staticDownloadZipPath = path.join(staticDownloadDir, "renewal-local-helper.zip");
+const runtimeVersionPath = path.join(appDir, "renewal-local-helper-release.json");
+
+function readJsonFile(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function writeJsonFile(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function readHelperReleaseConfig() {
+  const config = readJsonFile(helperReleaseSourcePath);
+  const latestVersion = typeof config.version === "string" ? config.version.trim() : "";
+  const minSupportedVersion =
+    typeof config.minSupportedVersion === "string" ? config.minSupportedVersion.trim() : latestVersion;
+  const releasedAt = typeof config.releasedAt === "string" ? config.releasedAt.trim() : "";
+
+  if (!latestVersion) {
+    throw new Error(`로컬 헬퍼 release metadata의 version이 비어 있습니다: ${helperReleaseSourcePath}`);
+  }
+
+  if (!minSupportedVersion) {
+    throw new Error(`로컬 헬퍼 release metadata의 minSupportedVersion이 비어 있습니다: ${helperReleaseSourcePath}`);
+  }
+
+  if (!releasedAt) {
+    throw new Error(`로컬 헬퍼 release metadata의 releasedAt이 비어 있습니다: ${helperReleaseSourcePath}`);
+  }
+
+  return {
+    latestVersion,
+    minSupportedVersion,
+    releasedAt
+  };
+}
+
+function buildHelperReleaseMetadata() {
+  const config = readHelperReleaseConfig();
+  return {
+    latestVersion: config.latestVersion,
+    minSupportedVersion: config.minSupportedVersion,
+    downloadUrl: "/downloads/renewal-local-helper.zip",
+    releasedAt: config.releasedAt
+  };
+}
 
 function resetDir(dirPath) {
   try {
@@ -78,6 +127,7 @@ function writeZipArchive() {
 function syncStaticDownloadAsset() {
   fs.mkdirSync(staticDownloadDir, { recursive: true });
   copyRecursive(outputZipPath, staticDownloadZipPath);
+  copyRecursive(outputMetadataPath, staticDownloadMetadataPath);
 }
 
 async function buildBundle() {
@@ -175,6 +225,15 @@ function copyScripts() {
   }
 }
 
+function writeReleaseMetadataAssets() {
+  const metadata = buildHelperReleaseMetadata();
+  writeJsonFile(outputMetadataPath, metadata);
+  writeJsonFile(runtimeVersionPath, {
+    version: metadata.latestVersion,
+    releasedAt: metadata.releasedAt
+  });
+}
+
 async function main() {
   resetDir(outputRoot);
   fs.mkdirSync(appNodeModulesDir, { recursive: true });
@@ -185,12 +244,15 @@ async function main() {
   copyRuntime();
   copyPlaywrightRuntime();
   copyScripts();
+  writeReleaseMetadataAssets();
   writePackageReadme();
   writeZipArchive();
   syncStaticDownloadAsset();
 
   console.log(`output=${outputRoot}`);
+  console.log(`metadata=${outputMetadataPath}`);
   console.log(`zip=${outputZipPath}`);
+  console.log(`publicMetadata=${staticDownloadMetadataPath}`);
   console.log(`publicZip=${staticDownloadZipPath}`);
 }
 
