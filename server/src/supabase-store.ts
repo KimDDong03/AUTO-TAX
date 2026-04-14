@@ -78,6 +78,17 @@ function asJsonString(value: unknown): string {
   return JSON.stringify(value ?? {});
 }
 
+function buildDashboardCounts(drafts: InvoiceDraft[], inbox: InboxMessage[], customerCount: number) {
+  return {
+    actionableDrafts: drafts.filter((draft) => draft.status === "review" || draft.status === "failed" || draft.status === "issuing").length,
+    customers: customerCount,
+    reviewDrafts: drafts.filter((draft) => draft.status === "review").length,
+    scheduledDrafts: drafts.filter((draft) => draft.status === "scheduled").length,
+    failedDrafts: drafts.filter((draft) => draft.status === "failed").length,
+    unmatchedMessages: inbox.filter((message) => message.parseStatus === "unmatched").length
+  };
+}
+
 function latestTimestamp(left: string, right: string): string {
   return new Date(left).getTime() >= new Date(right).getTime() ? left : right;
 }
@@ -2030,6 +2041,23 @@ export class SupabaseStore implements AppStore {
     );
   }
 
+  async getBootstrapWorkspace(): Promise<Omit<DashboardPayload, "logs" | "renewalAutomation">> {
+    const [settings, customers, customerCertificates] = await Promise.all([
+      this.getSettings(),
+      this.listCustomers(),
+      this.listCustomerCertificates()
+    ]);
+
+    return {
+      settings,
+      customers,
+      customerCertificates,
+      drafts: [],
+      inbox: [],
+      counts: buildDashboardCounts([], [], customers.length)
+    };
+  }
+
   async getDashboard(): Promise<Omit<DashboardPayload, "renewalAutomation">> {
     const [settings, customers, customerCertificates, drafts, inbox, logs] = await Promise.all([
       this.getSettings(),
@@ -2047,14 +2075,7 @@ export class SupabaseStore implements AppStore {
       drafts,
       inbox,
       logs,
-      counts: {
-        actionableDrafts: drafts.filter((draft) => draft.status === "review" || draft.status === "failed" || draft.status === "issuing").length,
-        customers: customers.length,
-        reviewDrafts: drafts.filter((draft) => draft.status === "review").length,
-        scheduledDrafts: drafts.filter((draft) => draft.status === "scheduled").length,
-        failedDrafts: drafts.filter((draft) => draft.status === "failed").length,
-        unmatchedMessages: inbox.filter((message) => message.parseStatus === "unmatched").length
-      }
+      counts: buildDashboardCounts(drafts, inbox, customers.length)
     };
   }
 

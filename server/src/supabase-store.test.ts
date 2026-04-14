@@ -1,6 +1,58 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { AppSettings, Customer, CustomerCertificate } from "./domain.js";
 import { SupabaseStore } from "./supabase-store.js";
+
+test("getBootstrapWorkspace skips drafts, inbox, and logs reads while keeping bootstrap shape", async () => {
+  const settings = { companyName: "AUTO-TAX" } as unknown as AppSettings;
+  const customers = [{ id: 1, customerName: "테스트 고객" }] as unknown as Customer[];
+  const customerCertificates = [{ id: 10, customerId: 1 }] as unknown as CustomerCertificate[];
+  const calls: string[] = [];
+
+  const store = Object.create(SupabaseStore.prototype) as SupabaseStore;
+  Object.assign(store as object, {
+    getSettings: async () => {
+      calls.push("getSettings");
+      return settings;
+    },
+    listCustomers: async () => {
+      calls.push("listCustomers");
+      return customers;
+    },
+    listCustomerCertificates: async () => {
+      calls.push("listCustomerCertificates");
+      return customerCertificates;
+    },
+    listDrafts: async () => {
+      throw new Error("getBootstrapWorkspace should not call listDrafts");
+    },
+    listInbox: async () => {
+      throw new Error("getBootstrapWorkspace should not call listInbox");
+    },
+    listLogs: async () => {
+      throw new Error("getBootstrapWorkspace should not call listLogs");
+    }
+  });
+
+  const result = await store.getBootstrapWorkspace();
+
+  assert.deepEqual(calls, ["getSettings", "listCustomers", "listCustomerCertificates"]);
+  assert.deepEqual(result, {
+    settings,
+    customers,
+    customerCertificates,
+    drafts: [],
+    inbox: [],
+    counts: {
+      actionableDrafts: 0,
+      customers: 1,
+      reviewDrafts: 0,
+      scheduledDrafts: 0,
+      failedDrafts: 0,
+      unmatchedMessages: 0
+    }
+  });
+});
 
 test("updateCertificateCheckMetadata updates only organization_settings cert metadata columns", async () => {
   const calls: Array<{

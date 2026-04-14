@@ -97,6 +97,7 @@ export interface AppStore {
   markDraftRequested(draftId: number): Promise<void>;
   getDueAutoDrafts(now: Date): Promise<InvoiceDraft[]>;
   createLog(level: LogEntry["level"], scope: string, message: string, context?: unknown): Promise<void>;
+  getBootstrapWorkspace(): Promise<Omit<DashboardPayload, "logs" | "renewalAutomation">>;
   getDashboard(): Promise<Omit<DashboardPayload, "renewalAutomation">>;
   updateSettings(input: Partial<AppSettings>): Promise<AppSettings>;
   updateCertificateCheckMetadata(input: CertificateCheckMetadataUpdate): Promise<void>;
