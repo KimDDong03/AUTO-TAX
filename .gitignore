@@ -3,6 +3,8 @@ dist
 public
 !web/public/
 !web/public/**
+!web/src/features/public/
+!web/src/features/public/**
 .env
 data
 *.log

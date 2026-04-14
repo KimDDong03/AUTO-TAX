@@ -11,6 +11,12 @@ type SettingsTabProps = {
   settingsAutosaveLabel: string;
   customerRegistrationReady: boolean;
   customerCount: number;
+  onboardingComplete: boolean;
+  onboardingProgressText: string;
+  onboardingPendingStepCount: number;
+  showCompletedOnboardingNav: boolean;
+  onShowCompletedOnboardingNavChange: (nextValue: boolean) => void;
+  openOnboarding: () => void;
   busyKey: string | null;
   isMailTesting: boolean;
   settingsHealth: { mailReady: boolean; popbillReady: boolean; operatorReady: boolean };
@@ -516,6 +522,35 @@ export function SettingsTab(props: SettingsTabProps) {
 
         {props.activeSettingsSection === "account" ? (
           <div className="settings-account-stack">
+            <Panel
+              title="도입 준비 메뉴"
+              subtitle={props.onboardingComplete ? "완료 후 자동 숨김 / 필요 시 다시 열기" : `진행 중 · 남은 ${props.onboardingPendingStepCount}단계`}
+              actions={
+                <button type="button" className="btn-secondary" onClick={props.openOnboarding}>
+                  도입 준비 다시 열기
+                </button>
+              }
+            >
+              <div className="helper-box-stack">
+                <strong>{props.onboardingProgressText}</strong>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={props.showCompletedOnboardingNav}
+                    onChange={(event) => props.onShowCompletedOnboardingNavChange(event.target.checked)}
+                  />
+                  <span>완료된 도입 준비 메뉴 계속 표시</span>
+                </label>
+                <span className="field-hint">
+                  {props.onboardingComplete
+                    ? props.showCompletedOnboardingNav
+                      ? "현재는 도입 준비가 완료된 뒤에도 사이드바에 계속 표시됩니다."
+                      : "현재는 도입 준비가 완료되어 사이드바에서 자동으로 숨겨집니다."
+                    : "진행 중에는 메뉴가 계속 보이며, 이 토글은 완료된 뒤의 표시 여부를 기억합니다."}
+                </span>
+              </div>
+            </Panel>
+
             <Panel
               title="비밀번호 변경"
               subtitle="현재 계정"

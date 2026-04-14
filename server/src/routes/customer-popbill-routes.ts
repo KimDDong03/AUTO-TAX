@@ -3,7 +3,7 @@ import type { z } from "zod";
 import { z as zod } from "zod";
 import type { AppSettings, Customer, CustomerInput } from "../domain.js";
 import type { CertificateRefreshResult } from "../certificate-monitor.js";
-import { checkIsMember, getCertificateExpireDate, getTaxCertURL, quitMember } from "../popbill-client.js";
+import { getCertificateExpireDate, getTaxCertURL, isPopbillMemberMissingError, quitMember } from "../popbill-client.js";
 import { RenewalAutomationManager } from "../renewal-automation.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";
@@ -21,7 +21,59 @@ type RouteDeps = {
   toClientCustomer: (customer: Customer) => Customer;
   refreshAllCertificateStatuses: (requestStore: AppStore) => Promise<CertificateRefreshResult>;
   renewalAutomation: RenewalAutomationManager;
+  quitCustomerPopbillMember?: typeof quitMember;
 };
+
+export type CustomerPopbillQuitResult =
+  | {
+      status: "not-needed";
+      environment: "test" | "production";
+      response?: undefined;
+      error?: undefined;
+    }
+  | {
+      status: "quit";
+      environment: "test" | "production";
+      response: unknown;
+      error?: undefined;
+    }
+  | {
+      status: "already-missing";
+      environment: "test" | "production";
+      response?: undefined;
+      error: string;
+    };
+
+export async function quitCustomerPopbillMembership(
+  settings: AppSettings,
+  customer: Customer,
+  quitCustomerPopbillMember: typeof quitMember,
+  quitReason: string
+): Promise<CustomerPopbillQuitResult> {
+  const environment = settings.popbillIsTest ? "test" : "production";
+  if (customer.popbillState !== "joined") {
+    return { status: "not-needed", environment };
+  }
+
+  try {
+    const response = await quitCustomerPopbillMember(settings, customer, quitReason);
+    return {
+      status: "quit",
+      environment,
+      response
+    };
+  } catch (error) {
+    if (isPopbillMemberMissingError(error)) {
+      return {
+        status: "already-missing",
+        environment,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+
+    throw error;
+  }
+}
 
 export function registerCustomerPopbillRoutes(deps: RouteDeps) {
   const {
@@ -35,7 +87,8 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     autoJoinCustomerPopbill,
     toClientCustomer,
     refreshAllCertificateStatuses,
-    renewalAutomation
+    renewalAutomation,
+    quitCustomerPopbillMember = quitMember
   } = deps;
 
   const customerCertificateSchema = zod.object({
@@ -147,27 +200,28 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
 
     let popbillCleanupStatus: "not-needed" | "quit-on-delete" | "already-missing-on-delete" = "not-needed";
     if (customer.popbillState === "joined") {
-      const settings = await getServerManagedSettings(requestStore);
-      if (settings.popbillIsTest) {
-        try {
-          await quitMember(settings, customer, "AUTO-TAX 테스트 고객 삭제");
-          popbillCleanupStatus = "quit-on-delete";
-          await requestStore.createLog("warn", "popbill", "테스트 환경 고객 삭제와 함께 팝빌 테스트 회원을 탈퇴 처리했습니다.", {
-            customerId,
-            customerName: customer.customerName
-          });
-        } catch (error) {
-          const fallbackMemberState = await checkIsMember(settings, customer.businessNumber).catch(() => false);
-          if (fallbackMemberState) {
-            throw error;
-          }
-          popbillCleanupStatus = "already-missing-on-delete";
-          await requestStore.createLog("warn", "popbill", "테스트 환경 고객 삭제 시 팝빌 회원이 이미 없어 로컬 삭제만 진행했습니다.", {
-            customerId,
-            customerName: customer.customerName,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
+      const quitResult = await quitCustomerPopbillMembership(
+        await getServerManagedSettings(requestStore),
+        customer,
+        quitCustomerPopbillMember,
+        "AUTO-TAX 고객 삭제"
+      );
+
+      if (quitResult.status === "quit") {
+        popbillCleanupStatus = "quit-on-delete";
+        await requestStore.createLog("warn", "popbill", "고객 삭제에 앞서 팝빌 연동회원을 먼저 탈퇴 처리했습니다.", {
+          customerId,
+          customerName: customer.customerName,
+          environment: quitResult.environment
+        });
+      } else if (quitResult.status === "already-missing") {
+        popbillCleanupStatus = "already-missing-on-delete";
+        await requestStore.createLog("warn", "popbill", "고객 삭제 전에 팝빌 회원 탈퇴를 시도했지만 이미 존재하지 않아 로컬 삭제만 진행했습니다.", {
+          customerId,
+          customerName: customer.customerName,
+          environment: quitResult.environment,
+          error: quitResult.error
+        });
       }
     }
 
@@ -177,7 +231,7 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
       customerName: customer.customerName,
       popbillCleanupStatus
     });
-    res.json({ ok: true });
+    res.json({ ok: true, popbillCleanupStatus });
   });
 
   app.post("/api/customers/:id/popbill/join", async (req, res) => {
@@ -237,18 +291,21 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     }
 
     const settings = await getServerManagedSettings(requestStore);
-    if (!settings.popbillIsTest) {
-      res.status(400).json({ error: "팝빌 탈퇴는 테스트 환경에서만 허용됩니다." });
-      return;
-    }
-
-    const response = await quitMember(settings, customer, "AUTO-TAX 테스트 정리");
+    const quitResult = await quitCustomerPopbillMembership(settings, customer, quitCustomerPopbillMember, "AUTO-TAX 고객 정리");
     const updated = await requestStore.resetCustomerPopbill(customerId);
-    await requestStore.createLog("warn", "popbill", "팝빌 테스트 연동회원을 탈퇴 처리했습니다.", {
+    await requestStore.createLog("warn", "popbill", "팝빌 연동회원 탈퇴를 처리했습니다.", {
       customerId,
-      customerName: customer.customerName
+      customerName: customer.customerName,
+      environment: quitResult.environment,
+      quitStatus: quitResult.status
     });
-    res.json({ ok: true, response, customer: toClientCustomer(updated) });
+    res.json({
+      ok: true,
+      response: quitResult.status === "quit" ? quitResult.response : null,
+      quitStatus: quitResult.status,
+      environment: quitResult.environment,
+      customer: toClientCustomer(updated)
+    });
   });
 
   app.post("/api/customers/:id/popbill/cert-url", async (req, res) => {

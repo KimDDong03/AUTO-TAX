@@ -7,6 +7,12 @@ import { CertificatesTab } from "./features/certificates/CertificatesTab";
 import { CustomersTab } from "./features/customers/CustomersTab";
 import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
 import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
+import { PublicLanding } from "./features/public/PublicLanding";
+import {
+  calculatePublicPrice,
+  normalizeManagedCustomerCount,
+  type PublicPricingPlanId
+} from "./features/public/public-content";
 import {
   downloadCustomerOnboardingTemplate,
   parseCustomerOnboardingWorkbook,
@@ -55,6 +61,33 @@ import type {
 
 type TabId = "onboarding" | "home" | "customers" | "settings" | "ops";
 type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
+
+const ONBOARDING_NAV_STORAGE_KEY_PREFIX = "auto-tax:onboarding-nav:";
+
+function getOnboardingNavStorageKey(organizationId: string): string {
+  return `${ONBOARDING_NAV_STORAGE_KEY_PREFIX}${organizationId}`;
+}
+
+function readOnboardingNavVisibilityPreference(organizationId: string): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const value = window.localStorage.getItem(getOnboardingNavStorageKey(organizationId));
+    return value === "show" || value === "true" || value === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeOnboardingNavVisibilityPreference(organizationId: string, show: boolean) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(getOnboardingNavStorageKey(organizationId), show ? "show" : "hide");
+  } catch {
+    // ignore storage failures in unsupported/private contexts
+  }
+}
 type CustomerDetailTabId = "info" | "history";
 type CustomerListFilter = "all" | "blocked" | "ready" | "expiring" | "unjoined";
 type MailProvider = "gmail" | "naver" | "daum";
@@ -528,18 +561,6 @@ type OrganizationMemberFormState = {
   password: string;
 };
 
-type PublicPricingPlanId = "beta" | "standard";
-
-type PublicPricingPlan = {
-  id: PublicPricingPlanId;
-  label: string;
-  badge: string;
-  headline: string;
-  basePrice: number;
-  includedCustomers: number;
-  overagePrice: number;
-};
-
 const baseOpsWorkspaceForm: OpsWorkspaceFormState = {
   organizationName: "",
   organizationBusinessNumber: "",
@@ -572,47 +593,6 @@ const baseOrganizationMemberForm: OrganizationMemberFormState = {
   displayName: "",
   password: ""
 };
-
-const PUBLIC_PRICING_PLANS: Record<PublicPricingPlanId, PublicPricingPlan> = {
-  beta: {
-    id: "beta",
-    label: "오픈베타 1개월",
-    badge: "OPEN BETA",
-    headline: "도입 전 시험 운영 요금",
-    basePrice: 79000,
-    includedCustomers: 50,
-    overagePrice: 900
-  },
-  standard: {
-    id: "standard",
-    label: "정식 요금",
-    badge: "STANDARD",
-    headline: "기본 월 구독 요금",
-    basePrice: 149000,
-    includedCustomers: 50,
-    overagePrice: 1400
-  }
-};
-
-const PRICING_EXAMPLE_COUNTS = [100, 200, 300];
-
-const LANDING_HERO_POINTS = [
-  {
-    label: "한전 메일",
-    value: "자동 확인",
-    description: "매월 반복 확인 시간을 줄입니다."
-  },
-  {
-    label: "전자세금계산서",
-    value: "초안 자동 생성",
-    description: "담당자는 검수와 발행에 집중합니다."
-  },
-  {
-    label: "운영 방식",
-    value: "검수 후 발행",
-    description: "안정화 후 자동 발행으로 전환할 수 있습니다."
-  }
-];
 
 const MAIL_PROVIDER_CONFIG: Record<
   MailProvider,
@@ -685,7 +665,7 @@ function resolveWorkspaceTab(
   requestedTab: TabId | null,
   options: { hasActiveWorkspace: boolean; onboardingComplete: boolean; isPlatformAdmin: boolean }
 ): TabId {
-  const fallback = options.hasActiveWorkspace ? (options.onboardingComplete ? "home" : "onboarding") : "ops";
+  const fallback = options.hasActiveWorkspace ? "home" : options.isPlatformAdmin ? "ops" : "onboarding";
 
   if (requestedTab === "ops") {
     return options.isPlatformAdmin ? "ops" : fallback;
@@ -695,23 +675,16 @@ function resolveWorkspaceTab(
     return options.isPlatformAdmin ? "ops" : "onboarding";
   }
 
-  if (options.onboardingComplete) {
-    if (requestedTab === "onboarding" || requestedTab === null) {
-      return "home";
-    }
-
-    if (requestedTab === "home" || requestedTab === "customers" || requestedTab === "settings") {
-      return requestedTab;
-    }
-
-    return "home";
+  if (
+    requestedTab === "home" ||
+    requestedTab === "customers" ||
+    requestedTab === "settings" ||
+    requestedTab === "onboarding"
+  ) {
+    return requestedTab;
   }
 
-  if (requestedTab === "settings") {
-    return "settings";
-  }
-
-  return "onboarding";
+  return "home";
 }
 
 function getHashParams(hash: string): URLSearchParams {
@@ -981,27 +954,6 @@ function getParseStatusLabel(status: string): string {
 
 function formatMoney(value: number): string {
   return new Intl.NumberFormat("ko-KR").format(value);
-}
-
-function normalizeManagedCustomerCount(value: string): number {
-  const digits = value.replace(/[^\d]/g, "");
-  return digits === "" ? 0 : Number.parseInt(digits, 10);
-}
-
-function calculatePublicPrice(planId: PublicPricingPlanId, managedCustomerCount: number) {
-  const plan = PUBLIC_PRICING_PLANS[planId];
-  const normalizedCount = Number.isFinite(managedCustomerCount) ? Math.max(0, Math.floor(managedCustomerCount)) : 0;
-  const overageCount = Math.max(0, normalizedCount - plan.includedCustomers);
-  const overagePrice = overageCount * plan.overagePrice;
-
-  return {
-    plan,
-    managedCustomerCount: normalizedCount,
-    includedCustomers: plan.includedCustomers,
-    overageCount,
-    overagePrice,
-    totalPrice: plan.basePrice + overagePrice
-  };
 }
 
 function shouldReplaceSupportRequestMessage(value: string): boolean {
@@ -2416,6 +2368,13 @@ export function App() {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     return getTabFromHash(hash) ?? "home";
   });
+  const [onboardingNavPreference, setOnboardingNavPreference] = useState<{
+    organizationId: string | null;
+    showCompletedOnboardingNav: boolean;
+  }>({
+    organizationId: null,
+    showCompletedOnboardingNav: false
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [requestedOnboardingStepId, setRequestedOnboardingStepId] = useState<string | null>(null);
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
@@ -2487,6 +2446,9 @@ export function App() {
   const publicManagedCustomerCount = normalizeManagedCustomerCount(managedCustomerCountInput);
   const publicPricing = calculatePublicPrice(pricingPlanId, publicManagedCustomerCount);
   const deferredCustomerSearchQuery = useDeferredValue(customerSearchQuery);
+  const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
+  const showCompletedOnboardingNav =
+    onboardingNavPreference.organizationId === activeOrganizationId && onboardingNavPreference.showCompletedOnboardingNav;
   const customerImportHeaderOptions = customerImportFile
     ? buildCustomerImportColumnOptions(customerImportFile.rows, customerImportHeaderRowIndex)
     : [];
@@ -2910,6 +2872,32 @@ export function App() {
       window.history.replaceState(null, "", `#${activeTab}`);
     }
   }, [activeTab, recoveryMode]);
+
+  useEffect(() => {
+    if (!activeOrganizationId) {
+      setOnboardingNavPreference({
+        organizationId: null,
+        showCompletedOnboardingNav: false
+      });
+      return;
+    }
+
+    setOnboardingNavPreference({
+      organizationId: activeOrganizationId,
+      showCompletedOnboardingNav: readOnboardingNavVisibilityPreference(activeOrganizationId)
+    });
+  }, [activeOrganizationId]);
+
+  useEffect(() => {
+    if (!onboardingNavPreference.organizationId) {
+      return;
+    }
+
+    writeOnboardingNavVisibilityPreference(
+      onboardingNavPreference.organizationId,
+      onboardingNavPreference.showCompletedOnboardingNav
+    );
+  }, [onboardingNavPreference]);
 
   useEffect(() => {
     if (!data) return;
@@ -5046,15 +5034,17 @@ export function App() {
       return;
     }
 
-    const status = await getLocalRenewalHelperStatus();
-    setCustomerRenewalAssistant((prev) => ({
-      agentOnline: status.online,
-      helperVersion: status.version,
-      helperMessage: status.message,
-      helperCheckedAt: new Date().toISOString(),
-      jobs: prev?.jobs ?? [],
-      certificates: prev?.certificates ?? []
-    }));
+    const [status, releaseMetadata] = await Promise.all([
+      getLocalRenewalHelperStatus(),
+      getLocalRenewalHelperReleaseMetadata()
+    ]);
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status,
+        releaseMetadata
+      })
+    );
   };
 
   const resolveCustomerRenewalPassword = async (options?: { promptIfMissing?: boolean; linkedCertificateId?: number | null }) => {
@@ -5203,21 +5193,28 @@ export function App() {
   };
 
   const syncCustomerRenewalCertificates = async (options?: { showAlert?: boolean }) => {
+    ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
     const showAlert = options?.showAlert ?? true;
     const response = await requestLocalRenewalBridgeProbe();
     const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
     const bridgeJob = buildLocalRenewalBridgeJob(response.result, allCertificates.length);
     const helperMessage = bridgeJob.error ?? bridgeJob.summary;
 
-    setCustomerRenewalAssistant((prev) => ({
-      ...(prev ?? {}),
-      agentOnline: true,
-      helperVersion: response.version,
-      helperMessage,
-      helperCheckedAt: new Date().toISOString(),
-      jobs: [bridgeJob, ...(prev?.jobs ?? [])],
-      certificates: allCertificates
-    }));
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status: {
+          online: true,
+          version: response.version,
+          message: helperMessage
+        },
+        helperVersion: response.version,
+        helperMessage,
+        jobs: [bridgeJob, ...(prev?.jobs ?? [])],
+        certificates: allCertificates,
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+      })
+    );
 
     if (showAlert) {
       await showAppAlert(
@@ -5282,6 +5279,7 @@ export function App() {
   };
 
   const requestCustomerRenewalBridgeProbe = async () => {
+    ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
     const response = await requestLocalRenewalBridgeProbe();
     const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
     const certificates = allCertificates.filter(isElectronicTaxCertificate);
@@ -5493,15 +5491,21 @@ export function App() {
       }
     }
 
-    setCustomerRenewalAssistant((prev) => ({
-      ...(prev ?? {}),
-      agentOnline: true,
-      helperVersion: response.version,
-      helperMessage,
-      helperCheckedAt: new Date().toISOString(),
-      jobs,
-      certificates
-    }));
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status: {
+          online: true,
+          version: response.version,
+          message: helperMessage
+        },
+        helperVersion: response.version,
+        helperMessage,
+        jobs,
+        certificates,
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+      })
+    );
     await showAppAlert(alertMessage, {
       title: alertTitle,
       tone: alertTone
@@ -5509,6 +5513,7 @@ export function App() {
   };
 
   const requestCustomerRenewalPreflight = async (certificate: RenewalAgentCertificate) => {
+    ensureLocalRenewalHelperActionAllowed("고객 초안 정보 읽기");
     const inputPassword = await resolveCustomerRenewalPassword({ promptIfMissing: true });
     if (!inputPassword) {
       throw new Error("공동인증서 비밀번호 입력이 필요합니다.");
@@ -5521,15 +5526,21 @@ export function App() {
       certificatePassword: inputPassword
     });
     const preflightJob = buildLocalRenewalPreflightJob(certificate, response.result);
-    setCustomerRenewalAssistant((prev) => ({
-      ...(prev ?? {}),
-      agentOnline: true,
-      helperVersion: response.version,
-      helperMessage: preflightJob.error ?? preflightJob.summary,
-      helperCheckedAt: new Date().toISOString(),
-      jobs: [preflightJob, ...(prev?.jobs ?? [])],
-      certificates: prev?.certificates ?? []
-    }));
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status: {
+          online: true,
+          version: response.version,
+          message: preflightJob.error ?? preflightJob.summary
+        },
+        helperVersion: response.version,
+        helperMessage: preflightJob.error ?? preflightJob.summary,
+        jobs: [preflightJob, ...(prev?.jobs ?? [])],
+        certificates: prev?.certificates ?? [],
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+      })
+    );
 
     if (preflightJob.error) {
       customerRenewalPasswordRef.current = "";
@@ -5605,6 +5616,7 @@ export function App() {
     customerId: number,
     options?: { showAlert?: boolean; certificatePassword?: string; certificateOverride?: RenewalAgentCertificate | null }
   ) => {
+    ensureLocalRenewalHelperActionAllowed("갱신 준비");
     const customer = getCustomerById(customerId);
     const certificate = options?.certificateOverride ?? getCustomerRenewalCertificateForCustomer(customerId).certificate;
     if (!customer || !certificate) {
@@ -5634,15 +5646,21 @@ export function App() {
     const preflightProbe = response.result.bridge.preflightProbe;
     const status = formatCustomerRenewalStatus(preflightProbe);
 
-    setCustomerRenewalAssistant((prev) => ({
-      ...(prev ?? {}),
-      agentOnline: true,
-      helperVersion: response.version,
-      helperMessage: status.statusText,
-      helperCheckedAt: new Date().toISOString(),
-      jobs: [preflightJob, ...(prev?.jobs ?? [])],
-      certificates: prev?.certificates ?? []
-    }));
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status: {
+          online: true,
+          version: response.version,
+          message: status.statusText
+        },
+        helperVersion: response.version,
+        helperMessage: status.statusText,
+        jobs: [preflightJob, ...(prev?.jobs ?? [])],
+        certificates: prev?.certificates ?? [],
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+      })
+    );
 
     if (!preflightProbe.ok) {
       throw new Error(preflightProbe.error ?? preflightProbe.message ?? "갱신 준비에 실패했습니다.");
@@ -5680,6 +5698,7 @@ export function App() {
       showAlert?: boolean;
     }
   ) => {
+    ensureLocalRenewalHelperActionAllowed("결제 창 열기");
     const customer = getCustomerById(customerId);
     const certificate = options?.certificateOverride ?? getCustomerRenewalCertificateForCustomer(customerId).certificate;
     if (!customer || !certificate) {
@@ -5710,15 +5729,21 @@ export function App() {
       submissionProfile: await buildCustomerRenewalSubmissionProfile(customer)
     });
 
-    setCustomerRenewalAssistant((prev) => ({
-      ...(prev ?? {}),
-      agentOnline: true,
-      helperVersion: response.version,
-      helperMessage: response.result.message,
-      helperCheckedAt: new Date().toISOString(),
-      jobs: prev?.jobs ?? [],
-      certificates: prev?.certificates ?? []
-    }));
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status: {
+          online: true,
+          version: response.version,
+          message: response.result.message
+        },
+        helperVersion: response.version,
+        helperMessage: response.result.message,
+        jobs: prev?.jobs ?? [],
+        certificates: prev?.certificates ?? [],
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+      })
+    );
 
     if (options?.showAlert !== false) {
       await showAppAlert(
@@ -5886,10 +5911,11 @@ export function App() {
   };
 
   const quitPopbillMember = async (customer: Customer) => {
+    const popbillEnvironmentLabel = data?.settings.popbillIsTest ? "테스트" : "운영";
     const confirmed = await showAppConfirm(
-      `${customer.customerName} 고객을 팝빌 테스트 서버에서 탈퇴시킵니다.\n이 작업은 팝빌 테스트 환경의 연동회원 자체를 제거합니다.\n계속할까요?`,
+      `${customer.customerName} 고객을 팝빌 ${popbillEnvironmentLabel} 서버에서 탈퇴시킵니다.\n이 작업은 팝빌 ${popbillEnvironmentLabel} 환경의 연동회원 자체를 제거합니다.\n계속할까요?`,
       {
-        title: "팝빌 테스트 회원 탈퇴",
+        title: `팝빌 ${popbillEnvironmentLabel} 회원 탈퇴`,
         tone: "danger",
         confirmLabel: "탈퇴시키기"
       }
@@ -6106,260 +6132,31 @@ export function App() {
   if (!authSession) {
     return (
       <>
-        <div className="landing-shell">
-          <header className="landing-topbar">
-          <div className="landing-topbar-inner">
-            <button type="button" className="landing-brand" onClick={() => scrollToLandingSection("landing-top")}>
-              <span className="brand-badge landing-brand-badge">AT</span>
-              <span className="landing-brand-copy">
-                <strong>AUTO-TAX</strong>
-                <span>태양광 회사 전자세금계산서 운영</span>
-              </span>
-            </button>
-            <nav className="landing-nav" aria-label="공개 페이지 탐색">
-              <button type="button" className="landing-nav-button" onClick={() => scrollToLandingSection("landing-pricing")}>
-                가격 안내
-              </button>
-              <button type="button" className="landing-nav-button" onClick={() => openSupportRequest()}>
-                도입 문의
-              </button>
-            </nav>
-            <div className="landing-topbar-actions">
-              <button type="button" className="btn-secondary" onClick={() => scrollToLandingSection("landing-login-card")}>
-                로그인
-              </button>
-            </div>
-          </div>
-        </header>
-
-        <main className="landing-main">
-          <section className="landing-hero-grid" id="landing-top">
-            <div className="landing-hero-panel">
-              <div className="landing-hero-copy">
-                <div className="landing-badge-row">
-                  <span className="auth-badge">태양광 회사용</span>
-                  <span className="landing-inline-note">관리 고객 수 기준 월 구독형</span>
-                </div>
-                <h1>태양광 회사의 전자세금계산서 업무를 더 빠르고 정확하게</h1>
-                <p>한전 메일 확인부터 초안 작성, 검수 후 발행까지 한 화면에서 처리하는 운영 도구입니다.</p>
-              </div>
-              <div className="landing-hero-actions">
-                <button type="button" onClick={() => scrollToLandingSection("landing-pricing")}>
-                  예상 요금 확인하기
-                </button>
-                <button type="button" className="btn-secondary" onClick={() => openSupportRequest()}>
-                  도입 문의
-                </button>
-              </div>
-              <div className="landing-proof-grid">
-                {LANDING_HERO_POINTS.map((item) => (
-                  <article key={item.label} className="landing-proof-card">
-                    <span className="landing-proof-label">{item.label}</span>
-                    <strong>{item.value}</strong>
-                    <p>{item.description}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-
-            <aside className="landing-side-panel">
-              <section className="auth-card landing-auth-card" id="landing-login-card">
-                <div className="auth-copy">
-                  <span className="auth-badge">작업공간 로그인</span>
-                  <h2>도입 문의와 로그인</h2>
-                  <p>계정이 있으면 바로 로그인하고, 도입 전이면 아래에서 문의를 남기면 됩니다.</p>
-                </div>
-                <form className="auth-form" onSubmit={(event) => void signIn(event)}>
-                  <label>
-                    <span>로그인 계정</span>
-                    <input
-                      value={signInAccount}
-                      onChange={(event) => setSignInAccount(event.target.value)}
-                      placeholder="고객사 사용자: 로그인 아이디 / 플랫폼 관리자: 이메일"
-                      autoComplete="username"
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>비밀번호</span>
-                    <input
-                      type="password"
-                      value={signInPassword}
-                      onChange={(event) => setSignInPassword(event.target.value)}
-                      placeholder="비밀번호 입력"
-                      autoComplete="current-password"
-                      required
-                    />
-                  </label>
-                  {authNotice ? <div className="alert success">{authNotice}</div> : null}
-                  {error ? <div className="alert error">{error}</div> : null}
-                  <div className="auth-actions">
-                    <button type="submit" disabled={authBusy}>
-                      {authBusy ? "로그인 중..." : "로그인"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => setShowSupportRequestForm((prev) => !prev)}
-                      disabled={supportRequestBusy}
-                    >
-                      {showSupportRequestForm ? "문의 닫기" : "도입 문의"}
-                    </button>
-                  </div>
-                  <p className="field-hint">계정이 없으면 `도입 문의`에서 회사명, 담당자, 연락처를 남겨주세요.</p>
-                </form>
-                {showSupportRequestForm ? (
-                  <div className="auth-form support-request-box">
-                    <label>
-                      <span>회사명</span>
-                      <input
-                        value={supportRequestForm.companyName}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, companyName: event.target.value }))}
-                        placeholder="회사명 입력"
-                      />
-                    </label>
-                    <label>
-                      <span>담당자명</span>
-                      <input
-                        value={supportRequestForm.requesterName}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterName: event.target.value }))}
-                        placeholder="담당자 이름"
-                      />
-                    </label>
-                    <label>
-                      <span>이메일</span>
-                      <input
-                        type="email"
-                        value={supportRequestForm.requesterEmail}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterEmail: event.target.value }))}
-                        placeholder="reply 받을 이메일"
-                      />
-                    </label>
-                    <label>
-                      <span>연락처</span>
-                      <input
-                        value={supportRequestForm.requesterPhone}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, requesterPhone: event.target.value }))}
-                        placeholder="전화번호 또는 휴대폰"
-                      />
-                    </label>
-                    <label>
-                      <span>요청 내용</span>
-                      <textarea
-                        rows={5}
-                        value={supportRequestForm.message}
-                        onChange={(event) => setSupportRequestForm((prev) => ({ ...prev, message: event.target.value }))}
-                        placeholder="작업공간 개통 요청 내용, 필요한 기능, 문의사항을 적어주세요."
-                      />
-                    </label>
-                    <div className="auth-actions">
-                      <button type="button" onClick={() => void submitSupportRequest()} disabled={supportRequestBusy}>
-                        {supportRequestBusy ? "보내는 중..." : "보내기"}
-                      </button>
-                    </div>
-                    <p className="field-hint">문의는 `ehdrjs0887@gmail.com`으로 접수됩니다.</p>
-                  </div>
-                ) : null}
-              </section>
-            </aside>
-          </section>
-
-          <section className="landing-section" id="landing-pricing">
-            <div className="landing-section-head">
-              <span className="landing-eyebrow">가격 안내</span>
-              <h2>관리 고객 수에 따라 자동 계산되는 월 구독형 요금제</h2>
-              <p>기본 50곳 포함, 초과 고객은 1곳당 추가 과금됩니다.</p>
-            </div>
-            <div className="landing-pricing-layout">
-              <div className="landing-pricing-grid">
-                {(Object.values(PUBLIC_PRICING_PLANS) as PublicPricingPlan[]).map((plan) => (
-                  <article
-                    key={plan.id}
-                    className={plan.id === pricingPlanId ? "landing-price-card landing-price-card-active" : "landing-price-card"}
-                  >
-                    <div className="landing-price-card-head">
-                      <span className="landing-price-badge">{plan.badge}</span>
-                      <h3>{plan.label}</h3>
-                    </div>
-                    <p>{plan.headline}</p>
-                    <div className="landing-price-figure">{formatMoney(plan.basePrice)}원</div>
-                    <div className="landing-price-caption">{plan.includedCustomers}곳 이하</div>
-                    <div className="landing-price-inline">
-                      <span>초과 고객 1곳당</span>
-                      <strong>{formatMoney(plan.overagePrice)}원</strong>
-                    </div>
-                    <div className="landing-price-examples">
-                      {PRICING_EXAMPLE_COUNTS.map((count) => (
-                        <div key={`${plan.id}-${count}`} className="landing-price-example-row">
-                          <span>{count.toLocaleString("ko-KR")}곳</span>
-                          <strong>{formatMoney(calculatePublicPrice(plan.id, count).totalPrice)}원</strong>
-                        </div>
-                      ))}
-                    </div>
-                  </article>
-                ))}
-              </div>
-
-              <aside className="landing-card landing-calculator-card">
-                <div className="landing-calculator-head">
-                  <h3>예상 요금 계산기</h3>
-                  <p>관리 고객 수를 입력하면 예상 월 구독료를 바로 확인할 수 있습니다.</p>
-                </div>
-                <div className="landing-segmented" role="tablist" aria-label="요금 기준 선택">
-                  {(Object.values(PUBLIC_PRICING_PLANS) as PublicPricingPlan[]).map((plan) => (
-                    <button
-                      key={plan.id}
-                      type="button"
-                      className={plan.id === pricingPlanId ? "active" : ""}
-                      onClick={() => setPricingPlanId(plan.id)}
-                    >
-                      {plan.label}
-                    </button>
-                  ))}
-                </div>
-                <label className="landing-form-field">
-                  <span>관리 고객 수</span>
-                  <input
-                    value={managedCustomerCountInput}
-                    onChange={(event) => setManagedCustomerCountInput(event.target.value.replace(/[^\d]/g, "").slice(0, 5))}
-                    inputMode="numeric"
-                    placeholder="예: 220"
-                  />
-                </label>
-                <div className="landing-calculator-total">
-                  <span>예상 월 구독료</span>
-                  <strong>{formatMoney(publicPricing.totalPrice)}원</strong>
-                  <p>{publicPricing.plan.label} 기준</p>
-                </div>
-                <div className="landing-breakdown-grid">
-                  <div>
-                    <span>기본 포함</span>
-                    <strong>{publicPricing.includedCustomers.toLocaleString("ko-KR")}곳</strong>
-                  </div>
-                  <div>
-                    <span>초과 고객 수</span>
-                    <strong>{publicPricing.overageCount.toLocaleString("ko-KR")}곳</strong>
-                  </div>
-                  <div>
-                    <span>초과분 금액</span>
-                    <strong>{formatMoney(publicPricing.overagePrice)}원</strong>
-                  </div>
-                </div>
-                <p className="landing-fineprint">외부 연동 서비스 정책 변경 시 요금 정책이 조정될 수 있습니다.</p>
-                <div className="landing-hero-actions landing-calculator-actions">
-                  <button type="button" onClick={() => openSupportRequest(buildSupportRequestPrefill(pricingPlanId, publicManagedCustomerCount))}>
-                    이 규모로 도입 문의
-                  </button>
-                  <button type="button" className="btn-secondary" onClick={() => scrollToLandingSection("landing-login-card")}>
-                    로그인
-                  </button>
-                </div>
-              </aside>
-            </div>
-          </section>
-
-          </main>
-        </div>
+        <PublicLanding
+          signInAccount={signInAccount}
+          setSignInAccount={setSignInAccount}
+          signInPassword={signInPassword}
+          setSignInPassword={setSignInPassword}
+          showSupportRequestForm={showSupportRequestForm}
+          setShowSupportRequestForm={setShowSupportRequestForm}
+          supportRequestForm={supportRequestForm}
+          setSupportRequestForm={setSupportRequestForm}
+          pricingPlanId={pricingPlanId}
+          setPricingPlanId={setPricingPlanId}
+          managedCustomerCountInput={managedCustomerCountInput}
+          setManagedCustomerCountInput={setManagedCustomerCountInput}
+          publicPricing={publicPricing}
+          pricingSupportRequestPrefill={buildSupportRequestPrefill(pricingPlanId, publicManagedCustomerCount)}
+          authNotice={authNotice}
+          error={error}
+          authBusy={authBusy}
+          supportRequestBusy={supportRequestBusy}
+          onSignIn={signIn}
+          onSubmitSupportRequest={submitSupportRequest}
+          onScrollToSection={scrollToLandingSection}
+          onOpenSupportRequest={openSupportRequest}
+          formatMoney={formatMoney}
+        />
         {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
       </>
     );
@@ -6370,10 +6167,10 @@ export function App() {
   }
 
   const isPlatformAdmin = data.auth.isPlatformAdmin;
-  const hasActiveWorkspace = Boolean(data.auth.activeOrganizationId);
+  const hasActiveWorkspace = Boolean(activeOrganizationId);
   const currentMembership =
-    (data.auth.activeOrganizationId
-      ? data.auth.organizations.find((organization) => organization.organizationId === data.auth.activeOrganizationId) ?? null
+    (activeOrganizationId
+      ? data.auth.organizations.find((organization) => organization.organizationId === activeOrganizationId) ?? null
       : null) ?? null;
   const activeWorkspaceName = data.auth.activeOrganizationName ?? (isPlatformAdmin ? "플랫폼 관리자" : "작업공간 없음");
   const activeRoleLabel =
@@ -8001,22 +7798,22 @@ export function App() {
     setRequestedOnboardingStepId(stepId ?? null);
     setActiveTab("onboarding");
   };
+  const reopenOnboarding = () => {
+    openOnboardingStep(firstPendingOnboardingStep?.id ?? onboardingCompletionSteps[0]?.id ?? null);
+  };
+  const showOnboardingNavItem = hasActiveWorkspace && (!onboardingComplete || showCompletedOnboardingNav);
   const navItems: Array<{ id: TabId; label: string; icon: string }> = [
     ...(hasActiveWorkspace
-      ? onboardingComplete
-        ? [
-            { id: "home" as const, label: "홈", icon: "dashboard" },
-            { id: "customers" as const, label: "고객", icon: "group" },
-            { id: "settings" as const, label: "설정", icon: "settings" }
-          ]
-        : [
-            { id: "onboarding" as const, label: "도입 준비", icon: "dashboard" },
-            { id: "settings" as const, label: "설정", icon: "settings" }
-          ]
+      ? [
+          { id: "home" as const, label: "홈", icon: "dashboard" },
+          { id: "customers" as const, label: "고객", icon: "group" },
+          { id: "settings" as const, label: "설정", icon: "settings" },
+          ...(showOnboardingNavItem ? [{ id: "onboarding" as const, label: "도입 준비", icon: "dashboard" }] : [])
+        ]
       : []),
     ...(isPlatformAdmin ? [{ id: "ops" as const, label: "관리자", icon: "ops" }] : [])
   ];
-  const secondaryNavItemIds = new Set<TabId>(["settings", "ops"]);
+  const secondaryNavItemIds = new Set<TabId>(["settings", "onboarding", "ops"]);
   const primaryNavItems = navItems.filter((item) => !secondaryNavItemIds.has(item.id));
   const secondaryNavItems = navItems.filter((item) => secondaryNavItemIds.has(item.id));
   const handleNavSelect = (nextTab: TabId) => {
@@ -8342,46 +8139,45 @@ export function App() {
                       </nav>
                     </div>
                   ) : null}
-
-                  <div className="sidebar-meta">
-                    <div className="sidebar-meta-head">
-                      <span className="sidebar-meta-badge" aria-hidden="true">
-                        {workspaceBadgeText}
-                      </span>
-                      <div className="sidebar-meta-copy">
-                        <span className="sidebar-meta-label">{hasActiveWorkspace ? "작업공간" : "플랫폼"}</span>
-                        {hasActiveWorkspace && data.auth.organizations.length > 1 ? (
-                          <select
-                            className="workspace-select"
-                            value={data.auth.activeOrganizationId ?? ""}
-                            onChange={(event) => void changeOrganization(event.target.value)}
-                            disabled={busyKey !== null}
-                          >
-                            {data.auth.organizations.map((organization) => (
-                              <option key={organization.organizationId} value={organization.organizationId}>
-                                {organization.organizationName}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <strong>{activeWorkspaceName}</strong>
-                        )}
-                      </div>
-                    </div>
-                    <div className="sidebar-meta-details">
-                      <p>{currentMembership?.displayName || data.auth.email || "로그인 사용자"}</p>
-                      <p>{activeRoleLabel}</p>
-                    </div>
-                    <button
-                      className="btn-secondary sidebar-logout"
-                      aria-label="로그아웃"
-                      onClick={() => void signOut()}
-                      disabled={busyKey !== null}
-                    >
-                      {sidebarCollapsed ? "종료" : "로그아웃"}
-                    </button>
+                </div>
+              </div>
+              <div className="sidebar-meta">
+                <div className="sidebar-meta-head">
+                  <span className="sidebar-meta-badge" aria-hidden="true">
+                    {workspaceBadgeText}
+                  </span>
+                  <div className="sidebar-meta-copy">
+                    <span className="sidebar-meta-label">{hasActiveWorkspace ? "작업공간" : "플랫폼"}</span>
+                    {hasActiveWorkspace && data.auth.organizations.length > 1 ? (
+                      <select
+                        className="workspace-select"
+                        value={data.auth.activeOrganizationId ?? ""}
+                        onChange={(event) => void changeOrganization(event.target.value)}
+                        disabled={busyKey !== null}
+                      >
+                        {data.auth.organizations.map((organization) => (
+                          <option key={organization.organizationId} value={organization.organizationId}>
+                            {organization.organizationName}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <strong>{activeWorkspaceName}</strong>
+                    )}
                   </div>
                 </div>
+                <div className="sidebar-meta-details">
+                  <p>{currentMembership?.displayName || data.auth.email || "로그인 사용자"}</p>
+                  <p>{activeRoleLabel}</p>
+                </div>
+                <button
+                  className="btn-secondary sidebar-logout"
+                  aria-label="로그아웃"
+                  onClick={() => void signOut()}
+                  disabled={busyKey !== null}
+                >
+                  {sidebarCollapsed ? "종료" : "로그아웃"}
+                </button>
               </div>
             </div>
           </aside>
@@ -8509,6 +8305,23 @@ export function App() {
               </div>
             ) : null}
             <div className="home-layout">
+              {!onboardingComplete ? (
+                <Panel
+                  className="panel-home-setup"
+                  title="도입 준비 진행"
+                  subtitle={firstPendingOnboardingStep ? `다음 단계 · ${firstPendingOnboardingStep.title}` : "남은 단계 점검"}
+                  actions={<button type="button" onClick={reopenOnboarding}>이어하기</button>}
+                >
+                  <div className="helper-box-stack">
+                    <strong>{onboardingHeroProgressText}</strong>
+                    <span>
+                      남은 단계 {onboardingPendingStepCount}개
+                      {firstPendingOnboardingStep ? ` · ${firstPendingOnboardingStep.summary}` : ""}
+                    </span>
+                    <span className="field-hint">도입 준비는 보조 진입점으로 유지되며, 완료되면 사이드바에서 자동으로 숨겨집니다.</span>
+                  </div>
+                </Panel>
+              ) : null}
               <Panel
                 className="panel-home-blocked"
                 title="막힌 일"
@@ -8808,6 +8621,17 @@ export function App() {
               settingsAutosaveLabel={settingsAutosaveLabel}
               customerRegistrationReady={customerRegistrationReady}
               customerCount={data.customers.length}
+              onboardingComplete={onboardingComplete}
+              onboardingProgressText={onboardingHeroProgressText}
+              onboardingPendingStepCount={onboardingPendingStepCount}
+              showCompletedOnboardingNav={showCompletedOnboardingNav}
+              onShowCompletedOnboardingNavChange={(nextValue) =>
+                setOnboardingNavPreference({
+                  organizationId: activeOrganizationId,
+                  showCompletedOnboardingNav: nextValue
+                })
+              }
+              openOnboarding={reopenOnboarding}
               busyKey={busyKey}
               isMailTesting={isMailTesting}
               settingsHealth={settingsHealth}

@@ -137,6 +137,19 @@ export class PopbillApiError extends Error {
   }
 }
 
+export function isPopbillMemberMissingError(error: unknown): boolean {
+  if (!(error instanceof PopbillApiError)) {
+    return false;
+  }
+
+  const normalizedRawMessage = error.rawMessage.toLowerCase();
+  return (
+    error.code === "-99003008" ||
+    normalizedRawMessage.includes("연동회원으로 가입된 사업자 번호가 존재하지 않습니다") ||
+    normalizedRawMessage.includes("가입된 사업자 번호가 존재하지 않습니다")
+  );
+}
+
 function getService(settings: AppSettings): any {
   if (!settings.popbillLinkId || !settings.popbillSecretKey) {
     throw new Error("팝빌 LinkID 또는 SecretKey가 설정되지 않았습니다.");
