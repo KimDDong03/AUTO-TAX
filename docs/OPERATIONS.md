@@ -68,6 +68,8 @@ npm run renewal-helper:stop
 npm run renewal-helper:uninstall
 ```
 
+- `renewal-helper:install` now stops any currently running helper before copying/re-registering the install so in-place upgrades pick up the new package cleanly.
+
 ### Helper package download
 
 - `npm run renewal-helper:package` creates:

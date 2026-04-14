@@ -6,12 +6,111 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-HelperPort {
+  $configuredPortValue = if ([string]::IsNullOrWhiteSpace($env:AUTO_TAX_RENEWAL_HELPER_PORT)) {
+    "35119"
+  } else {
+    $env:AUTO_TAX_RENEWAL_HELPER_PORT
+  }
+  $configuredPort = [int]$configuredPortValue
+  if ($configuredPort -gt 0) {
+    return $configuredPort
+  }
+
+  return 35119
+}
+
+function Test-LocalRenewalHelperRunning {
+  param(
+    [int]$Port
+  )
+
+  try {
+    $listener = Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $Port -State Listen -ErrorAction Stop |
+      Select-Object -First 1
+    if ($listener) {
+      return $true
+    }
+  } catch {
+    # Port listener not found, fall back to health probe.
+  }
+
+  try {
+    $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -Method Get -TimeoutSec 2
+    return $response.ok -eq $true
+  } catch {
+    # Health probe failed, fall back to process inspection.
+  }
+
+  try {
+    $process = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+      $_.CommandLine -and (
+        $_.CommandLine -like "*renewal-local-helper.ts*" -or
+        $_.CommandLine -like "*start-renewal-local-helper.ps1*"
+      )
+    } | Select-Object -First 1
+    return $null -ne $process
+  } catch {
+    return $false
+  }
+}
+
+function Wait-LocalRenewalHelperStop {
+  param(
+    [int]$Port,
+    [int]$Attempts = 20,
+    [int]$DelayMs = 500
+  )
+
+  for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
+    if (-not (Test-LocalRenewalHelperRunning -Port $Port)) {
+      return $true
+    }
+
+    Start-Sleep -Milliseconds $DelayMs
+  }
+
+  return $false
+}
+
 $sourceRoot = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
 $packageAppMarker = Join-Path $sourceRoot "app\\renewal-local-helper.cjs"
 $legacyPackageAppMarker = Join-Path $sourceRoot "app\\renewal-local-helper.mjs"
 $defaultInstallRoot = Join-Path $env:LOCALAPPDATA "AUTO-TAX\\renewal-local-helper"
 $isPackagedInstall = (Test-Path $packageAppMarker) -or (Test-Path $legacyPackageAppMarker)
 $installRoot = if ($isPackagedInstall) { $defaultInstallRoot } else { $sourceRoot }
+$taskName = "AUTO-TAX Renewal Local Helper"
+$powershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+$helperPort = Get-HelperPort
+$stopScriptCandidates = @(
+  (Join-Path $installRoot "scripts\\stop-renewal-local-helper.ps1"),
+  (Join-Path $sourceRoot "scripts\\stop-renewal-local-helper.ps1")
+) | Select-Object -Unique
+
+if (Test-LocalRenewalHelperRunning -Port $helperPort) {
+  $stopped = $false
+  foreach ($stopScript in $stopScriptCandidates) {
+    if (-not (Test-Path $stopScript)) {
+      continue
+    }
+
+    if ($PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Stop running helper before reinstall")) {
+      & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $stopScript | Out-Null
+    } elseif ($WhatIfPreference) {
+      $stopped = $true
+      break
+    }
+
+    if (Wait-LocalRenewalHelperStop -Port $helperPort) {
+      $stopped = $true
+      break
+    }
+  }
+
+  if (-not $stopped -and -not $WhatIfPreference) {
+    throw "기존 로컬 헬퍼를 종료하지 못했습니다. 바탕화면의 AUTO-TAX Helper Stop을 먼저 실행한 뒤 다시 설치하세요."
+  }
+}
 
 if ($isPackagedInstall -and ($sourceRoot -ne $installRoot)) {
   if ($PSCmdlet.ShouldProcess($installRoot, "Copy packaged renewal helper files to stable install location")) {
@@ -20,12 +119,10 @@ if ($isPackagedInstall -and ($sourceRoot -ne $installRoot)) {
   }
 }
 
-$taskName = "AUTO-TAX Renewal Local Helper"
 $launcherScript = Join-Path $installRoot "scripts\\start-renewal-local-helper.ps1"
 $stopScript = Join-Path $installRoot "scripts\\stop-renewal-local-helper.ps1"
 $statusScript = Join-Path $installRoot "scripts\\status-renewal-local-helper.ps1"
 $uninstallScript = Join-Path $installRoot "scripts\\uninstall-renewal-local-helper-autostart.ps1"
-$powershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
 $currentUser = if ($env:USERDOMAIN) { "$($env:USERDOMAIN)\$($env:USERNAME)" } else { $env:USERNAME }
 $desktopPath = [Environment]::GetFolderPath("Desktop")
 

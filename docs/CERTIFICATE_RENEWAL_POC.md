@@ -52,6 +52,7 @@ There are two local components:
 - browser-facing
 - runs on customer/operator Windows PC
 - used for certificate listing, Popbill registration support, SignGate payment window opening
+- packaged installs live under `%LOCALAPPDATA%\\AUTO-TAX\\renewal-local-helper`; reinstall stops a running helper before overwriting that stable install location
 
 ### Renewal agent
 
