@@ -57,6 +57,7 @@ type RouteDeps = {
   createEmptySettings: CreateEmptySettings;
   toClientSettings: (settings: AppSettings) => unknown;
   toClientCustomer: (customer: Customer) => Customer;
+  runPlatformMaintenance: () => Promise<Record<string, unknown>>;
   dispatchRecurringJobs: () => Promise<Record<string, unknown>>;
   runDueJobs: (args: { limit?: number; claimedBy: string }) => Promise<Record<string, unknown>>;
 };
@@ -81,6 +82,7 @@ export function registerCoreRoutes(deps: RouteDeps) {
     createEmptySettings,
     toClientSettings,
     toClientCustomer,
+    runPlatformMaintenance,
     dispatchRecurringJobs,
     runDueJobs
   } = deps;
@@ -164,6 +166,16 @@ export function registerCoreRoutes(deps: RouteDeps) {
   app.post("/api/internal/jobs/dispatch", async (req, res) => {
     const accessMode = requireInternalJobAccess(req, res);
     const result = await dispatchRecurringJobs();
+    res.json({
+      ok: true,
+      accessMode,
+      ...result
+    });
+  });
+
+  app.post("/api/internal/jobs/maintenance", async (req, res) => {
+    const accessMode = requireInternalJobAccess(req, res);
+    const result = await runPlatformMaintenance();
     res.json({
       ok: true,
       accessMode,

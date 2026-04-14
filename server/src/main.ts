@@ -34,6 +34,7 @@ import {
 import { registerCoreRoutes } from "./routes/core-routes.js";
 import { registerCustomerPopbillRoutes } from "./routes/customer-popbill-routes.js";
 import { dispatchRecurringJobs, runDueJobs } from "./job-queue.js";
+import { runPlatformMaintenance } from "./maintenance-retention.js";
 import { registerDraftRoutes } from "./routes/draft-routes.js";
 import { registerMailRoutes } from "./routes/mail-routes.js";
 import { registerOrganizationMemberRoutes } from "./routes/organization-member-routes.js";
@@ -813,6 +814,7 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     createEmptySettings,
     toClientSettings,
     toClientCustomer,
+    runPlatformMaintenance,
     dispatchRecurringJobs,
     runDueJobs
   });

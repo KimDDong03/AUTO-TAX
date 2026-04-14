@@ -33,7 +33,11 @@ export function isAnonymousApiPath(req: Request): boolean {
 }
 
 export function isInternalJobApiPath(req: Request): boolean {
-  return req.path === "/internal/jobs/dispatch" || req.path === "/internal/jobs/run";
+  return (
+    req.path === "/internal/jobs/dispatch" ||
+    req.path === "/internal/jobs/maintenance" ||
+    req.path === "/internal/jobs/run"
+  );
 }
 
 export function isRenewalAgentApiPath(req: Request): boolean {

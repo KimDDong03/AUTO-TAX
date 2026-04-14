@@ -134,9 +134,20 @@ npm run build:vercel
 1. Supabase cron hits Edge Function `job-tick`
 2. Edge Function calls Vercel API using `AUTO_TAX_JOB_SECRET`
 3. Vercel endpoints:
+   - `POST /api/internal/jobs/maintenance`
    - `POST /api/internal/jobs/dispatch`
    - `POST /api/internal/jobs/run`
 4. Work is persisted in `job_queue`
+
+### Retention / pruning
+
+- platform-wide maintenance runs through `POST /api/internal/jobs/maintenance`
+- maintenance is checkpointed by `platform_maintenance_runs`, so cron can call it every tick without re-pruning more than once per UTC day
+- retention defaults:
+  - `app_logs`: 30 days by `created_at`
+  - `job_queue`: 21 days for terminal rows (`completed`, `failed`, `cancelled`) by `finished_at`
+  - `renewal_automation_jobs`: 30 days for terminal rows (`completed`, `failed`) by `finished_at`
+- queued / claimed rows are never prune targets
 
 ### Edge Function deployment assumptions
 

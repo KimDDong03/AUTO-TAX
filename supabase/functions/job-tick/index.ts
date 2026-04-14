@@ -3,6 +3,13 @@ type JobApiPayload = {
   [key: string]: unknown;
 };
 
+function toErrorPayload(error: unknown): JobApiPayload {
+  return {
+    ok: false,
+    error: error instanceof Error ? error.message : "internal job call failed"
+  };
+}
+
 function env(name: string): string {
   const value = Deno.env.get(name)?.trim();
   if (!value) {
@@ -99,11 +106,19 @@ Deno.serve(async (req) => {
       }
     }
 
+    let maintenance: JobApiPayload;
+    try {
+      maintenance = await callInternalJobApi("/api/internal/jobs/maintenance");
+    } catch (error) {
+      maintenance = toErrorPayload(error);
+    }
+
     const dispatch = await callInternalJobApi("/api/internal/jobs/dispatch");
     const run = await callInternalJobApi("/api/internal/jobs/run", { limit });
 
     return json(200, {
       ok: true,
+      maintenance,
       dispatch,
       run
     });
