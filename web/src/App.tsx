@@ -2015,8 +2015,35 @@ function normalizeRenewalPreflightDetail(value: string | null | undefined): stri
   return relevantText.replace(/\s+/g, " ").trim();
 }
 
-function buildRenewalPreflightFailureMessage(prefix: string, detail: string, fallback: string): string {
-  return `${prefix}: ${detail || fallback}`;
+function normalizeRenewalCertificateExpireDate(value: string | null | undefined): string | null {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return null;
+  }
+
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] ?? null : null;
+}
+
+function getTodayDateKey(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = `${today.getMonth() + 1}`.padStart(2, "0");
+  const day = `${today.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isRenewalCertificateExpiredDate(value: string | null | undefined): boolean {
+  const normalized = normalizeRenewalCertificateExpireDate(value);
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized < getTodayDateKey();
+}
+
+function buildRenewalPreflightFailureMessage(prefix: string, _detail: string, _fallback: string): string {
+  return prefix;
 }
 
 function isRenewalWindowPendingDetail(detail: string): boolean {
@@ -2050,10 +2077,36 @@ function isRenewalBridgeConnectionFailureDetail(detail: string): boolean {
 }
 
 function classifyOnboardingPreflightImportDecision(
-  preflightProbe: RenewalBridgePreflightProbe | null | undefined
+  preflightProbe: RenewalBridgePreflightProbe | null | undefined,
+  options?: {
+    certificateExpireDate?: string | null;
+  }
 ): OnboardingPreflightImportDecision {
   const snapshot = preflightProbe?.renewInfoSnapshot ?? null;
   const detail = normalizeRenewalPreflightDetail(preflightProbe?.error ?? preflightProbe?.message ?? "");
+
+  if (preflightProbe?.ok && snapshot) {
+    return {
+      canImport: true,
+      snapshot,
+      acceptedBeforeWindow: false
+    };
+  }
+
+  if (isRenewalWindowPendingDetail(detail) && snapshot) {
+    return {
+      canImport: true,
+      snapshot,
+      acceptedBeforeWindow: true
+    };
+  }
+
+  if (isRenewalCertificateExpiredDate(options?.certificateExpireDate) || isRenewalWindowEndedDetail(detail)) {
+    return {
+      canImport: false,
+      failureMessage: "인증서 만료"
+    };
+  }
 
   if (isRenewalWindowEndedDetail(detail)) {
     return {
@@ -3704,7 +3757,9 @@ export function App() {
           certificatePassword: effectivePassword
         });
         const preflightProbe = response.result.bridge.preflightProbe;
-        const decision = classifyOnboardingPreflightImportDecision(preflightProbe);
+        const decision = classifyOnboardingPreflightImportDecision(preflightProbe, {
+          certificateExpireDate: matchedCertificate.todate ?? matchedCertificate.detailValidateTo ?? null
+        });
         if (!decision.canImport) {
           return {
             ok: false as const,
@@ -3912,7 +3967,9 @@ export function App() {
         certificatePassword: effectivePassword
       });
       const preflightProbe = response.result.bridge.preflightProbe;
-      const decision = classifyOnboardingPreflightImportDecision(preflightProbe);
+      const decision = classifyOnboardingPreflightImportDecision(preflightProbe, {
+        certificateExpireDate: matchedCertificate.todate ?? matchedCertificate.detailValidateTo ?? null
+      });
       if (!decision.canImport) {
         return {
           status: "skipped" as const,
