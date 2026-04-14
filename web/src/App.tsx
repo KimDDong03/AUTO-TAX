@@ -6401,6 +6401,24 @@ export function App() {
       (customer): customer is Customer =>
         Boolean(customer && customer.popbillState === "joined" && !customer.popbillCertRegistered)
     );
+  const hasRegisteredCustomers = data.customers.length > 0;
+  const customerOnboardingSessionActive =
+    customerOnboardingSessionState.commitDone ||
+    customerOnboardingSessionState.previewReady ||
+    customerOnboardingWorkbook !== null ||
+    customerOnboardingPreview !== null ||
+    customerOnboardingFileName.trim() !== "";
+  const onboardingCustomerRegistrationReady = customerOnboardingSessionActive
+    ? customerOnboardingSessionState.commitDone
+    : hasRegisteredCustomers;
+  const onboardingPendingCertificateCustomers = customerOnboardingSessionActive
+    ? [...onboardingElectronicTaxBusinessNumbers]
+        .map((businessNumber) => data.customers.find((customer) => digitsOnly(customer.businessNumber) === businessNumber) ?? null)
+        .filter(
+          (customer): customer is Customer =>
+            Boolean(customer && (customer.popbillState !== "joined" || !customer.popbillCertRegistered))
+        )
+    : popbillPendingCustomers;
   const selectedCustomer = customerForm.id ? data.customers.find((customer) => customer.id === customerForm.id) ?? null : null;
   const selectedCustomerReadiness = selectedCustomer
     ? customerReadinessMap.get(selectedCustomer.id) ?? getCustomerIssueReadiness(selectedCustomer)
@@ -6415,7 +6433,7 @@ export function App() {
     : [];
   const getCachedCustomerIssueReadiness = (customer: Customer) =>
     customerReadinessMap.get(customer.id) ?? getCustomerIssueReadiness(customer);
-  const customerRegistrationReady = data.customers.length > 0;
+  const customerRegistrationReady = hasRegisteredCustomers;
   const blockedCustomerCount = blockedIssueCustomers.length;
   const setupChecklist = [
     { key: "gmail", label: "메일 계정 연결", done: settingsHealth.mailReady },
@@ -6599,7 +6617,8 @@ export function App() {
   const helperReady =
     Boolean(customerRenewalAssistant?.agentOnline) && customerRenewalAssistantAllCertificates.length > 0;
   const issueSetupPendingCount = popbillPendingCustomers.length;
-  const onboardingCertificateReady = customerRegistrationReady && issueSetupPendingCount === 0;
+  const onboardingIssueSetupPendingCount = onboardingPendingCertificateCustomers.length;
+  const onboardingCertificateReady = onboardingCustomerRegistrationReady && onboardingIssueSetupPendingCount === 0;
   const onboardingFirstSyncReady = data.inbox.length > 0 || data.drafts.length > 0;
   const exceptionHandlingReady = onboardingFirstSyncReady && unmatchedMessages.length === 0;
   const firstIssueCheckReady =
@@ -6902,7 +6921,12 @@ export function App() {
       };
     });
   };
-  const canRunOnboardingFirstSync = setupPendingCount === 0;
+  const canRunOnboardingFirstSync =
+    settingsHealth.mailReady &&
+    settingsHealth.popbillReady &&
+    settingsHealth.operatorReady &&
+    helperReady &&
+    onboardingCertificateReady;
   const hasSavedOnboardingDefaults =
     data.settings.popbillSharedPasswordConfigured ||
     data.settings.renewalIssuePasswordConfigured ||
@@ -6918,7 +6942,7 @@ export function App() {
   const onboardingRegistrationFlow = getInitialRegistrationFlowState({
     helperReady,
     helperCertificateCount: customerRenewalAssistantAllCertificates.length,
-    registrationReady: customerRegistrationReady,
+    registrationReady: onboardingCustomerRegistrationReady,
     templateDownloaded: customerOnboardingSessionState.templateDownloaded,
     previewReady: customerOnboardingSessionState.previewReady,
     commitDone: customerOnboardingSessionState.commitDone,
@@ -6933,7 +6957,7 @@ export function App() {
     !settingsHealth.mailReady ? "메일 연결" : null,
     !(settingsHealth.popbillReady && settingsHealth.operatorReady) ? "발행 기본값 입력" : null,
     !helperReady ? "로컬 헬퍼 준비" : null,
-    !customerRegistrationReady ? "고객 초기 등록" : null,
+    !onboardingCustomerRegistrationReady ? "고객 초기 등록" : null,
     !onboardingCertificateReady ? "인증서 연결 마무리" : null
   ].filter((value): value is string => Boolean(value));
   const onboardingRequiredHintText = "필수 입력 사항입니다.";
@@ -7371,12 +7395,12 @@ export function App() {
   );
   const onboardingCertificateAutoTargetCount = pendingOnboardingCertificateRegistrationTargets.length;
   const onboardingCertificateNeedsManualFollowUp =
-    customerRegistrationReady && onboardingCertificateAutoTargetCount === 0 && issueSetupPendingCount > 0;
-  const onboardingCertificatePrimaryActionLabel = !customerRegistrationReady
+    onboardingCustomerRegistrationReady && onboardingCertificateAutoTargetCount === 0 && onboardingIssueSetupPendingCount > 0;
+  const onboardingCertificatePrimaryActionLabel = !onboardingCustomerRegistrationReady
     ? "먼저 고객 초기 등록 완료"
     : onboardingCertificateAutoTargetCount > 0
       ? "전자세금용 등록 마무리"
-      : issueSetupPendingCount > 0
+      : onboardingIssueSetupPendingCount > 0
         ? "인증서 관리 열기"
         : "첫 메일 동기화 단계 보기";
   const onboardingCertificateCompletionContent = (
@@ -7384,20 +7408,20 @@ export function App() {
       <section className="onboarding-main-card">
         <div className="onboarding-main-copy">
           <strong>
-            {!customerRegistrationReady
+            {!onboardingCustomerRegistrationReady
               ? "먼저 고객 초기 등록을 끝내세요."
-              : issueSetupPendingCount === 0
+              : onboardingIssueSetupPendingCount === 0
                 ? "발행용 인증서 준비가 완료되었습니다."
                 : onboardingCertificateAutoTargetCount > 0
                   ? "전자세금용 인증서 후속 등록을 마무리하세요."
                   : "자동 대상은 없지만 아직 인증서 확인이 필요한 고객이 있습니다."}
           </strong>
           <p>
-            {!customerRegistrationReady
+            {!onboardingCustomerRegistrationReady
               ? "고객 등록 후에야 실제 발행 준비 상태를 확인할 수 있습니다."
               : onboardingCertificateAutoTargetCount > 0
                 ? "이번 업로드로 만든 고객은 여기서 전자세금용 인증서를 순서대로 마무리할 수 있습니다."
-                : issueSetupPendingCount > 0
+                : onboardingIssueSetupPendingCount > 0
                   ? "자동으로 바로 이어갈 대상은 없으므로, 이제 인증서 관리 화면에서 미연결 고객을 확인하면 됩니다."
                   : "이 단계는 끝났습니다. 다음 단계인 첫 메일 동기화로 바로 넘어가면 됩니다."}
           </p>
@@ -7410,16 +7434,16 @@ export function App() {
           </div>
           <div>
             <span>발행 준비 미완료</span>
-            <strong>{issueSetupPendingCount}명</strong>
+            <strong>{onboardingIssueSetupPendingCount}명</strong>
           </div>
           <div>
             <span>현재 해야 할 일</span>
             <strong>
-              {!customerRegistrationReady
+              {!onboardingCustomerRegistrationReady
                 ? "고객 초기 등록"
                 : onboardingCertificateAutoTargetCount > 0
                   ? "전자세금용 등록 마무리"
-                  : issueSetupPendingCount > 0
+                  : onboardingIssueSetupPendingCount > 0
                     ? "인증서 관리에서 확인"
                     : "첫 메일 동기화"}
             </strong>
@@ -7429,9 +7453,9 @@ export function App() {
         <div className="button-row onboarding-primary-row">
           <button
             type="button"
-            disabled={busyKey !== null || !customerRegistrationReady}
+            disabled={busyKey !== null || !onboardingCustomerRegistrationReady}
             title={
-              !customerRegistrationReady
+              !onboardingCustomerRegistrationReady
                 ? "먼저 고객 초기 등록을 끝내세요."
                 : undefined
             }
@@ -7445,7 +7469,7 @@ export function App() {
                 return;
               }
 
-              if (issueSetupPendingCount > 0) {
+              if (onboardingIssueSetupPendingCount > 0) {
                 setActiveSettingsSection("helper");
                 setActiveTab("settings");
                 return;
@@ -7461,11 +7485,11 @@ export function App() {
         </div>
       </section>
 
-      {issueSetupPendingCount > 0 ? (
+      {onboardingIssueSetupPendingCount > 0 ? (
         <details className="settings-advanced-panel">
           <summary>{onboardingCertificateNeedsManualFollowUp ? "인증서 관리에서 확인할 고객 보기" : "수동 확인이 필요한 고객 보기"}</summary>
           <div className="ops-list">
-            {popbillPendingCustomers.slice(0, 6).map((customer) => (
+            {onboardingPendingCertificateCustomers.slice(0, 6).map((customer) => (
               <article key={`onboarding-pending-cert-${customer.id}`} className="ops-card">
                 <div className="ops-card-head">
                   <div>
@@ -7620,7 +7644,7 @@ export function App() {
       id: "registration",
       step: 4,
       title: "고객 초기 등록",
-      summary: customerRegistrationReady
+      summary: onboardingCustomerRegistrationReady
         ? `등록 ${data.customers.length}명`
         : onboardingRegistrationStage === "download"
           ? "양식 받기"
@@ -7629,9 +7653,9 @@ export function App() {
             : onboardingRegistrationFlow.needsUploadRetry
               ? "재업로드"
               : "양식 업로드",
-      primaryActionLabel: customerRegistrationReady ? "고객 초기 등록 완료" : onboardingRegistrationPrimaryActionLabel,
+      primaryActionLabel: onboardingCustomerRegistrationReady ? "고객 초기 등록 완료" : onboardingRegistrationPrimaryActionLabel,
       blockedReason: onboardingRegistrationBlockedReason,
-      done: customerRegistrationReady,
+      done: onboardingCustomerRegistrationReady,
       content: (
         <InitialRegistrationTab
           mode="registration"
@@ -7651,7 +7675,7 @@ export function App() {
           completedBillingNotice={completedBillingNotice}
           helperReady={helperReady}
           helperCertificateCount={customerRenewalAssistantAllCertificates.length}
-          registrationReady={customerRegistrationReady}
+          registrationReady={onboardingCustomerRegistrationReady}
           registrationStage={onboardingRegistrationStage}
           registrationBlockedReason={onboardingRegistrationBlockedReason}
           registrationTemplateDownloaded={customerOnboardingSessionState.templateDownloaded}
@@ -7676,15 +7700,15 @@ export function App() {
       id: "certificates",
       step: 5,
       title: "인증서 연결 마무리",
-      summary: !customerRegistrationReady
+      summary: !onboardingCustomerRegistrationReady
         ? "고객 등록 후 진행"
-        : issueSetupPendingCount === 0
+        : onboardingIssueSetupPendingCount === 0
           ? "발행용 인증서 준비 완료"
           : onboardingCertificateAutoTargetCount > 0
             ? `전자세금용 후속 등록 ${onboardingCertificateAutoTargetCount}건 남음`
-            : `인증서 관리에서 수동 확인 ${issueSetupPendingCount}명`,
+            : `인증서 관리에서 수동 확인 ${onboardingIssueSetupPendingCount}명`,
       primaryActionLabel: onboardingCertificateReady ? "전자세금용 등록 마무리 완료" : onboardingCertificatePrimaryActionLabel,
-      blockedReason: !customerRegistrationReady ? "먼저 고객 초기 등록을 끝내세요." : undefined,
+      blockedReason: !onboardingCustomerRegistrationReady ? "먼저 고객 초기 등록을 끝내세요." : undefined,
       done: onboardingCertificateReady,
       content: onboardingCertificateCompletionContent
     },
@@ -7779,13 +7803,27 @@ export function App() {
       content: onboardingFirstIssueCheckContent
     }
   ];
-  const onboardingSetupStepIds = new Set(["mail", "defaults", "helper", "registration"]);
+  const onboardingSetupStepIds = new Set([
+    "mail",
+    "defaults",
+    "helper",
+    "registration",
+    ...(customerOnboardingSessionActive ? (["certificate"] as const) : [])
+  ]);
   const onboardingSetupSteps = onboardingSteps.filter((step) => onboardingSetupStepIds.has(step.id));
-  const onboardingSetupCompletedCount = onboardingSetupSteps.filter((step) => step.done).length;
-  const onboardingPendingStepCount = onboardingSetupSteps.filter((step) => !step.done).length;
+  const onboardingCompletionStepIds = new Set([
+    "mail",
+    "defaults",
+    "registration",
+    ...(customerOnboardingSessionActive ? (["certificate"] as const) : [])
+  ]);
+  const onboardingCompletionSteps = onboardingSteps.filter((step) => onboardingCompletionStepIds.has(step.id));
+  const onboardingSetupCompletedCount = onboardingCompletionSteps.filter((step) => step.done).length;
+  const onboardingPendingStepCount = onboardingCompletionSteps.filter((step) => !step.done).length;
   const onboardingComplete = onboardingPendingStepCount === 0;
   tabRoutingStateRef.current = { hasActiveWorkspace, onboardingComplete, isPlatformAdmin };
-  const firstPendingOnboardingStep = onboardingSetupSteps.find((step) => !step.done) ?? onboardingSetupSteps[0] ?? null;
+  const firstPendingOnboardingStep =
+    onboardingCompletionSteps.find((step) => !step.done) ?? onboardingCompletionSteps[0] ?? null;
   const onboardingHeroTaskLine = firstPendingOnboardingStep
     ? `지금 할 일 · ${firstPendingOnboardingStep.title}`
     : "준비 완료 · 홈과 고객을 바로 사용할 수 있습니다.";
