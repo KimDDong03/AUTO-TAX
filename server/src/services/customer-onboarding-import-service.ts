@@ -76,6 +76,41 @@ export type CustomerOnboardingCommitResult = {
   failedRows: Array<{ rowIndex: number; message: string }>;
 };
 
+export type CustomerOnboardingPreparedCertificateSnapshot = {
+  rowIndex: number;
+  certificateKind: CustomerCertificateKind;
+  certificateName: string;
+  certificateUsageName: string;
+  issuerName: string;
+  certificatePassword: string;
+  isPrimary: boolean;
+};
+
+export type CustomerOnboardingPreparedEntrySnapshot = {
+  rowIndex: number;
+  existingCustomerId: number | null;
+  customerName: string;
+  businessNumber: string;
+  corpName: string;
+  addr: string;
+  bizType: string;
+  bizClass: string;
+  renewalContactMobile: string;
+  memo: string;
+  plantNames: string[];
+  matchAddresses: string[];
+  certificates: CustomerOnboardingPreparedCertificateSnapshot[];
+  errors: string[];
+  warnings: string[];
+  canImport: boolean;
+};
+
+export type CustomerOnboardingPreparedWorkbookSnapshot = {
+  rows: CustomerOnboardingPreviewRow[];
+  fileErrors: string[];
+  entries: CustomerOnboardingPreparedEntrySnapshot[];
+};
+
 type NormalizedCustomerRow = CustomerOnboardingCustomerRow & {
   normalizedBusinessNumber: string;
   normalizedAddress: string;
@@ -102,7 +137,7 @@ type PreparedCustomerEntry = {
 type PreparedWorkbook = {
   rows: CustomerOnboardingPreviewRow[];
   fileErrors: string[];
-  entriesByBusinessNumber: Map<string, PreparedCustomerEntry>;
+  entriesByKey: Map<string, PreparedCustomerEntry>;
 };
 
 function normalizeText(value: string | null | undefined): string {
@@ -122,7 +157,7 @@ function kindUsageFallback(kind: CustomerCertificateKind): string {
   }
 }
 
-function entryKeyForCustomerRow(row: { normalizedBusinessNumber: string; rowIndex: number }) {
+function entryKeyForCustomerRow(row: { normalizedBusinessNumber: string; rowIndex: number }): string {
   return row.normalizedBusinessNumber || `row:${row.rowIndex}`;
 }
 
@@ -163,6 +198,63 @@ async function normalizeResolvedAddress(
   return normalized;
 }
 
+function findPreparedEntry(
+  entriesByKey: Map<string, PreparedCustomerEntry>,
+  normalizedBusinessNumber: string,
+  rowIndex: number
+): PreparedCustomerEntry | null {
+  if (normalizedBusinessNumber) {
+    return entriesByKey.get(normalizedBusinessNumber) ?? null;
+  }
+
+  return entriesByKey.get(`row:${rowIndex}`) ?? null;
+}
+
+function buildPreparedEntrySnapshot(entry: PreparedCustomerEntry): CustomerOnboardingPreparedEntrySnapshot {
+  const plantNameSet = new Set<string>();
+  const matchAddressSet = new Set<string>();
+
+  for (const plant of entry.plants) {
+    if (plant.plantName) {
+      plantNameSet.add(plant.plantName);
+    }
+    if (plant.normalizedMatchAddress) {
+      matchAddressSet.add(plant.normalizedMatchAddress);
+    }
+  }
+
+  if (matchAddressSet.size === 0 && entry.row.normalizedAddress) {
+    matchAddressSet.add(entry.row.normalizedAddress);
+  }
+
+  return {
+    rowIndex: entry.row.rowIndex,
+    existingCustomerId: entry.existingCustomer?.id ?? null,
+    customerName: entry.row.customerName,
+    businessNumber: entry.row.normalizedBusinessNumber,
+    corpName: entry.row.corpName,
+    addr: entry.row.normalizedAddress,
+    bizType: entry.row.bizType,
+    bizClass: entry.row.bizClass,
+    renewalContactMobile: entry.row.renewalContactMobile,
+    memo: entry.row.memo,
+    plantNames: Array.from(plantNameSet),
+    matchAddresses: Array.from(matchAddressSet),
+    certificates: entry.certificates.map((certificate) => ({
+      rowIndex: certificate.rowIndex,
+      certificateKind: certificate.certificateKind,
+      certificateName: certificate.certificateName,
+      certificateUsageName: certificate.certificateUsageName,
+      issuerName: certificate.issuerName,
+      certificatePassword: certificate.certificatePassword,
+      isPrimary: certificate.isPrimary
+    })),
+    errors: Array.from(entry.errors),
+    warnings: Array.from(entry.warnings),
+    canImport: entry.errors.size === 0
+  };
+}
+
 async function prepareCustomerOnboardingWorkbook(
   requestStore: AppStore,
   workbook: CustomerOnboardingWorkbookInput,
@@ -177,8 +269,8 @@ async function prepareCustomerOnboardingWorkbook(
     }
   }
   const existingAddressOwners = buildExistingCustomerAddressMap(customers);
-
   const addressCache = new Map<string, string>();
+
   const normalizedCustomers = await Promise.all(
     workbook.customers.map(async (row) => ({
       ...row,
@@ -194,6 +286,7 @@ async function prepareCustomerOnboardingWorkbook(
       normalizedAddress: await normalizeResolvedAddress(row.addr, addressCache, resolveAddress)
     }))
   );
+
   const normalizedPlants = await Promise.all(
     workbook.plants.map(async (row) => ({
       ...row,
@@ -204,6 +297,7 @@ async function prepareCustomerOnboardingWorkbook(
       normalizedMatchAddress: await normalizeResolvedAddress(row.matchAddress, addressCache, resolveAddress)
     }))
   );
+
   const normalizedCertificates = workbook.certificates.map((row) => ({
     ...row,
     businessNumber: normalizeText(row.businessNumber),
@@ -214,12 +308,13 @@ async function prepareCustomerOnboardingWorkbook(
     normalizedBusinessNumber: digitsOnly(row.businessNumber)
   }));
 
-  const entriesByBusinessNumber = new Map<string, PreparedCustomerEntry>();
+  const entriesByKey = new Map<string, PreparedCustomerEntry>();
+
   for (const row of normalizedCustomers) {
-    const entryKey = entryKeyForCustomerRow(row);
-    const existingEntry = entriesByBusinessNumber.get(entryKey) ?? null;
+    const key = entryKeyForCustomerRow(row);
+    const duplicate = entriesByKey.get(key) ?? null;
     const entry =
-      existingEntry ??
+      duplicate ??
       {
         row,
         existingCustomer: row.normalizedBusinessNumber ? existingByBusinessNumber.get(row.normalizedBusinessNumber) ?? null : null,
@@ -229,15 +324,15 @@ async function prepareCustomerOnboardingWorkbook(
         warnings: new Set<string>()
       };
 
-    if (!existingEntry) {
-      entriesByBusinessNumber.set(entryKey, entry);
+    if (!duplicate) {
+      entriesByKey.set(key, entry);
     }
 
     if (!row.customerName) {
       entry.errors.add("대표자명이 비어 있습니다.");
     }
     if (!row.corpName) {
-      entry.errors.add("세금계산서 상호가 비어 있습니다.");
+      entry.errors.add("상호가 비어 있습니다.");
     }
     if (!row.normalizedBusinessNumber) {
       entry.errors.add("사업자번호가 비어 있습니다.");
@@ -245,7 +340,7 @@ async function prepareCustomerOnboardingWorkbook(
       entry.errors.add("사업자번호는 숫자 10자리여야 합니다.");
     }
     if (!row.normalizedAddress) {
-      entry.errors.add("사업자 주소를 확인할 수 없습니다.");
+      entry.errors.add("사업장 주소를 확인할 수 없습니다.");
     }
     if (!row.bizType) {
       entry.errors.add("업태가 비어 있습니다.");
@@ -253,8 +348,8 @@ async function prepareCustomerOnboardingWorkbook(
     if (!row.bizClass) {
       entry.errors.add("업종이 비어 있습니다.");
     }
-    if (existingEntry) {
-      entry.errors.add("등록 대상 안에 같은 사업자번호가 중복되어 있습니다.");
+    if (duplicate) {
+      entry.errors.add("업로드 파일 안에 같은 사업자번호가 중복되어 있습니다.");
     }
   }
 
@@ -263,32 +358,30 @@ async function prepareCustomerOnboardingWorkbook(
   const duplicateCertificateKeys = new Set<string>();
 
   for (const plant of normalizedPlants) {
-    const entry =
-      normalizedCustomers
-        .map((row) => entriesByBusinessNumber.get(entryKeyForCustomerRow(row)))
-        .find((candidate) => candidate?.row.normalizedBusinessNumber === plant.normalizedBusinessNumber) ?? null;
+    const entry = findPreparedEntry(entriesByKey, plant.normalizedBusinessNumber, plant.rowIndex);
     if (!entry) {
-      fileErrors.push(`발전소 시트 ${plant.rowIndex}행: 등록 대상 고객 목록에 없는 사업자번호입니다.`);
+      fileErrors.push(`발전소 시트 ${plant.rowIndex}행: 등록 대상 고객을 찾지 못했습니다.`);
       continue;
     }
+
     if (!plant.plantName) {
       entry.errors.add(`발전소 시트 ${plant.rowIndex}행: 발전소명이 비어 있습니다.`);
     }
     if (!plant.normalizedMatchAddress) {
-      entry.errors.add(`발전소 시트 ${plant.rowIndex}행: 자동 매칭에 사용할 기본 주소를 확인할 수 없습니다.`);
+      entry.errors.add(`발전소 시트 ${plant.rowIndex}행: 매칭 주소를 확인할 수 없습니다.`);
       continue;
     }
 
     const existingOwner = existingAddressOwners.get(plant.normalizedMatchAddress);
     if (existingOwner && digitsOnly(existingOwner.businessNumber) !== entry.row.normalizedBusinessNumber) {
-      entry.errors.add(`이미 다른 고객에 등록된 기본 매칭 주소입니다. (${existingOwner.customerName})`);
+      entry.errors.add(`이미 다른 고객에 등록된 매칭 주소입니다. (${existingOwner.customerName})`);
     }
 
     const workbookOwner = workbookAddressOwners.get(plant.normalizedMatchAddress);
     if (workbookOwner && workbookOwner !== entry.row.normalizedBusinessNumber) {
-      entry.errors.add("업로드 파일 안에 다른 고객과 같은 기본 매칭 주소가 중복되어 있습니다.");
-      const duplicateOwner = entriesByBusinessNumber.get(workbookOwner);
-      duplicateOwner?.errors.add("업로드 파일 안에 다른 고객과 같은 기본 매칭 주소가 중복되어 있습니다.");
+      entry.errors.add("업로드 파일 안에 다른 고객과 같은 매칭 주소가 중복되어 있습니다.");
+      const duplicateOwnerEntry = entriesByKey.get(workbookOwner);
+      duplicateOwnerEntry?.errors.add("업로드 파일 안에 다른 고객과 같은 매칭 주소가 중복되어 있습니다.");
     } else if (!workbookOwner) {
       workbookAddressOwners.set(plant.normalizedMatchAddress, entry.row.normalizedBusinessNumber);
     }
@@ -297,14 +390,12 @@ async function prepareCustomerOnboardingWorkbook(
   }
 
   for (const certificate of normalizedCertificates) {
-    const entry =
-      normalizedCustomers
-        .map((row) => entriesByBusinessNumber.get(entryKeyForCustomerRow(row)))
-        .find((candidate) => candidate?.row.normalizedBusinessNumber === certificate.normalizedBusinessNumber) ?? null;
+    const entry = findPreparedEntry(entriesByKey, certificate.normalizedBusinessNumber, certificate.rowIndex);
     if (!entry) {
-      fileErrors.push(`공동인증서 시트 ${certificate.rowIndex}행: 등록 대상 고객 목록에 없는 사업자번호입니다.`);
+      fileErrors.push(`공동인증서 시트 ${certificate.rowIndex}행: 등록 대상 고객을 찾지 못했습니다.`);
       continue;
     }
+
     if (!certificate.certificateName) {
       entry.errors.add(`공동인증서 시트 ${certificate.rowIndex}행: 인증서명이 비어 있습니다.`);
       continue;
@@ -316,29 +407,32 @@ async function prepareCustomerOnboardingWorkbook(
 
     const certificateKey = `${entry.row.normalizedBusinessNumber}:${certificate.certificateKind}:${certificate.certificateName.toLowerCase()}`;
     if (duplicateCertificateKeys.has(certificateKey)) {
-      entry.errors.add(`공동인증서 시트 ${certificate.rowIndex}행: 같은 고객에 같은 인증서가 중복되어 있습니다.`);
+      entry.errors.add(`공동인증서 시트 ${certificate.rowIndex}행: 같은 고객의 인증서가 중복되어 있습니다.`);
       continue;
     }
+
     duplicateCertificateKeys.add(certificateKey);
     entry.certificates.push(certificate);
   }
 
-  for (const entry of entriesByBusinessNumber.values()) {
+  for (const entry of entriesByKey.values()) {
     if (entry.plants.length === 0) {
-      entry.warnings.add("발전소 정보가 없어 고객 기본 주소를 자동 매칭 기본 주소로 사용합니다.");
+      entry.warnings.add("발전소 정보가 없어 고객 기본 주소를 매칭 주소로 사용합니다.");
     }
 
-    const effectiveMatchAddresses = entry.plants.length > 0 ? entry.plants.map((row) => row.normalizedMatchAddress) : [entry.row.normalizedAddress];
+    const effectiveMatchAddresses =
+      entry.plants.length > 0 ? entry.plants.map((plant) => plant.normalizedMatchAddress) : [entry.row.normalizedAddress];
+
     for (const matchAddress of effectiveMatchAddresses) {
       const existingOwner = existingAddressOwners.get(matchAddress);
       if (existingOwner && digitsOnly(existingOwner.businessNumber) !== entry.row.normalizedBusinessNumber) {
-        entry.errors.add(`이미 다른 고객에 등록된 기본 매칭 주소입니다. (${existingOwner.customerName})`);
+        entry.errors.add(`이미 다른 고객에 등록된 매칭 주소입니다. (${existingOwner.customerName})`);
       }
     }
   }
 
   const rows = normalizedCustomers.map<CustomerOnboardingPreviewRow>((row) => {
-    const entry = entriesByBusinessNumber.get(entryKeyForCustomerRow(row)) ?? null;
+    const entry = entriesByKey.get(entryKeyForCustomerRow(row)) ?? null;
     const errors = Array.from(entry?.errors ?? []);
     const warnings = Array.from(entry?.warnings ?? []);
     const canImport = errors.length === 0;
@@ -360,7 +454,50 @@ async function prepareCustomerOnboardingWorkbook(
   return {
     rows,
     fileErrors,
-    entriesByBusinessNumber
+    entriesByKey
+  };
+}
+
+function buildPreviewResultFromPreparedSnapshot(
+  prepared: CustomerOnboardingPreparedWorkbookSnapshot
+): CustomerOnboardingPreviewResult {
+  const createCount = prepared.rows.filter((row) => row.status === "create").length;
+  const updateCount = prepared.rows.filter((row) => row.status === "update").length;
+  const blockedCount = prepared.rows.filter((row) => row.status === "blocked").length;
+  const totalPlants = prepared.entries.reduce((total, entry) => total + entry.plantNames.length, 0);
+  const totalCertificates = prepared.entries.reduce((total, entry) => total + entry.certificates.length, 0);
+
+  return {
+    totalCustomers: prepared.rows.length,
+    createCount,
+    updateCount,
+    blockedCount,
+    totalPlants,
+    totalCertificates,
+    fileErrors: prepared.fileErrors,
+    rows: prepared.rows
+  };
+}
+
+export async function prepareCustomerOnboardingWorkbookSnapshot(
+  requestStore: AppStore,
+  workbook: CustomerOnboardingWorkbookInput,
+  options?: {
+    resolveAddress?: AddressResolver;
+  }
+): Promise<CustomerOnboardingPreparedWorkbookSnapshot> {
+  const prepared = await prepareCustomerOnboardingWorkbook(
+    requestStore,
+    workbook,
+    options?.resolveAddress ?? resolveRoadAddress
+  );
+
+  return {
+    rows: prepared.rows,
+    fileErrors: prepared.fileErrors,
+    entries: Array.from(prepared.entriesByKey.values())
+      .sort((left, right) => left.row.rowIndex - right.row.rowIndex)
+      .map((entry) => buildPreparedEntrySnapshot(entry))
   };
 }
 
@@ -371,25 +508,85 @@ export async function buildCustomerOnboardingPreview(
     resolveAddress?: AddressResolver;
   }
 ): Promise<CustomerOnboardingPreviewResult> {
-  const prepared = await prepareCustomerOnboardingWorkbook(
-    requestStore,
-    workbook,
-    options?.resolveAddress ?? resolveRoadAddress
+  const prepared = await prepareCustomerOnboardingWorkbookSnapshot(requestStore, workbook, options);
+  return buildPreviewResultFromPreparedSnapshot(prepared);
+}
+
+export async function commitCustomerOnboardingPreparedEntry(
+  requestStore: AppStore,
+  entry: CustomerOnboardingPreparedEntrySnapshot,
+  options?: {
+    autoJoinCustomer?: (customer: Customer) => Promise<{ status: string; error?: string | null }>;
+  }
+): Promise<{
+  customer: Customer;
+  outcome: "create" | "update";
+  linkedCertificateCount: number;
+  warnings: Array<{ rowIndex: number; message: string }>;
+}> {
+  let customerId = entry.existingCustomerId ?? null;
+  if (!customerId && entry.businessNumber) {
+    const currentCustomer = await requestStore.findCustomerByBusinessNumber(entry.businessNumber);
+    customerId = currentCustomer?.id ?? null;
+  }
+
+  const customer = await requestStore.saveCustomer(
+    {
+      customerName: entry.customerName,
+      businessNumber: entry.businessNumber,
+      corpName: entry.corpName,
+      ceoName: entry.customerName,
+      addr: entry.addr,
+      bizType: entry.bizType,
+      bizClass: entry.bizClass,
+      issueMode: "review",
+      issueDay: null,
+      issueHour: null,
+      issueMinute: null,
+      renewalContactMobile: entry.renewalContactMobile,
+      memo: entry.memo,
+      plantNames: entry.plantNames,
+      matchAddresses: entry.matchAddresses
+    },
+    customerId ?? undefined
   );
 
-  const createCount = prepared.rows.filter((row) => row.status === "create").length;
-  const updateCount = prepared.rows.filter((row) => row.status === "update").length;
-  const blockedCount = prepared.rows.filter((row) => row.status === "blocked").length;
+  let linkedCertificateCount = 0;
+  for (const certificate of entry.certificates) {
+    await requestStore.upsertCustomerCertificate({
+      customerId: customer.id,
+      certificateKind: certificate.certificateKind,
+      certificateName: certificate.certificateName,
+      certificateUsageName: certificate.certificateUsageName || kindUsageFallback(certificate.certificateKind),
+      issuerName: certificate.issuerName,
+      serial: null,
+      userDN: null,
+      oid: null,
+      expireDate: null,
+      certDirPath: null,
+      certificatePassword: certificate.certificatePassword,
+      isPrimary: certificate.isPrimary,
+      linkSource: "manual"
+    });
+    linkedCertificateCount += 1;
+  }
+
+  const warnings: Array<{ rowIndex: number; message: string }> = [];
+  if (options?.autoJoinCustomer) {
+    const autoJoinResult = await options.autoJoinCustomer(customer);
+    if (autoJoinResult.status === "failed") {
+      warnings.push({
+        rowIndex: entry.rowIndex,
+        message: `팝빌 자동 가입 실패: ${autoJoinResult.error ?? "원인을 확인해 주세요."}`
+      });
+    }
+  }
 
   return {
-    totalCustomers: prepared.rows.length,
-    createCount,
-    updateCount,
-    blockedCount,
-    totalPlants: workbook.plants.length,
-    totalCertificates: workbook.certificates.length,
-    fileErrors: prepared.fileErrors,
-    rows: prepared.rows
+    customer,
+    outcome: customerId ? "update" : "create",
+    linkedCertificateCount,
+    warnings
   };
 }
 
@@ -401,17 +598,13 @@ export async function commitCustomerOnboardingImport(
     autoJoinCustomer?: (customer: Customer) => Promise<{ status: string; error?: string | null }>;
   }
 ): Promise<CustomerOnboardingCommitResult> {
-  const prepared = await prepareCustomerOnboardingWorkbook(
-    requestStore,
-    workbook,
-    options?.resolveAddress ?? resolveRoadAddress
-  );
+  const prepared = await prepareCustomerOnboardingWorkbookSnapshot(requestStore, workbook, options);
 
-  const failedRows = prepared.rows
-    .filter((row) => !row.canImport)
-    .map((row) => ({
-      rowIndex: row.rowIndex,
-      message: row.errors.join(" ")
+  const failedRows = prepared.entries
+    .filter((entry) => !entry.canImport)
+    .map((entry) => ({
+      rowIndex: entry.rowIndex,
+      message: entry.errors.join(" ")
     }));
 
   let createdCount = 0;
@@ -419,96 +612,27 @@ export async function commitCustomerOnboardingImport(
   let linkedCertificateCount = 0;
   const warnings: Array<{ rowIndex: number; message: string }> = [];
 
-  for (const row of prepared.rows) {
-    if (!row.canImport) {
+  for (const entry of prepared.entries) {
+    if (!entry.canImport) {
       continue;
-    }
-
-    const entry =
-      Array.from(prepared.entriesByBusinessNumber.values()).find((candidate) => candidate.row.rowIndex === row.rowIndex) ?? null;
-    if (!entry) {
-      failedRows.push({
-        rowIndex: row.rowIndex,
-        message: "가져오기 대상 고객을 다시 찾지 못했습니다."
-      });
-      continue;
-    }
-
-    const plantNameSet = new Set<string>();
-    const matchAddressSet = new Set<string>();
-
-    for (const plant of entry.plants) {
-      if (plant.plantName) {
-        plantNameSet.add(plant.plantName);
-      }
-      if (plant.normalizedMatchAddress) {
-        matchAddressSet.add(plant.normalizedMatchAddress);
-      }
-    }
-
-    if (matchAddressSet.size === 0 && entry.row.normalizedAddress) {
-      matchAddressSet.add(entry.row.normalizedAddress);
     }
 
     try {
-      const customer = await requestStore.saveCustomer(
-        {
-          customerName: entry.row.customerName,
-          businessNumber: entry.row.normalizedBusinessNumber,
-          corpName: entry.row.corpName,
-          ceoName: entry.row.customerName,
-          addr: entry.row.normalizedAddress,
-          bizType: entry.row.bizType,
-          bizClass: entry.row.bizClass,
-          issueMode: "review",
-          issueDay: null,
-          issueHour: null,
-          issueMinute: null,
-          renewalContactMobile: entry.row.renewalContactMobile,
-          memo: entry.row.memo,
-          plantNames: Array.from(plantNameSet),
-          matchAddresses: Array.from(matchAddressSet)
-        },
-        entry.existingCustomer?.id
-      );
+      const result = await commitCustomerOnboardingPreparedEntry(requestStore, entry, {
+        autoJoinCustomer: options?.autoJoinCustomer
+      });
 
-      if (entry.existingCustomer) {
+      if (result.outcome === "update") {
         updatedCount += 1;
       } else {
         createdCount += 1;
       }
 
-      for (const certificate of entry.certificates) {
-        await requestStore.upsertCustomerCertificate({
-          customerId: customer.id,
-          certificateKind: certificate.certificateKind,
-          certificateName: certificate.certificateName,
-          certificateUsageName: certificate.certificateUsageName || kindUsageFallback(certificate.certificateKind),
-          issuerName: certificate.issuerName,
-          serial: null,
-          userDN: null,
-          oid: null,
-          expireDate: null,
-          certDirPath: null,
-          certificatePassword: certificate.certificatePassword,
-          isPrimary: certificate.isPrimary,
-          linkSource: "manual"
-        });
-        linkedCertificateCount += 1;
-      }
-
-      if (options?.autoJoinCustomer) {
-        const autoJoinResult = await options.autoJoinCustomer(customer);
-        if (autoJoinResult.status === "failed") {
-          warnings.push({
-            rowIndex: row.rowIndex,
-            message: `팝빌 자동 가입 실패: ${autoJoinResult.error ?? "원인을 확인하세요."}`
-          });
-        }
-      }
+      linkedCertificateCount += result.linkedCertificateCount;
+      warnings.push(...result.warnings);
     } catch (error) {
       failedRows.push({
-        rowIndex: row.rowIndex,
+        rowIndex: entry.rowIndex,
         message: error instanceof Error ? error.message : "고객 저장에 실패했습니다."
       });
     }
@@ -516,7 +640,7 @@ export async function commitCustomerOnboardingImport(
 
   const successCount = createdCount + updatedCount;
   if (successCount > 0) {
-    await requestStore.createLog("info", "customer-onboarding-import", "엑셀 초기 등록 가져오기를 실행했습니다.", {
+    await requestStore.createLog("info", "customer-onboarding-import", "고객 초기 등록 가져오기를 실행했습니다.", {
       totalCustomers: prepared.rows.length,
       createdCount,
       updatedCount,

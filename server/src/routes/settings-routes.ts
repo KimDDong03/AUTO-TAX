@@ -1,16 +1,18 @@
 import type { Express } from "express";
 import { z } from "zod";
-import type { AppSettings, Customer, CustomerImportProfile } from "../domain.js";
+import type { AppSettings, CustomerImportProfile } from "../domain.js";
 import type { AppStore } from "../store-contract.js";
 import type { CustomerImportCommitResult, CustomerImportMappedRow, CustomerImportPreviewResult } from "../services/customer-import-service.js";
-import type { AutoJoinCustomerResult } from "../services/popbill-customer-service.js";
 import type {
   CustomerOnboardingCertificateRow,
-  CustomerOnboardingCommitResult,
   CustomerOnboardingCustomerRow,
-  CustomerOnboardingPlantRow,
-  CustomerOnboardingPreviewResult
+  CustomerOnboardingPlantRow
 } from "../services/customer-onboarding-import-service.js";
+import type {
+  CustomerOnboardingCommitBatchStartResult,
+  CustomerOnboardingCommitBatchStatusResult,
+  CustomerOnboardingPreviewSessionResult
+} from "../services/customer-onboarding-batch-service.js";
 import type {
   CreateEmptySettings,
   LoggingStoreGetter,
@@ -137,6 +139,10 @@ const customerOnboardingSchema = z.object({
   certificates: z.array(customerOnboardingCertificateRowSchema).max(5000).default([])
 });
 
+const customerOnboardingCommitSchema = z.object({
+  previewId: z.string().uuid()
+});
+
 const completedBillingMonthSchema = z.object({
   billingMonth: z.string().regex(/^\d{4}-\d{2}$/, "정산월 형식이 올바르지 않습니다.")
 });
@@ -180,26 +186,28 @@ type RouteDeps = {
   normalizeCustomerImportRow: (row: z.infer<typeof customerImportRowSchema>) => CustomerImportMappedRow;
   buildCustomerImportPreview: (requestStore: AppStore, rows: CustomerImportMappedRow[]) => Promise<CustomerImportPreviewResult>;
   commitCustomerImport: (requestStore: AppStore, preview: CustomerImportPreviewResult) => Promise<CustomerImportCommitResult>;
-  buildCustomerOnboardingPreview: (
-    requestStore: AppStore,
-    workbook: {
-      customers: CustomerOnboardingCustomerRow[];
-      plants: CustomerOnboardingPlantRow[];
-      certificates: CustomerOnboardingCertificateRow[];
-    }
-  ) => Promise<CustomerOnboardingPreviewResult>;
-  commitCustomerOnboardingImport: (
+  createCustomerOnboardingPreviewSession: (
     requestStore: AppStore,
     workbook: {
       customers: CustomerOnboardingCustomerRow[];
       plants: CustomerOnboardingPlantRow[];
       certificates: CustomerOnboardingCertificateRow[];
     },
-    options?: {
-      autoJoinCustomer?: (customer: Customer) => Promise<AutoJoinCustomerResult>;
+    options: {
+      organizationId: string;
+      requestedByUserId: string | null;
     }
-  ) => Promise<CustomerOnboardingCommitResult>;
-  autoJoinCustomerPopbill: (requestStore: AppStore, customer: Customer) => Promise<AutoJoinCustomerResult>;
+  ) => Promise<CustomerOnboardingPreviewSessionResult>;
+  startCustomerOnboardingCommitBatch: (options: {
+    organizationId: string;
+    requestedByUserId: string | null;
+    previewId: string;
+  }) => Promise<CustomerOnboardingCommitBatchStartResult>;
+  getCustomerOnboardingCommitBatchStatus: (options: {
+    organizationId: string;
+    batchId: string;
+  }) => Promise<CustomerOnboardingCommitBatchStatusResult>;
+  runDueJobs: (args: { limit?: number; claimedBy: string }) => Promise<Record<string, unknown>>;
 };
 
 export function registerSettingsRoutes(deps: RouteDeps) {
@@ -223,9 +231,10 @@ export function registerSettingsRoutes(deps: RouteDeps) {
     normalizeCustomerImportRow,
     buildCustomerImportPreview,
     commitCustomerImport,
-    buildCustomerOnboardingPreview,
-    commitCustomerOnboardingImport,
-    autoJoinCustomerPopbill
+    createCustomerOnboardingPreviewSession,
+    startCustomerOnboardingCommitBatch,
+    getCustomerOnboardingCommitBatchStatus,
+    runDueJobs
   } = deps;
 
   app.get("/api/settings", async (_req, res) => {
@@ -438,19 +447,46 @@ export function registerSettingsRoutes(deps: RouteDeps) {
   });
 
   app.post("/api/customer-onboarding/preview", async (req, res) => {
-    requireWorkspaceEditor(res);
-    const requestStore = getRequestStore(res, store);
-    const payload = customerOnboardingSchema.parse(req.body);
-    res.json(await buildCustomerOnboardingPreview(requestStore, payload));
-  });
-
-  app.post("/api/customer-onboarding/commit", async (req, res) => {
-    requireWorkspaceEditor(res);
+    const authContext = requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const payload = customerOnboardingSchema.parse(req.body);
     res.json(
-      await commitCustomerOnboardingImport(requestStore, payload, {
-        autoJoinCustomer: (customer) => autoJoinCustomerPopbill(requestStore, customer)
+      await createCustomerOnboardingPreviewSession(requestStore, payload, {
+        organizationId: authContext.activeOrganizationId,
+        requestedByUserId: authContext.userId
+      })
+    );
+  });
+
+  app.post("/api/customer-onboarding/commit", async (req, res) => {
+    const authContext = requireWorkspaceEditor(res);
+    const payload = customerOnboardingCommitSchema.parse(req.body);
+    const batch = await startCustomerOnboardingCommitBatch({
+      organizationId: authContext.activeOrganizationId,
+      requestedByUserId: authContext.userId,
+      previewId: payload.previewId
+    });
+
+    if (batch.status === "queued") {
+      setImmediate(() => {
+        void runDueJobs({
+          limit: 1,
+          claimedBy: "customer-onboarding-trigger"
+        }).catch(() => {
+          /* background trigger is best-effort; polling endpoint will reflect the actual state */
+        });
+      });
+    }
+
+    res.status(202).json(batch);
+  });
+
+  app.get("/api/customer-onboarding/batches/:batchId", async (req, res) => {
+    const authContext = requireWorkspaceEditor(res);
+    res.json(
+      await getCustomerOnboardingCommitBatchStatus({
+        organizationId: authContext.activeOrganizationId,
+        batchId: z.string().uuid().parse(req.params.batchId)
       })
     );
   });

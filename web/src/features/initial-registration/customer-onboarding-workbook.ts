@@ -53,6 +53,7 @@ export type CustomerOnboardingTemplateWorkbookInput = {
 };
 
 export type CustomerOnboardingPreviewResponse = {
+  previewId: string;
   totalCustomers: number;
   createCount: number;
   updateCount: number;
@@ -74,8 +75,24 @@ export type CustomerOnboardingPreviewResponse = {
   }>;
 };
 
+export type CustomerOnboardingCommitStartResponse = {
+  batchId: string;
+  previewId: string;
+  status: "queued" | "running" | "completed" | "failed";
+  totalRows: number;
+  completedRows: number;
+  successCount: number;
+  failedCount: number;
+  createdAt: string;
+};
+
 export type CustomerOnboardingCommitResponse = {
+  batchId: string;
+  previewId: string;
+  status: "queued" | "running" | "completed" | "failed";
   totalCustomers: number;
+  totalRows: number;
+  completedRows: number;
   createdCount: number;
   updatedCount: number;
   successCount: number;
@@ -83,6 +100,11 @@ export type CustomerOnboardingCommitResponse = {
   linkedCertificateCount: number;
   warnings: Array<{ rowIndex: number; message: string }>;
   failedRows: Array<{ rowIndex: number; message: string }>;
+  error: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function normalizeCell(value: unknown): string {

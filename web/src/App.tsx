@@ -10,6 +10,7 @@ import { OnboardingTab, type OnboardingStep } from "./features/onboarding/Onboar
 import {
   downloadCustomerOnboardingTemplate,
   parseCustomerOnboardingWorkbook,
+  type CustomerOnboardingCommitStartResponse,
   type CustomerOnboardingCommitResponse,
   type CustomerOnboardingPreviewResponse,
   type CustomerOnboardingTemplateWorkbookInput,
@@ -4177,6 +4178,30 @@ export function App() {
     }
   };
 
+  const waitForCustomerOnboardingCommitBatch = async (
+    batchId: string,
+    initial?: CustomerOnboardingCommitStartResponse
+  ): Promise<CustomerOnboardingCommitResponse> => {
+    if (initial) {
+      setCustomerOnboardingNotice(`고객 반영을 시작했습니다. ${initial.completedRows}/${initial.totalRows}건 처리됨`);
+    }
+
+    while (true) {
+      const batch = await api<CustomerOnboardingCommitResponse>(`/api/customer-onboarding/batches/${batchId}`);
+
+      if (batch.status === "completed") {
+        return batch;
+      }
+
+      if (batch.status === "failed") {
+        throw new Error(batch.error ?? "고객 반영 배치가 실패했습니다.");
+      }
+
+      setCustomerOnboardingNotice(`고객 반영 진행 중... ${batch.completedRows}/${batch.totalRows}건 처리됨`);
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    }
+  };
+
   const commitCustomerOnboardingWorkbook = async () => {
     if (!customerOnboardingWorkbook || !customerOnboardingTemplateWorkbook || !customerOnboardingPreview) {
       setCustomerOnboardingError("먼저 고객 초기 등록 양식을 업로드하세요.");
@@ -4190,10 +4215,13 @@ export function App() {
     }
 
     setCustomerOnboardingError("");
-    const result = await api<CustomerOnboardingCommitResponse>("/api/customer-onboarding/commit", {
+    const commitStart = await api<CustomerOnboardingCommitStartResponse>("/api/customer-onboarding/commit", {
       method: "POST",
-      body: JSON.stringify(customerOnboardingWorkbook)
+      body: JSON.stringify({
+        previewId: customerOnboardingPreview.previewId
+      })
     });
+    const result = await waitForCustomerOnboardingCommitBatch(commitStart.batchId, commitStart);
     const autoLinkResult = await autoLinkImportedOnboardingGeneralCertificates(
       customerOnboardingTemplateWorkbook,
       customerOnboardingWorkbook

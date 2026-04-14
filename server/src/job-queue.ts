@@ -4,12 +4,13 @@ import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from 
 import { syncMailbox } from "./mail-sync.js";
 import { sendNotification } from "./notifier.js";
 import { getServerManagedSettings } from "./server-managed-settings.js";
+import { runCustomerOnboardingCommitBatch } from "./services/customer-onboarding-batch-service.js";
 import { createSupabaseAdminClient } from "./supabase.js";
 import { SupabaseStore } from "./supabase-store.js";
 import { nowIso } from "./utils.js";
 
 type Row = Record<string, unknown>;
-type QueueJobType = "mail-sync" | "auto-issue" | "certificate-check";
+type QueueJobType = "mail-sync" | "auto-issue" | "certificate-check" | "customer-onboarding-commit";
 type QueueJobStatus = "queued" | "claimed" | "completed" | "failed" | "cancelled";
 
 type QueueJob = {
@@ -191,6 +192,8 @@ function getRetryPolicy(jobType: QueueJobType): { maxRetries: number; delayMinut
       return { maxRetries: 3, delayMinutes: 5 };
     case "certificate-check":
       return { maxRetries: 1, delayMinutes: 30 };
+    case "customer-onboarding-commit":
+      return { maxRetries: 1, delayMinutes: 1 };
     default:
       return { maxRetries: 0, delayMinutes: 0 };
   }
@@ -743,6 +746,23 @@ async function executeAutoIssueJob(job: QueueJob): Promise<Record<string, unknow
   }
 }
 
+async function executeCustomerOnboardingCommitJob(job: QueueJob): Promise<Record<string, unknown>> {
+  const batchId = asString(job.payload.batchId);
+  if (!batchId) {
+    throw new Error("customer-onboarding-commit payload.batchId is required");
+  }
+
+  const result = await runCustomerOnboardingCommitBatch(batchId);
+  return {
+    batchId,
+    status: result.status,
+    completedRows: result.completedRows,
+    totalRows: result.totalRows,
+    successCount: result.successCount,
+    failedCount: result.failedCount
+  };
+}
+
 async function executeJob(job: QueueJob): Promise<Record<string, unknown>> {
   if (job.jobType === "mail-sync") {
     return executeMailSyncJob(job);
@@ -752,6 +772,9 @@ async function executeJob(job: QueueJob): Promise<Record<string, unknown>> {
   }
   if (job.jobType === "auto-issue") {
     return executeAutoIssueJob(job);
+  }
+  if (job.jobType === "customer-onboarding-commit") {
+    return executeCustomerOnboardingCommitJob(job);
   }
   throw new Error(`지원하지 않는 job_type입니다: ${job.jobType}`);
 }
@@ -926,7 +949,11 @@ export async function dispatchRecurringJobs(
   };
 }
 
-export async function runDueJobs(options: { now?: Date; limit?: number; claimedBy?: string } = {}): Promise<JobRunResult> {
+export async function runDueJobs(options: {
+  now?: Date;
+  limit?: number;
+  claimedBy?: string;
+} = {}): Promise<JobRunResult> {
   const client = createSupabaseAdminClient();
   const now = options.now ?? new Date();
   const limit = Math.max(1, Math.min(options.limit ?? 10, 100));

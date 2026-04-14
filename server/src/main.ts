@@ -49,9 +49,10 @@ import {
   normalizeCustomerImportRow as normalizeCustomerImportRowService
 } from "./services/customer-import-service.js";
 import {
-  buildCustomerOnboardingPreview as buildCustomerOnboardingPreviewService,
-  commitCustomerOnboardingImport as commitCustomerOnboardingImportService
-} from "./services/customer-onboarding-import-service.js";
+  createCustomerOnboardingPreviewSession,
+  getCustomerOnboardingCommitBatchStatus,
+  startCustomerOnboardingCommitBatch
+} from "./services/customer-onboarding-batch-service.js";
 import {
   assertDraftPopbillEnvironment,
   backfillDraftPopbillEnvironmentIfMissing
@@ -889,10 +890,14 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     normalizeCustomerImportRow: normalizeCustomerImportRowService,
     buildCustomerImportPreview: buildCustomerImportPreviewService,
     commitCustomerImport,
-    buildCustomerOnboardingPreview: buildCustomerOnboardingPreviewService,
-    commitCustomerOnboardingImport: commitCustomerOnboardingImportService,
-    autoJoinCustomerPopbill: (requestStore: AppStore, customer: Customer) =>
-      autoJoinCustomerPopbill(requestStore, customer, getServerManagedSettings, getErrorMessage)
+    createCustomerOnboardingPreviewSession,
+    startCustomerOnboardingCommitBatch,
+    getCustomerOnboardingCommitBatchStatus,
+    runDueJobs: ({ limit, claimedBy }) =>
+      runDueJobs({
+        limit,
+        claimedBy
+      })
   });
 
   registerCustomerPopbillRoutes({
@@ -1044,7 +1049,4 @@ function isDirectExecution(): boolean {
 if (isDirectExecution()) {
   void startServer();
 }
-
-
-
 
