@@ -120,6 +120,7 @@ test("commitCustomerOnboardingImport saves customers, links certificates, and re
 
   const requestStore = {
     listCustomers: async () => [existingCustomer],
+    findCustomerByBusinessNumber: async () => null,
     saveCustomer: async (input: CustomerInput, customerId?: number) => {
       savedCustomers.push({ input, customerId });
       const id = customerId ?? 20;
