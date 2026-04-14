@@ -100,6 +100,7 @@ let onboardingWorkbookPath = null;
 const helperRequestLog = {
   healthCount: 0,
   bridgeProbeCount: 0,
+  certificateListCount: 0,
   preflightRequests: []
 };
 
@@ -308,6 +309,24 @@ async function mockLocalHelperRoutes(page) {
         status: 200,
         headers,
         body: JSON.stringify(buildHelperProbeResponse({}))
+      });
+      return;
+    }
+
+    if (request.method() === "POST" && url.pathname === "/api/certificates") {
+      helperRequestLog.certificateListCount += 1;
+      const probeResponse = buildHelperProbeResponse({});
+      await route.fulfill({
+        status: 200,
+        headers,
+        body: JSON.stringify({
+          ok: true,
+          version: "e2e-fake-helper",
+          result: {
+            licenseProbe: probeResponse.result.bridge.licenseProbe,
+            storageProbe: probeResponse.result.bridge.storageProbe
+          }
+        })
       });
       return;
     }
@@ -774,8 +793,10 @@ try {
       .waitFor();
     await page.getByText(/가져오기 완료 · 신규 1건 \/ 갱신 0건 \/ 인증서 1건/).waitFor();
 
-    if (helperRequestLog.bridgeProbeCount < 2) {
-      throw new Error(`expected at least 2 bridge probes, got ${helperRequestLog.bridgeProbeCount}`);
+    if (helperRequestLog.bridgeProbeCount + helperRequestLog.certificateListCount < 2) {
+      throw new Error(
+        `expected at least 2 helper discovery calls, got bridgeProbe=${helperRequestLog.bridgeProbeCount} certificateList=${helperRequestLog.certificateListCount}`
+      );
     }
 
     const preflightCertificateIndices = helperRequestLog.preflightRequests.map((request) => String(request.certificateIndex ?? ""));
