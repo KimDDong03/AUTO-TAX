@@ -2,12 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import express from "express";
 import { z } from "zod";
-import { collectBridgeProbeResult, prepareRenewPaymentOpenContext } from "./renewal-agent.ts";
+import { collectBridgeCertificateList, collectBridgeProbeResult, prepareRenewPaymentOpenContext } from "./renewal-agent.ts";
 import { registerPopbillCertificate } from "./popbill-cert-registration.ts";
 import { openSignGateRenewPaymentWindow } from "./signgate-fee-payment.ts";
 
 const DEFAULT_PORT = 35119;
 const DEFAULT_ALLOWED_ORIGINS = ["https://auto-tax-alpha.vercel.app"];
+const PREFLIGHT_TRANSPORT_RETRY_COUNT = 1;
+const PREFLIGHT_TRANSPORT_RETRY_DELAY_MS = 250;
 
 function readPackageVersion(): string {
   const candidatePackageFiles = [
@@ -117,6 +119,59 @@ const popbillCertificateRegistrationSchema = z.object({
   certificatePassword: z.string().trim().min(1)
 });
 
+type LocalPreflightPayload = z.infer<typeof preflightRequestSchema>;
+
+function isRetryablePreflightFailureDetail(detail: string): boolean {
+  if (!detail) {
+    return false;
+  }
+
+  return /failed to connect to 127\.0\.0\.1 port|connection was reset|recv failure|econnreset|econnrefused|socket hang up|timed out|timeout|fetch failed/i.test(
+    detail
+  );
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildPreflightRequest(payload: LocalPreflightPayload) {
+  return {
+    certificateIndex: payload.certificateIndex,
+    certificateCn: payload.certificateCn ?? null,
+    certificatePassword: payload.certificatePassword ?? null,
+    comparisonProfile: null,
+    submissionProfile: null,
+    executeSubmit: false
+  };
+}
+
+async function collectPreflightProbeResult(payload: LocalPreflightPayload) {
+  return await collectBridgeProbeResult({
+    includeDetailedProbe: true,
+    preflightRequest: buildPreflightRequest(payload)
+  });
+}
+
+async function collectPreflightProbeResultWithRetry(
+  payload: LocalPreflightPayload,
+  retryCount = PREFLIGHT_TRANSPORT_RETRY_COUNT
+) {
+  let result = await collectPreflightProbeResult(payload);
+
+  for (let attempt = 0; attempt < retryCount; attempt += 1) {
+    const detail = `${result.bridge.preflightProbe.error ?? ""} ${result.bridge.preflightProbe.message ?? ""}`.trim();
+    if (!isRetryablePreflightFailureDetail(detail)) {
+      return result;
+    }
+
+    await delay(PREFLIGHT_TRANSPORT_RETRY_DELAY_MS);
+    result = await collectPreflightProbeResult(payload);
+  }
+
+  return result;
+}
+
 export function createRenewalLocalHelperApp() {
   const app = express();
   const version = readPackageVersion();
@@ -162,20 +217,19 @@ export function createRenewalLocalHelperApp() {
     }
   });
 
+  app.post("/api/certificates", async (_req, res, next) => {
+    try {
+      const result = await collectBridgeCertificateList();
+      res.json({ ok: true, version, result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/preflight", async (req, res, next) => {
     try {
       const payload = preflightRequestSchema.parse(req.body ?? {});
-      const result = await collectBridgeProbeResult({
-        includeDetailedProbe: true,
-        preflightRequest: {
-          certificateIndex: payload.certificateIndex,
-          certificateCn: payload.certificateCn ?? null,
-          certificatePassword: payload.certificatePassword ?? null,
-          comparisonProfile: null,
-          submissionProfile: null,
-          executeSubmit: false
-        }
-      });
+      const result = await collectPreflightProbeResultWithRetry(payload);
       res.json({ ok: true, version, result });
     } catch (error) {
       next(error);

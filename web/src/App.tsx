@@ -20,6 +20,7 @@ import {
   getLocalRenewalHelperStatus,
   requestLocalPopbillCertificateRegistration,
   requestLocalRenewalBridgeProbe,
+  requestLocalRenewalCertificates,
   requestLocalRenewalOpenPayment,
   requestLocalRenewalPreparePayment,
   requestLocalRenewalPreflight
@@ -107,8 +108,20 @@ type CustomerOnboardingResolutionResult = {
   workbook: CustomerOnboardingWorkbookInput;
   resolvedCertificateCount: number;
   skippedCertificateCount: number;
+  acceptedBeforeWindowCount: number;
   errors: string[];
 };
+
+type OnboardingPreflightImportDecision =
+  | {
+      canImport: true;
+      snapshot: RenewalInfoSnapshot;
+      acceptedBeforeWindow: boolean;
+    }
+  | {
+      canImport: false;
+      failureMessage: string;
+    };
 
 type CustomerOnboardingSessionState = {
   templateDownloaded: boolean;
@@ -1986,6 +1999,150 @@ function buildCustomerCreatePayloadFromRenewalSnapshot(
   };
 }
 
+function normalizeRenewalPreflightDetail(value: string | null | undefined): string {
+  const raw = String(value ?? "");
+  if (!raw) {
+    return "";
+  }
+
+  const text = raw
+    .replace(/\\n/g, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  const curlIndex = text.indexOf("curl:");
+  const relevantText = curlIndex >= 0 ? text.slice(curlIndex) : text;
+  return relevantText.replace(/\s+/g, " ").trim();
+}
+
+function buildRenewalPreflightFailureMessage(prefix: string, detail: string, fallback: string): string {
+  return `${prefix}: ${detail || fallback}`;
+}
+
+function isRenewalWindowPendingDetail(detail: string): boolean {
+  return detail.includes("갱신 가능 기간은") || detail.includes("갱신가능 기간은");
+}
+
+function isRenewalWindowEndedDetail(detail: string): boolean {
+  return detail.includes("갱신가능 기간이 종료") || detail.includes("갱신 가능 기간이 종료");
+}
+
+function isRenewalIssueInfoMissingDetail(detail: string): boolean {
+  return detail.includes("발급정보를 찾을수 없습니다") || detail.includes("발급정보를 찾을 수 없습니다");
+}
+
+function isRenewalSelectionMissingDetail(detail: string): boolean {
+  return detail.includes("선택하신 인증서가 없습니다") || detail.includes("인증서를 선택해 주십시오");
+}
+
+function isRenewalPasswordFailureDetail(detail: string): boolean {
+  return detail.includes("비밀번호");
+}
+
+function isRenewalBridgeConnectionFailureDetail(detail: string): boolean {
+  const normalized = detail.toLowerCase();
+  return (
+    normalized.includes("failed to connect to 127.0.0.1 port") ||
+    normalized.includes("could not connect to server") ||
+    normalized.includes("connection was reset") ||
+    normalized.includes("recv failure")
+  );
+}
+
+function classifyOnboardingPreflightImportDecision(
+  preflightProbe: RenewalBridgePreflightProbe | null | undefined
+): OnboardingPreflightImportDecision {
+  const snapshot = preflightProbe?.renewInfoSnapshot ?? null;
+  const detail = normalizeRenewalPreflightDetail(preflightProbe?.error ?? preflightProbe?.message ?? "");
+
+  if (isRenewalWindowEndedDetail(detail)) {
+    return {
+      canImport: false,
+      failureMessage: buildRenewalPreflightFailureMessage("기간종료", detail, "갱신가능 기간이 종료되었습니다.")
+    };
+  }
+
+  if (preflightProbe?.ok && snapshot) {
+    return {
+      canImport: true,
+      snapshot,
+      acceptedBeforeWindow: false
+    };
+  }
+
+  if (isRenewalWindowPendingDetail(detail) && snapshot) {
+    return {
+      canImport: true,
+      snapshot,
+      acceptedBeforeWindow: true
+    };
+  }
+
+  if (isRenewalIssueInfoMissingDetail(detail)) {
+    return {
+      canImport: false,
+      failureMessage: buildRenewalPreflightFailureMessage(
+        "발급정보 없음",
+        detail,
+        "SignGate에서 사업자 발급정보를 찾지 못했습니다."
+      )
+    };
+  }
+
+  if (isRenewalPasswordFailureDetail(detail)) {
+    return {
+      canImport: false,
+      failureMessage: buildRenewalPreflightFailureMessage(
+        "비밀번호 오류",
+        detail,
+        "인증서 비밀번호 확인에 실패했습니다."
+      )
+    };
+  }
+
+  if (isRenewalSelectionMissingDetail(detail)) {
+    return {
+      canImport: false,
+      failureMessage: buildRenewalPreflightFailureMessage(
+        "인증서 선택 실패",
+        detail,
+        "선택한 공동인증서를 열지 못했습니다."
+      )
+    };
+  }
+
+  if (isRenewalBridgeConnectionFailureDetail(detail)) {
+    return {
+      canImport: false,
+      failureMessage: buildRenewalPreflightFailureMessage(
+        "브리지 연결 실패",
+        detail,
+        "SignGate 로컬 포트(14315/14319)에 연결하지 못했습니다."
+      )
+    };
+  }
+
+  if (!snapshot) {
+    return {
+      canImport: false,
+      failureMessage: buildRenewalPreflightFailureMessage(
+        "사전조회 실패",
+        detail,
+        "사업자 정보를 읽지 못했습니다."
+      )
+    };
+  }
+
+  return {
+    canImport: false,
+    failureMessage: buildRenewalPreflightFailureMessage(
+      "사전조회 실패",
+      detail,
+      "등록 가능 상태를 확인하지 못했습니다."
+    )
+  };
+}
+
 function getCustomerOnboardingTemplateCertificateLabel(row: {
   certificateIndex: string;
   certificateName: string;
@@ -2199,6 +2356,7 @@ export function App() {
   const customerRenewalPasswordRef = useRef("");
   const customerRenewalIssuePasswordRef = useRef("");
   const customerCertificatePasswordCacheRef = useRef<Record<number, string>>({});
+  const customerOnboardingCertificatesRef = useRef<RenewalAgentCertificate[] | null>(null);
   const customerRenewalAutoLoadedRef = useRef(false);
   const customerRenewalAutoLoadedOrganizationRef = useRef<string | null>(null);
   const customerNameInputRef = useRef<HTMLInputElement | null>(null);
@@ -3344,14 +3502,25 @@ export function App() {
     setCustomerImportPreview(followUpPreview);
   };
 
+  const loadCustomerOnboardingAvailableCertificates = async (options?: { forceRefresh?: boolean }) => {
+    if (!options?.forceRefresh && customerOnboardingCertificatesRef.current) {
+      return customerOnboardingCertificatesRef.current;
+    }
+
+    const response = await requestLocalRenewalCertificates();
+    const certificates = response.result.storageProbe.ok ? response.result.storageProbe.certificates : [];
+    customerOnboardingCertificatesRef.current = certificates;
+    return certificates;
+  };
+
   const resolveCustomerOnboardingTemplateWorkbook = async (
     templateWorkbook: CustomerOnboardingTemplateWorkbookInput
   ): Promise<CustomerOnboardingResolutionResult> => {
     const onboardingPreflightConcurrency = 6;
     const sharedPassword = await resolveCustomerRenewalPassword({ promptIfMissing: false });
-    const bridgeProbe = await requestLocalRenewalBridgeProbe();
-    const availableCertificates = bridgeProbe.result.bridge.storageProbe.ok ? bridgeProbe.result.bridge.storageProbe.certificates : [];
+    const availableCertificates = await loadCustomerOnboardingAvailableCertificates();
     const errors: string[] = [];
+    let acceptedBeforeWindowCount = 0;
     const customersByBusinessNumber = new Map<
       string,
       {
@@ -3535,15 +3704,14 @@ export function App() {
           certificatePassword: effectivePassword
         });
         const preflightProbe = response.result.bridge.preflightProbe;
-        const snapshot = preflightProbe?.renewInfoSnapshot;
-        if (!preflightProbe?.ok || !snapshot) {
+        const decision = classifyOnboardingPreflightImportDecision(preflightProbe);
+        if (!decision.canImport) {
           return {
             ok: false as const,
-            message: `발전소 시트 (${certificateLabel}): ${
-              preflightProbe?.error ?? preflightProbe?.message ?? "사업자 정보를 읽지 못했습니다."
-            }`
+            message: `발전소 시트 (${certificateLabel}): ${decision.failureMessage}`
           };
         }
+        const snapshot = decision.snapshot;
 
         const basePayload = buildCustomerCreatePayloadFromRenewalSnapshot(
           {
@@ -3564,6 +3732,7 @@ export function App() {
           ok: true as const,
           selection,
           matchedCertificate,
+          acceptedBeforeWindow: decision.acceptedBeforeWindow,
           businessNumber,
           customerName: basePayload.customerName,
           corpName: basePayload.corpName,
@@ -3580,6 +3749,10 @@ export function App() {
         errors.push(result.message);
         skippedCertificateCount += 1;
         continue;
+      }
+
+      if (result.acceptedBeforeWindow) {
+        acceptedBeforeWindowCount += 1;
       }
 
       const entry = ensureWorkbookCustomerEntry(result.businessNumber, {
@@ -3655,6 +3828,7 @@ export function App() {
       workbook,
       resolvedCertificateCount,
       skippedCertificateCount,
+      acceptedBeforeWindowCount,
       errors
     };
   };
@@ -3687,12 +3861,11 @@ export function App() {
       };
     }
 
-    const [customers, bridgeProbe] = await Promise.all([
+    const [customers, availableCertificates] = await Promise.all([
       api<Customer[]>("/api/customers"),
-      requestLocalRenewalBridgeProbe()
+      loadCustomerOnboardingAvailableCertificates()
     ]);
     const importedCustomers = customers.filter((customer) => importedBusinessNumbers.has(digitsOnly(customer.businessNumber)));
-    const availableCertificates = bridgeProbe.result.bridge.storageProbe.ok ? bridgeProbe.result.bridge.storageProbe.certificates : [];
     const sharedPassword = await resolveCustomerRenewalPassword({ promptIfMissing: false });
 
     if (availableCertificates.length === 0) {
@@ -3739,15 +3912,14 @@ export function App() {
         certificatePassword: effectivePassword
       });
       const preflightProbe = response.result.bridge.preflightProbe;
-      const snapshot = preflightProbe?.renewInfoSnapshot;
-      if (!preflightProbe?.ok || !snapshot) {
+      const decision = classifyOnboardingPreflightImportDecision(preflightProbe);
+      if (!decision.canImport) {
         return {
           status: "skipped" as const,
-          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): ${
-            preflightProbe?.error ?? preflightProbe?.message ?? "사업자 정보를 읽지 못했습니다."
-          }`
+          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): ${decision.failureMessage}`
         };
       }
+      const snapshot = decision.snapshot;
 
       const businessNumber = digitsOnly(snapshot.businessNumber ?? "");
       const businessNumberMatches = businessNumber
@@ -3798,9 +3970,10 @@ export function App() {
   };
 
   const downloadCustomerOnboardingImportTemplate = async () => {
-    const [XLSX, response] = await Promise.all([loadXlsxModule(), requestLocalRenewalBridgeProbe()]);
-    const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
-    const certificates = allCertificates;
+    const [XLSX, certificates] = await Promise.all([
+      loadXlsxModule(),
+      loadCustomerOnboardingAvailableCertificates({ forceRefresh: true })
+    ]);
 
     if (certificates.length === 0) {
       throw new Error("이 PC에서 공동인증서를 찾지 못했습니다.");
@@ -3870,6 +4043,10 @@ export function App() {
       });
       setCustomerOnboardingNotice(
         `${parsed.fileName} 업로드 확인을 마쳤습니다. 발전소 시트 기준 고객 ${resolved.workbook.customers.length}건을 등록 대상으로 읽었습니다. 범용 공동인증서는 등록 후 이번 업로드 고객만 대상으로 자동 연결을 시도합니다. 전자세금용 인증서는 다음 단계에서 후속 등록을 마무리하세요.${
+          resolved.acceptedBeforeWindowCount > 0
+            ? ` 갱신 가능 기간 전이지만 사업자 정보 확인에 성공한 전자세금용 인증서 ${resolved.acceptedBeforeWindowCount}건도 등록 대상으로 포함했습니다.`
+            : ""
+        }${
           resolved.skippedCertificateCount > 0 ? ` 건너뛴 공동인증서 ${resolved.skippedCertificateCount}건은 아래에서 확인하세요.` : ""
         }`
       );

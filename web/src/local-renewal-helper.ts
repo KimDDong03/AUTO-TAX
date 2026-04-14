@@ -1,4 +1,6 @@
 import type {
+  RenewalBridgeLicenseProbe,
+  RenewalBridgeStorageProbe,
   RenewalBridgeProbeResult,
   RenewalPreflightComparisonProfile,
   RenewalPreflightSubmissionProfile
@@ -20,6 +22,15 @@ type LocalRenewalHelperProbeResponse = {
   ok: true;
   version: string;
   result: RenewalBridgeProbeResult;
+};
+
+type LocalRenewalHelperCertificateListResponse = {
+  ok: true;
+  version: string;
+  result: {
+    licenseProbe: RenewalBridgeLicenseProbe;
+    storageProbe: RenewalBridgeStorageProbe;
+  };
 };
 
 type LocalRenewalPaymentOpenResponse = {
@@ -102,6 +113,13 @@ export async function getLocalRenewalHelperStatus(): Promise<LocalRenewalHelperS
 
 export async function requestLocalRenewalBridgeProbe() {
   return await localRenewalHelperRequest<LocalRenewalHelperProbeResponse>("/api/bridge-probe", {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
+export async function requestLocalRenewalCertificates() {
+  return await localRenewalHelperRequest<LocalRenewalHelperCertificateListResponse>("/api/certificates", {
     method: "POST",
     body: JSON.stringify({})
   });
