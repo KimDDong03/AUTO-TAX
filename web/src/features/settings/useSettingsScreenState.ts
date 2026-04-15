@@ -1,23 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
-import { api } from "../../api";
-import { supabase } from "../../supabase";
+import { useCallback, useEffect, useMemo } from "react";
 import type { AppSettings, OrganizationMemberRole } from "../../types";
 import type { LocalRenewalHelperUpgradeState } from "../../helper-version";
-import {
-  createEmptyPasswordChangeForm,
-  type SettingsAccountState,
-  type PasswordChangeFormState
-} from "./settingsAccountTypes";
+import type { SettingsAccountState } from "./settingsAccountTypes";
 import { normalizeRenewalIssuePasswordInput } from "./settingsFormUtils";
 import {
   MAIL_PROVIDER_CONFIG,
-  buildMailSettingsSavePayload,
   inferMailProviderFromAddress,
   settingsToForm
 } from "./settingsFormPersistence";
+import { buildSettingsSectionSummary } from "./settingsSectionSummary";
 import { useSettingsFormPersistence } from "./useSettingsFormPersistence";
-import { useSettingsOrganizationMembers } from "./useSettingsOrganizationMembers";
+import { useSettingsAccountFacade } from "./useSettingsAccountFacade";
+import { useSettingsMailTestAction } from "./useSettingsMailTestAction";
 import { useSettingsStoredSecretLoaders } from "./useSettingsStoredSecretLoaders";
 
 export type MailProvider = "gmail" | "naver" | "daum";
@@ -104,99 +98,6 @@ export type UseSettingsScreenStateArgs = {
   ) => Promise<void>;
 };
 
-type InternalSettingsAccountState = SettingsAccountState & {
-  resetAccountState: () => void;
-};
-
-function useSettingsAccountState({
-  activeOrganizationId,
-  bootstrapOrganizationId,
-  activeOrganizationRole,
-  currentUserId,
-  setGlobalError,
-  showAlert,
-  showConfirm
-}: Pick<
-  UseSettingsScreenStateArgs,
-  | "activeOrganizationId"
-  | "bootstrapOrganizationId"
-  | "activeOrganizationRole"
-  | "currentUserId"
-  | "setGlobalError"
-  | "showAlert"
-  | "showConfirm"
->): InternalSettingsAccountState {
-  const organizationMembers = useSettingsOrganizationMembers({
-    activeOrganizationId,
-    bootstrapOrganizationId,
-    activeOrganizationRole,
-    bootstrapReady:
-      activeOrganizationId !== null &&
-      activeOrganizationId === bootstrapOrganizationId,
-    currentUserId,
-    setGlobalError,
-    showAlert,
-    showConfirm
-  });
-  const [passwordChangeForm, setPasswordChangeForm] = useState<PasswordChangeFormState>(
-    createEmptyPasswordChangeForm
-  );
-
-  const resetAccountState = useCallback(() => {
-    setPasswordChangeForm(createEmptyPasswordChangeForm());
-    organizationMembers.resetOrganizationMemberState();
-  }, [organizationMembers.resetOrganizationMemberState]);
-
-  const changePassword = useCallback(async () => {
-    const nextPassword = passwordChangeForm.nextPassword.trim();
-    const confirmPassword = passwordChangeForm.confirmPassword.trim();
-
-    if (nextPassword.length < 8) {
-      throw new Error("새 비밀번호는 8자 이상으로 입력하세요.");
-    }
-
-    if (nextPassword !== confirmPassword) {
-      throw new Error("새 비밀번호와 확인 값이 일치하지 않습니다.");
-    }
-
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: nextPassword
-    });
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    setPasswordChangeForm(createEmptyPasswordChangeForm());
-    await showAlert("비밀번호를 변경했습니다.", {
-      title: "비밀번호 변경 완료",
-      tone: "success"
-    });
-  }, [passwordChangeForm, showAlert]);
-
-  return {
-    canManageOrganizationMembers: organizationMembers.canManageOrganizationMembers,
-    organizationMembers: organizationMembers.organizationMembers,
-    organizationMemberItems: organizationMembers.organizationMemberItems,
-    passwordChangeForm,
-    passwordResetForm: organizationMembers.passwordResetForm,
-    passwordResetTarget: organizationMembers.passwordResetTarget,
-    organizationMemberForm: organizationMembers.organizationMemberForm,
-    setPasswordChangeForm:
-      setPasswordChangeForm as Dispatch<SetStateAction<PasswordChangeFormState>>,
-    setPasswordResetForm: organizationMembers.setPasswordResetForm,
-    setOrganizationMemberForm:
-      organizationMembers.setOrganizationMemberForm,
-    changePassword,
-    createOrganizationMember: organizationMembers.createOrganizationMember,
-    openMemberPasswordReset: organizationMembers.openMemberPasswordReset,
-    removeOrganizationMember: organizationMembers.removeOrganizationMember,
-    submitMemberPasswordReset: organizationMembers.submitMemberPasswordReset,
-    cancelPasswordReset: organizationMembers.cancelPasswordReset,
-    resetAccountState
-  };
-}
-
 export function useSettingsScreenState({
   activeOrganizationId,
   bootstrapOrganizationId,
@@ -217,7 +118,7 @@ export function useSettingsScreenState({
   showConfirm,
   showAlert
 }: UseSettingsScreenStateArgs) {
-  const account = useSettingsAccountState({
+  const account = useSettingsAccountFacade({
     activeOrganizationId,
     bootstrapOrganizationId,
     activeOrganizationRole,
@@ -270,47 +171,22 @@ export function useSettingsScreenState({
     account.resetAccountState();
   }, [account.resetAccountState, currentUserId]);
 
-  const settingsSections = useMemo<
-    Array<{ id: SettingsSectionId; step: number; title: string; done: boolean; summary: string }>
-  >(
-    () => [
-      {
-        id: "gmail",
-        step: 1,
-        title: "메일 연결",
-        done: settingsHealth.mailReady,
-        summary: settingsHealth.mailReady ? savedSettings?.imapUser || "준비됨" : "연결 테스트 필요"
-      },
-      {
-        id: "popbill",
-        step: 2,
-        title: "발행 설정",
-        done: settingsHealth.popbillReady && settingsHealth.operatorReady,
-        summary: settingsHealth.popbillReady && settingsHealth.operatorReady ? "준비됨" : "필수값 입력"
-      },
-      {
-        id: "helper",
-        step: 3,
-        title: "헬퍼 상태",
-        done: helperReady,
-        summary: helperReady
-          ? `준비됨 · ${helperCertificateCount}건 읽음`
-          : customerRenewalAssistantUpgradeState === "upgrade-required"
-            ? "재설치 필요"
-            : customerRenewalAssistantOnline
-              ? customerRenewalAssistantUpgradeState === "upgrade-available"
-                ? "업데이트 권장"
-                : "헬퍼 연결됨 · 읽기 확인"
-              : "헬퍼 준비 필요"
-      },
-      {
-        id: "account",
-        step: 4,
-        title: "계정 / 작업공간",
-        done: true,
-        summary: publicAccount.canManageOrganizationMembers ? "사용자 / 비밀번호" : "비밀번호 변경"
-      }
-    ],
+  const {
+    settingsSections,
+    setupPendingCount,
+    nextSettingsSection,
+    recommendedSettingsSection
+  } = useMemo(
+    () =>
+      buildSettingsSectionSummary({
+        settingsHealth,
+        helperReady,
+        helperCertificateCount,
+        customerRenewalAssistantOnline,
+        customerRenewalAssistantUpgradeState,
+        settingsMailAddress: savedSettings?.imapUser,
+        canManageOrganizationMembers: publicAccount.canManageOrganizationMembers
+      }),
     [
       customerRenewalAssistantOnline,
       customerRenewalAssistantUpgradeState,
@@ -318,21 +194,9 @@ export function useSettingsScreenState({
       helperReady,
       publicAccount.canManageOrganizationMembers,
       savedSettings?.imapUser,
-      settingsHealth.mailReady,
-      settingsHealth.operatorReady,
-      settingsHealth.popbillReady
+      settingsHealth
     ]
   );
-
-  const setupPendingCount = settingsSections.filter((section) => !section.done).length;
-  const recommendedSettingsSection: SettingsSectionId = !settingsHealth.mailReady
-    ? "gmail"
-    : !(settingsHealth.popbillReady && settingsHealth.operatorReady)
-      ? "popbill"
-      : !helperReady
-        ? "helper"
-        : "account";
-  const nextSettingsSection = settingsSections.find((section) => !section.done)?.id ?? "account";
   const {
     loadCurrentPopbillSharedPassword,
     loadCurrentRenewalCertificatePassword,
@@ -376,62 +240,12 @@ export function useSettingsScreenState({
     [setSettingsForm]
   );
 
-  const testMailSettings = useCallback(async () => {
-    if (!settingsForm) return;
-    const { normalized, payload } = buildMailSettingsSavePayload(settingsForm, savedSettings);
-    const result = await api<{
-      imapOk: boolean;
-      imapMessage: string;
-      smtpOk: boolean;
-      smtpMessage: string;
-      testMailSent: boolean;
-    }>("/api/system/mail-test", {
-      method: "POST",
-      body: JSON.stringify({
-        imapHost: payload.imapHost,
-        imapPort: payload.imapPort,
-        imapSecure: payload.imapSecure,
-        imapUser: payload.imapUser,
-        imapPass: payload.imapPass,
-        imapMailbox: payload.imapMailbox,
-        smtpHost: payload.smtpHost,
-        smtpPort: payload.smtpPort,
-        smtpSecure: payload.smtpSecure,
-        smtpUser: payload.smtpUser,
-        smtpPass: payload.smtpPass,
-        smtpFromName: "AUTO-TAX",
-        smtpFromEmail: payload.smtpFromEmail,
-        notificationEmails: payload.notificationEmails
-      })
-    });
-
-    const testSucceeded = result.imapOk && result.smtpOk;
-    if (testSucceeded) {
-      await api<AppSettings>("/api/settings", {
-        method: "PUT",
-        body: JSON.stringify(payload)
-      });
-      const verifiedSettings = await api<AppSettings>("/api/settings/mail-connection-verified", {
-        method: "POST"
-      });
-      applySavedSettings(verifiedSettings, {
-        syncForm: false,
-        baselineForm: normalized
-      });
-    }
-
-    await showAlert(
-      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\nIMAP: ${
-        result.imapOk ? "성공" : "실패"
-      }\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${result.smtpMessage}\n\n테스트 메일 발송: ${
-        result.testMailSent ? "예" : "아니오"
-      }\n\n설정 저장: ${testSucceeded ? "성공" : "실패로 저장 안 함"}`,
-      {
-        title: "메일 연결 테스트 결과",
-        tone: testSucceeded ? "success" : "warn"
-      }
-    );
-  }, [applySavedSettings, savedSettings, settingsForm, showAlert]);
+  const testMailSettings = useSettingsMailTestAction({
+    settingsForm,
+    savedSettings,
+    applySavedSettings,
+    showAlert
+  });
 
   const runSettingsAction = useCallback(
     async (key: string, action: () => Promise<void>) =>

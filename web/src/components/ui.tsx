@@ -1,4 +1,4 @@
-import type React from "react";
+import React from "react";
 
 function getStatIcon(label: string): string {
   if (label.includes("고객")) return "group";
