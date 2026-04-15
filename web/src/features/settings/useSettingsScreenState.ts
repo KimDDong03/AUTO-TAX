@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { api } from "../../api";
 import { supabase } from "../../supabase";
-import type { AppSettings, OrganizationMemberSummary } from "../../types";
+import type { AppSettings, OrganizationMemberRole, OrganizationMemberSummary } from "../../types";
 import type { LocalRenewalHelperUpgradeState } from "../../helper-version";
 
 export type MailProvider = "gmail" | "naver" | "daum";
@@ -47,9 +47,6 @@ export type SettingsAccountState = {
   setPasswordChangeForm: Dispatch<SetStateAction<PasswordChangeFormState>>;
   setPasswordResetForm: Dispatch<SetStateAction<PasswordResetFormState>>;
   setOrganizationMemberForm: Dispatch<SetStateAction<OrganizationMemberFormState>>;
-  syncOrganizationMembers: (members: OrganizationMemberSummary[]) => void;
-  resetOrganizationMemberState: () => void;
-  resetAccountState: () => void;
   changePassword: () => Promise<void>;
   createOrganizationMember: () => Promise<void>;
   openMemberPasswordReset: (member: OrganizationMemberSummary) => void;
@@ -162,9 +159,12 @@ export const MAIL_PROVIDER_CONFIG: Record<
 };
 
 export type UseSettingsScreenStateArgs = {
+  activeOrganizationId: string | null;
+  bootstrapOrganizationId: string | null;
+  activeOrganizationRole: OrganizationMemberRole | null;
+  bootstrapSettings: AppSettings | null;
   busyKey: string | null;
   currentUserId: string | null;
-  canManageOrganizationMembers: boolean;
   helperReady: boolean;
   helperCertificateCount: number;
   customerRenewalAssistantOnline: boolean;
@@ -371,15 +371,28 @@ function getWorkspaceMemberRoleLabel(role: OrganizationMemberSummary["role"]): s
   return role === "owner" ? "owner" : "member";
 }
 
+type InternalSettingsAccountState = SettingsAccountState & {
+  syncOrganizationMembers: (members: OrganizationMemberSummary[]) => void;
+  resetOrganizationMemberState: () => void;
+  resetAccountState: () => void;
+};
+
 function useSettingsAccountState({
+  activeOrganizationId,
+  bootstrapOrganizationId,
+  activeOrganizationRole,
   currentUserId,
-  canManageOrganizationMembers,
   showAlert,
   showConfirm
 }: Pick<
   UseSettingsScreenStateArgs,
-  "currentUserId" | "canManageOrganizationMembers" | "showAlert" | "showConfirm"
->): SettingsAccountState {
+  | "activeOrganizationId"
+  | "bootstrapOrganizationId"
+  | "activeOrganizationRole"
+  | "currentUserId"
+  | "showAlert"
+  | "showConfirm"
+>): InternalSettingsAccountState {
   const [passwordChangeForm, setPasswordChangeForm] = useState<PasswordChangeFormState>(
     createEmptyPasswordChangeForm
   );
@@ -391,6 +404,10 @@ function useSettingsAccountState({
   const [organizationMembers, setOrganizationMembers] = useState<OrganizationMemberSummary[]>([]);
   const [organizationMemberForm, setOrganizationMemberForm] =
     useState<OrganizationMemberFormState>(createEmptyOrganizationMemberForm);
+  const canManageOrganizationMembers =
+    activeOrganizationId !== null &&
+    activeOrganizationId === bootstrapOrganizationId &&
+    activeOrganizationRole === "owner";
 
   const syncOrganizationMembers = useCallback(
     (members: OrganizationMemberSummary[]) => {
@@ -578,22 +595,25 @@ function useSettingsAccountState({
       setPasswordResetForm as Dispatch<SetStateAction<PasswordResetFormState>>,
     setOrganizationMemberForm:
       setOrganizationMemberForm as Dispatch<SetStateAction<OrganizationMemberFormState>>,
-    syncOrganizationMembers,
-    resetOrganizationMemberState,
-    resetAccountState,
     changePassword,
     createOrganizationMember,
     openMemberPasswordReset,
     removeOrganizationMember,
     submitMemberPasswordReset,
-    cancelPasswordReset
+    cancelPasswordReset,
+    syncOrganizationMembers,
+    resetOrganizationMemberState,
+    resetAccountState
   };
 }
 
 export function useSettingsScreenState({
+  activeOrganizationId,
+  bootstrapOrganizationId,
+  activeOrganizationRole,
+  bootstrapSettings,
   busyKey,
   currentUserId,
-  canManageOrganizationMembers,
   helperReady,
   helperCertificateCount,
   customerRenewalAssistantOnline,
@@ -608,15 +628,41 @@ export function useSettingsScreenState({
   showAlert
 }: UseSettingsScreenStateArgs) {
   const account = useSettingsAccountState({
+    activeOrganizationId,
+    bootstrapOrganizationId,
+    activeOrganizationRole,
     currentUserId,
-    canManageOrganizationMembers,
     showAlert,
     showConfirm
   });
-  const [savedSettings, setSavedSettings] = useState<AppSettings | null>(null);
-  const [settingsForm, setSettingsForm] = useState<SettingsFormState | null>(null);
+  const [savedSettingsState, setSavedSettingsState] = useState<AppSettings | null>(null);
+  const [settingsFormState, setSettingsFormState] = useState<SettingsFormState | null>(null);
   const [settingsAutosaveState, setSettingsAutosaveState] = useState<SettingsAutosaveState>("idle");
   const settingsAutosaveBaselineRef = useRef("");
+  const organizationMembersLoadTokenRef = useRef(0);
+  const isBootstrapReadyForActiveOrganization =
+    activeOrganizationId !== null &&
+    activeOrganizationId === bootstrapOrganizationId &&
+    bootstrapSettings !== null;
+  const savedSettings =
+    savedSettingsState ?? (isBootstrapReadyForActiveOrganization ? bootstrapSettings : null);
+  const settingsForm = settingsFormState ?? (savedSettings ? settingsToForm(savedSettings) : null);
+  const publicAccount: SettingsAccountState = account;
+
+  const setSettingsForm = useCallback<Dispatch<SetStateAction<SettingsFormState | null>>>(
+    (nextState) => {
+      setSettingsFormState((prev) => {
+        const baseState = prev ?? settingsForm;
+        if (typeof nextState === "function") {
+          return (
+            nextState as (previousState: SettingsFormState | null) => SettingsFormState | null
+          )(baseState);
+        }
+        return nextState;
+      });
+    },
+    [settingsForm]
+  );
 
   const settingsHealth = useMemo<SettingsHealth>(
     () => ({
@@ -641,9 +687,9 @@ export function useSettingsScreenState({
       }
     ) => {
       const baselineForm = options?.baselineForm ?? settingsToForm(nextSavedSettings);
-      setSavedSettings(nextSavedSettings);
+      setSavedSettingsState(nextSavedSettings);
       if (options?.syncForm !== false) {
-        setSettingsForm(baselineForm);
+        setSettingsFormState(baselineForm);
       }
       settingsAutosaveBaselineRef.current = baselineForm ? getSettingsPayloadSignature(baselineForm) : "";
       setSettingsAutosaveState("saved");
@@ -652,23 +698,64 @@ export function useSettingsScreenState({
   );
 
   const resetSettingsFormState = useCallback(() => {
-    setSavedSettings(null);
-    setSettingsForm(null);
+    setSavedSettingsState(null);
+    setSettingsFormState(null);
     settingsAutosaveBaselineRef.current = "";
     setSettingsAutosaveState("idle");
   }, []);
 
-  const syncBootstrapSettings = useCallback(
-    (nextSavedSettings: AppSettings) => {
-      applySavedSettings(nextSavedSettings);
-    },
-    [applySavedSettings]
-  );
+  useEffect(() => {
+    if (currentUserId !== null) {
+      return;
+    }
 
-  const resetSettingsState = useCallback(() => {
     resetSettingsFormState();
     account.resetAccountState();
-  }, [account.resetAccountState, resetSettingsFormState]);
+  }, [account.resetAccountState, currentUserId, resetSettingsFormState]);
+
+  useEffect(() => {
+    if (!isBootstrapReadyForActiveOrganization || !bootstrapSettings) {
+      resetSettingsFormState();
+      return;
+    }
+
+    applySavedSettings(bootstrapSettings);
+  }, [applySavedSettings, bootstrapSettings, isBootstrapReadyForActiveOrganization, resetSettingsFormState]);
+
+  useEffect(() => {
+    if (!isBootstrapReadyForActiveOrganization || !account.canManageOrganizationMembers) {
+      return;
+    }
+
+    const loadToken = organizationMembersLoadTokenRef.current + 1;
+    organizationMembersLoadTokenRef.current = loadToken;
+    account.resetOrganizationMemberState();
+
+    void (async () => {
+      try {
+        const members = await api<OrganizationMemberSummary[]>("/api/organization/members");
+        if (organizationMembersLoadTokenRef.current !== loadToken) {
+          return;
+        }
+        account.syncOrganizationMembers(members);
+      } catch (error) {
+        if (organizationMembersLoadTokenRef.current !== loadToken) {
+          return;
+        }
+        account.resetOrganizationMemberState();
+        setGlobalError(
+          error instanceof Error ? error.message : "작업공간 사용자 목록을 불러오지 못했습니다."
+        );
+      }
+    })();
+  }, [
+    account.canManageOrganizationMembers,
+    account.resetOrganizationMemberState,
+    account.syncOrganizationMembers,
+    bootstrapSettings,
+    isBootstrapReadyForActiveOrganization,
+    setGlobalError
+  ]);
 
   const detectedMailProviderLabel = settingsForm
     ? MAIL_PROVIDER_CONFIG[inferMailProviderFromAddress(settingsForm.mailAddress, settingsForm.mailProvider)].label
@@ -712,15 +799,15 @@ export function useSettingsScreenState({
         step: 4,
         title: "계정 / 작업공간",
         done: true,
-        summary: canManageOrganizationMembers ? "사용자 / 비밀번호" : "비밀번호 변경"
+        summary: publicAccount.canManageOrganizationMembers ? "사용자 / 비밀번호" : "비밀번호 변경"
       }
     ],
     [
-      canManageOrganizationMembers,
       customerRenewalAssistantOnline,
       customerRenewalAssistantUpgradeState,
       helperCertificateCount,
       helperReady,
+      publicAccount.canManageOrganizationMembers,
       savedSettings?.imapUser,
       settingsHealth.mailReady,
       settingsHealth.operatorReady,
@@ -764,7 +851,7 @@ export function useSettingsScreenState({
     setSettingsAutosaveState("saved");
     setSettingsForm(nextForm);
     revealField("popbillSharedPassword");
-  }, [revealField, settingsForm]);
+  }, [revealField, setSettingsForm, settingsForm]);
 
   const loadCurrentRenewalCertificatePassword = useCallback(async () => {
     if (!settingsForm) return;
@@ -775,7 +862,13 @@ export function useSettingsScreenState({
     setSettingsAutosaveState("saved");
     setSettingsForm(nextForm);
     revealField("renewalCertificatePassword");
-  }, [fetchStoredRenewalCertificatePassword, onRenewalCertificatePasswordChange, revealField, settingsForm]);
+  }, [
+    fetchStoredRenewalCertificatePassword,
+    onRenewalCertificatePasswordChange,
+    revealField,
+    setSettingsForm,
+    settingsForm
+  ]);
 
   const loadCurrentRenewalIssuePassword = useCallback(async () => {
     if (!settingsForm) return;
@@ -786,7 +879,13 @@ export function useSettingsScreenState({
     setSettingsAutosaveState("saved");
     setSettingsForm(nextForm);
     revealField("renewalIssuePassword");
-  }, [fetchStoredRenewalIssuePassword, onRenewalIssuePasswordChange, revealField, settingsForm]);
+  }, [
+    fetchStoredRenewalIssuePassword,
+    onRenewalIssuePasswordChange,
+    revealField,
+    setSettingsForm,
+    settingsForm
+  ]);
 
   const handleSettingsRenewalIssuePasswordChange = useCallback(
     (nextValue: string) => {
@@ -794,27 +893,30 @@ export function useSettingsScreenState({
       onRenewalIssuePasswordChange(normalizedValue.length === 6 ? normalizedValue : "");
       setSettingsForm((prev) => (prev ? { ...prev, renewalIssuePassword: normalizedValue } : prev));
     },
-    [onRenewalIssuePasswordChange]
+    [onRenewalIssuePasswordChange, setSettingsForm]
   );
 
-  const handleSettingsMailAddressChange = useCallback((nextAddress: string) => {
-    setSettingsForm((prev) => {
-      if (!prev) return prev;
-      const nextProvider = inferMailProviderFromAddress(nextAddress, prev.mailProvider);
-      const config = MAIL_PROVIDER_CONFIG[nextProvider];
-      return {
-        ...prev,
-        mailAddress: nextAddress,
-        mailProvider: nextProvider,
-        imapHost: config.imapHost,
-        imapPort: config.imapPort,
-        imapSecure: config.imapSecure,
-        smtpHost: config.smtpHost,
-        smtpPort: config.smtpPort,
-        smtpSecure: config.smtpSecure
-      };
-    });
-  }, []);
+  const handleSettingsMailAddressChange = useCallback(
+    (nextAddress: string) => {
+      setSettingsForm((prev) => {
+        if (!prev) return prev;
+        const nextProvider = inferMailProviderFromAddress(nextAddress, prev.mailProvider);
+        const config = MAIL_PROVIDER_CONFIG[nextProvider];
+        return {
+          ...prev,
+          mailAddress: nextAddress,
+          mailProvider: nextProvider,
+          imapHost: config.imapHost,
+          imapPort: config.imapPort,
+          imapSecure: config.imapSecure,
+          smtpHost: config.smtpHost,
+          smtpPort: config.smtpPort,
+          smtpSecure: config.smtpSecure
+        };
+      });
+    },
+    [setSettingsForm]
+  );
 
   const testMailSettings = useCallback(async () => {
     if (!settingsForm) return;
@@ -945,7 +1047,7 @@ export function useSettingsScreenState({
   return {
     savedSettings,
     settingsForm,
-    setSettingsForm: setSettingsForm as Dispatch<SetStateAction<SettingsFormState | null>>,
+    setSettingsForm,
     settingsHealth,
     settingsSections,
     setupPendingCount,
@@ -958,10 +1060,8 @@ export function useSettingsScreenState({
     popbillSharedPasswordConfigured: savedSettings?.popbillSharedPasswordConfigured ?? false,
     renewalCertificatePasswordConfigured: savedSettings?.renewalCertificatePasswordConfigured ?? false,
     renewalIssuePasswordConfigured: savedSettings?.renewalIssuePasswordConfigured ?? false,
-    syncBootstrapSettings,
-    resetSettingsState,
     applySavedSettings,
-    account,
+    account: publicAccount,
     handleSettingsMailAddressChange,
     handleSettingsRenewalIssuePasswordChange,
     testMailSettings,
@@ -975,3 +1075,5 @@ export function useSettingsScreenState({
     runRefreshCustomerRenewalAssistant
   };
 }
+
+export type SettingsScreenState = ReturnType<typeof useSettingsScreenState>;
