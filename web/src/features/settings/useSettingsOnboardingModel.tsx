@@ -1,17 +1,53 @@
-import { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 import type { ReactNode } from "react";
 import type { SettingsFeatureOrchestration } from "./createSettingsActionAdapters";
-import {
-  SettingsDefaultsOnboardingStep,
-  SettingsHelperOnboardingStep,
-  SettingsMailOnboardingStep
-} from "./SettingsOnboardingStepContent";
+import { SettingsDefaultsOnboardingStep } from "./onboarding/SettingsDefaultsOnboardingStep";
+import { SettingsHelperOnboardingStep } from "./onboarding/SettingsHelperOnboardingStep";
+import { SettingsMailOnboardingStep } from "./onboarding/SettingsMailOnboardingStep";
 import type { SettingsOnboardingModel } from "./useSettingsDerivedModel";
 import type { SettingsFormState, SettingsScreenState } from "./useSettingsScreenState";
 
-type UseSettingsOnboardingModelArgs = {
+type SettingsOnboardingFields = Pick<
+  SettingsFormState,
+  | "mailAddress"
+  | "mailPassword"
+  | "notificationEmailsText"
+  | "popbillUserIdPrefix"
+  | "operatorContactName"
+  | "operatorContactTel"
+  | "operatorContactEmail"
+  | "popbillSharedPassword"
+  | "renewalIssuePassword"
+  | "renewalCertificatePassword"
+>;
+
+export type SettingsOnboardingState = {
+  fields: SettingsOnboardingFields;
+  autosaveLabel: string;
+  detectedMailProviderLabel: string;
+  configured: {
+    mailPassword: boolean;
+    popbillSharedPassword: boolean;
+    renewalCertificatePassword: boolean;
+    renewalIssuePassword: boolean;
+  };
+  actions: Pick<
+    SettingsScreenState,
+    | "setSettingsForm"
+    | "handleSettingsMailAddressChange"
+    | "handleSettingsRenewalIssuePasswordChange"
+    | "runMailSettingsTest"
+    | "runLoadCurrentPopbillSharedPassword"
+    | "runLoadCurrentRenewalCertificatePassword"
+    | "runLoadCurrentRenewalIssuePassword"
+    | "runRefreshCustomerRenewalAssistant"
+  >;
+};
+
+export function selectSettingsOnboardingState(
   settingsState: Pick<
     SettingsScreenState,
+    | "settingsForm"
     | "settingsAutosaveLabel"
     | "detectedMailProviderLabel"
     | "mailPasswordConfigured"
@@ -26,23 +62,71 @@ type UseSettingsOnboardingModelArgs = {
     | "runLoadCurrentRenewalCertificatePassword"
     | "runLoadCurrentRenewalIssuePassword"
     | "runRefreshCustomerRenewalAssistant"
-  > & {
-    settingsForm: SettingsFormState;
+  >
+): SettingsOnboardingState {
+  const fields = settingsState.settingsForm!;
+
+  return {
+    fields: {
+      mailAddress: fields.mailAddress,
+      mailPassword: fields.mailPassword,
+      notificationEmailsText: fields.notificationEmailsText,
+      popbillUserIdPrefix: fields.popbillUserIdPrefix,
+      operatorContactName: fields.operatorContactName,
+      operatorContactTel: fields.operatorContactTel,
+      operatorContactEmail: fields.operatorContactEmail,
+      popbillSharedPassword: fields.popbillSharedPassword,
+      renewalIssuePassword: fields.renewalIssuePassword,
+      renewalCertificatePassword: fields.renewalCertificatePassword
+    },
+    autosaveLabel: settingsState.settingsAutosaveLabel,
+    detectedMailProviderLabel: settingsState.detectedMailProviderLabel,
+    configured: {
+      mailPassword: settingsState.mailPasswordConfigured,
+      popbillSharedPassword: settingsState.popbillSharedPasswordConfigured,
+      renewalCertificatePassword:
+        settingsState.renewalCertificatePasswordConfigured,
+      renewalIssuePassword: settingsState.renewalIssuePasswordConfigured
+    },
+    actions: {
+      setSettingsForm: settingsState.setSettingsForm,
+      handleSettingsMailAddressChange:
+        settingsState.handleSettingsMailAddressChange,
+      handleSettingsRenewalIssuePasswordChange:
+        settingsState.handleSettingsRenewalIssuePasswordChange,
+      runMailSettingsTest: settingsState.runMailSettingsTest,
+      runLoadCurrentPopbillSharedPassword:
+        settingsState.runLoadCurrentPopbillSharedPassword,
+      runLoadCurrentRenewalCertificatePassword:
+        settingsState.runLoadCurrentRenewalCertificatePassword,
+      runLoadCurrentRenewalIssuePassword:
+        settingsState.runLoadCurrentRenewalIssuePassword,
+      runRefreshCustomerRenewalAssistant:
+        settingsState.runRefreshCustomerRenewalAssistant
+    }
   };
+}
+
+type SettingsOnboardingHelperStatus = {
+  ready: boolean;
+  upgradeRequired: boolean;
+  upgradeAvailable: boolean;
+  actionBlockedReason: string;
+  online: boolean;
+  checkedAt: string | null;
+  certificateCount: number;
+  upgradeMessage: string | null;
+  latestVersion: string | null;
+  minSupportedVersion: string | null;
+};
+
+type UseSettingsOnboardingModelArgs = {
+  settingsState: SettingsOnboardingState;
   onboarding: SettingsOnboardingModel;
   orchestration: SettingsFeatureOrchestration;
   busyKey: string | null;
   isMailTesting: boolean;
-  helperReady: boolean;
-  helperUpgradeRequired: boolean;
-  helperUpgradeAvailable: boolean;
-  helperActionBlockedReason: string;
-  helperOnline: boolean;
-  helperCheckedAt: string | null;
-  helperCertificateCount: number;
-  helperUpgradeMessage: string | null;
-  helperLatestVersion: string | null;
-  helperMinSupportedVersion: string | null;
+  helper: SettingsOnboardingHelperStatus;
   renewalHelperDownloadUrl: string;
   runReadCertificates: () => Promise<void>;
   formatDateTime: (value: string | null) => string;
@@ -60,16 +144,7 @@ export function useSettingsOnboardingModel({
   orchestration,
   busyKey,
   isMailTesting,
-  helperReady,
-  helperUpgradeRequired,
-  helperUpgradeAvailable,
-  helperActionBlockedReason,
-  helperOnline,
-  helperCheckedAt,
-  helperCertificateCount,
-  helperUpgradeMessage,
-  helperLatestVersion,
-  helperMinSupportedVersion,
+  helper,
   renewalHelperDownloadUrl,
   runReadCertificates,
   formatDateTime
@@ -77,8 +152,11 @@ export function useSettingsOnboardingModel({
   const busy = busyKey !== null;
   const isReadingCertificates = busyKey === "customer-renewal-bridge-probe";
   const setSettingsField = useCallback(
-    <K extends keyof SettingsFormState,>(field: K, value: SettingsFormState[K]) => {
-      settingsState.setSettingsForm((prev) =>
+    <K extends keyof SettingsOnboardingFields,>(
+      field: K,
+      value: SettingsOnboardingFields[K]
+    ) => {
+      settingsState.actions.setSettingsForm((prev) =>
         prev
           ? {
               ...prev,
@@ -87,7 +165,7 @@ export function useSettingsOnboardingModel({
           : prev
       );
     },
-    [settingsState.setSettingsForm]
+    [settingsState.actions]
   );
   const downloadHelper = useCallback(() => {
     window.location.assign(renewalHelperDownloadUrl);
@@ -98,45 +176,47 @@ export function useSettingsOnboardingModel({
       mailContent: (
         <SettingsMailOnboardingStep
           onboarding={onboarding.mail}
-          autosaveLabel={settingsState.settingsAutosaveLabel}
+          autosaveLabel={settingsState.autosaveLabel}
           detectedMailProviderLabel={settingsState.detectedMailProviderLabel}
-          mailAddress={settingsState.settingsForm.mailAddress}
-          mailPassword={settingsState.settingsForm.mailPassword}
-          notificationEmailsText={settingsState.settingsForm.notificationEmailsText}
-          mailPasswordConfigured={settingsState.mailPasswordConfigured}
+          mailAddress={settingsState.fields.mailAddress}
+          mailPassword={settingsState.fields.mailPassword}
+          notificationEmailsText={settingsState.fields.notificationEmailsText}
+          mailPasswordConfigured={settingsState.configured.mailPassword}
           mailPasswordReveal={orchestration.reveals.mailPassword}
           busy={busy}
           isMailTesting={isMailTesting}
-          onMailAddressChange={settingsState.handleSettingsMailAddressChange}
+          onMailAddressChange={
+            settingsState.actions.handleSettingsMailAddressChange
+          }
           onMailPasswordChange={(value) => setSettingsField("mailPassword", value)}
           onNotificationEmailsTextChange={(value) =>
             setSettingsField("notificationEmailsText", value)
           }
-          onRunMailSettingsTest={settingsState.runMailSettingsTest}
+          onRunMailSettingsTest={settingsState.actions.runMailSettingsTest}
         />
       ),
       defaultsContent: (
         <SettingsDefaultsOnboardingStep
           onboarding={onboarding.defaults}
           hasSavedDefaults={onboarding.hasSavedDefaults}
-          autosaveLabel={settingsState.settingsAutosaveLabel}
-          popbillUserIdPrefix={settingsState.settingsForm.popbillUserIdPrefix}
-          operatorContactName={settingsState.settingsForm.operatorContactName}
-          operatorContactTel={settingsState.settingsForm.operatorContactTel}
-          operatorContactEmail={settingsState.settingsForm.operatorContactEmail}
-          popbillSharedPassword={settingsState.settingsForm.popbillSharedPassword}
-          renewalIssuePassword={settingsState.settingsForm.renewalIssuePassword}
+          autosaveLabel={settingsState.autosaveLabel}
+          popbillUserIdPrefix={settingsState.fields.popbillUserIdPrefix}
+          operatorContactName={settingsState.fields.operatorContactName}
+          operatorContactTel={settingsState.fields.operatorContactTel}
+          operatorContactEmail={settingsState.fields.operatorContactEmail}
+          popbillSharedPassword={settingsState.fields.popbillSharedPassword}
+          renewalIssuePassword={settingsState.fields.renewalIssuePassword}
           renewalCertificatePassword={
-            settingsState.settingsForm.renewalCertificatePassword
+            settingsState.fields.renewalCertificatePassword
           }
           popbillSharedPasswordConfigured={
-            settingsState.popbillSharedPasswordConfigured
+            settingsState.configured.popbillSharedPassword
           }
           renewalIssuePasswordConfigured={
-            settingsState.renewalIssuePasswordConfigured
+            settingsState.configured.renewalIssuePassword
           }
           renewalCertificatePasswordConfigured={
-            settingsState.renewalCertificatePasswordConfigured
+            settingsState.configured.renewalCertificatePassword
           }
           reveals={{
             popbillSharedPassword: orchestration.reveals.popbillSharedPassword,
@@ -161,65 +241,61 @@ export function useSettingsOnboardingModel({
             setSettingsField("popbillSharedPassword", value)
           }
           onRenewalIssuePasswordChange={
-            settingsState.handleSettingsRenewalIssuePasswordChange
+            settingsState.actions.handleSettingsRenewalIssuePasswordChange
           }
           onRenewalCertificatePasswordChange={(value) =>
             setSettingsField("renewalCertificatePassword", value)
           }
           onLoadCurrentPopbillSharedPassword={
-            settingsState.runLoadCurrentPopbillSharedPassword
+            settingsState.actions.runLoadCurrentPopbillSharedPassword
           }
           onLoadCurrentRenewalIssuePassword={
-            settingsState.runLoadCurrentRenewalIssuePassword
+            settingsState.actions.runLoadCurrentRenewalIssuePassword
           }
           onLoadCurrentRenewalCertificatePassword={
-            settingsState.runLoadCurrentRenewalCertificatePassword
+            settingsState.actions.runLoadCurrentRenewalCertificatePassword
           }
         />
       ),
       helperContent: (
         <SettingsHelperOnboardingStep
-          helperReady={helperReady}
-          helperUpgradeRequired={helperUpgradeRequired}
-          helperUpgradeAvailable={helperUpgradeAvailable}
-          helperActionBlockedReason={helperActionBlockedReason}
+          helperReady={helper.ready}
+          helperUpgradeRequired={helper.upgradeRequired}
+          helperUpgradeAvailable={helper.upgradeAvailable}
+          helperActionBlockedReason={helper.actionBlockedReason}
           helperStatusLine={onboarding.helperStatusLine}
-          helperOnline={helperOnline}
-          helperCheckedAt={helperCheckedAt}
-          helperCertificateCount={helperCertificateCount}
-          helperUpgradeMessage={helperUpgradeMessage}
-          helperLatestVersion={helperLatestVersion}
-          helperMinSupportedVersion={helperMinSupportedVersion}
+          helperOnline={helper.online}
+          helperCheckedAt={helper.checkedAt}
+          helperCertificateCount={helper.certificateCount}
+          helperUpgradeMessage={helper.upgradeMessage}
+          helperLatestVersion={helper.latestVersion}
+          helperMinSupportedVersion={helper.minSupportedVersion}
           busy={busy}
           isReadingCertificates={isReadingCertificates}
           onReadCertificates={runReadCertificates}
-          onRefreshHelper={settingsState.runRefreshCustomerRenewalAssistant}
+          onRefreshHelper={
+            settingsState.actions.runRefreshCustomerRenewalAssistant
+          }
           onDownloadHelper={downloadHelper}
           formatDateTime={formatDateTime}
         />
       )
     }),
     [
-      onboarding,
-      settingsState,
-      orchestration,
       busy,
-      isMailTesting,
-      helperReady,
-      helperUpgradeRequired,
-      helperUpgradeAvailable,
-      helperActionBlockedReason,
-      helperOnline,
-      helperCheckedAt,
-      helperCertificateCount,
-      helperUpgradeMessage,
-      helperLatestVersion,
-      helperMinSupportedVersion,
-      isReadingCertificates,
-      runReadCertificates,
       downloadHelper,
+      formatDateTime,
+      helper,
+      isMailTesting,
+      isReadingCertificates,
+      onboarding,
+      orchestration.reveals.mailPassword,
+      orchestration.reveals.popbillSharedPassword,
+      orchestration.reveals.renewalCertificatePassword,
+      orchestration.reveals.renewalIssuePassword,
+      runReadCertificates,
       setSettingsField,
-      formatDateTime
+      settingsState
     ]
   );
 }

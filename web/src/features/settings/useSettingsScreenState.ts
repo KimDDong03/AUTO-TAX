@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { api } from "../../api";
 import { supabase } from "../../supabase";
@@ -10,7 +10,15 @@ import {
   type PasswordChangeFormState
 } from "./settingsAccountTypes";
 import { normalizeRenewalIssuePasswordInput } from "./settingsFormUtils";
+import {
+  MAIL_PROVIDER_CONFIG,
+  buildMailSettingsSavePayload,
+  inferMailProviderFromAddress,
+  settingsToForm
+} from "./settingsFormPersistence";
+import { useSettingsFormPersistence } from "./useSettingsFormPersistence";
 import { useSettingsOrganizationMembers } from "./useSettingsOrganizationMembers";
+import { useSettingsStoredSecretLoaders } from "./useSettingsStoredSecretLoaders";
 
 export type MailProvider = "gmail" | "naver" | "daum";
 export type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
@@ -27,6 +35,11 @@ export {
   type SettingsAccountState
 } from "./settingsAccountTypes";
 export { normalizeRenewalIssuePasswordInput } from "./settingsFormUtils";
+export {
+  MAIL_PROVIDER_CONFIG,
+  inferMailProviderFromAddress,
+  settingsToForm
+} from "./settingsFormPersistence";
 
 export type SettingsFormState = {
   mailProvider: MailProvider;
@@ -64,51 +77,6 @@ export type SettingsHealth = {
   operatorReady: boolean;
 };
 
-export const MAIL_PROVIDER_CONFIG: Record<
-  MailProvider,
-  {
-    label: string;
-    imapHost: string;
-    imapPort: string;
-    imapSecure: boolean;
-    smtpHost: string;
-    smtpPort: string;
-    smtpSecure: boolean;
-    defaultMailbox: string;
-  }
-> = {
-  gmail: {
-    label: "Gmail",
-    imapHost: "imap.gmail.com",
-    imapPort: "993",
-    imapSecure: true,
-    smtpHost: "smtp.gmail.com",
-    smtpPort: "465",
-    smtpSecure: true,
-    defaultMailbox: "INBOX"
-  },
-  naver: {
-    label: "네이버 메일",
-    imapHost: "imap.naver.com",
-    imapPort: "993",
-    imapSecure: true,
-    smtpHost: "smtp.naver.com",
-    smtpPort: "587",
-    smtpSecure: false,
-    defaultMailbox: "INBOX"
-  },
-  daum: {
-    label: "다음 메일",
-    imapHost: "imap.daum.net",
-    imapPort: "993",
-    imapSecure: true,
-    smtpHost: "smtp.daum.net",
-    smtpPort: "465",
-    smtpSecure: true,
-    defaultMailbox: "INBOX"
-  }
-};
-
 export type UseSettingsScreenStateArgs = {
   activeOrganizationId: string | null;
   bootstrapOrganizationId: string | null;
@@ -135,184 +103,6 @@ export type UseSettingsScreenStateArgs = {
     options?: { title?: string; tone?: "default" | "warn" | "danger" | "success" }
   ) => Promise<void>;
 };
-
-function shouldShowPopbillPrefixPlaceholder(settings: AppSettings): boolean {
-  const normalizedPrefix = settings.popbillUserIdPrefix.trim().toUpperCase();
-  const isDefaultExample = normalizedPrefix === "" || normalizedPrefix === "TEST_" || normalizedPrefix === "HAE_";
-  const hasWorkspacePopbillValues =
-    settings.popbillSharedPasswordConfigured ||
-    Boolean(settings.operatorContactName.trim() || settings.operatorContactEmail.trim() || settings.operatorContactTel.trim());
-
-  return isDefaultExample && !hasWorkspacePopbillValues;
-}
-
-function inferMailProvider(settings: Pick<AppSettings, "imapHost" | "smtpHost">): MailProvider {
-  const imapHost = settings.imapHost.trim().toLowerCase();
-  const smtpHost = settings.smtpHost.trim().toLowerCase();
-
-  if (imapHost.includes("naver") || smtpHost.includes("naver")) return "naver";
-  if (imapHost.includes("daum") || smtpHost.includes("daum")) return "daum";
-  return "gmail";
-}
-
-export function inferMailProviderFromAddress(address: string, fallback: MailProvider = "gmail"): MailProvider {
-  const normalized = address.trim().toLowerCase();
-
-  if (!normalized.includes("@")) {
-    return fallback;
-  }
-
-  if (normalized.endsWith("@naver.com")) return "naver";
-  if (normalized.endsWith("@daum.net") || normalized.endsWith("@hanmail.net")) return "daum";
-  if (normalized.endsWith("@gmail.com")) return "gmail";
-
-  return fallback;
-}
-
-function withSelectedMailProviderSettings(form: SettingsFormState) {
-  const detectedProvider = inferMailProviderFromAddress(form.mailAddress, form.mailProvider);
-  const config = MAIL_PROVIDER_CONFIG[detectedProvider];
-  return {
-    ...form,
-    mailProvider: detectedProvider,
-    imapHost: config.imapHost,
-    imapPort: config.imapPort,
-    imapSecure: config.imapSecure,
-    imapMailbox: config.defaultMailbox,
-    smtpHost: config.smtpHost,
-    smtpPort: config.smtpPort,
-    smtpSecure: config.smtpSecure
-  };
-}
-
-export function settingsToForm(settings: AppSettings): SettingsFormState {
-  const detectedProvider = inferMailProviderFromAddress(
-    settings.imapUser || settings.smtpUser || settings.smtpFromEmail,
-    inferMailProvider(settings)
-  );
-  return {
-    mailProvider: detectedProvider,
-    imapHost: settings.imapHost,
-    imapPort: String(settings.imapPort),
-    imapSecure: settings.imapSecure,
-    mailAddress: settings.imapUser || settings.smtpUser || settings.smtpFromEmail,
-    mailPassword: "",
-    imapMailbox: settings.imapMailbox,
-    smtpHost: settings.smtpHost,
-    smtpPort: String(settings.smtpPort),
-    smtpSecure: settings.smtpSecure,
-    notificationEmailsText: settings.notificationEmails.join("\n"),
-    defaultIssueDay: String(settings.defaultIssueDay),
-    defaultIssueHour: String(settings.defaultIssueHour),
-    defaultIssueMinute: String(settings.defaultIssueMinute),
-    mailPollMinutes: String(settings.mailPollMinutes),
-    mailSyncStartAt: "",
-    timezone: settings.timezone,
-    popbillUserIdPrefix: shouldShowPopbillPrefixPlaceholder(settings) ? "" : settings.popbillUserIdPrefix,
-    popbillSharedPassword: "",
-    operatorContactName: settings.operatorContactName,
-    operatorContactEmail: settings.operatorContactEmail,
-    operatorContactTel: settings.operatorContactTel,
-    renewalContactDepartment: settings.renewalContactDepartment,
-    renewalContactFax: settings.renewalContactFax,
-    renewalCertificatePassword: "",
-    renewalIssuePassword: "",
-    schedulerEnabled: settings.schedulerEnabled
-  };
-}
-
-function buildSettingsPayload(form: SettingsFormState) {
-  const normalized = withSelectedMailProviderSettings(form);
-  const renewalIssuePassword = normalizeRenewalIssuePasswordInput(normalized.renewalIssuePassword);
-  return {
-    normalized,
-    payload: {
-      imapHost: normalized.imapHost.trim(),
-      imapPort: Number(normalized.imapPort || 0),
-      imapSecure: normalized.imapSecure,
-      imapUser: normalized.mailAddress.trim(),
-      imapPass: normalized.mailPassword.trim(),
-      imapMailbox: normalized.imapMailbox.trim() || MAIL_PROVIDER_CONFIG[normalized.mailProvider].defaultMailbox,
-      smtpHost: normalized.smtpHost.trim(),
-      smtpPort: Number(normalized.smtpPort || 0),
-      smtpSecure: normalized.smtpSecure,
-      smtpUser: normalized.mailAddress.trim(),
-      smtpPass: normalized.mailPassword.trim(),
-      smtpFromEmail: normalized.mailAddress.trim(),
-      notificationEmails: normalized.notificationEmailsText
-        .split(/\r?\n/)
-        .map((value) => value.trim())
-        .filter(Boolean),
-      defaultIssueDay: Number(normalized.defaultIssueDay || 0),
-      defaultIssueHour: Number(normalized.defaultIssueHour || 0),
-      defaultIssueMinute: Number(normalized.defaultIssueMinute || 0),
-      mailPollMinutes: Number(normalized.mailPollMinutes || 0),
-      timezone: normalized.timezone.trim(),
-      popbillUserIdPrefix: normalized.popbillUserIdPrefix.trim(),
-      popbillSharedPassword: normalized.popbillSharedPassword.trim(),
-      operatorContactName: normalized.operatorContactName.trim(),
-      operatorContactEmail: normalized.operatorContactEmail.trim(),
-      operatorContactTel: normalized.operatorContactTel.trim(),
-      renewalContactDepartment: normalized.renewalContactDepartment.trim(),
-      renewalContactFax: normalized.renewalContactFax.trim(),
-      renewalCertificatePassword: normalized.renewalCertificatePassword,
-      renewalIssuePassword,
-      schedulerEnabled: normalized.schedulerEnabled
-    }
-  };
-}
-
-function buildMailSettingsSavePayload(form: SettingsFormState, savedSettings: AppSettings | null) {
-  const { normalized, payload } = buildSettingsPayload(form);
-  if (!savedSettings) {
-    return { normalized, payload };
-  }
-
-  return {
-    normalized,
-    payload: {
-      ...payload,
-      popbillUserIdPrefix: savedSettings.popbillUserIdPrefix,
-      popbillSharedPassword: "",
-      operatorContactName: savedSettings.operatorContactName,
-      operatorContactEmail: savedSettings.operatorContactEmail,
-      operatorContactTel: savedSettings.operatorContactTel,
-      renewalContactDepartment: savedSettings.renewalContactDepartment,
-      renewalContactFax: savedSettings.renewalContactFax,
-      renewalCertificatePassword: "",
-      renewalIssuePassword: ""
-    }
-  };
-}
-
-function getSettingsPayloadSignature(form: SettingsFormState) {
-  return JSON.stringify(buildSettingsPayload(form).payload);
-}
-
-function canAutosaveSettings(form: SettingsFormState) {
-  const { payload } = buildSettingsPayload(form);
-  const isFiniteInteger = (value: number) => Number.isInteger(value) && Number.isFinite(value);
-
-  return (
-    isFiniteInteger(payload.imapPort) &&
-    payload.imapPort >= 1 &&
-    isFiniteInteger(payload.smtpPort) &&
-    payload.smtpPort >= 1 &&
-    isFiniteInteger(payload.defaultIssueDay) &&
-    payload.defaultIssueDay >= 1 &&
-    payload.defaultIssueDay <= 31 &&
-    isFiniteInteger(payload.defaultIssueHour) &&
-    payload.defaultIssueHour >= 0 &&
-    payload.defaultIssueHour <= 23 &&
-    isFiniteInteger(payload.defaultIssueMinute) &&
-    payload.defaultIssueMinute >= 0 &&
-    payload.defaultIssueMinute <= 59 &&
-    isFiniteInteger(payload.mailPollMinutes) &&
-    payload.mailPollMinutes >= 1 &&
-    payload.mailPollMinutes <= 1440 &&
-    (payload.renewalIssuePassword === "" || /^\d{6}$/.test(payload.renewalIssuePassword))
-  );
-}
 
 type InternalSettingsAccountState = SettingsAccountState & {
   resetAccountState: () => void;
@@ -436,33 +226,27 @@ export function useSettingsScreenState({
     showAlert,
     showConfirm
   });
-  const [savedSettingsState, setSavedSettingsState] = useState<AppSettings | null>(null);
-  const [settingsFormState, setSettingsFormState] = useState<SettingsFormState | null>(null);
-  const [settingsAutosaveState, setSettingsAutosaveState] = useState<SettingsAutosaveState>("idle");
-  const settingsAutosaveBaselineRef = useRef("");
   const isBootstrapReadyForActiveOrganization =
     activeOrganizationId !== null &&
     activeOrganizationId === bootstrapOrganizationId &&
     bootstrapSettings !== null;
-  const savedSettings =
-    savedSettingsState ?? (isBootstrapReadyForActiveOrganization ? bootstrapSettings : null);
-  const settingsForm = settingsFormState ?? (savedSettings ? settingsToForm(savedSettings) : null);
   const publicAccount: SettingsAccountState = account;
-
-  const setSettingsForm = useCallback<Dispatch<SetStateAction<SettingsFormState | null>>>(
-    (nextState) => {
-      setSettingsFormState((prev) => {
-        const baseState = prev ?? settingsForm;
-        if (typeof nextState === "function") {
-          return (
-            nextState as (previousState: SettingsFormState | null) => SettingsFormState | null
-          )(baseState);
-        }
-        return nextState;
-      });
-    },
-    [settingsForm]
-  );
+  const {
+    savedSettings,
+    settingsForm,
+    setSettingsForm,
+    settingsAutosaveState,
+    settingsAutosaveLabel,
+    detectedMailProviderLabel,
+    applySavedSettings,
+    applySettingsFormBaseline
+  } = useSettingsFormPersistence({
+    currentUserId,
+    isBootstrapReadyForActiveOrganization,
+    bootstrapSettings,
+    busyKey,
+    setGlobalError
+  });
 
   const settingsHealth = useMemo<SettingsHealth>(
     () => ({
@@ -478,53 +262,13 @@ export function useSettingsScreenState({
     [savedSettings]
   );
 
-  const applySavedSettings = useCallback(
-    (
-      nextSavedSettings: AppSettings,
-      options?: {
-        syncForm?: boolean;
-        baselineForm?: SettingsFormState | null;
-      }
-    ) => {
-      const baselineForm = options?.baselineForm ?? settingsToForm(nextSavedSettings);
-      setSavedSettingsState(nextSavedSettings);
-      if (options?.syncForm !== false) {
-        setSettingsFormState(baselineForm);
-      }
-      settingsAutosaveBaselineRef.current = baselineForm ? getSettingsPayloadSignature(baselineForm) : "";
-      setSettingsAutosaveState("saved");
-    },
-    []
-  );
-
-  const resetSettingsFormState = useCallback(() => {
-    setSavedSettingsState(null);
-    setSettingsFormState(null);
-    settingsAutosaveBaselineRef.current = "";
-    setSettingsAutosaveState("idle");
-  }, []);
-
   useEffect(() => {
     if (currentUserId !== null) {
       return;
     }
 
-    resetSettingsFormState();
     account.resetAccountState();
-  }, [account.resetAccountState, currentUserId, resetSettingsFormState]);
-
-  useEffect(() => {
-    if (!isBootstrapReadyForActiveOrganization || !bootstrapSettings) {
-      resetSettingsFormState();
-      return;
-    }
-
-    applySavedSettings(bootstrapSettings);
-  }, [applySavedSettings, bootstrapSettings, isBootstrapReadyForActiveOrganization, resetSettingsFormState]);
-
-  const detectedMailProviderLabel = settingsForm
-    ? MAIL_PROVIDER_CONFIG[inferMailProviderFromAddress(settingsForm.mailAddress, settingsForm.mailProvider)].label
-    : MAIL_PROVIDER_CONFIG.gmail.label;
+  }, [account.resetAccountState, currentUserId]);
 
   const settingsSections = useMemo<
     Array<{ id: SettingsSectionId; step: number; title: string; done: boolean; summary: string }>
@@ -589,68 +333,17 @@ export function useSettingsScreenState({
         ? "helper"
         : "account";
   const nextSettingsSection = settingsSections.find((section) => !section.done)?.id ?? "account";
-  const settingsAutosaveLabel =
-    settingsAutosaveState === "saving"
-      ? "자동 저장 중"
-      : settingsAutosaveState === "error"
-        ? "저장 실패"
-        : settingsAutosaveState === "pending"
-          ? "저장 대기"
-          : "자동 저장";
-
-  const fetchStoredRenewalCertificatePassword = useCallback(async () => {
-    const result = await api<{ password: string }>("/api/settings/renewal-certificate-password");
-    return result.password.trim();
-  }, []);
-
-  const fetchStoredRenewalIssuePassword = useCallback(async () => {
-    const result = await api<{ password: string }>("/api/settings/renewal-issue-password");
-    return normalizeRenewalIssuePasswordInput(result.password.trim());
-  }, []);
-
-  const loadCurrentPopbillSharedPassword = useCallback(async () => {
-    if (!settingsForm) return;
-    const result = await api<{ password: string }>("/api/settings/popbill-shared-password");
-    const nextForm = { ...settingsForm, popbillSharedPassword: result.password };
-    settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
-    setSettingsAutosaveState("saved");
-    setSettingsForm(nextForm);
-    revealField("popbillSharedPassword");
-  }, [revealField, setSettingsForm, settingsForm]);
-
-  const loadCurrentRenewalCertificatePassword = useCallback(async () => {
-    if (!settingsForm) return;
-    const password = await fetchStoredRenewalCertificatePassword();
-    onRenewalCertificatePasswordChange(password);
-    const nextForm = { ...settingsForm, renewalCertificatePassword: password };
-    settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
-    setSettingsAutosaveState("saved");
-    setSettingsForm(nextForm);
-    revealField("renewalCertificatePassword");
-  }, [
-    fetchStoredRenewalCertificatePassword,
+  const {
+    loadCurrentPopbillSharedPassword,
+    loadCurrentRenewalCertificatePassword,
+    loadCurrentRenewalIssuePassword
+  } = useSettingsStoredSecretLoaders({
+    settingsForm,
+    applySettingsFormBaseline,
+    revealField,
     onRenewalCertificatePasswordChange,
-    revealField,
-    setSettingsForm,
-    settingsForm
-  ]);
-
-  const loadCurrentRenewalIssuePassword = useCallback(async () => {
-    if (!settingsForm) return;
-    const password = await fetchStoredRenewalIssuePassword();
-    onRenewalIssuePasswordChange(password);
-    const nextForm = { ...settingsForm, renewalIssuePassword: password };
-    settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
-    setSettingsAutosaveState("saved");
-    setSettingsForm(nextForm);
-    revealField("renewalIssuePassword");
-  }, [
-    fetchStoredRenewalIssuePassword,
-    onRenewalIssuePasswordChange,
-    revealField,
-    setSettingsForm,
-    settingsForm
-  ]);
+    onRenewalIssuePasswordChange
+  });
 
   const handleSettingsRenewalIssuePasswordChange = useCallback(
     (nextValue: string) => {
@@ -740,74 +433,47 @@ export function useSettingsScreenState({
     );
   }, [applySavedSettings, savedSettings, settingsForm, showAlert]);
 
+  const runSettingsAction = useCallback(
+    async (key: string, action: () => Promise<void>) =>
+      runAction(key, action, { reload: false }),
+    [runAction]
+  );
   const runMailSettingsTest = useCallback(
-    async () => runAction("mail-test", testMailSettings, { reload: false }),
-    [runAction, testMailSettings]
+    async () => runSettingsAction("mail-test", testMailSettings),
+    [runSettingsAction, testMailSettings]
   );
   const runLoadCurrentPopbillSharedPassword = useCallback(
-    async () => runAction("load-popbill-shared-password", loadCurrentPopbillSharedPassword, { reload: false }),
-    [loadCurrentPopbillSharedPassword, runAction]
+    async () =>
+      runSettingsAction(
+        "load-popbill-shared-password",
+        loadCurrentPopbillSharedPassword
+      ),
+    [loadCurrentPopbillSharedPassword, runSettingsAction]
   );
   const runLoadCurrentRenewalCertificatePassword = useCallback(
     async () =>
-      runAction("load-renewal-certificate-password", loadCurrentRenewalCertificatePassword, { reload: false }),
-    [loadCurrentRenewalCertificatePassword, runAction]
+      runSettingsAction(
+        "load-renewal-certificate-password",
+        loadCurrentRenewalCertificatePassword
+      ),
+    [loadCurrentRenewalCertificatePassword, runSettingsAction]
   );
   const runLoadCurrentRenewalIssuePassword = useCallback(
-    async () => runAction("load-renewal-issue-password", loadCurrentRenewalIssuePassword, { reload: false }),
-    [loadCurrentRenewalIssuePassword, runAction]
+    async () =>
+      runSettingsAction(
+        "load-renewal-issue-password",
+        loadCurrentRenewalIssuePassword
+      ),
+    [loadCurrentRenewalIssuePassword, runSettingsAction]
   );
   const runRefreshCustomerRenewalAssistant = useCallback(
     async () =>
-      runAction("refresh-customer-renewal-helper", refreshCustomerRenewalAssistant, { reload: false }),
-    [refreshCustomerRenewalAssistant, runAction]
+      runSettingsAction(
+        "refresh-customer-renewal-helper",
+        refreshCustomerRenewalAssistant
+      ),
+    [refreshCustomerRenewalAssistant, runSettingsAction]
   );
-
-  useEffect(() => {
-    if (!settingsForm) {
-      return;
-    }
-
-    const signature = getSettingsPayloadSignature(settingsForm);
-
-    if (!settingsAutosaveBaselineRef.current) {
-      settingsAutosaveBaselineRef.current = signature;
-      setSettingsAutosaveState("saved");
-      return;
-    }
-
-    if (signature === settingsAutosaveBaselineRef.current) {
-      setSettingsAutosaveState((prev) => (prev === "error" ? prev : "saved"));
-      return;
-    }
-
-    setSettingsAutosaveState("pending");
-
-    if (busyKey !== null || !canAutosaveSettings(settingsForm)) {
-      return;
-    }
-
-    const timerId = window.setTimeout(async () => {
-      try {
-        setSettingsAutosaveState("saving");
-        setGlobalError("");
-        const { payload } = buildSettingsPayload(settingsForm);
-        const nextSavedSettings = await api<AppSettings>("/api/settings", {
-          method: "PUT",
-          body: JSON.stringify(payload)
-        });
-        applySavedSettings(nextSavedSettings, {
-          syncForm: false,
-          baselineForm: settingsForm
-        });
-      } catch (saveError) {
-        setSettingsAutosaveState("error");
-        setGlobalError(saveError instanceof Error ? saveError.message : "설정 자동 저장에 실패했습니다.");
-      }
-    }, 700);
-
-    return () => window.clearTimeout(timerId);
-  }, [applySavedSettings, busyKey, setGlobalError, settingsForm]);
 
   return {
     savedSettings,

@@ -2,9 +2,8 @@ import type React from "react";
 import { Panel, RevealIcon, SetupPanel } from "../../components/ui";
 import { AccountPasswordPanel } from "./AccountPasswordPanel";
 import type { SettingsFeatureOrchestration } from "./createSettingsActionAdapters";
+import { SettingsOrganizationMembersPanel } from "./SettingsOrganizationMembersPanel";
 import type {
-  OrganizationMemberFormState,
-  PasswordResetFormState,
   SettingsAccountState,
   SettingsAutosaveState,
   SettingsFormState,
@@ -21,14 +20,6 @@ function updateNullableObjectField<T extends Record<string, unknown>, K extends 
   value: T[K]
 ) {
   setState((prev) => (prev ? { ...prev, [field]: value } : prev));
-}
-
-function updateObjectField<T extends Record<string, unknown>, K extends keyof T>(
-  setState: React.Dispatch<React.SetStateAction<T>>,
-  field: K,
-  value: T[K]
-) {
-  setState((prev) => ({ ...prev, [field]: value }));
 }
 
 export type SettingsTabModel = {
@@ -90,14 +81,6 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
     field: K,
     value: SettingsFormState[K]
   ) => updateNullableObjectField(props.setSettingsForm, field, value);
-  const setPasswordResetField = <K extends keyof PasswordResetFormState>(
-    field: K,
-    value: PasswordResetFormState[K]
-  ) => updateObjectField(props.account.setPasswordResetForm, field, value);
-  const setOrganizationMemberField = <K extends keyof OrganizationMemberFormState>(
-    field: K,
-    value: OrganizationMemberFormState[K]
-  ) => updateObjectField(props.account.setOrganizationMemberForm, field, value);
   const nextSettingsSection = props.settingsSections.find((section) => !section.done)?.id ?? "account";
   const nextSettingsSectionLabel = getSettingsSectionLabel(nextSettingsSection);
   const helperUpgradeNotice =
@@ -585,124 +568,16 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
               onSubmit={() => actions.changePassword(props.account.changePassword)}
             />
 
-            <Panel
-              title="작업공간 사용자 관리"
-              subtitle={props.account.canManageOrganizationMembers ? "내부 사용자 관리" : "권한 없음"}
-              actions={props.account.canManageOrganizationMembers ? <button onClick={() => void actions.createOrganizationMember(props.account.createOrganizationMember)}>사용자 추가</button> : null}
-            >
-              {props.account.canManageOrganizationMembers ? (
-                <>
-                  <div className="helper-box workspace-member-summary">
-                    <strong>현재 사용자 {props.account.organizationMembers.length}명</strong>
-                    <span>owner는 제거할 수 없습니다.</span>
-                  </div>
-
-                  <div className="workspace-member-create-box">
-                    <div className="workspace-member-create-grid">
-                      <label>
-                        로그인 아이디
-                        <input value={props.account.organizationMemberForm.loginId} onChange={(event) => setOrganizationMemberField("loginId", event.target.value)} placeholder="예: team01" />
-                      </label>
-                      <label>
-                        이름
-                        <input value={props.account.organizationMemberForm.displayName} onChange={(event) => setOrganizationMemberField("displayName", event.target.value)} placeholder="표시 이름" />
-                      </label>
-                      <label>
-                        임시 비밀번호
-                        <div className="password-field">
-                          <input type={reveals.organizationMemberPassword.visible ? "text" : "password"} value={props.account.organizationMemberForm.password} onChange={(event) => setOrganizationMemberField("password", event.target.value)} placeholder="새 계정이면 8자 이상" />
-                          <button type="button" className="password-toggle" aria-label={reveals.organizationMemberPassword.visible ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"} onClick={reveals.organizationMemberPassword.toggle}>
-                            <RevealIcon open={reveals.organizationMemberPassword.visible} />
-                          </button>
-                        </div>
-                      </label>
-                    </div>
-                    <div className="workspace-member-create-note">
-                      <span>기존 아이디면 멤버 연결</span>
-                      <span>새 아이디면 임시 비밀번호 8자 이상</span>
-                    </div>
-                  </div>
-
-                  <div className="workspace-member-list">
-                    {props.account.organizationMemberItems.length > 0 ? (
-                      props.account.organizationMemberItems.map((item) => {
-                        const { member, canRemove, canResetPassword, isCurrentUser, isOwner, isResetTarget, roleLabel } = item;
-
-                        return (
-                          <article key={member.membershipId} className="workspace-member-card">
-                            <div className="workspace-member-card-head">
-                              <div>
-                                <strong>{member.displayName || member.loginId || "이름 없음"}</strong>
-                                <span>{member.loginId || "로그인 아이디 없음"}</span>
-                              </div>
-                              <span className={isOwner ? "chip chip-success" : "chip"}>{roleLabel}</span>
-                            </div>
-                            <div className="workspace-member-card-meta">
-                              <span>등록일 {props.formatDateTime(member.createdAt)}</span>
-                              {isCurrentUser ? <span>현재 로그인 계정</span> : null}
-                            </div>
-                            <div className="workspace-member-card-actions">
-                              {canResetPassword ? (
-                                <button className="btn-secondary" disabled={props.busyKey !== null} onClick={() => props.account.openMemberPasswordReset(member)}>
-                                  임시 비밀번호 재설정
-                                </button>
-                              ) : null}
-                              {canRemove ? (
-                                <button className="btn-secondary btn-danger" disabled={props.busyKey !== null} onClick={() => void actions.removeOrganizationMember(member.membershipId, async () => props.account.removeOrganizationMember(member))}>
-                                  제거
-                                </button>
-                              ) : (
-                                <span className="field-hint">{isOwner ? "owner 계정 비밀번호는 플랫폼 관리자 탭에서 재설정합니다." : "현재 로그인한 계정입니다."}</span>
-                              )}
-                            </div>
-                            {isResetTarget ? (
-                              <div className="helper-box-stack inline-password-reset">
-                                <strong>{member.loginId ?? "선택한 사용자"} 임시 비밀번호 재설정</strong>
-                                <div className="form-grid">
-                                  <label>
-                                    새 임시 비밀번호
-                                    <div className="password-field">
-                                      <input type={reveals.memberResetPassword.nextPassword.visible ? "text" : "password"} value={props.account.passwordResetForm.nextPassword} onChange={(event) => setPasswordResetField("nextPassword", event.target.value)} placeholder="8자 이상 입력" />
-                                      <button type="button" className="password-toggle" aria-label={reveals.memberResetPassword.nextPassword.visible ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"} onClick={reveals.memberResetPassword.nextPassword.toggle}>
-                                        <RevealIcon open={reveals.memberResetPassword.nextPassword.visible} />
-                                      </button>
-                                    </div>
-                                  </label>
-                                  <label>
-                                    새 임시 비밀번호 확인
-                                    <div className="password-field">
-                                      <input type={reveals.memberResetPassword.confirmPassword.visible ? "text" : "password"} value={props.account.passwordResetForm.confirmPassword} onChange={(event) => setPasswordResetField("confirmPassword", event.target.value)} placeholder="한 번 더 입력" />
-                                      <button type="button" className="password-toggle" aria-label={reveals.memberResetPassword.confirmPassword.visible ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"} onClick={reveals.memberResetPassword.confirmPassword.toggle}>
-                                        <RevealIcon open={reveals.memberResetPassword.confirmPassword.visible} />
-                                      </button>
-                                    </div>
-                                  </label>
-                                </div>
-                                <div className="button-row">
-                                  <button onClick={() => void actions.resetOrganizationMemberPassword(member.membershipId, props.account.submitMemberPasswordReset)}>
-                                    임시 비밀번호 저장
-                                  </button>
-                                  <button type="button" className="btn-secondary" onClick={props.account.cancelPasswordReset}>
-                                    취소
-                                  </button>
-                                </div>
-                              </div>
-                            ) : null}
-                          </article>
-                        );
-                      })
-                    ) : (
-                      <div className="empty">등록된 작업공간 사용자가 없습니다.</div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="helper-box-stack">
-                  <strong>사용자 관리 권한 없음</strong>
-                  <span>owner만 내부 사용자를 관리할 수 있습니다.</span>
-                </div>
-              )}
-            </Panel>
+            <SettingsOrganizationMembersPanel
+              account={props.account}
+              actions={actions}
+              reveals={{
+                organizationMemberPassword: reveals.organizationMemberPassword,
+                memberResetPassword: reveals.memberResetPassword
+              }}
+              busyKey={props.busyKey}
+              formatDateTime={props.formatDateTime}
+            />
           </div>
         ) : null}
       </div>

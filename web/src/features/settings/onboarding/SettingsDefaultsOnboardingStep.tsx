@@ -1,231 +1,14 @@
-import { RevealIcon } from "../../components/ui";
-import type { SettingsFeatureRevealAdapters } from "./createSettingsActionAdapters";
-import type { SettingsOnboardingModel } from "./useSettingsDerivedModel";
-
-function getOnboardingRequiredFieldClassName(hasError: boolean) {
-  return hasError
-    ? "onboarding-required-field is-missing"
-    : "onboarding-required-field";
-}
-
-function getOnboardingRequiredLabelClassName(hasError: boolean) {
-  return hasError
-    ? "onboarding-required-label is-missing"
-    : "onboarding-required-label";
-}
-
-function getOnboardingRequiredInputClassName(hasError: boolean) {
-  return hasError
-    ? "onboarding-required-input is-missing"
-    : "onboarding-required-input";
-}
-
-function getOnboardingRequiredHintClassName(hasError: boolean) {
-  return hasError
-    ? "field-hint onboarding-required-hint is-missing"
-    : "field-hint onboarding-required-hint";
-}
-
-function renderOnboardingRequiredHint(
-  hintId: string,
-  options: {
-    missing: boolean;
-    invalid?: boolean;
-    invalidText?: string;
-    defaultText?: string;
-  }
-) {
-  const hasError = options.missing || Boolean(options.invalid);
-  const hintText = options.missing
-    ? "필수 입력 사항입니다."
-    : options.invalid
-      ? options.invalidText
-      : options.defaultText;
-
-  if (!hintText) {
-    return null;
-  }
-
-  return (
-    <span id={hintId} className={getOnboardingRequiredHintClassName(hasError)}>
-      {hintText}
-    </span>
-  );
-}
-
-type SettingsMailOnboardingStepProps = {
-  onboarding: SettingsOnboardingModel["mail"];
-  autosaveLabel: string;
-  detectedMailProviderLabel: string;
-  mailAddress: string;
-  mailPassword: string;
-  notificationEmailsText: string;
-  mailPasswordConfigured: boolean;
-  mailPasswordReveal: SettingsFeatureRevealAdapters["mailPassword"];
-  busy: boolean;
-  isMailTesting: boolean;
-  onMailAddressChange: (value: string) => void;
-  onMailPasswordChange: (value: string) => void;
-  onNotificationEmailsTextChange: (value: string) => void;
-  onRunMailSettingsTest: () => Promise<void>;
-};
-
-export function SettingsMailOnboardingStep({
-  onboarding,
-  autosaveLabel,
-  detectedMailProviderLabel,
-  mailAddress,
-  mailPassword,
-  notificationEmailsText,
-  mailPasswordConfigured,
-  mailPasswordReveal,
-  busy,
-  isMailTesting,
-  onMailAddressChange,
-  onMailPasswordChange,
-  onNotificationEmailsTextChange,
-  onRunMailSettingsTest
-}: SettingsMailOnboardingStepProps) {
-  return (
-    <div className="onboarding-step-body">
-      <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
-          <strong>{onboarding.headline}</strong>
-          <p>지금은 연결만 확인합니다.</p>
-        </div>
-
-        <div className="onboarding-inline-status">
-          <div>
-            <span>자동 저장</span>
-            <strong>{autosaveLabel}</strong>
-          </div>
-          <div>
-            <span>메일 서비스</span>
-            <strong>{detectedMailProviderLabel}</strong>
-          </div>
-          <div>
-            <span>테스트 의미</span>
-            <strong>연결만 확인</strong>
-          </div>
-        </div>
-
-        <div className="onboarding-field-grid">
-          <label
-            className={getOnboardingRequiredFieldClassName(onboarding.address.hasError)}
-            data-required-empty={onboarding.address.missing ? "true" : undefined}
-          >
-            <span
-              className={getOnboardingRequiredLabelClassName(
-                onboarding.address.hasError
-              )}
-            >
-              메일 주소
-            </span>
-            <input
-              type="email"
-              className={getOnboardingRequiredInputClassName(onboarding.address.hasError)}
-              placeholder="example@mail.com"
-              value={mailAddress}
-              aria-invalid={onboarding.address.hasError || undefined}
-              aria-describedby="onboarding-mail-address-hint"
-              onChange={(event) => onMailAddressChange(event.target.value)}
-            />
-            {renderOnboardingRequiredHint("onboarding-mail-address-hint", {
-              missing: onboarding.address.missing,
-              invalid: onboarding.address.invalid,
-              invalidText: "메일 형식이 올바르지 않습니다.",
-              defaultText:
-                "한전 메일을 읽고 알림 메일을 보낼 때 함께 사용할 계정입니다."
-            })}
-          </label>
-          <label
-            className={getOnboardingRequiredFieldClassName(onboarding.password.hasError)}
-            data-required-empty={onboarding.password.missing ? "true" : undefined}
-          >
-            <span
-              className={getOnboardingRequiredLabelClassName(
-                onboarding.password.hasError
-              )}
-            >
-              앱 비밀번호
-            </span>
-            <div
-              className={
-                onboarding.password.hasError
-                  ? "password-field onboarding-password-field is-missing"
-                  : "password-field onboarding-password-field"
-              }
-            >
-              <input
-                className={getOnboardingRequiredInputClassName(
-                  onboarding.password.hasError
-                )}
-                type={mailPasswordReveal.visible ? "text" : "password"}
-                value={mailPassword}
-                aria-invalid={onboarding.password.hasError || undefined}
-                aria-describedby="onboarding-mail-password-hint"
-                onChange={(event) => onMailPasswordChange(event.target.value)}
-                placeholder={
-                  mailPasswordConfigured
-                    ? "변경할 때만 다시 입력"
-                    : "앱 비밀번호 입력"
-                }
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                aria-label={
-                  mailPasswordReveal.visible
-                    ? "앱 비밀번호 숨기기"
-                    : "앱 비밀번호 보기"
-                }
-                onClick={mailPasswordReveal.toggle}
-              >
-                <RevealIcon open={mailPasswordReveal.visible} />
-              </button>
-            </div>
-            {renderOnboardingRequiredHint("onboarding-mail-password-hint", {
-              missing: onboarding.password.missing,
-              defaultText: mailPasswordConfigured
-                ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 시 빈칸이면 저장된 값을 사용합니다."
-                : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다."
-            })}
-          </label>
-        </div>
-
-        <div className="button-row onboarding-primary-row">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void onRunMailSettingsTest()}
-          >
-            {isMailTesting ? "연결 테스트 중..." : "메일 연결 테스트"}
-          </button>
-        </div>
-      </section>
-
-      <details className="settings-advanced-panel">
-        <summary>알림 메일 / 추가 설정은 나중에 보기</summary>
-        <div className="onboarding-secondary-stack">
-          <label>
-            알림 수신 메일
-            <textarea
-              rows={4}
-              value={notificationEmailsText}
-              onChange={(event) =>
-                onNotificationEmailsTextChange(event.target.value)
-              }
-            />
-            <span className="field-hint">
-              파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나
-              쉼표로 구분합니다.
-            </span>
-          </label>
-        </div>
-      </details>
-    </div>
-  );
-}
+import React from "react";
+import { RevealIcon } from "../../../components/ui";
+import type { SettingsFeatureRevealAdapters } from "../createSettingsActionAdapters";
+import type { SettingsOnboardingModel } from "../useSettingsDerivedModel";
+import {
+  getOnboardingPasswordFieldClassName,
+  getOnboardingRequiredFieldClassName,
+  getOnboardingRequiredInputClassName,
+  getOnboardingRequiredLabelClassName,
+  renderOnboardingRequiredHint
+} from "./settingsOnboardingFieldUi";
 
 type SettingsDefaultsOnboardingStepProps = {
   onboarding: SettingsOnboardingModel["defaults"];
@@ -446,11 +229,9 @@ export function SettingsDefaultsOnboardingStep({
                 신규 고객 기본 비밀번호
               </span>
               <div
-                className={
+                className={getOnboardingPasswordFieldClassName(
                   onboarding.popbillSharedPassword.hasError
-                    ? "password-field onboarding-password-field is-missing"
-                    : "password-field onboarding-password-field"
-                }
+                )}
               >
                 <input
                   className={getOnboardingRequiredInputClassName(
@@ -510,11 +291,9 @@ export function SettingsDefaultsOnboardingStep({
                 공동인증서 발급용 임시번호
               </span>
               <div
-                className={
+                className={getOnboardingPasswordFieldClassName(
                   onboarding.renewalIssuePassword.hasError
-                    ? "password-field onboarding-password-field is-missing"
-                    : "password-field onboarding-password-field"
-                }
+                )}
               >
                 <input
                   className={getOnboardingRequiredInputClassName(
@@ -651,148 +430,6 @@ export function SettingsDefaultsOnboardingStep({
           </div>
         </details>
       ) : null}
-    </div>
-  );
-}
-
-type SettingsHelperOnboardingStepProps = {
-  helperReady: boolean;
-  helperUpgradeRequired: boolean;
-  helperUpgradeAvailable: boolean;
-  helperActionBlockedReason: string;
-  helperStatusLine: string;
-  helperOnline: boolean;
-  helperCheckedAt: string | null;
-  helperCertificateCount: number;
-  helperUpgradeMessage: string | null;
-  helperLatestVersion: string | null;
-  helperMinSupportedVersion: string | null;
-  busy: boolean;
-  isReadingCertificates: boolean;
-  onReadCertificates: () => Promise<void>;
-  onRefreshHelper: () => Promise<void>;
-  onDownloadHelper: () => void;
-  formatDateTime: (value: string | null) => string;
-};
-
-export function SettingsHelperOnboardingStep({
-  helperReady,
-  helperUpgradeRequired,
-  helperUpgradeAvailable,
-  helperActionBlockedReason,
-  helperStatusLine,
-  helperOnline,
-  helperCheckedAt,
-  helperCertificateCount,
-  helperUpgradeMessage,
-  helperLatestVersion,
-  helperMinSupportedVersion,
-  busy,
-  isReadingCertificates,
-  onReadCertificates,
-  onRefreshHelper,
-  onDownloadHelper,
-  formatDateTime
-}: SettingsHelperOnboardingStepProps) {
-  return (
-    <div className="onboarding-step-body">
-      <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
-          <strong>
-            {helperReady
-              ? "공동인증서 확인 완료"
-              : helperUpgradeRequired
-                ? "헬퍼를 다시 설치하세요."
-                : helperUpgradeAvailable
-                  ? "업데이트 후 다시 확인해 두세요."
-                  : helperOnline
-                    ? "공동인증서를 읽으세요."
-                    : "헬퍼를 먼저 실행하세요."}
-          </strong>
-          <p>{helperStatusLine}</p>
-        </div>
-
-        <div className="onboarding-inline-status">
-          <div>
-            <span>헬퍼 상태</span>
-            <strong>{helperOnline ? "연결됨" : "연결 안 됨"}</strong>
-          </div>
-          <div>
-            <span>읽은 공동인증서</span>
-            <strong>{helperCertificateCount}건</strong>
-          </div>
-          <div>
-            <span>마지막 확인</span>
-            <strong>{formatDateTime(helperCheckedAt)}</strong>
-          </div>
-        </div>
-
-        <div className="button-row onboarding-primary-row">
-          <button
-            type="button"
-            disabled={busy || !helperOnline || helperUpgradeRequired}
-            title={
-              helperUpgradeRequired
-                ? helperActionBlockedReason
-                : helperOnline
-                  ? undefined
-                  : "먼저 헬퍼를 설치하고 실행한 뒤 아래 보조 영역에서 상태를 다시 확인하세요."
-            }
-            onClick={() => void onReadCertificates()}
-          >
-            {isReadingCertificates ? "공동인증서 읽는 중..." : "공동인증서 읽기"}
-          </button>
-        </div>
-        {helperUpgradeRequired || helperUpgradeAvailable ? (
-          <div className="helper-box-stack settings-install-guide">
-            <strong>
-              {helperUpgradeRequired ? "헬퍼 재설치 필요" : "헬퍼 업데이트 권장"}
-            </strong>
-            <span>{helperUpgradeMessage}</span>
-            {helperLatestVersion ? <span>최신 버전: v{helperLatestVersion}</span> : null}
-            {helperMinSupportedVersion ? (
-              <span>최소 지원 버전: v{helperMinSupportedVersion}</span>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
-
-      <details className="settings-advanced-panel">
-        <summary>상태 다시 확인 / 설치 안내 / 다운로드는 필요할 때만 보기</summary>
-        <div className="helper-box-stack settings-install-guide">
-          <strong>문제 해결과 보조 작업</strong>
-          <div className="button-row">
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={busy}
-              onClick={() => void onRefreshHelper()}
-            >
-              상태 다시 확인
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={onDownloadHelper}
-            >
-              헬퍼 다운로드
-            </button>
-          </div>
-          <span>
-            고객 PC에서는 <code>renewal-local-helper</code> 압축을 푼 뒤{" "}
-            <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
-          </span>
-          <span>
-            설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시
-            실행됩니다.
-          </span>
-          <span>
-            문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>,{" "}
-            <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code>{" "}
-            바로가기로 확인할 수 있습니다.
-          </span>
-        </div>
-      </details>
     </div>
   );
 }

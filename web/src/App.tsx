@@ -35,7 +35,10 @@ import {
   useSettingsScreenState
 } from "./features/settings/useSettingsScreenState";
 import { useSettingsDerivedModel } from "./features/settings/useSettingsDerivedModel";
-import { useSettingsOnboardingModel } from "./features/settings/useSettingsOnboardingModel";
+import {
+  selectSettingsOnboardingState,
+  useSettingsOnboardingModel
+} from "./features/settings/useSettingsOnboardingModel";
 import {
   deriveCustomerCertificateKind,
   findCandidateCustomersForCertificate,
@@ -5325,47 +5328,26 @@ export function App() {
   const onboardingImportableCount =
     (customerOnboardingPreview?.createCount ?? 0) + (customerOnboardingPreview?.updateCount ?? 0);
   const onboardingBlockedCount = customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
+  const settingsOnboardingState =
+    selectSettingsOnboardingState(settingsScreenState);
   const settingsOnboardingContent = useSettingsOnboardingModel({
-    settingsState: {
-      settingsForm: settingsForm!,
-      settingsAutosaveLabel: settingsScreenState.settingsAutosaveLabel,
-      detectedMailProviderLabel: settingsScreenState.detectedMailProviderLabel,
-      mailPasswordConfigured: settingsScreenState.mailPasswordConfigured,
-      popbillSharedPasswordConfigured:
-        settingsScreenState.popbillSharedPasswordConfigured,
-      renewalCertificatePasswordConfigured:
-        settingsScreenState.renewalCertificatePasswordConfigured,
-      renewalIssuePasswordConfigured:
-        settingsScreenState.renewalIssuePasswordConfigured,
-      setSettingsForm: settingsScreenState.setSettingsForm,
-      handleSettingsMailAddressChange:
-        settingsScreenState.handleSettingsMailAddressChange,
-      handleSettingsRenewalIssuePasswordChange:
-        settingsScreenState.handleSettingsRenewalIssuePasswordChange,
-      runMailSettingsTest: settingsScreenState.runMailSettingsTest,
-      runLoadCurrentPopbillSharedPassword:
-        settingsScreenState.runLoadCurrentPopbillSharedPassword,
-      runLoadCurrentRenewalCertificatePassword:
-        settingsScreenState.runLoadCurrentRenewalCertificatePassword,
-      runLoadCurrentRenewalIssuePassword:
-        settingsScreenState.runLoadCurrentRenewalIssuePassword,
-      runRefreshCustomerRenewalAssistant:
-        settingsScreenState.runRefreshCustomerRenewalAssistant
-    },
+    settingsState: settingsOnboardingState,
     onboarding: settingsOnboardingModel,
     orchestration: settingsFeatureOrchestration,
     busyKey,
     isMailTesting,
-    helperReady,
-    helperUpgradeRequired,
-    helperUpgradeAvailable,
-    helperActionBlockedReason,
-    helperOnline: customerRenewalAssistant?.agentOnline ?? false,
-    helperCheckedAt: customerRenewalAssistant?.helperCheckedAt ?? null,
-    helperCertificateCount: customerRenewalAssistantAllCertificates.length,
-    helperUpgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
-    helperLatestVersion: customerRenewalAssistant?.latestVersion ?? null,
-    helperMinSupportedVersion: customerRenewalAssistant?.minSupportedVersion ?? null,
+    helper: {
+      ready: helperReady,
+      upgradeRequired: helperUpgradeRequired,
+      upgradeAvailable: helperUpgradeAvailable,
+      actionBlockedReason: helperActionBlockedReason,
+      online: customerRenewalAssistant?.agentOnline ?? false,
+      checkedAt: customerRenewalAssistant?.helperCheckedAt ?? null,
+      certificateCount: customerRenewalAssistantAllCertificates.length,
+      upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
+      latestVersion: customerRenewalAssistant?.latestVersion ?? null,
+      minSupportedVersion: customerRenewalAssistant?.minSupportedVersion ?? null
+    },
     renewalHelperDownloadUrl,
     runReadCertificates: async () =>
       runAction(
