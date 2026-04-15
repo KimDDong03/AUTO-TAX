@@ -1,12 +1,84 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { api } from "../../api";
-import type { AppSettings } from "../../types";
+import { supabase } from "../../supabase";
+import type { AppSettings, OrganizationMemberSummary } from "../../types";
 import type { LocalRenewalHelperUpgradeState } from "../../helper-version";
 
 export type MailProvider = "gmail" | "naver" | "daum";
 export type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
 export type SettingsAutosaveState = "idle" | "pending" | "saving" | "saved" | "error";
+export type PasswordChangeFormState = {
+  nextPassword: string;
+  confirmPassword: string;
+};
+export type PasswordResetFormState = {
+  nextPassword: string;
+  confirmPassword: string;
+};
+export type MemberPasswordResetTarget = {
+  kind: "member";
+  membershipId: string;
+  loginId: string | null;
+  displayName: string | null;
+};
+export type OrganizationMemberFormState = {
+  loginId: string;
+  displayName: string;
+  password: string;
+};
+export type SettingsOrganizationMemberItem = {
+  member: OrganizationMemberSummary;
+  roleLabel: string;
+  isCurrentUser: boolean;
+  isOwner: boolean;
+  canRemove: boolean;
+  canResetPassword: boolean;
+  isResetTarget: boolean;
+};
+export type SettingsAccountState = {
+  canManageOrganizationMembers: boolean;
+  organizationMembers: OrganizationMemberSummary[];
+  organizationMemberItems: SettingsOrganizationMemberItem[];
+  passwordChangeForm: PasswordChangeFormState;
+  passwordResetForm: PasswordResetFormState;
+  passwordResetTarget: MemberPasswordResetTarget | null;
+  organizationMemberForm: OrganizationMemberFormState;
+  setPasswordChangeForm: Dispatch<SetStateAction<PasswordChangeFormState>>;
+  setPasswordResetForm: Dispatch<SetStateAction<PasswordResetFormState>>;
+  setOrganizationMemberForm: Dispatch<SetStateAction<OrganizationMemberFormState>>;
+  syncOrganizationMembers: (members: OrganizationMemberSummary[]) => void;
+  resetOrganizationMemberState: () => void;
+  resetAccountState: () => void;
+  changePassword: () => Promise<void>;
+  createOrganizationMember: () => Promise<void>;
+  openMemberPasswordReset: (member: OrganizationMemberSummary) => void;
+  removeOrganizationMember: (member: OrganizationMemberSummary) => Promise<void>;
+  submitMemberPasswordReset: () => Promise<void>;
+  cancelPasswordReset: () => void;
+};
+
+export function createEmptyPasswordChangeForm(): PasswordChangeFormState {
+  return {
+    nextPassword: "",
+    confirmPassword: ""
+  };
+}
+
+export function createEmptyPasswordResetForm(): PasswordResetFormState {
+  return {
+    nextPassword: "",
+    confirmPassword: ""
+  };
+}
+
+export function createEmptyOrganizationMemberForm(): OrganizationMemberFormState {
+  return {
+    loginId: "",
+    displayName: "",
+    password: ""
+  };
+}
 
 export type SettingsFormState = {
   mailProvider: MailProvider;
@@ -91,6 +163,7 @@ export const MAIL_PROVIDER_CONFIG: Record<
 
 export type UseSettingsScreenStateArgs = {
   busyKey: string | null;
+  currentUserId: string | null;
   canManageOrganizationMembers: boolean;
   helperReady: boolean;
   helperCertificateCount: number;
@@ -98,11 +171,14 @@ export type UseSettingsScreenStateArgs = {
   customerRenewalAssistantUpgradeState: LocalRenewalHelperUpgradeState;
   setGlobalError: (message: string) => void;
   revealField: (fieldKey: string) => void;
-  onSavedSettingsChange: (savedSettings: AppSettings) => void;
   onRenewalCertificatePasswordChange: (password: string) => void;
   onRenewalIssuePasswordChange: (password: string) => void;
   refreshCustomerRenewalAssistant: () => Promise<void>;
   runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
+  showConfirm: (
+    message: string,
+    options?: { title?: string; tone?: "default" | "warn" | "danger"; confirmLabel?: string }
+  ) => Promise<boolean>;
   showAlert: (
     message: string,
     options?: { title?: string; tone?: "default" | "warn" | "danger" | "success" }
@@ -291,8 +367,232 @@ function canAutosaveSettings(form: SettingsFormState) {
   );
 }
 
+function getWorkspaceMemberRoleLabel(role: OrganizationMemberSummary["role"]): string {
+  return role === "owner" ? "owner" : "member";
+}
+
+function useSettingsAccountState({
+  currentUserId,
+  canManageOrganizationMembers,
+  showAlert,
+  showConfirm
+}: Pick<
+  UseSettingsScreenStateArgs,
+  "currentUserId" | "canManageOrganizationMembers" | "showAlert" | "showConfirm"
+>): SettingsAccountState {
+  const [passwordChangeForm, setPasswordChangeForm] = useState<PasswordChangeFormState>(
+    createEmptyPasswordChangeForm
+  );
+  const [passwordResetForm, setPasswordResetForm] = useState<PasswordResetFormState>(
+    createEmptyPasswordResetForm
+  );
+  const [passwordResetTarget, setPasswordResetTarget] =
+    useState<MemberPasswordResetTarget | null>(null);
+  const [organizationMembers, setOrganizationMembers] = useState<OrganizationMemberSummary[]>([]);
+  const [organizationMemberForm, setOrganizationMemberForm] =
+    useState<OrganizationMemberFormState>(createEmptyOrganizationMemberForm);
+
+  const syncOrganizationMembers = useCallback(
+    (members: OrganizationMemberSummary[]) => {
+      setOrganizationMembers(members);
+    },
+    []
+  );
+
+  const cancelPasswordReset = useCallback(() => {
+    setPasswordResetTarget(null);
+    setPasswordResetForm(createEmptyPasswordResetForm());
+  }, []);
+
+  const resetOrganizationMemberState = useCallback(() => {
+    setOrganizationMembers([]);
+    setOrganizationMemberForm(createEmptyOrganizationMemberForm());
+    cancelPasswordReset();
+  }, [cancelPasswordReset]);
+
+  const resetAccountState = useCallback(() => {
+    setPasswordChangeForm(createEmptyPasswordChangeForm());
+    resetOrganizationMemberState();
+  }, [resetOrganizationMemberState]);
+
+  useEffect(() => {
+    if (!canManageOrganizationMembers) {
+      resetOrganizationMemberState();
+    }
+  }, [canManageOrganizationMembers, resetOrganizationMemberState]);
+
+  const changePassword = useCallback(async () => {
+    const nextPassword = passwordChangeForm.nextPassword.trim();
+    const confirmPassword = passwordChangeForm.confirmPassword.trim();
+
+    if (nextPassword.length < 8) {
+      throw new Error("새 비밀번호는 8자 이상으로 입력하세요.");
+    }
+
+    if (nextPassword !== confirmPassword) {
+      throw new Error("새 비밀번호와 확인 값이 일치하지 않습니다.");
+    }
+
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: nextPassword
+    });
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    setPasswordChangeForm(createEmptyPasswordChangeForm());
+    await showAlert("비밀번호를 변경했습니다.", {
+      title: "비밀번호 변경 완료",
+      tone: "success"
+    });
+  }, [passwordChangeForm, showAlert]);
+
+  const openMemberPasswordReset = useCallback((member: OrganizationMemberSummary) => {
+    setPasswordResetTarget({
+      kind: "member",
+      membershipId: member.membershipId,
+      loginId: member.loginId,
+      displayName: member.displayName
+    });
+    setPasswordResetForm(createEmptyPasswordResetForm());
+  }, []);
+
+  const submitMemberPasswordReset = useCallback(async () => {
+    if (!passwordResetTarget) {
+      throw new Error("비밀번호를 재설정할 대상을 먼저 선택하세요.");
+    }
+
+    const nextPassword = passwordResetForm.nextPassword.trim();
+    const confirmPassword = passwordResetForm.confirmPassword.trim();
+
+    if (nextPassword.length < 8) {
+      throw new Error("임시 비밀번호는 8자 이상으로 입력하세요.");
+    }
+
+    if (nextPassword !== confirmPassword) {
+      throw new Error("임시 비밀번호와 확인 값이 일치하지 않습니다.");
+    }
+
+    const result = await api<{ ok: true; loginId: string | null }>(
+      `/api/organization/members/${passwordResetTarget.membershipId}/reset-password`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          password: nextPassword
+        })
+      }
+    );
+
+    await showAlert(`${result.loginId ?? "선택한 사용자"}의 임시 비밀번호를 재설정했습니다.`, {
+      title: "임시 비밀번호 재설정",
+      tone: "success"
+    });
+    cancelPasswordReset();
+  }, [cancelPasswordReset, passwordResetForm, passwordResetTarget, showAlert]);
+
+  const createOrganizationMember = useCallback(async () => {
+    const result = await api<{
+      members: OrganizationMemberSummary[];
+      memberAction: "linked-existing-user" | "created-user";
+    }>("/api/organization/members", {
+      method: "POST",
+      body: JSON.stringify({
+        loginId: organizationMemberForm.loginId.trim(),
+        displayName: organizationMemberForm.displayName.trim(),
+        password: organizationMemberForm.password
+      })
+    });
+
+    setOrganizationMembers(result.members);
+    setOrganizationMemberForm(createEmptyOrganizationMemberForm());
+    await showAlert(
+      result.memberAction === "created-user"
+        ? "새 사용자 계정을 만들고 작업공간 멤버로 연결했습니다."
+        : "기존 사용자 계정을 작업공간 멤버로 연결했습니다.",
+      {
+        title: "사용자 추가 완료",
+        tone: "success"
+      }
+    );
+  }, [organizationMemberForm, showAlert]);
+
+  const removeOrganizationMember = useCallback(
+    async (member: OrganizationMemberSummary) => {
+      const confirmed = await showConfirm(
+        `${member.loginId ?? "선택한 사용자"}를 이 작업공간에서 제거할까요?`,
+        {
+          title: "작업공간 사용자 제거",
+          tone: "danger",
+          confirmLabel: "제거하기"
+        }
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      const result = await api<{ ok: true; members: OrganizationMemberSummary[] }>(
+        `/api/organization/members/${member.membershipId}`,
+        {
+          method: "DELETE"
+        }
+      );
+
+      setOrganizationMembers(result.members);
+      if (passwordResetTarget?.membershipId === member.membershipId) {
+        cancelPasswordReset();
+      }
+    },
+    [cancelPasswordReset, passwordResetTarget?.membershipId, showConfirm]
+  );
+
+  const organizationMemberItems = useMemo<SettingsOrganizationMemberItem[]>(
+    () =>
+      organizationMembers.map((member) => {
+        const isCurrentUser = member.userId === currentUserId;
+        const isOwner = member.role === "owner";
+        return {
+          member,
+          roleLabel: getWorkspaceMemberRoleLabel(member.role),
+          isCurrentUser,
+          isOwner,
+          canRemove: !isOwner && !isCurrentUser,
+          canResetPassword: !isOwner,
+          isResetTarget: passwordResetTarget?.membershipId === member.membershipId
+        };
+      }),
+    [currentUserId, organizationMembers, passwordResetTarget?.membershipId]
+  );
+
+  return {
+    canManageOrganizationMembers,
+    organizationMembers,
+    organizationMemberItems,
+    passwordChangeForm,
+    passwordResetForm,
+    passwordResetTarget,
+    organizationMemberForm,
+    setPasswordChangeForm:
+      setPasswordChangeForm as Dispatch<SetStateAction<PasswordChangeFormState>>,
+    setPasswordResetForm:
+      setPasswordResetForm as Dispatch<SetStateAction<PasswordResetFormState>>,
+    setOrganizationMemberForm:
+      setOrganizationMemberForm as Dispatch<SetStateAction<OrganizationMemberFormState>>,
+    syncOrganizationMembers,
+    resetOrganizationMemberState,
+    resetAccountState,
+    changePassword,
+    createOrganizationMember,
+    openMemberPasswordReset,
+    removeOrganizationMember,
+    submitMemberPasswordReset,
+    cancelPasswordReset
+  };
+}
+
 export function useSettingsScreenState({
   busyKey,
+  currentUserId,
   canManageOrganizationMembers,
   helperReady,
   helperCertificateCount,
@@ -300,13 +600,19 @@ export function useSettingsScreenState({
   customerRenewalAssistantUpgradeState,
   setGlobalError,
   revealField,
-  onSavedSettingsChange,
   onRenewalCertificatePasswordChange,
   onRenewalIssuePasswordChange,
   refreshCustomerRenewalAssistant,
   runAction,
+  showConfirm,
   showAlert
 }: UseSettingsScreenStateArgs) {
+  const account = useSettingsAccountState({
+    currentUserId,
+    canManageOrganizationMembers,
+    showAlert,
+    showConfirm
+  });
   const [savedSettings, setSavedSettings] = useState<AppSettings | null>(null);
   const [settingsForm, setSettingsForm] = useState<SettingsFormState | null>(null);
   const [settingsAutosaveState, setSettingsAutosaveState] = useState<SettingsAutosaveState>("idle");
@@ -341,24 +647,28 @@ export function useSettingsScreenState({
       }
       settingsAutosaveBaselineRef.current = baselineForm ? getSettingsPayloadSignature(baselineForm) : "";
       setSettingsAutosaveState("saved");
-      onSavedSettingsChange(nextSavedSettings);
     },
-    [onSavedSettingsChange]
+    []
   );
 
-  const resetSettingsState = useCallback(() => {
+  const resetSettingsFormState = useCallback(() => {
     setSavedSettings(null);
     setSettingsForm(null);
     settingsAutosaveBaselineRef.current = "";
     setSettingsAutosaveState("idle");
   }, []);
 
-  const hydrateSettings = useCallback(
+  const syncBootstrapSettings = useCallback(
     (nextSavedSettings: AppSettings) => {
       applySavedSettings(nextSavedSettings);
     },
     [applySavedSettings]
   );
+
+  const resetSettingsState = useCallback(() => {
+    resetSettingsFormState();
+    account.resetAccountState();
+  }, [account.resetAccountState, resetSettingsFormState]);
 
   const detectedMailProviderLabel = settingsForm
     ? MAIL_PROVIDER_CONFIG[inferMailProviderFromAddress(settingsForm.mailAddress, settingsForm.mailProvider)].label
@@ -648,9 +958,10 @@ export function useSettingsScreenState({
     popbillSharedPasswordConfigured: savedSettings?.popbillSharedPasswordConfigured ?? false,
     renewalCertificatePasswordConfigured: savedSettings?.renewalCertificatePasswordConfigured ?? false,
     renewalIssuePasswordConfigured: savedSettings?.renewalIssuePasswordConfigured ?? false,
-    hydrateSettings,
+    syncBootstrapSettings,
     resetSettingsState,
     applySavedSettings,
+    account,
     handleSettingsMailAddressChange,
     handleSettingsRenewalIssuePasswordChange,
     testMailSettings,

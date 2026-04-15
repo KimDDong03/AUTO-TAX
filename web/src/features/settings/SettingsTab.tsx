@@ -1,6 +1,6 @@
 import type React from "react";
 import { Panel, RevealIcon, SetupPanel } from "../../components/ui";
-import type { OrganizationMemberSummary } from "../../types";
+import type { SettingsAccountState } from "./useSettingsScreenState";
 
 type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
 export type SettingsTabModel = {
@@ -37,18 +37,9 @@ export type SettingsTabModel = {
   customerRenewalLoadedCertificateCount: number;
   renewalHelperDownloadUrl: string;
   detectedMailProviderLabel: string;
-  canManageOrganizationMembers: boolean;
-  organizationMembers: OrganizationMemberSummary[];
-  currentUserId: string | null;
-  passwordResetTarget: any;
-  passwordChangeForm: any;
-  passwordResetForm: any;
-  organizationMemberForm: any;
+  account: SettingsAccountState;
   setActiveSettingsSection: React.Dispatch<React.SetStateAction<SettingsSectionId>>;
   setSettingsForm: React.Dispatch<React.SetStateAction<any>>;
-  setPasswordChangeForm: React.Dispatch<React.SetStateAction<any>>;
-  setPasswordResetForm: React.Dispatch<React.SetStateAction<any>>;
-  setOrganizationMemberForm: React.Dispatch<React.SetStateAction<any>>;
   onMailAddressChange: (value: string) => void;
   onRenewalIssuePasswordChange: (value: string) => void;
   toggleRevealField: (fieldKey: string) => void;
@@ -58,14 +49,7 @@ export type SettingsTabModel = {
   runLoadCurrentRenewalIssuePassword: () => Promise<void>;
   runRefreshCustomerRenewalAssistant: () => Promise<void>;
   openCertificates: () => void;
-  changePassword: () => Promise<void>;
-  createOrganizationMember: () => Promise<void>;
-  openMemberPasswordReset: (member: OrganizationMemberSummary) => void;
-  removeOrganizationMember: (member: OrganizationMemberSummary) => Promise<void>;
-  submitPasswordReset: () => Promise<void>;
-  cancelPasswordReset: () => void;
   runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
-  getWorkspaceMemberRoleLabel: (role: OrganizationMemberSummary["role"]) => string;
   formatDateTime: (value: string | null) => string;
 };
 
@@ -562,13 +546,23 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
             <Panel
               title="비밀번호 변경"
               subtitle="현재 계정"
-              actions={<button onClick={() => void props.runAction("change-password", props.changePassword, { reload: false })}>비밀번호 변경</button>}
+              actions={
+                <button
+                  onClick={() =>
+                    void props.runAction("change-password", props.account.changePassword, {
+                      reload: false
+                    })
+                  }
+                >
+                  비밀번호 변경
+                </button>
+              }
             >
               <div className="form-grid">
                 <label>
                   새 비밀번호
                   <div className="password-field">
-                    <input type={props.revealedFields.nextPassword ? "text" : "password"} value={props.passwordChangeForm.nextPassword} onChange={(event) => props.setPasswordChangeForm((prev: any) => ({ ...prev, nextPassword: event.target.value }))} placeholder="8자 이상 입력" />
+                    <input type={props.revealedFields.nextPassword ? "text" : "password"} value={props.account.passwordChangeForm.nextPassword} onChange={(event) => props.account.setPasswordChangeForm((prev) => ({ ...prev, nextPassword: event.target.value }))} placeholder="8자 이상 입력" />
                     <button type="button" className="password-toggle" aria-label={props.revealedFields.nextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"} onClick={() => props.toggleRevealField("nextPassword")}>
                       <RevealIcon open={Boolean(props.revealedFields.nextPassword)} />
                     </button>
@@ -577,7 +571,7 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
                 <label>
                   새 비밀번호 확인
                   <div className="password-field">
-                    <input type={props.revealedFields.confirmPassword ? "text" : "password"} value={props.passwordChangeForm.confirmPassword} onChange={(event) => props.setPasswordChangeForm((prev: any) => ({ ...prev, confirmPassword: event.target.value }))} placeholder="한 번 더 입력" />
+                    <input type={props.revealedFields.confirmPassword ? "text" : "password"} value={props.account.passwordChangeForm.confirmPassword} onChange={(event) => props.account.setPasswordChangeForm((prev) => ({ ...prev, confirmPassword: event.target.value }))} placeholder="한 번 더 입력" />
                     <button type="button" className="password-toggle" aria-label={props.revealedFields.confirmPassword ? "비밀번호 확인 숨기기" : "비밀번호 확인 보기"} onClick={() => props.toggleRevealField("confirmPassword")}>
                       <RevealIcon open={Boolean(props.revealedFields.confirmPassword)} />
                     </button>
@@ -589,13 +583,13 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
 
             <Panel
               title="작업공간 사용자 관리"
-              subtitle={props.canManageOrganizationMembers ? "내부 사용자 관리" : "권한 없음"}
-              actions={props.canManageOrganizationMembers ? <button onClick={() => void props.runAction("create-organization-member", props.createOrganizationMember, { reload: false })}>사용자 추가</button> : null}
+              subtitle={props.account.canManageOrganizationMembers ? "내부 사용자 관리" : "권한 없음"}
+              actions={props.account.canManageOrganizationMembers ? <button onClick={() => void props.runAction("create-organization-member", props.account.createOrganizationMember, { reload: false })}>사용자 추가</button> : null}
             >
-              {props.canManageOrganizationMembers ? (
+              {props.account.canManageOrganizationMembers ? (
                 <>
                   <div className="helper-box workspace-member-summary">
-                    <strong>현재 사용자 {props.organizationMembers.length}명</strong>
+                    <strong>현재 사용자 {props.account.organizationMembers.length}명</strong>
                     <span>owner는 제거할 수 없습니다.</span>
                   </div>
 
@@ -603,16 +597,16 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
                     <div className="workspace-member-create-grid">
                       <label>
                         로그인 아이디
-                        <input value={props.organizationMemberForm.loginId} onChange={(event) => props.setOrganizationMemberForm((prev: any) => ({ ...prev, loginId: event.target.value }))} placeholder="예: team01" />
+                        <input value={props.account.organizationMemberForm.loginId} onChange={(event) => props.account.setOrganizationMemberForm((prev) => ({ ...prev, loginId: event.target.value }))} placeholder="예: team01" />
                       </label>
                       <label>
                         이름
-                        <input value={props.organizationMemberForm.displayName} onChange={(event) => props.setOrganizationMemberForm((prev: any) => ({ ...prev, displayName: event.target.value }))} placeholder="표시 이름" />
+                        <input value={props.account.organizationMemberForm.displayName} onChange={(event) => props.account.setOrganizationMemberForm((prev) => ({ ...prev, displayName: event.target.value }))} placeholder="표시 이름" />
                       </label>
                       <label>
                         임시 비밀번호
                         <div className="password-field">
-                          <input type={props.revealedFields.organizationMemberPassword ? "text" : "password"} value={props.organizationMemberForm.password} onChange={(event) => props.setOrganizationMemberForm((prev: any) => ({ ...prev, password: event.target.value }))} placeholder="새 계정이면 8자 이상" />
+                          <input type={props.revealedFields.organizationMemberPassword ? "text" : "password"} value={props.account.organizationMemberForm.password} onChange={(event) => props.account.setOrganizationMemberForm((prev) => ({ ...prev, password: event.target.value }))} placeholder="새 계정이면 8자 이상" />
                           <button type="button" className="password-toggle" aria-label={props.revealedFields.organizationMemberPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"} onClick={() => props.toggleRevealField("organizationMemberPassword")}>
                             <RevealIcon open={Boolean(props.revealedFields.organizationMemberPassword)} />
                           </button>
@@ -626,13 +620,9 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
                   </div>
 
                   <div className="workspace-member-list">
-                    {props.organizationMembers.length > 0 ? (
-                      props.organizationMembers.map((member) => {
-                        const isCurrentUser = member.userId === props.currentUserId;
-                        const isOwner = member.role === "owner";
-                        const canRemove = !isOwner && !isCurrentUser;
-                        const canResetPassword = !isOwner;
-                        const isResetTarget = props.passwordResetTarget?.kind === "member" && props.passwordResetTarget.membershipId === member.membershipId;
+                    {props.account.organizationMemberItems.length > 0 ? (
+                      props.account.organizationMemberItems.map((item) => {
+                        const { member, canRemove, canResetPassword, isCurrentUser, isOwner, isResetTarget, roleLabel } = item;
 
                         return (
                           <article key={member.membershipId} className="workspace-member-card">
@@ -641,7 +631,7 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
                                 <strong>{member.displayName || member.loginId || "이름 없음"}</strong>
                                 <span>{member.loginId || "로그인 아이디 없음"}</span>
                               </div>
-                              <span className={isOwner ? "chip chip-success" : "chip"}>{props.getWorkspaceMemberRoleLabel(member.role)}</span>
+                              <span className={isOwner ? "chip chip-success" : "chip"}>{roleLabel}</span>
                             </div>
                             <div className="workspace-member-card-meta">
                               <span>등록일 {props.formatDateTime(member.createdAt)}</span>
@@ -649,12 +639,12 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
                             </div>
                             <div className="workspace-member-card-actions">
                               {canResetPassword ? (
-                                <button className="btn-secondary" disabled={props.busyKey !== null} onClick={() => props.openMemberPasswordReset(member)}>
+                                <button className="btn-secondary" disabled={props.busyKey !== null} onClick={() => props.account.openMemberPasswordReset(member)}>
                                   임시 비밀번호 재설정
                                 </button>
                               ) : null}
                               {canRemove ? (
-                                <button className="btn-secondary btn-danger" disabled={props.busyKey !== null} onClick={() => void props.runAction(`remove-organization-member-${member.membershipId}`, async () => props.removeOrganizationMember(member), { reload: false })}>
+                                <button className="btn-secondary btn-danger" disabled={props.busyKey !== null} onClick={() => void props.runAction(`remove-organization-member-${member.membershipId}`, async () => props.account.removeOrganizationMember(member), { reload: false })}>
                                   제거
                                 </button>
                               ) : (
@@ -668,7 +658,7 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
                                   <label>
                                     새 임시 비밀번호
                                     <div className="password-field">
-                                      <input type={props.revealedFields.memberResetNextPassword ? "text" : "password"} value={props.passwordResetForm.nextPassword} onChange={(event) => props.setPasswordResetForm((prev: any) => ({ ...prev, nextPassword: event.target.value }))} placeholder="8자 이상 입력" />
+                                      <input type={props.revealedFields.memberResetNextPassword ? "text" : "password"} value={props.account.passwordResetForm.nextPassword} onChange={(event) => props.account.setPasswordResetForm((prev) => ({ ...prev, nextPassword: event.target.value }))} placeholder="8자 이상 입력" />
                                       <button type="button" className="password-toggle" aria-label={props.revealedFields.memberResetNextPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"} onClick={() => props.toggleRevealField("memberResetNextPassword")}>
                                         <RevealIcon open={Boolean(props.revealedFields.memberResetNextPassword)} />
                                       </button>
@@ -677,7 +667,7 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
                                   <label>
                                     새 임시 비밀번호 확인
                                     <div className="password-field">
-                                      <input type={props.revealedFields.memberResetConfirmPassword ? "text" : "password"} value={props.passwordResetForm.confirmPassword} onChange={(event) => props.setPasswordResetForm((prev: any) => ({ ...prev, confirmPassword: event.target.value }))} placeholder="한 번 더 입력" />
+                                      <input type={props.revealedFields.memberResetConfirmPassword ? "text" : "password"} value={props.account.passwordResetForm.confirmPassword} onChange={(event) => props.account.setPasswordResetForm((prev) => ({ ...prev, confirmPassword: event.target.value }))} placeholder="한 번 더 입력" />
                                       <button type="button" className="password-toggle" aria-label={props.revealedFields.memberResetConfirmPassword ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"} onClick={() => props.toggleRevealField("memberResetConfirmPassword")}>
                                         <RevealIcon open={Boolean(props.revealedFields.memberResetConfirmPassword)} />
                                       </button>
@@ -685,10 +675,10 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
                                   </label>
                                 </div>
                                 <div className="button-row">
-                                  <button onClick={() => void props.runAction(`reset-member-password-${member.membershipId}`, props.submitPasswordReset, { reload: false })}>
+                                  <button onClick={() => void props.runAction(`reset-member-password-${member.membershipId}`, props.account.submitMemberPasswordReset, { reload: false })}>
                                     임시 비밀번호 저장
                                   </button>
-                                  <button type="button" className="btn-secondary" onClick={props.cancelPasswordReset}>
+                                  <button type="button" className="btn-secondary" onClick={props.account.cancelPasswordReset}>
                                     취소
                                   </button>
                                 </div>

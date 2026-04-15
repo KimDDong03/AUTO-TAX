@@ -86,6 +86,46 @@ export function buildLocalRenewalBridgeJob(
   };
 }
 
+export function buildLocalRenewalPreflightJob(
+  certificate: RenewalAgentCertificate,
+  result: RenewalAutomationPayload["jobs"][number]["result"]
+): RenewalJob {
+  const requestedAt = new Date().toISOString();
+  const preflightProbe = result?.bridge.preflightProbe;
+  const certificateLabel = certificate.cn || `인증서 #${certificate.index}`;
+  const summary =
+    preflightProbe?.ok === true
+      ? preflightProbe.renewInfoSnapshot
+        ? `${certificateLabel} 고객 초안 정보를 읽었습니다.`
+        : `${certificateLabel} 고객 초안 정보를 읽지 못했습니다.`
+      : `${certificateLabel} 정보 읽기에 실패했습니다.`;
+  const error =
+    preflightProbe?.ok === true
+      ? null
+      : preflightProbe?.error ??
+        result?.bridge.selectionProbe.error ??
+        preflightProbe?.message ??
+        "공동인증서 정보 읽기에 실패했습니다.";
+
+  return {
+    id: nextLocalRenewalJobId(),
+    type: "renewal-preflight",
+    status: preflightProbe?.ok === true ? "completed" : "failed",
+    customerId: null,
+    customerName: null,
+    certificateIndex: Number(certificate.index),
+    certificateCn: certificate.cn || null,
+    requestedAt,
+    claimedAt: requestedAt,
+    finishedAt: requestedAt,
+    requestedBy: "localhost-helper",
+    claimedBy: "localhost-helper",
+    summary,
+    error,
+    result
+  };
+}
+
 export function getCustomerRenewalAssistantReleaseMetadata(
   current?: CustomerRenewalAssistantData | null
 ) {

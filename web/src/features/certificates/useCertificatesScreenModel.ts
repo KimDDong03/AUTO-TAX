@@ -1,6 +1,14 @@
 import { useMemo } from "react";
 import type { Customer, CustomerCertificate, CustomerCertificateKind, RenewalBridgePreflightProbe } from "../../types";
 import type { RenewalAgentCertificate, RenewalJob } from "../renewal/useRenewalAssistantState";
+import {
+  deriveCustomerCertificateKind,
+  findCandidateCustomersForCertificate,
+  findLocalCertificateForStoredCustomerCertificate,
+  findStoredCustomerCertificateForLocalCertificate,
+  formatCustomerRenewalStatus,
+  getLatestRenewalPreflightProbeForCertificate
+} from "../renewal/customerRenewalCertificateUtils";
 
 export type CustomerCertificateCandidateView = {
   key: string;
@@ -36,27 +44,6 @@ export type UseCertificatesScreenModelArgs = {
   customerRenewalAssistantOnline: boolean;
   customerRenewalAssistantJobs: RenewalJob[];
   customerRenewalAssistantAllCertificates: RenewalAgentCertificate[];
-  deriveCustomerCertificateKind: (certificate: Pick<RenewalAgentCertificate, "usageToName">) => CustomerCertificateKind;
-  findLocalCertificateForStoredCustomerCertificate: (
-    storedCertificate: CustomerCertificate,
-    certificates: RenewalAgentCertificate[]
-  ) => RenewalAgentCertificate | null;
-  findStoredCustomerCertificateForLocalCertificate: (
-    certificate: RenewalAgentCertificate,
-    storedCertificates: CustomerCertificate[]
-  ) => CustomerCertificate | null;
-  findCandidateCustomersForCertificate: (certificate: RenewalAgentCertificate, customers: Customer[]) => Customer[];
-  getLatestRenewalPreflightProbeForCertificate: (
-    certificate: RenewalAgentCertificate,
-    jobs: RenewalJob[],
-    agent: null
-  ) => RenewalBridgePreflightProbe | null;
-  formatCustomerRenewalStatus: (probe: RenewalBridgePreflightProbe | null) => {
-    statusText: string;
-    statusTone: "success" | "warn" | "danger" | "default";
-    paymentAmount: string | null;
-    canOpenPayment: boolean;
-  };
 };
 
 export function useCertificatesScreenModel({
@@ -64,13 +51,7 @@ export function useCertificatesScreenModel({
   customerCertificates,
   customerRenewalAssistantOnline,
   customerRenewalAssistantJobs,
-  customerRenewalAssistantAllCertificates,
-  deriveCustomerCertificateKind,
-  findLocalCertificateForStoredCustomerCertificate,
-  findStoredCustomerCertificateForLocalCertificate,
-  findCandidateCustomersForCertificate,
-  getLatestRenewalPreflightProbeForCertificate,
-  formatCustomerRenewalStatus
+  customerRenewalAssistantAllCertificates
 }: UseCertificatesScreenModelArgs) {
   const certificateItems = useMemo<CustomerCertificateCandidateView[]>(
     () =>
@@ -174,13 +155,7 @@ export function useCertificatesScreenModel({
       customerRenewalAssistantAllCertificates,
       customerRenewalAssistantJobs,
       customerRenewalAssistantOnline,
-      customers,
-      deriveCustomerCertificateKind,
-      findCandidateCustomersForCertificate,
-      findLocalCertificateForStoredCustomerCertificate,
-      findStoredCustomerCertificateForLocalCertificate,
-      formatCustomerRenewalStatus,
-      getLatestRenewalPreflightProbeForCertificate
+      customers
     ]
   );
 

@@ -26,11 +26,31 @@ import {
 import { SettingsScreen } from "./features/settings/SettingsScreen";
 import {
   MAIL_PROVIDER_CONFIG,
+  createEmptyPasswordResetForm,
   normalizeRenewalIssuePasswordInput,
+  type PasswordResetFormState,
   type SettingsSectionId,
   useSettingsScreenState
 } from "./features/settings/useSettingsScreenState";
 import {
+  deriveCustomerCertificateKind,
+  findCandidateCustomersForCertificate,
+  findLocalCertificateForStoredCustomerCertificate,
+  findStoredCustomerCertificateForLocalCertificate,
+  formatCustomerRenewalStatus,
+  getLatestRenewalPreflightProbeForCertificate,
+  isElectronicTaxCertificate,
+  isRenewalPaymentReady,
+  matchesRenewalCertificate,
+  normalizeCustomerRenewalAddress,
+  normalizeCustomerRenewalName,
+  normalizeRenewalCertificateKey,
+  parseStoredCustomerCertificateKey,
+  selectCustomerRenewalCertificate
+} from "./features/renewal/customerRenewalCertificateUtils";
+import {
+  buildLocalRenewalBridgeJob,
+  buildLocalRenewalPreflightJob,
   buildCustomerRenewalAssistant,
   getCustomerRenewalAssistantReleaseMetadata,
   type RenewalAgentSnapshot,
@@ -202,29 +222,11 @@ type CustomerFormState = {
   memo: string;
 };
 
-type PasswordChangeFormState = {
-  nextPassword: string;
-  confirmPassword: string;
+type OwnerPasswordResetTarget = {
+  organizationId: string;
+  organizationName: string;
+  loginId: string | null;
 };
-
-type PasswordResetFormState = {
-  nextPassword: string;
-  confirmPassword: string;
-};
-
-type PasswordResetTarget =
-  | {
-      kind: "member";
-      membershipId: string;
-      loginId: string | null;
-      displayName: string | null;
-    }
-  | {
-      kind: "owner";
-      organizationId: string;
-      organizationName: string;
-      loginId: string | null;
-    };
 
 type AddressResolveResponse = {
   ok: boolean;
@@ -481,12 +483,6 @@ function createQuickRegisterForm(message?: BootstrapPayload["inbox"][number] | n
   };
 }
 
-type OrganizationMemberFormState = {
-  loginId: string;
-  displayName: string;
-  password: string;
-};
-
 const baseOpsWorkspaceForm: OpsWorkspaceFormState = {
   organizationName: "",
   organizationBusinessNumber: "",
@@ -502,22 +498,6 @@ const baseSupportRequestForm: SupportRequestFormState = {
   requesterEmail: "",
   requesterPhone: "",
   message: ""
-};
-
-const basePasswordChangeForm: PasswordChangeFormState = {
-  nextPassword: "",
-  confirmPassword: ""
-};
-
-const basePasswordResetForm: PasswordResetFormState = {
-  nextPassword: "",
-  confirmPassword: ""
-};
-
-const baseOrganizationMemberForm: OrganizationMemberFormState = {
-  loginId: "",
-  displayName: "",
-  password: ""
 };
 
 function getTabFromHash(hash: string): TabId | null {
@@ -736,10 +716,6 @@ function getOrganizationStatusLabel(status: OpsWorkspaceSummary["organizationSta
     default:
       return status;
   }
-}
-
-function getWorkspaceMemberRoleLabel(role: OrganizationMemberSummary["role"]): string {
-  return role === "owner" ? "소유자" : "멤버";
 }
 
 function simplifyIssueError(message: string): string {
@@ -1210,54 +1186,6 @@ function formatRenewalStorageSummary(agent: RenewalAgentSnapshot): string {
   return `${storageProbe.certificateCount}건 · ${preview}${suffix}`;
 }
 
-function isElectronicTaxCertificate(certificate: RenewalAgentCertificate): boolean {
-  return certificate.usageToName.includes("전자세금");
-}
-
-function deriveCustomerCertificateKind(certificate: Pick<RenewalAgentCertificate, "usageToName">): CustomerCertificateKind {
-  const usageName = certificate.usageToName.trim();
-  if (usageName.includes("전자세금")) {
-    return "electronic_tax";
-  }
-  if (usageName.includes("개인") && usageName.includes("범용")) {
-    return "general_personal";
-  }
-  if (usageName.includes("사업자") && usageName.includes("범용")) {
-    return "general_business";
-  }
-  return "unknown";
-}
-
-function normalizeCustomerCertificateFingerprint(value: string | null | undefined): string {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function matchesStoredCustomerCertificate(
-  storedCertificate: CustomerCertificate,
-  certificate: RenewalAgentCertificate
-): boolean {
-  const certificateSerial = normalizeCustomerCertificateFingerprint(certificate.serial);
-  const storedSerial = normalizeCustomerCertificateFingerprint(storedCertificate.serial);
-  if (certificateSerial && storedSerial) {
-    return certificateSerial === storedSerial;
-  }
-
-  const certificateUserDn = normalizeCustomerCertificateFingerprint(certificate.userDN);
-  const storedUserDn = normalizeCustomerCertificateFingerprint(storedCertificate.userDN);
-  if (certificateUserDn && storedUserDn) {
-    return certificateUserDn === storedUserDn;
-  }
-
-  const usageName = normalizeCustomerRenewalName(storedCertificate.certificateUsageName);
-  const localUsageName = normalizeCustomerRenewalName(certificate.usageToName);
-
-  return (
-    storedCertificate.certificateKind === deriveCustomerCertificateKind(certificate) &&
-    normalizeCustomerRenewalName(storedCertificate.certificateName) === normalizeCustomerRenewalName(certificate.cn) &&
-    (usageName === "" || localUsageName === "" || usageName === localUsageName)
-  );
-}
-
 function formatRenewalSelectionSummary(agent: RenewalAgentSnapshot): string {
   const selectionProbe = agent.bridge.selectionProbe;
   if (
@@ -1270,7 +1198,9 @@ function formatRenewalSelectionSummary(agent: RenewalAgentSnapshot): string {
     return "certID 미조회";
   }
 
-  const label = selectionProbe.certificateCn || (selectionProbe.certificateIndex ? `인증서 #${selectionProbe.certificateIndex}` : "인증서");
+  const label =
+    selectionProbe.certificateCn ||
+    (selectionProbe.certificateIndex ? `인증서 #${selectionProbe.certificateIndex}` : "인증서");
   if (selectionProbe.ok) {
     return `${label} · ${selectionProbe.certID ?? "-"}`;
   }
@@ -1290,10 +1220,13 @@ function formatRenewalPreflightSummary(agent: RenewalAgentSnapshot): string {
     return "갱신 경로 미분석";
   }
 
-  const label = preflightProbe.certificateCn || (preflightProbe.certificateIndex ? `인증서 #${preflightProbe.certificateIndex}` : "인증서");
+  const label =
+    preflightProbe.certificateCn ||
+    (preflightProbe.certificateIndex ? `인증서 #${preflightProbe.certificateIndex}` : "인증서");
   if (preflightProbe.ok) {
     const branchText =
-      preflightProbe.branch === "change-company" && preflightProbe.externalFlowKind === "apply-form"
+      preflightProbe.branch === "change-company" &&
+      preflightProbe.externalFlowKind === "apply-form"
         ? `순정 갱신 아님 (${preflightProbe.issueCompany ?? "-"} -> 외부 신규신청)`
         : preflightProbe.branch === "change-company"
           ? `기관변경 필요 (${preflightProbe.issueCompany ?? "-"})`
@@ -1301,12 +1234,17 @@ function formatRenewalPreflightSummary(agent: RenewalAgentSnapshot): string {
             ? "순정 갱신 · 결제 단계"
             : preflightProbe.branch === "password-confirm"
               ? "순정 갱신 · 발급 직전 비밀번호 확인"
-            : preflightProbe.branch === "renew-info"
-              ? "순정 갱신 · 신청정보 입력"
-              : preflightProbe.branch;
+              : preflightProbe.branch === "renew-info"
+                ? "순정 갱신 · 신청정보 입력"
+                : preflightProbe.branch;
     const externalFlowText =
-      preflightProbe.branch === "change-company" && preflightProbe.externalFlowKind === "apply-form"
-        ? `외부 신규신청형${preflightProbe.externalFlowProductName ? ` (${preflightProbe.externalFlowProductName})` : ""}`
+      preflightProbe.branch === "change-company" &&
+      preflightProbe.externalFlowKind === "apply-form"
+        ? `외부 신규신청형${
+            preflightProbe.externalFlowProductName
+              ? ` (${preflightProbe.externalFlowProductName})`
+              : ""
+          }`
         : null;
     const urlText = preflightProbe.externalFlowSubmitUrl ?? preflightProbe.nextUrl;
     const autoSubmitText = preflightProbe.renewInfoAutoSubmitSummary;
@@ -1315,35 +1253,12 @@ function formatRenewalPreflightSummary(agent: RenewalAgentSnapshot): string {
       preflightProbe.renewInfoSubmitSummary !== autoSubmitText
         ? preflightProbe.renewInfoSubmitSummary
         : null;
-    return `${label} · ${branchText}${externalFlowText ? ` · ${externalFlowText}` : ""}${autoSubmitText ? ` · ${autoSubmitText}` : ""}${submitReadyText ? ` · ${submitReadyText}` : ""}${urlText ? ` · ${urlText}` : ""}`;
+    return `${label} · ${branchText}${externalFlowText ? ` · ${externalFlowText}` : ""}${
+      autoSubmitText ? ` · ${autoSubmitText}` : ""
+    }${submitReadyText ? ` · ${submitReadyText}` : ""}${urlText ? ` · ${urlText}` : ""}`;
   }
 
   return `${label} · ${preflightProbe.error ?? preflightProbe.message ?? "분석 실패"}`;
-}
-
-function getLatestRenewalPreflightProbeForCertificate(
-  certificate: RenewalAgentCertificate,
-  jobs: RenewalJob[],
-  agent?: RenewalAgentSnapshot | null
-) {
-  const latestJobProbe = jobs.find((job) => {
-    if (job.type !== "renewal-preflight" || job.status !== "completed" || !job.result) {
-      return false;
-    }
-
-    return matchesRenewalCertificate(certificate, job);
-  })?.result?.bridge.preflightProbe;
-
-  if (latestJobProbe) {
-    return latestJobProbe;
-  }
-
-  const preflightProbe = agent?.bridge.preflightProbe;
-  if (!preflightProbe || !matchesRenewalCertificate(certificate, preflightProbe)) {
-    return null;
-  }
-
-  return preflightProbe;
 }
 
 function formatRenewalPathCell(
@@ -1359,8 +1274,13 @@ function formatRenewalPathCell(
     return preflightProbe.error ?? preflightProbe.message ?? "분석 실패";
   }
 
-  if (preflightProbe.branch === "change-company" && preflightProbe.externalFlowKind === "apply-form") {
-    return `순정 갱신 아님 · ${preflightProbe.issueCompany ?? "-"} · ${preflightProbe.externalFlowProductName ?? "외부 신규신청"}`;
+  if (
+    preflightProbe.branch === "change-company" &&
+    preflightProbe.externalFlowKind === "apply-form"
+  ) {
+    return `순정 갱신 아님 · ${preflightProbe.issueCompany ?? "-"} · ${
+      preflightProbe.externalFlowProductName ?? "외부 신규신청"
+    }`;
   }
 
   if (preflightProbe.branch === "renew-payment") {
@@ -1375,27 +1295,16 @@ function formatRenewalPathCell(
     const summaryParts = [
       preflightProbe.renewInfoAutoSubmitSummary,
       preflightProbe.renewInfoSubmitSummary
-    ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+    ].filter(
+      (value, index, values): value is string =>
+        Boolean(value) && values.indexOf(value) === index
+    );
     return summaryParts.length > 0
       ? `순정 갱신 · 신청정보 입력 · ${summaryParts.join(" · ")}`
       : "순정 갱신 · 신청정보 입력";
   }
 
   return preflightProbe.nextUrl ?? preflightProbe.branch;
-}
-
-function formatCustomerDraftStatus(certificate: RenewalAgentCertificate, jobs: RenewalJob[]): string {
-  const preflightProbe = getLatestRenewalPreflightProbeForCertificate(certificate, jobs, null);
-  if (!preflightProbe) {
-    return "정보 읽기 전";
-  }
-  if (!preflightProbe.ok) {
-    return preflightProbe.error ?? preflightProbe.message ?? "정보 읽기 실패";
-  }
-  if (preflightProbe.renewInfoSnapshot) {
-    return "고객 초안 정보 읽음";
-  }
-  return "고객 초안 정보 없음";
 }
 
 function formatRenewalJobStatusLabel(status: RenewalJob["status"]): string {
@@ -1407,96 +1316,20 @@ function formatRenewalJobStatusLabel(status: RenewalJob["status"]): string {
 
 function formatRenewalJobLabel(job: RenewalJob): string {
   if (job.type === "certid-probe") {
-    return job.certificateCn || (job.certificateIndex !== null ? `certID 조회 #${job.certificateIndex}` : "certID 조회");
+    return (
+      job.certificateCn ||
+      (job.certificateIndex !== null ? `certID 조회 #${job.certificateIndex}` : "certID 조회")
+    );
   }
 
   if (job.type === "renewal-preflight") {
-    return job.certificateCn || (job.certificateIndex !== null ? `갱신 경로 분석 #${job.certificateIndex}` : "갱신 경로 분석");
+    return (
+      job.certificateCn ||
+      (job.certificateIndex !== null ? `갱신 경로 분석 #${job.certificateIndex}` : "갱신 경로 분석")
+    );
   }
 
   return job.customerName ?? "인증서 목록 진단";
-}
-
-let localRenewalJobSeed = Date.now();
-
-function nextLocalRenewalJobId(): number {
-  localRenewalJobSeed += 1;
-  return localRenewalJobSeed;
-}
-
-function buildLocalRenewalBridgeJob(
-  result: RenewalAutomationPayload["jobs"][number]["result"],
-  visibleCertificateCount?: number
-): RenewalJob {
-  const requestedAt = new Date().toISOString();
-  const storageProbe = result?.bridge.storageProbe;
-  const storageOk = storageProbe?.ok === true;
-  const hasVisibleCertificateCount = typeof visibleCertificateCount === "number";
-  const summary = !storageOk
-    ? "공동인증서 불러오기에 실패했습니다."
-    : hasVisibleCertificateCount
-      ? visibleCertificateCount > 0
-        ? `전자세금용 공동인증서 ${visibleCertificateCount}건을 불러왔습니다.`
-        : "전자세금용 공동인증서를 찾지 못했습니다."
-      : `공동인증서 ${storageProbe.certificateCount}건을 불러왔습니다.`;
-
-  return {
-    id: nextLocalRenewalJobId(),
-    type: "bridge-probe",
-    status: storageOk ? "completed" : "failed",
-    customerId: null,
-    customerName: "공동인증서 목록",
-    certificateIndex: null,
-    certificateCn: null,
-    requestedAt,
-    claimedAt: requestedAt,
-    finishedAt: requestedAt,
-    requestedBy: "localhost-helper",
-    claimedBy: "localhost-helper",
-    summary,
-    error: storageOk ? null : storageProbe?.error ?? result?.notes[0] ?? "공동인증서 불러오기에 실패했습니다.",
-    result
-  };
-}
-
-function buildLocalRenewalPreflightJob(
-  certificate: RenewalAgentCertificate,
-  result: RenewalAutomationPayload["jobs"][number]["result"]
-): RenewalJob {
-  const requestedAt = new Date().toISOString();
-  const preflightProbe = result?.bridge.preflightProbe;
-  const certificateLabel = certificate.cn || `인증서 #${certificate.index}`;
-  const summary =
-    preflightProbe?.ok === true
-      ? preflightProbe.renewInfoSnapshot
-        ? `${certificateLabel} 고객 초안 정보를 읽었습니다.`
-        : `${certificateLabel} 고객 초안 정보를 읽지 못했습니다.`
-      : `${certificateLabel} 정보 읽기에 실패했습니다.`;
-  const error =
-    preflightProbe?.ok === true
-      ? null
-      : preflightProbe?.error ??
-        result?.bridge.selectionProbe.error ??
-        preflightProbe?.message ??
-        "공동인증서 정보 읽기에 실패했습니다.";
-
-  return {
-    id: nextLocalRenewalJobId(),
-    type: "renewal-preflight",
-    status: preflightProbe?.ok === true ? "completed" : "failed",
-    customerId: null,
-    customerName: null,
-    certificateIndex: Number(certificate.index),
-    certificateCn: certificate.cn || null,
-    requestedAt,
-    claimedAt: requestedAt,
-    finishedAt: requestedAt,
-    requestedBy: "localhost-helper",
-    claimedBy: "localhost-helper",
-    summary,
-    error,
-    result
-  };
 }
 
 function getDraftConfirmNumber(draft: InvoiceDraft): string | null {
@@ -1504,8 +1337,11 @@ function getDraftConfirmNumber(draft: InvoiceDraft): string | null {
 
   try {
     const parsed = JSON.parse(draft.popbillResultJson) as Record<string, unknown>;
-    const confirmValue = parsed.ntsConfirmNum ?? parsed.NTSConfirmNum ?? parsed.confirmNum ?? parsed.confirmNumber;
-    return typeof confirmValue === "string" && confirmValue.trim() !== "" ? confirmValue.trim() : null;
+    const confirmValue =
+      parsed.ntsConfirmNum ?? parsed.NTSConfirmNum ?? parsed.confirmNum ?? parsed.confirmNumber;
+    return typeof confirmValue === "string" && confirmValue.trim() !== ""
+      ? confirmValue.trim()
+      : null;
   } catch {
     return null;
   }
@@ -1513,234 +1349,6 @@ function getDraftConfirmNumber(draft: InvoiceDraft): string | null {
 
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, "");
-}
-
-function normalizeRenewalCertificateKey(value: string | number | null | undefined): string {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function matchesRenewalCertificate(
-  certificate: RenewalAgentCertificate,
-  target: {
-    certificateIndex?: string | number | null;
-    certificateCn?: string | null;
-  }
-): boolean {
-  const certificateIndex = normalizeRenewalCertificateKey(certificate.index);
-  const targetIndex = normalizeRenewalCertificateKey(target.certificateIndex);
-  if (certificateIndex !== "" && targetIndex !== "") {
-    return certificateIndex === targetIndex;
-  }
-
-  const certificateCn = normalizeRenewalCertificateKey(certificate.cn);
-  const targetCn = normalizeRenewalCertificateKey(target.certificateCn);
-  return certificateCn !== "" && targetCn !== "" && certificateCn === targetCn;
-}
-
-function normalizeCustomerRenewalName(value: string | null | undefined): string {
-  return String(value ?? "")
-    .replace(/\s+/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function normalizeCustomerRenewalAddress(value: string | null | undefined): string {
-  return String(value ?? "")
-    .replace(/\s+/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function matchesCustomerRenewalCertificateName(
-  certificate: RenewalAgentCertificate,
-  customer: Customer
-): boolean {
-  const certificateName = normalizeCustomerRenewalName(certificate.cn);
-  if (!certificateName) {
-    return false;
-  }
-
-  return certificateName === normalizeCustomerRenewalName(customer.corpName) || certificateName === normalizeCustomerRenewalName(customer.customerName);
-}
-
-function selectCustomerRenewalCertificate(
-  certificates: RenewalAgentCertificate[],
-  customer: Customer
-): RenewalAgentCertificate | null {
-  const directMatches = certificates.filter((certificate) => matchesCustomerRenewalCertificateName(certificate, customer));
-  const preferredMatches = directMatches.filter(isElectronicTaxCertificate);
-
-  if (preferredMatches.length === 1) {
-    return preferredMatches[0] ?? null;
-  }
-  if (preferredMatches.length > 1) {
-    return null;
-  }
-  if (directMatches.length === 1) {
-    return directMatches[0] ?? null;
-  }
-
-  return null;
-}
-
-function findStoredCustomerCertificateForLocalCertificate(
-  certificate: RenewalAgentCertificate,
-  customerCertificates: CustomerCertificate[]
-): CustomerCertificate | null {
-  const matches = customerCertificates.filter((storedCertificate) => matchesStoredCustomerCertificate(storedCertificate, certificate));
-  if (matches.length === 1) {
-    return matches[0] ?? null;
-  }
-  const primaryMatch = matches.find((storedCertificate) => storedCertificate.isPrimary);
-  return primaryMatch ?? matches[0] ?? null;
-}
-
-function parseStoredCustomerCertificateKey(value: string): number | null {
-  if (!value.startsWith("stored:")) {
-    return null;
-  }
-
-  const parsed = Number(value.slice("stored:".length));
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function findLocalCertificateForStoredCustomerCertificate(
-  storedCertificate: CustomerCertificate,
-  certificates: RenewalAgentCertificate[]
-): RenewalAgentCertificate | null {
-  const matches = certificates.filter((certificate) => matchesStoredCustomerCertificate(storedCertificate, certificate));
-  if (matches.length === 1) {
-    return matches[0] ?? null;
-  }
-
-  const primaryMatch = matches.find((certificate) => isElectronicTaxCertificate(certificate));
-  return primaryMatch ?? matches[0] ?? null;
-}
-
-function findCandidateCustomersForCertificate(
-  certificate: RenewalAgentCertificate,
-  customers: Customer[]
-): Customer[] {
-  const certificateName = normalizeCustomerRenewalName(certificate.cn);
-  if (!certificateName) {
-    return [];
-  }
-
-  const kind = deriveCustomerCertificateKind(certificate);
-  if (kind === "general_personal" || kind === "general_business") {
-    return [];
-  }
-
-  const matches = customers.filter((customer) => {
-    const matchesCorpName = certificateName === normalizeCustomerRenewalName(customer.corpName);
-    const matchesCustomerName = certificateName === normalizeCustomerRenewalName(customer.customerName);
-
-    return matchesCorpName || matchesCustomerName;
-  });
-
-  return matches;
-}
-
-function isRenewalPaymentReady(
-  preflightProbe: RenewalBridgePreflightProbe | null
-): boolean {
-  if (!preflightProbe?.ok) {
-    return false;
-  }
-
-  return preflightProbe.branch === "renew-payment" || preflightProbe.renewInfoSubmitResultBranch === "renew-payment";
-}
-
-function formatCustomerRenewalStatus(
-  preflightProbe: RenewalBridgePreflightProbe | null
-): Pick<CustomerRenewalCandidateView, "statusText" | "statusTone" | "paymentAmount" | "canOpenPayment"> {
-  if (!preflightProbe) {
-    return {
-      statusText: "갱신 전",
-      statusTone: "default",
-      paymentAmount: null,
-      canOpenPayment: false
-    };
-  }
-
-  const paymentAmount = preflightProbe.renewInfoPaymentPreviewTotalAmount ?? null;
-  if (!preflightProbe.ok) {
-    return {
-      statusText: preflightProbe.error ?? preflightProbe.message ?? "갱신 준비 실패",
-      statusTone: "danger",
-      paymentAmount,
-      canOpenPayment: false
-    };
-  }
-
-  if (isRenewalPaymentReady(preflightProbe)) {
-    return {
-      statusText:
-        preflightProbe.renewInfoSubmitResultBranch === "renew-payment"
-          ? "갱신 신청 완료 · 결제 대기"
-          : "이미 결제 단계",
-      statusTone: "success",
-      paymentAmount,
-      canOpenPayment: true
-    };
-  }
-
-  if (preflightProbe.renewInfoSubmitAttempted) {
-    return {
-      statusText:
-        preflightProbe.renewInfoSubmitResultError ??
-        preflightProbe.renewInfoSubmitResultSummary ??
-        preflightProbe.renewInfoSubmitSummary ??
-        preflightProbe.renewInfoAutoSubmitSummary ??
-        "갱신 신청정보 제출 결과 확인 필요",
-      statusTone: preflightProbe.renewInfoSubmitResultError ? "danger" : "warn",
-      paymentAmount,
-      canOpenPayment: false
-    };
-  }
-
-  if (preflightProbe.branch === "renew-info") {
-    return {
-      statusText:
-        preflightProbe.renewInfoSubmitSummary ??
-        preflightProbe.renewInfoAutoSubmitSummary ??
-        "신청정보 입력 단계",
-      statusTone:
-        preflightProbe.renewInfoSubmitReady === false || preflightProbe.renewInfoAutoSubmitReady === false
-          ? "warn"
-          : "success",
-      paymentAmount,
-      canOpenPayment: false
-    };
-  }
-
-  if (preflightProbe.branch === "change-company") {
-    return {
-      statusText:
-        preflightProbe.externalFlowKind === "apply-form"
-          ? `순정 갱신 아님 · ${preflightProbe.externalFlowProductName ?? "외부 신규신청"}`
-          : `기관변경 필요 · ${preflightProbe.issueCompany ?? "-"}`,
-      statusTone: "danger",
-      paymentAmount,
-      canOpenPayment: false
-    };
-  }
-
-  if (preflightProbe.branch === "password-confirm") {
-    return {
-      statusText: "이미 발급 직전 단계",
-      statusTone: "warn",
-      paymentAmount,
-      canOpenPayment: false
-    };
-  }
-
-  return {
-    statusText: preflightProbe.nextUrl ?? preflightProbe.branch,
-    statusTone: "default",
-    paymentAmount,
-    canOpenPayment: false
-  };
 }
 
 function getRenewalSnapshotAddress(snapshot: RenewalInfoSnapshot): string {
@@ -2122,7 +1730,9 @@ export function App() {
   const [recoveryMode, setRecoveryMode] = useState(() =>
     typeof window !== "undefined" ? isSupabaseRecoveryHash(window.location.hash) : false
   );
-  const [recoveryPasswordForm, setRecoveryPasswordForm] = useState<PasswordResetFormState>(basePasswordResetForm);
+  const [recoveryPasswordForm, setRecoveryPasswordForm] = useState<PasswordResetFormState>(
+    createEmptyPasswordResetForm
+  );
   const [showSupportRequestForm, setShowSupportRequestForm] = useState(false);
   const [supportRequestBusy, setSupportRequestBusy] = useState(false);
   const [supportRequestForm, setSupportRequestForm] = useState<SupportRequestFormState>(baseSupportRequestForm);
@@ -2149,11 +1759,11 @@ export function App() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [customerDetailTab, setCustomerDetailTab] = useState<CustomerDetailTabId>("info");
   const [workFeedTab, setWorkFeedTab] = useState<"inbox" | "issued">("inbox");
-  const [passwordChangeForm, setPasswordChangeForm] = useState<PasswordChangeFormState>(basePasswordChangeForm);
-  const [passwordResetForm, setPasswordResetForm] = useState<PasswordResetFormState>(basePasswordResetForm);
-  const [passwordResetTarget, setPasswordResetTarget] = useState<PasswordResetTarget | null>(null);
-  const [organizationMembers, setOrganizationMembers] = useState<OrganizationMemberSummary[]>([]);
-  const [organizationMemberForm, setOrganizationMemberForm] = useState<OrganizationMemberFormState>(baseOrganizationMemberForm);
+  const [ownerPasswordResetForm, setOwnerPasswordResetForm] = useState<PasswordResetFormState>(
+    createEmptyPasswordResetForm
+  );
+  const [ownerPasswordResetTarget, setOwnerPasswordResetTarget] =
+    useState<OwnerPasswordResetTarget | null>(null);
   const [opsWorkspaceForm, setOpsWorkspaceForm] = useState<OpsWorkspaceFormState>(baseOpsWorkspaceForm);
   const [workspaceLimitEdits, setWorkspaceLimitEdits] = useState<Record<string, string>>({});
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
@@ -2304,14 +1914,14 @@ export function App() {
 
   const loadOrganizationMembers = async (payload: BootstrapPayload, loadToken: number) => {
     if (payload.auth.activeOrganizationRole !== "owner") {
-      setOrganizationMembers([]);
+      settingsScreenState.account.resetOrganizationMemberState();
       return;
     }
 
     ensureActiveLoad(loadToken);
     const members = await api<OrganizationMemberSummary[]>("/api/organization/members");
     ensureActiveLoad(loadToken);
-    setOrganizationMembers(members);
+    settingsScreenState.account.syncOrganizationMembers(members);
   };
 
   const load = async () => {
@@ -2358,7 +1968,7 @@ export function App() {
     );
     await loadOrganizationMembers(payload, loadToken);
     ensureActiveLoad(loadToken);
-    settingsScreenState.hydrateSettings(payload.settings);
+    settingsScreenState.syncBootstrapSettings(payload.settings);
     setCustomerForm((prev) => {
       if (prev.id) {
         const current = payload.customers.find((customer) => customer.id === prev.id);
@@ -2492,6 +2102,7 @@ export function App() {
 
   const settingsScreenState = useSettingsScreenState({
     busyKey,
+    currentUserId: data?.auth.userId ?? null,
     canManageOrganizationMembers: data?.auth.activeOrganizationRole === "owner",
     helperReady,
     helperCertificateCount: customerRenewalAssistantAllCertificates.length,
@@ -2499,7 +2110,6 @@ export function App() {
     customerRenewalAssistantUpgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
     setGlobalError: setError,
     revealField: (fieldKey) => setRevealedFields((prev) => ({ ...prev, [fieldKey]: !prev[fieldKey] ? true : prev[fieldKey] })),
-    onSavedSettingsChange: (savedSettings) => setData((prev) => (prev ? { ...prev, settings: savedSettings } : prev)),
     onRenewalCertificatePasswordChange: (password) => {
       customerRenewalPasswordRef.current = password;
     },
@@ -2508,6 +2118,7 @@ export function App() {
     },
     refreshCustomerRenewalAssistant,
     runAction,
+    showConfirm: showAppConfirm,
     showAlert: showAppAlert
   });
 
@@ -2523,19 +2134,19 @@ export function App() {
   const detectedMailProviderLabel = settingsScreenState.detectedMailProviderLabel;
   const handleSettingsMailAddressChange = settingsScreenState.handleSettingsMailAddressChange;
   const handleSettingsRenewalIssuePasswordChange = settingsScreenState.handleSettingsRenewalIssuePasswordChange;
+  const currentWorkspaceSettings = settingsScreenState.savedSettings ?? data?.settings ?? null;
+  const mailPasswordConfigured = settingsScreenState.mailPasswordConfigured;
+  const popbillSharedPasswordConfigured = settingsScreenState.popbillSharedPasswordConfigured;
+  const renewalCertificatePasswordConfigured =
+    settingsScreenState.renewalCertificatePasswordConfigured;
+  const renewalIssuePasswordConfigured = settingsScreenState.renewalIssuePasswordConfigured;
 
   const certificatesScreenModel = useCertificatesScreenModel({
     customers: data?.customers ?? [],
     customerCertificates: data?.customerCertificates ?? [],
     customerRenewalAssistantOnline: customerRenewalAssistant?.agentOnline ?? false,
     customerRenewalAssistantJobs,
-    customerRenewalAssistantAllCertificates,
-    deriveCustomerCertificateKind,
-    findLocalCertificateForStoredCustomerCertificate,
-    findStoredCustomerCertificateForLocalCertificate,
-    findCandidateCustomersForCertificate,
-    getLatestRenewalPreflightProbeForCertificate,
-    formatCustomerRenewalStatus
+    customerRenewalAssistantAllCertificates
   });
 
   useEffect(() => {
@@ -2603,7 +2214,6 @@ export function App() {
         invalidateActiveLoads();
         setData(null);
         setOpsConsole(null);
-        setOrganizationMembers([]);
         settingsScreenState.resetSettingsState();
         setAppDialog(null);
         appDialogResolverRef.current = null;
@@ -2994,11 +2604,10 @@ export function App() {
     setAuthNotice("");
     setData(null);
     setOpsConsole(null);
-    setPasswordResetTarget(null);
-    setPasswordResetForm(basePasswordResetForm);
+    setOwnerPasswordResetTarget(null);
+    setOwnerPasswordResetForm(createEmptyPasswordResetForm());
     setRecoveryMode(false);
-    setRecoveryPasswordForm(basePasswordResetForm);
-    setOrganizationMembers([]);
+    setRecoveryPasswordForm(createEmptyPasswordResetForm());
     settingsScreenState.resetSettingsState();
     setAppDialog(null);
     appDialogResolverRef.current = null;
@@ -3010,8 +2619,9 @@ export function App() {
   const changeOrganization = async (organizationId: string) => {
     setActiveOrganizationId(organizationId);
     setError("");
-    setPasswordResetTarget(null);
-    setPasswordResetForm(basePasswordResetForm);
+    setOwnerPasswordResetTarget(null);
+    setOwnerPasswordResetForm(createEmptyPasswordResetForm());
+    settingsScreenState.account.resetOrganizationMemberState();
     await runAction(
       "workspace-change",
       async () => {
@@ -4016,36 +3626,9 @@ export function App() {
     return password;
   };
 
-  const changePassword = async () => {
-    const nextPassword = passwordChangeForm.nextPassword.trim();
-    const confirmPassword = passwordChangeForm.confirmPassword.trim();
-
-    if (nextPassword.length < 8) {
-      throw new Error("새 비밀번호는 8자 이상으로 입력하세요.");
-    }
-
-    if (nextPassword !== confirmPassword) {
-      throw new Error("새 비밀번호와 확인 값이 일치하지 않습니다.");
-    }
-
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: nextPassword
-    });
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    setPasswordChangeForm(basePasswordChangeForm);
-    await showAppAlert("비밀번호를 변경했습니다.", {
-      title: "비밀번호 변경 완료",
-      tone: "success"
-    });
-  };
-
   const returnToLoginFromRecovery = async () => {
     setRecoveryMode(false);
-    setRecoveryPasswordForm(basePasswordResetForm);
+    setRecoveryPasswordForm(createEmptyPasswordResetForm());
     clearSupabaseAuthHash();
     setError("");
 
@@ -4085,7 +3668,7 @@ export function App() {
         throw updateError;
       }
 
-      setRecoveryPasswordForm(basePasswordResetForm);
+      setRecoveryPasswordForm(createEmptyPasswordResetForm());
       setRecoveryMode(false);
       clearSupabaseAuthHash();
       await supabase.auth.signOut();
@@ -4097,38 +3680,27 @@ export function App() {
     }
   };
 
-  const openMemberPasswordReset = (member: OrganizationMemberSummary) => {
-    setPasswordResetTarget({
-      kind: "member",
-      membershipId: member.membershipId,
-      loginId: member.loginId,
-      displayName: member.displayName
-    });
-    setPasswordResetForm(basePasswordResetForm);
-  };
-
   const openOwnerPasswordReset = (workspace: OpsWorkspaceSummary) => {
-    setPasswordResetTarget({
-      kind: "owner",
+    setOwnerPasswordResetTarget({
       organizationId: workspace.organizationId,
       organizationName: workspace.organizationName,
       loginId: workspace.ownerLoginId
     });
-    setPasswordResetForm(basePasswordResetForm);
+    setOwnerPasswordResetForm(createEmptyPasswordResetForm());
   };
 
-  const cancelPasswordReset = () => {
-    setPasswordResetTarget(null);
-    setPasswordResetForm(basePasswordResetForm);
+  const cancelOwnerPasswordReset = () => {
+    setOwnerPasswordResetTarget(null);
+    setOwnerPasswordResetForm(createEmptyPasswordResetForm());
   };
 
-  const submitPasswordReset = async () => {
-    if (!passwordResetTarget) {
+  const submitOwnerPasswordReset = async () => {
+    if (!ownerPasswordResetTarget) {
       throw new Error("비밀번호를 재설정할 대상을 먼저 선택하세요.");
     }
 
-    const nextPassword = passwordResetForm.nextPassword.trim();
-    const confirmPassword = passwordResetForm.confirmPassword.trim();
+    const nextPassword = ownerPasswordResetForm.nextPassword.trim();
+    const confirmPassword = ownerPasswordResetForm.confirmPassword.trim();
 
     if (nextPassword.length < 8) {
       throw new Error("임시 비밀번호는 8자 이상으로 입력하세요.");
@@ -4138,85 +3710,24 @@ export function App() {
       throw new Error("임시 비밀번호와 확인 값이 일치하지 않습니다.");
     }
 
-    if (passwordResetTarget.kind === "member") {
-      const result = await api<{ ok: true; loginId: string | null }>(
-        `/api/organization/members/${passwordResetTarget.membershipId}/reset-password`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            password: nextPassword
-          })
-        }
-      );
-
-      await showAppAlert(`${result.loginId ?? "선택한 사용자"}의 임시 비밀번호를 재설정했습니다.`, {
-        title: "임시 비밀번호 재설정",
-        tone: "success"
-      });
-    } else {
-      const result = await api<{ ok: true; ownerLoginId: string | null }>(
-        `/api/ops/workspaces/${passwordResetTarget.organizationId}/reset-owner-password`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            password: nextPassword
-          })
-        }
-      );
-
-      await showAppAlert(
-        `${passwordResetTarget.organizationName} 작업공간의 owner(${result.ownerLoginId ?? "-"}) 임시 비밀번호를 재설정했습니다.`,
-        {
-          title: "owner 비밀번호 재설정",
-          tone: "success"
-        }
-      );
-    }
-
-    cancelPasswordReset();
-  };
-
-  const createOrganizationMember = async () => {
-    const result = await api<{
-      members: OrganizationMemberSummary[];
-      memberAction: "linked-existing-user" | "created-user";
-    }>("/api/organization/members", {
-      method: "POST",
-      body: JSON.stringify({
-        loginId: organizationMemberForm.loginId.trim(),
-        displayName: organizationMemberForm.displayName.trim(),
-        password: organizationMemberForm.password
-      })
-    });
-
-    setOrganizationMembers(result.members);
-    setOrganizationMemberForm(baseOrganizationMemberForm);
-    await showAppAlert(
-      result.memberAction === "created-user"
-        ? "새 사용자 계정을 만들고 작업공간 멤버로 연결했습니다."
-        : "기존 사용자 계정을 작업공간 멤버로 연결했습니다.",
+    const result = await api<{ ok: true; ownerLoginId: string | null }>(
+      `/api/ops/workspaces/${ownerPasswordResetTarget.organizationId}/reset-owner-password`,
       {
-        title: "사용자 추가 완료",
+        method: "POST",
+        body: JSON.stringify({
+          password: nextPassword
+        })
+      }
+    );
+
+    await showAppAlert(
+      `${ownerPasswordResetTarget.organizationName} 작업공간의 owner(${result.ownerLoginId ?? "-"}) 임시 비밀번호를 재설정했습니다.`,
+      {
+        title: "owner 비밀번호 재설정",
         tone: "success"
       }
     );
-  };
-
-  const removeOrganizationMember = async (member: OrganizationMemberSummary) => {
-    const confirmed = await showAppConfirm(`${member.loginId ?? "선택한 사용자"}를 이 작업공간에서 제거할까요?`, {
-      title: "작업공간 사용자 제거",
-      tone: "danger",
-      confirmLabel: "제거하기"
-    });
-    if (!confirmed) {
-      return;
-    }
-
-    const result = await api<{ ok: true; members: OrganizationMemberSummary[] }>(`/api/organization/members/${member.membershipId}`, {
-      method: "DELETE"
-    });
-
-    setOrganizationMembers(result.members);
+    cancelOwnerPasswordReset();
   };
 
   const openPartnerChargeUrl = async () => {
@@ -5697,7 +5208,7 @@ export function App() {
   const isQuickRegistering = busyKey === "quick-register-unmatched";
   const partnerTaxInvoiceUnitCost = opsConsole?.partnerPoints.taxInvoiceUnitCost ?? null;
   const opsPartnerIsTest = opsConsole?.partnerPoints.isTest ?? false;
-  const workspacePopbillIsTest = data.settings.popbillIsTest;
+  const workspacePopbillIsTest = currentWorkspaceSettings?.popbillIsTest ?? data.settings.popbillIsTest;
   const workspacePopbillModeLabel = workspacePopbillIsTest ? "팝빌 테스트" : "팝빌 운영";
   const opsPartnerModeLabel = opsPartnerIsTest ? "테스트 모드" : "운영 모드";
   const opsPartnerModeDescription = opsPartnerIsTest
@@ -5714,7 +5225,6 @@ export function App() {
     partnerTaxInvoiceUnitCost === null ? null : totalWorkspaceCurrentMonthIssuedDraftCount * partnerTaxInvoiceUnitCost;
   const opsAgentStatusMeta = opsAgent ? getRenewalAgentStatusMeta(opsAgent) : null;
   const opsCertificates = opsAgent?.bridge.storageProbe.certificates ?? [];
-  const canManageOrganizationMembers = data.auth.activeOrganizationRole === "owner";
   const issueSetupPendingCount = popbillPendingCustomers.length;
   const onboardingIssueSetupPendingCount = onboardingPendingCertificateCustomers.length;
   const onboardingCertificateReady = onboardingCustomerRegistrationReady && onboardingIssueSetupPendingCount === 0;
@@ -5973,9 +5483,9 @@ export function App() {
     helperReady &&
     onboardingCertificateReady;
   const hasSavedOnboardingDefaults =
-    data.settings.popbillSharedPasswordConfigured ||
-    data.settings.renewalIssuePasswordConfigured ||
-    data.settings.renewalCertificatePasswordConfigured;
+    popbillSharedPasswordConfigured ||
+    renewalIssuePasswordConfigured ||
+    renewalCertificatePasswordConfigured;
   const onboardingImportableCount =
     (customerOnboardingPreview?.createCount ?? 0) + (customerOnboardingPreview?.updateCount ?? 0);
   const onboardingBlockedCount = customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
@@ -6016,7 +5526,7 @@ export function App() {
   const onboardingMailAddressHasError =
     onboardingMailAddressMissing || onboardingMailAddressInvalid;
   const onboardingMailPasswordMissing =
-    settingsForm.mailPassword.trim() === "" && !data.settings.mailPasswordConfigured;
+    settingsForm.mailPassword.trim() === "" && !mailPasswordConfigured;
   const onboardingPopbillPrefixMissing = settingsForm.popbillUserIdPrefix.trim() === "";
   const onboardingOperatorNameMissing = settingsForm.operatorContactName.trim() === "";
   const onboardingOperatorTelMissing = settingsForm.operatorContactTel.trim() === "";
@@ -6027,10 +5537,10 @@ export function App() {
     onboardingOperatorEmailMissing || onboardingOperatorEmailInvalid;
   const onboardingPopbillSharedPasswordMissing =
     settingsForm.popbillSharedPassword.trim() === "" &&
-    !data.settings.popbillSharedPasswordConfigured;
+    !popbillSharedPasswordConfigured;
   const onboardingRenewalIssuePasswordMissing =
     normalizeRenewalIssuePasswordInput(settingsForm.renewalIssuePassword).length === 0 &&
-    !data.settings.renewalIssuePasswordConfigured;
+    !renewalIssuePasswordConfigured;
   const getOnboardingRequiredFieldClassName = (hasError: boolean) =>
     hasError ? "onboarding-required-field is-missing" : "onboarding-required-field";
   const getOnboardingRequiredLabelClassName = (hasError: boolean) =>
@@ -6117,7 +5627,7 @@ export function App() {
                 aria-invalid={onboardingMailPasswordMissing || undefined}
                 aria-describedby="onboarding-mail-password-hint"
                 onChange={(event) => setSettingsForm((prev) => prev && { ...prev, mailPassword: event.target.value })}
-                placeholder={data.settings.mailPasswordConfigured ? "변경할 때만 다시 입력" : "앱 비밀번호 입력"}
+                placeholder={mailPasswordConfigured ? "변경할 때만 다시 입력" : "앱 비밀번호 입력"}
               />
               <button type="button" className="password-toggle" aria-label={revealedFields.mailPassword ? "앱 비밀번호 숨기기" : "앱 비밀번호 보기"} onClick={() => toggleRevealField("mailPassword")}>
                 <RevealIcon open={Boolean(revealedFields.mailPassword)} />
@@ -6127,7 +5637,7 @@ export function App() {
               "onboarding-mail-password-hint",
               {
                 missing: onboardingMailPasswordMissing,
-                defaultText: data.settings.mailPasswordConfigured
+                defaultText: mailPasswordConfigured
                   ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 시 빈칸이면 저장된 값을 사용합니다."
                   : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다."
               }
@@ -6257,7 +5767,7 @@ export function App() {
                   aria-invalid={onboardingPopbillSharedPasswordMissing || undefined}
                   aria-describedby="onboarding-popbill-shared-password-hint"
                   onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
-                  placeholder={data.settings.popbillSharedPasswordConfigured ? "변경할 때만 다시 입력" : "신규 고객 공통 비밀번호"}
+                  placeholder={popbillSharedPasswordConfigured ? "변경할 때만 다시 입력" : "신규 고객 공통 비밀번호"}
                 />
                 <button type="button" className="password-toggle" aria-label={revealedFields.popbillSharedPassword ? "팝빌 기본 비밀번호 숨기기" : "팝빌 기본 비밀번호 보기"} onClick={() => toggleRevealField("popbillSharedPassword")}>
                   <RevealIcon open={Boolean(revealedFields.popbillSharedPassword)} />
@@ -6267,7 +5777,7 @@ export function App() {
                 "onboarding-popbill-shared-password-hint",
                 {
                   missing: onboardingPopbillSharedPasswordMissing,
-                  defaultText: data.settings.popbillSharedPasswordConfigured
+                  defaultText: popbillSharedPasswordConfigured
                     ? "이미 저장된 값이 있습니다. 필요하면 아래 보조 영역에서 다시 불러오세요."
                     : "신규 고객 계정 초기 비밀번호"
                 }
@@ -6285,7 +5795,7 @@ export function App() {
                   aria-invalid={onboardingRenewalIssuePasswordMissing || undefined}
                   aria-describedby="onboarding-renewal-issue-password-hint"
                   onChange={(event) => handleSettingsRenewalIssuePasswordChange(event.target.value)}
-                  placeholder={data.settings.renewalIssuePasswordConfigured ? "변경할 때만 다시 입력" : "숫자 6자리 입력"}
+                  placeholder={renewalIssuePasswordConfigured ? "변경할 때만 다시 입력" : "숫자 6자리 입력"}
                 />
                 <button type="button" className="password-toggle" aria-label={revealedFields.renewalIssuePassword ? "발급용 임시번호 숨기기" : "발급용 임시번호 보기"} onClick={() => toggleRevealField("renewalIssuePassword")}>
                   <RevealIcon open={Boolean(revealedFields.renewalIssuePassword)} />
@@ -6295,7 +5805,7 @@ export function App() {
                 "onboarding-renewal-issue-password-hint",
                 {
                   missing: onboardingRenewalIssuePasswordMissing,
-                  defaultText: data.settings.renewalIssuePasswordConfigured
+                  defaultText: renewalIssuePasswordConfigured
                     ? "공동인증서 신청 및 갱신 신청용 6자리입니다. 필요하면 아래 보조 영역에서 다시 불러오세요."
                     : "공동인증서 신청 및 갱신 신청용 6자리"
                 }
@@ -6317,14 +5827,14 @@ export function App() {
                   type={revealedFields.renewalCertificatePassword ? "text" : "password"}
                   value={settingsForm.renewalCertificatePassword}
                   onChange={(event) => setSettingsForm((prev) => prev && { ...prev, renewalCertificatePassword: event.target.value })}
-                  placeholder={data.settings.renewalCertificatePasswordConfigured ? "변경할 때만 다시 입력" : "선택 입력"}
+                  placeholder={renewalCertificatePasswordConfigured ? "변경할 때만 다시 입력" : "선택 입력"}
                 />
                 <button type="button" className="password-toggle" aria-label={revealedFields.renewalCertificatePassword ? "공동인증서 공통 비밀번호 숨기기" : "공동인증서 공통 비밀번호 보기"} onClick={() => toggleRevealField("renewalCertificatePassword")}>
                   <RevealIcon open={Boolean(revealedFields.renewalCertificatePassword)} />
                 </button>
               </div>
               <span className="field-hint">
-                {data.settings.renewalCertificatePasswordConfigured
+                {renewalCertificatePasswordConfigured
                   ? "이미 저장된 값이 있습니다. 필요하면 아래 보조 영역에서 다시 불러오세요. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."
                   : "비밀번호가 모두 같을 때만 사용합니다. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."}
               </span>
@@ -6340,17 +5850,17 @@ export function App() {
             <strong>보조 작업</strong>
             <span>현재 단계의 메인 흐름은 위 필수 입력을 채우는 것입니다. 저장된 값은 정말 필요할 때만 불러오세요.</span>
             <div className="button-row">
-              {data.settings.popbillSharedPasswordConfigured ? (
+              {popbillSharedPasswordConfigured ? (
                 <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void settingsScreenState.runLoadCurrentPopbillSharedPassword()}>
                   신규 고객 기본 비밀번호 불러오기
                 </button>
               ) : null}
-              {data.settings.renewalIssuePasswordConfigured ? (
+              {renewalIssuePasswordConfigured ? (
                 <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void settingsScreenState.runLoadCurrentRenewalIssuePassword()}>
                   발급용 임시번호 불러오기
                 </button>
               ) : null}
-              {data.settings.renewalCertificatePasswordConfigured ? (
+              {renewalCertificatePasswordConfigured ? (
                 <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void settingsScreenState.runLoadCurrentRenewalCertificatePassword()}>
                   인증서 공통 비밀번호 불러오기
                 </button>
@@ -7780,27 +7290,10 @@ export function App() {
             customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
             customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
             renewalHelperDownloadUrl={renewalHelperDownloadUrl}
-            canManageOrganizationMembers={canManageOrganizationMembers}
-            organizationMembers={organizationMembers}
-            currentUserId={data.auth.userId}
-            passwordResetTarget={passwordResetTarget}
-            passwordChangeForm={passwordChangeForm}
-            passwordResetForm={passwordResetForm}
-            organizationMemberForm={organizationMemberForm}
             setActiveSettingsSection={setActiveSettingsSection}
-            setPasswordChangeForm={setPasswordChangeForm}
-            setPasswordResetForm={setPasswordResetForm}
-            setOrganizationMemberForm={setOrganizationMemberForm}
             toggleRevealField={toggleRevealField}
             openCertificates={openCertificates}
-            changePassword={changePassword}
-            createOrganizationMember={createOrganizationMember}
-            openMemberPasswordReset={openMemberPasswordReset}
-            removeOrganizationMember={removeOrganizationMember}
-            submitPasswordReset={submitPasswordReset}
-            cancelPasswordReset={cancelPasswordReset}
             runAction={runAction}
-            getWorkspaceMemberRoleLabel={getWorkspaceMemberRoleLabel}
             formatDateTime={formatDateTime}
           />
         ) : null}
@@ -7840,7 +7333,7 @@ export function App() {
             <Panel
               title="플랫폼 관리자 계정 보안"
               subtitle={`현재 로그인한 플랫폼 관리자 계정(${data.auth.email ?? "이메일 없음"})의 비밀번호를 바꿉니다.`}
-              actions={<button onClick={() => void runAction("change-password", changePassword, { reload: false })}>비밀번호 변경</button>}
+              actions={<button onClick={() => void runAction("change-password", settingsScreenState.account.changePassword, { reload: false })}>비밀번호 변경</button>}
             >
               <div className="form-grid">
                 <label>
@@ -7848,9 +7341,9 @@ export function App() {
                   <div className="password-field">
                     <input
                       type={revealedFields.nextPassword ? "text" : "password"}
-                      value={passwordChangeForm.nextPassword}
+                      value={settingsScreenState.account.passwordChangeForm.nextPassword}
                       onChange={(event) =>
-                        setPasswordChangeForm((prev) => ({
+                        settingsScreenState.account.setPasswordChangeForm((prev) => ({
                           ...prev,
                           nextPassword: event.target.value
                         }))
@@ -7872,9 +7365,9 @@ export function App() {
                   <div className="password-field">
                     <input
                       type={revealedFields.confirmPassword ? "text" : "password"}
-                      value={passwordChangeForm.confirmPassword}
+                      value={settingsScreenState.account.passwordChangeForm.confirmPassword}
                       onChange={(event) =>
-                        setPasswordChangeForm((prev) => ({
+                        settingsScreenState.account.setPasswordChangeForm((prev) => ({
                           ...prev,
                           confirmPassword: event.target.value
                         }))
@@ -8028,8 +7521,7 @@ export function App() {
                     {opsWorkspaces.length > 0 ? (
                       opsWorkspaces.map((workspace) => {
                         const isOwnerResetTarget =
-                          passwordResetTarget?.kind === "owner" &&
-                          passwordResetTarget.organizationId === workspace.organizationId;
+                          ownerPasswordResetTarget?.organizationId === workspace.organizationId;
                         const workspaceEstimatedPointUsage = getWorkspaceEstimatedPointUsage(workspace, partnerTaxInvoiceUnitCost);
                         const workspaceCurrentMonthEstimatedPointUsage = getWorkspaceCurrentMonthEstimatedPointUsage(
                           workspace,
@@ -8123,9 +7615,9 @@ export function App() {
                                     <div className="password-field">
                                       <input
                                         type={revealedFields.ownerResetNextPassword ? "text" : "password"}
-                                        value={passwordResetForm.nextPassword}
+                                        value={ownerPasswordResetForm.nextPassword}
                                         onChange={(event) =>
-                                          setPasswordResetForm((prev) => ({
+                                          setOwnerPasswordResetForm((prev) => ({
                                             ...prev,
                                             nextPassword: event.target.value
                                           }))
@@ -8147,9 +7639,9 @@ export function App() {
                                     <div className="password-field">
                                       <input
                                         type={revealedFields.ownerResetConfirmPassword ? "text" : "password"}
-                                        value={passwordResetForm.confirmPassword}
+                                        value={ownerPasswordResetForm.confirmPassword}
                                         onChange={(event) =>
-                                          setPasswordResetForm((prev) => ({
+                                          setOwnerPasswordResetForm((prev) => ({
                                             ...prev,
                                             confirmPassword: event.target.value
                                           }))
@@ -8172,7 +7664,7 @@ export function App() {
                                     onClick={() =>
                                       void runAction(
                                         `reset-owner-password-${workspace.organizationId}`,
-                                        submitPasswordReset,
+                                        submitOwnerPasswordReset,
                                         { reload: false }
                                       )
                                     }
@@ -8182,7 +7674,7 @@ export function App() {
                                   <button
                                     type="button"
                                     className="btn-secondary"
-                                    onClick={cancelPasswordReset}
+                                    onClick={cancelOwnerPasswordReset}
                                   >
                                     취소
                                   </button>
