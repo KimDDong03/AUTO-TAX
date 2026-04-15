@@ -23,7 +23,7 @@ type CertificateTabItem = {
   canOpenPayment: boolean;
 };
 
-type CertificatesTabProps = {
+export type CertificatesTabModel = {
   customers: Customer[];
   busyKey: string | null;
   canUseCustomerRenewalAssistant: boolean;
@@ -37,8 +37,8 @@ type CertificatesTabProps = {
   renewalHelperDownloadUrl: string;
   customerRenewalLoadedCertificateCount: number;
   certificateItems: CertificateTabItem[];
-  onRefreshCustomerRenewalAssistant: () => Promise<void>;
-  onLoadCustomerRenewalCertificates: () => Promise<void>;
+  runRefreshCustomerRenewalAssistant: () => Promise<void>;
+  runLoadCustomerRenewalCertificates: () => Promise<void>;
   onLinkCustomerCertificate: (certificateIndex: string, customerId: number) => Promise<void>;
   onUnlinkCustomerCertificate: (certificateId: number) => Promise<void>;
   onPrepareCustomerCertificateRenewal: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
@@ -77,7 +77,11 @@ function getCertificateExpireTime(value: string | null) {
 
 type CertificateStatusBadgeTone = "success" | "warn" | "danger" | "default";
 
-export function CertificatesTab(props: CertificatesTabProps) {
+type CertificatesTabProps = {
+  model: CertificatesTabModel;
+};
+
+export function CertificatesTab({ model: props }: CertificatesTabProps) {
   const assistantBusyKey =
     props.busyKey && (props.busyKey.startsWith("customer-renewal-") || props.busyKey.startsWith("customer-certificate-"))
       ? props.busyKey
@@ -823,7 +827,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
             <button
               className="btn-secondary"
               disabled={assistantBusyKey !== null}
-              onClick={() => void props.runAction("customer-renewal-refresh", props.onRefreshCustomerRenewalAssistant, { reload: false })}
+              onClick={() => void props.runRefreshCustomerRenewalAssistant()}
             >
               {isRefreshingRenewalAssistant ? "확인 중..." : "새로고침"}
             </button>
@@ -835,7 +839,7 @@ export function CertificatesTab(props: CertificatesTabProps) {
             <button
               disabled={assistantBusyKey !== null || helperUpgradeRequired}
               title={helperUpgradeRequired ? certificateStatusBody : undefined}
-              onClick={() => void props.runAction("customer-renewal-bridge-probe", props.onLoadCustomerRenewalCertificates, { reload: false })}
+              onClick={() => void props.runLoadCustomerRenewalCertificates()}
             >
               {isLoadingRenewalCertificates ? "읽는 중..." : "공동인증서 읽기"}
             </button>

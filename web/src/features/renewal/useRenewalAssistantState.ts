@@ -1,0 +1,436 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import {
+  getLocalRenewalHelperReleaseMetadata,
+  getLocalRenewalHelperStatus,
+  requestLocalRenewalBridgeProbe
+} from "../../local-renewal-helper";
+import {
+  evaluateLocalRenewalHelperUpgrade,
+  type LocalRenewalHelperUpgradeState
+} from "../../helper-version";
+import type { RenewalAutomationPayload } from "../../types";
+
+export type RenewalAgentSnapshot = RenewalAutomationPayload["agent"];
+export type RenewalAgentCertificate = RenewalAgentSnapshot["bridge"]["storageProbe"]["certificates"][number];
+export type RenewalJob = RenewalAutomationPayload["jobs"][number];
+export type RenewalAssistantAlertTone = "default" | "warn" | "danger" | "success";
+export type ShowRenewalAssistantAlert = (
+  message: string,
+  options?: { title?: string; tone?: RenewalAssistantAlertTone }
+) => Promise<void>;
+
+export type CustomerRenewalAssistantData = {
+  agentOnline: boolean;
+  helperVersion: string | null;
+  helperMessage: string;
+  helperCheckedAt: string | null;
+  latestVersion: string | null;
+  minSupportedVersion: string | null;
+  releaseDownloadUrl: string | null;
+  releaseReleasedAt: string | null;
+  upgradeState: LocalRenewalHelperUpgradeState;
+  upgradeMessage: string | null;
+  jobs: RenewalJob[];
+  certificates: RenewalAgentCertificate[];
+};
+
+export type UseRenewalAssistantStateArgs = {
+  activeTab: string;
+  isSettingsHelperActive: boolean;
+  activeOrganizationId: string | null;
+  activeOrganizationRole: string | null | undefined;
+  defaultRenewalHelperDownloadUrl: string;
+  showAlert?: ShowRenewalAssistantAlert;
+};
+
+let localRenewalJobSeed = Date.now();
+
+function nextLocalRenewalJobId(): number {
+  localRenewalJobSeed += 1;
+  return localRenewalJobSeed;
+}
+
+export function buildLocalRenewalBridgeJob(
+  result: RenewalAutomationPayload["jobs"][number]["result"],
+  visibleCertificateCount?: number
+): RenewalJob {
+  const requestedAt = new Date().toISOString();
+  const storageProbe = result?.bridge.storageProbe;
+  const storageOk = storageProbe?.ok === true;
+  const hasVisibleCertificateCount = typeof visibleCertificateCount === "number";
+  const summary = !storageOk
+    ? "공동인증서 불러오기에 실패했습니다."
+    : hasVisibleCertificateCount
+      ? visibleCertificateCount > 0
+        ? `전자세금용 공동인증서 ${visibleCertificateCount}건을 불러왔습니다.`
+        : "전자세금용 공동인증서를 찾지 못했습니다."
+      : `공동인증서 ${storageProbe.certificateCount}건을 불러왔습니다.`;
+
+  return {
+    id: nextLocalRenewalJobId(),
+    type: "bridge-probe",
+    status: storageOk ? "completed" : "failed",
+    customerId: null,
+    customerName: "공동인증서 목록",
+    certificateIndex: null,
+    certificateCn: null,
+    requestedAt,
+    claimedAt: requestedAt,
+    finishedAt: requestedAt,
+    requestedBy: "localhost-helper",
+    claimedBy: "localhost-helper",
+    summary,
+    error: storageOk ? null : storageProbe?.error ?? result?.notes[0] ?? "공동인증서 불러오기에 실패했습니다.",
+    result
+  };
+}
+
+export function getCustomerRenewalAssistantReleaseMetadata(
+  current?: CustomerRenewalAssistantData | null
+) {
+  if (!current?.latestVersion || !current.minSupportedVersion || !current.releaseDownloadUrl || !current.releaseReleasedAt) {
+    return null;
+  }
+
+  return {
+    latestVersion: current.latestVersion,
+    minSupportedVersion: current.minSupportedVersion,
+    downloadUrl: current.releaseDownloadUrl,
+    releasedAt: current.releaseReleasedAt
+  };
+}
+
+export function buildCustomerRenewalAssistant(
+  options: {
+    current?: CustomerRenewalAssistantData | null;
+    status?: {
+      online: boolean;
+      version: string | null;
+      message: string;
+    };
+    helperVersion?: string | null;
+    helperMessage?: string;
+    jobs?: RenewalJob[];
+    certificates?: RenewalAgentCertificate[];
+    releaseMetadata?: {
+      latestVersion: string;
+      minSupportedVersion: string;
+      downloadUrl: string;
+      releasedAt: string;
+    } | null;
+    defaultRenewalHelperDownloadUrl: string;
+  }
+): CustomerRenewalAssistantData {
+  const metadata = options.releaseMetadata ?? null;
+  const helperVersion = options.helperVersion ?? options.status?.version ?? options.current?.helperVersion ?? null;
+  const upgrade = evaluateLocalRenewalHelperUpgrade(helperVersion, metadata);
+
+  return {
+    agentOnline: options.status?.online ?? options.current?.agentOnline ?? false,
+    helperVersion,
+    helperMessage:
+      options.helperMessage ??
+      options.status?.message ??
+      options.current?.helperMessage ??
+      "공동인증서를 읽어 헬퍼 연결을 확인하세요.",
+    helperCheckedAt: new Date().toISOString(),
+    latestVersion: metadata?.latestVersion ?? null,
+    minSupportedVersion: metadata?.minSupportedVersion ?? null,
+    releaseDownloadUrl: metadata?.downloadUrl || options.defaultRenewalHelperDownloadUrl,
+    releaseReleasedAt: metadata?.releasedAt ?? null,
+    upgradeState: upgrade.upgradeState,
+    upgradeMessage: upgrade.upgradeMessage,
+    jobs: options.jobs ?? options.current?.jobs ?? [],
+    certificates: options.certificates ?? options.current?.certificates ?? []
+  };
+}
+
+export function buildIdleCustomerRenewalAssistant(
+  current: CustomerRenewalAssistantData | null | undefined,
+  defaultRenewalHelperDownloadUrl: string
+): CustomerRenewalAssistantData {
+  return current
+    ? {
+        ...current,
+        helperMessage: current.helperMessage || "공동인증서를 읽어 헬퍼 연결을 확인하세요."
+      }
+    : {
+        agentOnline: false,
+        helperVersion: null,
+        helperMessage: "공동인증서를 읽어 헬퍼 연결을 확인하세요.",
+        helperCheckedAt: null,
+        latestVersion: null,
+        minSupportedVersion: null,
+        releaseDownloadUrl: defaultRenewalHelperDownloadUrl,
+        releaseReleasedAt: null,
+        upgradeState: "unknown",
+        upgradeMessage: null,
+        jobs: [],
+        certificates: []
+      };
+}
+
+export function useRenewalAssistantState({
+  activeTab,
+  isSettingsHelperActive,
+  activeOrganizationId,
+  activeOrganizationRole,
+  defaultRenewalHelperDownloadUrl,
+  showAlert
+}: UseRenewalAssistantStateArgs) {
+  const [customerRenewalAssistant, setCustomerRenewalAssistant] = useState<CustomerRenewalAssistantData | null>(null);
+  const customerRenewalAutoLoadedRef = useRef(false);
+  const customerRenewalAutoLoadedOrganizationRef = useRef<string | null>(null);
+  const assistantOrganizationRef = useRef<string | null>(null);
+
+  const canUseCustomerRenewalAssistant = Boolean(activeOrganizationId) && activeOrganizationRole !== "viewer";
+
+  const refreshCustomerRenewalAssistant = useCallback(async () => {
+    if (!canUseCustomerRenewalAssistant) {
+      setCustomerRenewalAssistant(null);
+      return;
+    }
+
+    const [status, releaseMetadata] = await Promise.all([
+      getLocalRenewalHelperStatus(),
+      getLocalRenewalHelperReleaseMetadata()
+    ]);
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status,
+        releaseMetadata,
+        defaultRenewalHelperDownloadUrl
+      })
+    );
+  }, [canUseCustomerRenewalAssistant, defaultRenewalHelperDownloadUrl]);
+
+  const ensureLocalRenewalHelperActionAllowed = useCallback(
+    (actionLabel: string) => {
+      if (customerRenewalAssistant?.upgradeState !== "upgrade-required") {
+        return;
+      }
+
+      const helperVersionLabel = customerRenewalAssistant.helperVersion ? `v${customerRenewalAssistant.helperVersion}` : "현재 버전";
+      throw new Error(
+        `${actionLabel} 전에 로컬 헬퍼를 다시 설치하세요. ${
+          customerRenewalAssistant.upgradeMessage ?? `${helperVersionLabel}은(는) 지원되지 않습니다.`
+        } 압축을 다시 받아 scripts\\renewal-helper-install.cmd 를 실행한 뒤 상태를 다시 확인하세요.`
+      );
+    },
+    [customerRenewalAssistant]
+  );
+
+  const syncCustomerRenewalCertificates = useCallback(
+    async (options?: { showAlert?: boolean }) => {
+      ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
+
+      const showLoadAlert = options?.showAlert ?? true;
+      const response = await requestLocalRenewalBridgeProbe();
+      const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
+      const bridgeJob = buildLocalRenewalBridgeJob(response.result, allCertificates.length);
+      const helperMessage = bridgeJob.error ?? bridgeJob.summary;
+
+      setCustomerRenewalAssistant((prev) =>
+        buildCustomerRenewalAssistant({
+          current: prev,
+          status: {
+            online: true,
+            version: response.version,
+            message: helperMessage
+          },
+          helperVersion: response.version,
+          helperMessage,
+          jobs: [bridgeJob, ...(prev?.jobs ?? [])],
+          certificates: allCertificates,
+          releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+          defaultRenewalHelperDownloadUrl
+        })
+      );
+
+      if (showLoadAlert && showAlert) {
+        await showAlert(
+          allCertificates.length > 0
+            ? `공동인증서 ${allCertificates.length}건을 불러왔습니다.\n공동인증서 탭에서 고객 연결과 갱신을 진행할 수 있습니다.`
+            : bridgeJob.error ?? "공동인증서를 불러오지 못했습니다.",
+          {
+            title: "공동인증서 읽기",
+            tone: allCertificates.length > 0 ? "success" : "danger"
+          }
+        );
+      }
+
+      return allCertificates;
+    },
+    [defaultRenewalHelperDownloadUrl, ensureLocalRenewalHelperActionAllowed, showAlert]
+  );
+
+  const loadCustomerRenewalCertificates = useCallback(async () => {
+    await syncCustomerRenewalCertificates({ showAlert: true });
+  }, [syncCustomerRenewalCertificates]);
+
+  useEffect(() => {
+    if (!canUseCustomerRenewalAssistant || !activeOrganizationId) {
+      assistantOrganizationRef.current = null;
+      customerRenewalAutoLoadedRef.current = false;
+      customerRenewalAutoLoadedOrganizationRef.current = null;
+      setCustomerRenewalAssistant(null);
+      return;
+    }
+
+    if (assistantOrganizationRef.current !== activeOrganizationId) {
+      assistantOrganizationRef.current = activeOrganizationId;
+      customerRenewalAutoLoadedRef.current = false;
+      customerRenewalAutoLoadedOrganizationRef.current = activeOrganizationId;
+      setCustomerRenewalAssistant((prev) =>
+        buildIdleCustomerRenewalAssistant(prev, defaultRenewalHelperDownloadUrl)
+      );
+      return;
+    }
+
+    setCustomerRenewalAssistant((prev) =>
+      prev ?? buildIdleCustomerRenewalAssistant(prev, defaultRenewalHelperDownloadUrl)
+    );
+  }, [activeOrganizationId, canUseCustomerRenewalAssistant, defaultRenewalHelperDownloadUrl]);
+
+  useEffect(() => {
+    if (activeTab !== "home") {
+      return;
+    }
+
+    const hasPendingRenewalJobs = customerRenewalAssistant?.jobs.some(
+      (job) => job.status === "queued" || job.status === "claimed"
+    );
+    if (!hasPendingRenewalJobs) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void refreshCustomerRenewalAssistant().catch(() => undefined);
+    }, 3000);
+
+    return () => window.clearTimeout(timer);
+  }, [activeTab, customerRenewalAssistant, refreshCustomerRenewalAssistant]);
+
+  useEffect(() => {
+    if (activeTab !== "settings" && activeTab !== "certificates") {
+      customerRenewalAutoLoadedRef.current = false;
+      customerRenewalAutoLoadedOrganizationRef.current = null;
+      return;
+    }
+
+    if (!canUseCustomerRenewalAssistant || !activeOrganizationId) {
+      customerRenewalAutoLoadedRef.current = false;
+      customerRenewalAutoLoadedOrganizationRef.current = null;
+      return;
+    }
+
+    if (customerRenewalAutoLoadedOrganizationRef.current !== activeOrganizationId) {
+      customerRenewalAutoLoadedOrganizationRef.current = activeOrganizationId;
+      customerRenewalAutoLoadedRef.current = false;
+    }
+
+    if (!customerRenewalAssistant || customerRenewalAutoLoadedRef.current) {
+      return;
+    }
+
+    customerRenewalAutoLoadedRef.current = true;
+    void (async () => {
+      let assistantSnapshot = customerRenewalAssistant;
+
+      if (!assistantSnapshot.agentOnline) {
+        setCustomerRenewalAssistant((prev) =>
+          prev
+            ? {
+                ...prev,
+                helperMessage: "로컬 헬퍼 연결을 확인하는 중입니다..."
+              }
+            : prev
+        );
+        const [status, releaseMetadata] = await Promise.all([
+          getLocalRenewalHelperStatus(),
+          getLocalRenewalHelperReleaseMetadata()
+        ]);
+        assistantSnapshot = buildCustomerRenewalAssistant({
+          current: assistantSnapshot,
+          status,
+          releaseMetadata,
+          defaultRenewalHelperDownloadUrl
+        });
+        setCustomerRenewalAssistant(assistantSnapshot);
+      }
+    })().catch(() => {
+      customerRenewalAutoLoadedRef.current = false;
+    });
+  }, [
+    activeOrganizationId,
+    activeTab,
+    canUseCustomerRenewalAssistant,
+    customerRenewalAssistant,
+    defaultRenewalHelperDownloadUrl
+  ]);
+
+  useEffect(() => {
+    const shouldRefreshHelperSummary =
+      activeTab === "home" || activeTab === "certificates" || (activeTab === "settings" && isSettingsHelperActive);
+
+    if (!shouldRefreshHelperSummary || !canUseCustomerRenewalAssistant || customerRenewalAssistant?.helperCheckedAt) {
+      return;
+    }
+
+    void refreshCustomerRenewalAssistant().catch(() => undefined);
+  }, [
+    activeTab,
+    canUseCustomerRenewalAssistant,
+    customerRenewalAssistant?.helperCheckedAt,
+    isSettingsHelperActive,
+    refreshCustomerRenewalAssistant
+  ]);
+
+  const customerRenewalAssistantJobs = customerRenewalAssistant?.jobs ?? [];
+  const customerRenewalAssistantAllCertificates = customerRenewalAssistant?.certificates ?? [];
+  const customerRenewalAssistantCertificates = useMemo(
+    () =>
+      customerRenewalAssistantAllCertificates.filter((certificate) =>
+        certificate.usageToName
+          .trim()
+          .toLocaleLowerCase("ko-KR")
+          .replace(/\s+/g, "")
+          .includes("전자세금")
+      ),
+    [customerRenewalAssistantAllCertificates]
+  );
+
+  const helperUpgradeRequired = customerRenewalAssistant?.upgradeState === "upgrade-required";
+  const helperUpgradeAvailable = customerRenewalAssistant?.upgradeState === "upgrade-available";
+  const helperActionBlockedReason = customerRenewalAssistant?.upgradeMessage
+    ? `${customerRenewalAssistant.upgradeMessage} 압축을 다시 받아 scripts\\renewal-helper-install.cmd 를 실행한 뒤 상태를 다시 확인하세요.`
+    : "지원되지 않는 로컬 헬퍼 버전입니다. 새 버전을 다시 설치한 뒤 상태를 다시 확인하세요.";
+  const helperReady =
+    Boolean(customerRenewalAssistant?.agentOnline) &&
+    customerRenewalAssistantAllCertificates.length > 0 &&
+    !helperUpgradeRequired;
+  const renewalHelperDownloadUrl =
+    customerRenewalAssistant?.releaseDownloadUrl || defaultRenewalHelperDownloadUrl;
+
+  return {
+    canUseCustomerRenewalAssistant,
+    customerRenewalAssistant,
+    setCustomerRenewalAssistant: setCustomerRenewalAssistant as Dispatch<
+      SetStateAction<CustomerRenewalAssistantData | null>
+    >,
+    customerRenewalAssistantJobs,
+    customerRenewalAssistantAllCertificates,
+    customerRenewalAssistantCertificates,
+    helperReady,
+    helperUpgradeRequired,
+    helperUpgradeAvailable,
+    helperActionBlockedReason,
+    renewalHelperDownloadUrl,
+    refreshCustomerRenewalAssistant,
+    syncCustomerRenewalCertificates,
+    loadCustomerRenewalCertificates,
+    ensureLocalRenewalHelperActionAllowed
+  };
+}

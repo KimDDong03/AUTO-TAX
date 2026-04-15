@@ -3,7 +3,7 @@ import { Panel, RevealIcon, SetupPanel } from "../../components/ui";
 import type { OrganizationMemberSummary } from "../../types";
 
 type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
-type SettingsTabProps = {
+export type SettingsTabModel = {
   settingsSections: Array<{ id: SettingsSectionId; step: number; title: string; done: boolean; summary: string }>;
   activeSettingsSection: SettingsSectionId;
   setupPendingCount: number;
@@ -52,11 +52,11 @@ type SettingsTabProps = {
   onMailAddressChange: (value: string) => void;
   onRenewalIssuePasswordChange: (value: string) => void;
   toggleRevealField: (fieldKey: string) => void;
-  testMailSettings: () => Promise<void>;
-  loadCurrentPopbillSharedPassword: () => Promise<void>;
-  loadCurrentRenewalCertificatePassword: () => Promise<void>;
-  loadCurrentRenewalIssuePassword: () => Promise<void>;
-  refreshCustomerRenewalAssistant: () => Promise<void>;
+  runMailSettingsTest: () => Promise<void>;
+  runLoadCurrentPopbillSharedPassword: () => Promise<void>;
+  runLoadCurrentRenewalCertificatePassword: () => Promise<void>;
+  runLoadCurrentRenewalIssuePassword: () => Promise<void>;
+  runRefreshCustomerRenewalAssistant: () => Promise<void>;
   openCertificates: () => void;
   changePassword: () => Promise<void>;
   createOrganizationMember: () => Promise<void>;
@@ -69,7 +69,11 @@ type SettingsTabProps = {
   formatDateTime: (value: string | null) => string;
 };
 
-export function SettingsTab(props: SettingsTabProps) {
+type SettingsTabProps = {
+  model: SettingsTabModel;
+};
+
+export function SettingsTab({ model: props }: SettingsTabProps) {
   const nextSettingsSection = props.settingsSections.find((section) => !section.done)?.id ?? "account";
   const nextSettingsSectionLabel =
     nextSettingsSection === "gmail"
@@ -171,7 +175,7 @@ export function SettingsTab(props: SettingsTabProps) {
             done={props.settingsHealth.mailReady}
             note="메일 계정 연결 / 테스트"
             actions={
-              <button disabled={props.busyKey !== null} onClick={() => void props.runAction("mail-test", props.testMailSettings, { reload: false })}>
+              <button disabled={props.busyKey !== null} onClick={() => void props.runMailSettingsTest()}>
                 {props.isMailTesting ? "연결 테스트 중..." : "메일 연결 테스트"}
               </button>
             }
@@ -306,7 +310,7 @@ export function SettingsTab(props: SettingsTabProps) {
                       </span>
                       {props.popbillSharedPasswordConfigured ? (
                         <div className="field-action-row">
-                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runAction("load-popbill-shared-password", props.loadCurrentPopbillSharedPassword, { reload: false })}>
+                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runLoadCurrentPopbillSharedPassword()}>
                             저장된 비밀번호 불러오기
                           </button>
                         </div>
@@ -336,7 +340,7 @@ export function SettingsTab(props: SettingsTabProps) {
                       </span>
                       {props.renewalIssuePasswordConfigured ? (
                         <div className="field-action-row">
-                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runAction("load-renewal-issue-password", props.loadCurrentRenewalIssuePassword, { reload: false })}>
+                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runLoadCurrentRenewalIssuePassword()}>
                             저장된 임시번호 불러오기
                           </button>
                         </div>
@@ -364,7 +368,7 @@ export function SettingsTab(props: SettingsTabProps) {
                       </span>
                       {props.renewalCertificatePasswordConfigured ? (
                         <div className="field-action-row">
-                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runAction("load-renewal-certificate-password", props.loadCurrentRenewalCertificatePassword, { reload: false })}>
+                          <button type="button" className="btn-secondary field-inline-action" disabled={props.busyKey !== null} onClick={() => void props.runLoadCurrentRenewalCertificatePassword()}>
                             저장된 비밀번호 불러오기
                           </button>
                         </div>
@@ -404,7 +408,7 @@ export function SettingsTab(props: SettingsTabProps) {
                         type="button"
                         className="btn-secondary"
                         disabled={props.busyKey !== null}
-                        onClick={() => void props.runAction("refresh-customer-renewal-helper", props.refreshCustomerRenewalAssistant, { reload: false })}
+                        onClick={() => void props.runRefreshCustomerRenewalAssistant()}
                       >
                         상태 다시 확인
                       </button>
@@ -457,7 +461,7 @@ export function SettingsTab(props: SettingsTabProps) {
                   type="button"
                   className="btn-secondary"
                   disabled={props.busyKey !== null}
-                  onClick={() => void props.runAction("refresh-customer-renewal-helper", props.refreshCustomerRenewalAssistant, { reload: false })}
+                  onClick={() => void props.runRefreshCustomerRenewalAssistant()}
                 >
                   상태 다시 확인
                 </button>

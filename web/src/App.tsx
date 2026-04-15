@@ -4,6 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { ApiError, api, setActiveOrganizationId } from "./api";
 import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
 import { CertificatesScreen } from "./features/certificates/CertificatesScreen";
+import { useCertificatesScreenModel } from "./features/certificates/useCertificatesScreenModel";
 import { CustomersTab } from "./features/customers/CustomersTab";
 import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
 import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
@@ -24,9 +25,20 @@ import {
 } from "./features/initial-registration/customer-onboarding-workbook";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
 import {
-  getLocalRenewalHelperReleaseMetadata,
-  getLocalRenewalHelperStatus,
-  type LocalRenewalHelperReleaseMetadata,
+  MAIL_PROVIDER_CONFIG,
+  normalizeRenewalIssuePasswordInput,
+  type SettingsSectionId,
+  useSettingsScreenState
+} from "./features/settings/useSettingsScreenState";
+import {
+  buildCustomerRenewalAssistant,
+  getCustomerRenewalAssistantReleaseMetadata,
+  type RenewalAgentSnapshot,
+  type RenewalAgentCertificate,
+  type RenewalJob,
+  useRenewalAssistantState
+} from "./features/renewal/useRenewalAssistantState";
+import {
   requestLocalPopbillCertificateRegistration,
   requestLocalRenewalBridgeProbe,
   requestLocalRenewalCertificates,
@@ -34,13 +46,8 @@ import {
   requestLocalRenewalPreparePayment,
   requestLocalRenewalPreflight
 } from "./local-renewal-helper";
-import {
-  evaluateLocalRenewalHelperUpgrade,
-  type LocalRenewalHelperUpgradeState
-} from "./helper-version";
 import { getSessionSafely, supabase } from "./supabase";
 import type {
-  AppSettings,
   BootstrapPayload,
   CompletedBillingMonth,
   Customer,
@@ -60,7 +67,6 @@ import type {
 } from "./types";
 
 type TabId = "onboarding" | "home" | "customers" | "certificates" | "settings" | "ops";
-type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
 
 const ONBOARDING_NAV_STORAGE_KEY_PREFIX = "auto-tax:onboarding-nav:";
 
@@ -90,24 +96,6 @@ function writeOnboardingNavVisibilityPreference(organizationId: string, show: bo
 }
 type CustomerDetailTabId = "info" | "history";
 type CustomerListFilter = "all" | "blocked" | "ready" | "expiring" | "unjoined";
-type MailProvider = "gmail" | "naver" | "daum";
-type RenewalAgentSnapshot = RenewalAutomationPayload["agent"];
-type RenewalAgentCertificate = RenewalAgentSnapshot["bridge"]["storageProbe"]["certificates"][number];
-type RenewalJob = RenewalAutomationPayload["jobs"][number];
-type CustomerRenewalAssistantData = {
-  agentOnline: boolean;
-  helperVersion: string | null;
-  helperMessage: string;
-  helperCheckedAt: string | null;
-  latestVersion: string | null;
-  minSupportedVersion: string | null;
-  releaseDownloadUrl: string | null;
-  releaseReleasedAt: string | null;
-  upgradeState: LocalRenewalHelperUpgradeState;
-  upgradeMessage: string | null;
-  jobs: RenewalJob[];
-  certificates: RenewalAgentCertificate[];
-};
 type CustomerRenewalCandidateView = {
   customerId: number;
   customerName: string;
@@ -115,26 +103,6 @@ type CustomerRenewalCandidateView = {
   certificateCn: string;
   certificateExpireDate: string | null;
   certificateUsage: string;
-  statusText: string;
-  statusTone: "success" | "warn" | "danger" | "default";
-  paymentAmount: string | null;
-  canOpenPayment: boolean;
-};
-type CustomerCertificateCandidateView = {
-  key: string;
-  certificateIndex: string;
-  certificateCn: string;
-  certificateKind: CustomerCertificateKind;
-  certificateUsage: string;
-  issuerName: string;
-  certificateExpireDate: string | null;
-  linkedCertificateId: number | null;
-  linkedCustomerId: number | null;
-  linkedCustomerLabel: string | null;
-  linkSource: CustomerCertificate["linkSource"] | null;
-  suggestedCustomerId: number | null;
-  suggestedCustomerLabel: string | null;
-  suggestionCount: number;
   statusText: string;
   statusTone: "success" | "warn" | "danger" | "default";
   paymentAmount: string | null;
@@ -234,36 +202,6 @@ type CustomerFormState = {
   memo: string;
 };
 
-type SettingsFormState = {
-  mailProvider: MailProvider;
-  imapHost: string;
-  imapPort: string;
-  imapSecure: boolean;
-  mailAddress: string;
-  mailPassword: string;
-  imapMailbox: string;
-  smtpHost: string;
-  smtpPort: string;
-  smtpSecure: boolean;
-  notificationEmailsText: string;
-  defaultIssueDay: string;
-  defaultIssueHour: string;
-  defaultIssueMinute: string;
-  mailPollMinutes: string;
-  mailSyncStartAt: string;
-  timezone: string;
-  popbillUserIdPrefix: string;
-  popbillSharedPassword: string;
-  operatorContactName: string;
-  operatorContactEmail: string;
-  operatorContactTel: string;
-  renewalContactDepartment: string;
-  renewalContactFax: string;
-  renewalCertificatePassword: string;
-  renewalIssuePassword: string;
-  schedulerEnabled: boolean;
-};
-
 type PasswordChangeFormState = {
   nextPassword: string;
   confirmPassword: string;
@@ -287,8 +225,6 @@ type PasswordResetTarget =
       organizationName: string;
       loginId: string | null;
     };
-
-type SettingsAutosaveState = "idle" | "pending" | "saving" | "saved" | "error";
 
 type AddressResolveResponse = {
   ok: boolean;
@@ -545,16 +481,6 @@ function createQuickRegisterForm(message?: BootstrapPayload["inbox"][number] | n
   };
 }
 
-function shouldShowPopbillPrefixPlaceholder(settings: AppSettings): boolean {
-  const normalizedPrefix = settings.popbillUserIdPrefix.trim().toUpperCase();
-  const isDefaultExample = normalizedPrefix === "" || normalizedPrefix === "TEST_" || normalizedPrefix === "HAE_";
-  const hasWorkspacePopbillValues =
-    settings.popbillSharedPasswordConfigured ||
-    Boolean(settings.operatorContactName.trim() || settings.operatorContactEmail.trim() || settings.operatorContactTel.trim());
-
-  return isDefaultExample && !hasWorkspacePopbillValues;
-}
-
 type OrganizationMemberFormState = {
   loginId: string;
   displayName: string;
@@ -592,51 +518,6 @@ const baseOrganizationMemberForm: OrganizationMemberFormState = {
   loginId: "",
   displayName: "",
   password: ""
-};
-
-const MAIL_PROVIDER_CONFIG: Record<
-  MailProvider,
-  {
-    label: string;
-    imapHost: string;
-    imapPort: string;
-    imapSecure: boolean;
-    smtpHost: string;
-    smtpPort: string;
-    smtpSecure: boolean;
-    defaultMailbox: string;
-  }
-> = {
-  gmail: {
-    label: "Gmail",
-    imapHost: "imap.gmail.com",
-    imapPort: "993",
-    imapSecure: true,
-    smtpHost: "smtp.gmail.com",
-    smtpPort: "465",
-    smtpSecure: true,
-    defaultMailbox: "INBOX"
-  },
-  naver: {
-    label: "네이버 메일",
-    imapHost: "imap.naver.com",
-    imapPort: "993",
-    imapSecure: true,
-    smtpHost: "smtp.naver.com",
-    smtpPort: "587",
-    smtpSecure: false,
-    defaultMailbox: "INBOX"
-  },
-  daum: {
-    label: "다음 메일",
-    imapHost: "imap.daum.net",
-    imapPort: "993",
-    imapSecure: true,
-    smtpHost: "smtp.daum.net",
-    smtpPort: "465",
-    smtpSecure: true,
-    defaultMailbox: "INBOX"
-  }
 };
 
 function getTabFromHash(hash: string): TabId | null {
@@ -798,46 +679,6 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
     renewalContactMobile: customer.renewalContactMobile,
     memo: customer.memo
   };
-}
-
-function settingsToForm(settings: AppSettings): SettingsFormState {
-  const detectedProvider = inferMailProviderFromAddress(
-    settings.imapUser || settings.smtpUser || settings.smtpFromEmail,
-    inferMailProvider(settings)
-  );
-  return {
-    mailProvider: detectedProvider,
-    imapHost: settings.imapHost,
-    imapPort: String(settings.imapPort),
-    imapSecure: settings.imapSecure,
-    mailAddress: settings.imapUser || settings.smtpUser || settings.smtpFromEmail,
-    mailPassword: "",
-    imapMailbox: settings.imapMailbox,
-    smtpHost: settings.smtpHost,
-    smtpPort: String(settings.smtpPort),
-    smtpSecure: settings.smtpSecure,
-    notificationEmailsText: settings.notificationEmails.join("\n"),
-    defaultIssueDay: String(settings.defaultIssueDay),
-    defaultIssueHour: String(settings.defaultIssueHour),
-    defaultIssueMinute: String(settings.defaultIssueMinute),
-    mailPollMinutes: String(settings.mailPollMinutes),
-    mailSyncStartAt: "",
-    timezone: settings.timezone,
-    popbillUserIdPrefix: shouldShowPopbillPrefixPlaceholder(settings) ? "" : settings.popbillUserIdPrefix,
-    popbillSharedPassword: "",
-    operatorContactName: settings.operatorContactName,
-    operatorContactEmail: settings.operatorContactEmail,
-    operatorContactTel: settings.operatorContactTel,
-    renewalContactDepartment: settings.renewalContactDepartment,
-    renewalContactFax: settings.renewalContactFax,
-    renewalCertificatePassword: "",
-    renewalIssuePassword: "",
-    schedulerEnabled: settings.schedulerEnabled
-  };
-}
-
-function normalizeRenewalIssuePasswordInput(value: string): string {
-  return value.replace(/\D/g, "").slice(0, 6);
 }
 
 function isLikelyEmailAddress(value: string): boolean {
@@ -1742,20 +1583,6 @@ function selectCustomerRenewalCertificate(
   return null;
 }
 
-function getLocalCertificateKey(certificate: RenewalAgentCertificate): string {
-  const serial = normalizeCustomerCertificateFingerprint(certificate.serial);
-  if (serial) {
-    return `serial:${serial}`;
-  }
-
-  const userDN = normalizeCustomerCertificateFingerprint(certificate.userDN);
-  if (userDN) {
-    return `dn:${userDN}`;
-  }
-
-  return `index:${normalizeRenewalCertificateKey(certificate.index)}:${normalizeCustomerRenewalName(certificate.cn)}:${normalizeCustomerRenewalName(certificate.usageToName)}`;
-}
-
 function findStoredCustomerCertificateForLocalCertificate(
   certificate: RenewalAgentCertificate,
   customerCertificates: CustomerCertificate[]
@@ -1766,10 +1593,6 @@ function findStoredCustomerCertificateForLocalCertificate(
   }
   const primaryMatch = matches.find((storedCertificate) => storedCertificate.isPrimary);
   return primaryMatch ?? matches[0] ?? null;
-}
-
-function getStoredCustomerCertificateKey(storedCertificate: CustomerCertificate): string {
-  return `stored:${storedCertificate.id}`;
 }
 
 function parseStoredCustomerCertificateKey(value: string): number | null {
@@ -2289,67 +2112,6 @@ function getCustomerDraftSnapshotForCertificate(
   return probe.renewInfoSnapshot;
 }
 
-function inferMailProvider(settings: Pick<AppSettings, "imapHost" | "smtpHost">): MailProvider {
-  const imapHost = settings.imapHost.trim().toLowerCase();
-  const smtpHost = settings.smtpHost.trim().toLowerCase();
-
-  if (imapHost.includes("naver") || smtpHost.includes("naver")) return "naver";
-  if (imapHost.includes("daum") || smtpHost.includes("daum")) return "daum";
-  return "gmail";
-}
-
-function inferMailProviderFromAddress(address: string, fallback: MailProvider = "gmail"): MailProvider {
-  const normalized = address.trim().toLowerCase();
-
-  if (!normalized.includes("@")) {
-    return fallback;
-  }
-
-  if (normalized.endsWith("@naver.com")) return "naver";
-  if (normalized.endsWith("@daum.net") || normalized.endsWith("@hanmail.net")) return "daum";
-  if (normalized.endsWith("@gmail.com")) return "gmail";
-
-  return fallback;
-}
-
-function applyMailProviderDefaults(
-  setter: React.Dispatch<React.SetStateAction<SettingsFormState | null>>,
-  provider: MailProvider
-) {
-  const config = MAIL_PROVIDER_CONFIG[provider];
-  setter((prev) =>
-    prev
-      ? {
-          ...prev,
-          mailProvider: provider,
-          imapHost: config.imapHost,
-          imapPort: config.imapPort,
-          imapSecure: config.imapSecure,
-          imapMailbox: prev.imapMailbox || config.defaultMailbox,
-          smtpHost: config.smtpHost,
-          smtpPort: config.smtpPort,
-          smtpSecure: config.smtpSecure
-        }
-      : prev
-  );
-}
-
-function withSelectedMailProviderSettings(form: SettingsFormState) {
-  const detectedProvider = inferMailProviderFromAddress(form.mailAddress, form.mailProvider);
-  const config = MAIL_PROVIDER_CONFIG[detectedProvider];
-  return {
-    ...form,
-    mailProvider: detectedProvider,
-    imapHost: config.imapHost,
-    imapPort: config.imapPort,
-    imapSecure: config.imapSecure,
-    imapMailbox: config.defaultMailbox,
-    smtpHost: config.smtpHost,
-    smtpPort: config.smtpPort,
-    smtpSecure: config.smtpSecure
-  };
-}
-
 export function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authSession, setAuthSession] = useState<Session | null>(null);
@@ -2368,7 +2130,6 @@ export function App() {
   const [managedCustomerCountInput, setManagedCustomerCountInput] = useState("220");
   const [data, setData] = useState<BootstrapPayload | null>(null);
   const [opsConsole, setOpsConsole] = useState<OpsConsoleData | null>(null);
-  const [customerRenewalAssistant, setCustomerRenewalAssistant] = useState<CustomerRenewalAssistantData | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     return getTabFromHash(hash) ?? "home";
@@ -2388,7 +2149,6 @@ export function App() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [customerDetailTab, setCustomerDetailTab] = useState<CustomerDetailTabId>("info");
   const [workFeedTab, setWorkFeedTab] = useState<"inbox" | "issued">("inbox");
-  const [settingsForm, setSettingsForm] = useState<SettingsFormState | null>(null);
   const [passwordChangeForm, setPasswordChangeForm] = useState<PasswordChangeFormState>(basePasswordChangeForm);
   const [passwordResetForm, setPasswordResetForm] = useState<PasswordResetFormState>(basePasswordResetForm);
   const [passwordResetTarget, setPasswordResetTarget] = useState<PasswordResetTarget | null>(null);
@@ -2397,7 +2157,6 @@ export function App() {
   const [opsWorkspaceForm, setOpsWorkspaceForm] = useState<OpsWorkspaceFormState>(baseOpsWorkspaceForm);
   const [workspaceLimitEdits, setWorkspaceLimitEdits] = useState<Record<string, string>>({});
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
-  const [settingsAutosaveState, setSettingsAutosaveState] = useState<SettingsAutosaveState>("idle");
   const [appDialog, setAppDialog] = useState<AppDialogState | null>(null);
   const [customerAddressResolveMessage, setCustomerAddressResolveMessage] = useState("");
   const [customerImportFile, setCustomerImportFile] = useState<CustomerImportParsedFile | null>(null);
@@ -2428,15 +2187,12 @@ export function App() {
   const [error, setError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>({});
-  const settingsAutosaveBaselineRef = useRef("");
   const appDialogResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const customerAddressLookupRef = useRef("");
   const customerRenewalPasswordRef = useRef("");
   const customerRenewalIssuePasswordRef = useRef("");
   const customerCertificatePasswordCacheRef = useRef<Record<number, string>>({});
   const customerOnboardingCertificatesRef = useRef<RenewalAgentCertificate[] | null>(null);
-  const customerRenewalAutoLoadedRef = useRef(false);
-  const customerRenewalAutoLoadedOrganizationRef = useRef<string | null>(null);
   const customerNameInputRef = useRef<HTMLInputElement | null>(null);
   const certSyncInFlightRef = useRef(false);
   const mailboxLoadInFlightRef = useRef(false);
@@ -2504,82 +2260,6 @@ export function App() {
 
   const defaultRenewalHelperDownloadUrl =
     import.meta.env.VITE_RENEWAL_HELPER_DOWNLOAD_URL?.trim() || "/downloads/renewal-local-helper.zip";
-
-  const getCustomerRenewalAssistantReleaseMetadata = (
-    current?: CustomerRenewalAssistantData | null
-  ): LocalRenewalHelperReleaseMetadata | null => {
-    if (!current?.latestVersion || !current.minSupportedVersion || !current.releaseDownloadUrl || !current.releaseReleasedAt) {
-      return null;
-    }
-
-    return {
-      latestVersion: current.latestVersion,
-      minSupportedVersion: current.minSupportedVersion,
-      downloadUrl: current.releaseDownloadUrl,
-      releasedAt: current.releaseReleasedAt
-    };
-  };
-
-  const buildCustomerRenewalAssistant = (options: {
-    current?: CustomerRenewalAssistantData | null;
-    status?: {
-      online: boolean;
-      version: string | null;
-      message: string;
-    };
-    helperVersion?: string | null;
-    helperMessage?: string;
-    jobs?: RenewalJob[];
-    certificates?: RenewalAgentCertificate[];
-    releaseMetadata?: LocalRenewalHelperReleaseMetadata | null;
-  }): CustomerRenewalAssistantData => {
-    const metadata = options.releaseMetadata ?? null;
-    const helperVersion = options.helperVersion ?? options.status?.version ?? options.current?.helperVersion ?? null;
-    const upgrade = evaluateLocalRenewalHelperUpgrade(helperVersion, metadata);
-
-    return {
-      agentOnline: options.status?.online ?? options.current?.agentOnline ?? false,
-      helperVersion,
-      helperMessage: options.helperMessage ?? options.status?.message ?? options.current?.helperMessage ?? "공동인증서를 읽어 헬퍼 연결을 확인하세요.",
-      helperCheckedAt: new Date().toISOString(),
-      latestVersion: metadata?.latestVersion ?? null,
-      minSupportedVersion: metadata?.minSupportedVersion ?? null,
-      releaseDownloadUrl: metadata?.downloadUrl || defaultRenewalHelperDownloadUrl,
-      releaseReleasedAt: metadata?.releasedAt ?? null,
-      upgradeState: upgrade.upgradeState,
-      upgradeMessage: upgrade.upgradeMessage,
-      jobs: options.jobs ?? options.current?.jobs ?? [],
-      certificates: options.certificates ?? options.current?.certificates ?? []
-    };
-  };
-
-  const ensureLocalRenewalHelperActionAllowed = (actionLabel: string) => {
-    if (customerRenewalAssistant?.upgradeState !== "upgrade-required") {
-      return;
-    }
-
-    const helperVersionLabel = customerRenewalAssistant.helperVersion ? `v${customerRenewalAssistant.helperVersion}` : "현재 버전";
-    throw new Error(
-      `${actionLabel} 전에 로컬 헬퍼를 다시 설치하세요. ${customerRenewalAssistant.upgradeMessage ?? `${helperVersionLabel}은(는) 지원되지 않습니다.`} 압축을 다시 받아 ${
-        "scripts\\renewal-helper-install.cmd"
-      } 를 실행한 뒤 상태를 다시 확인하세요.`
-    );
-  };
-
-  const loadCustomerRenewalAssistant = async (
-    current?: CustomerRenewalAssistantData | null
-  ): Promise<CustomerRenewalAssistantData> => {
-    const [status, releaseMetadata] = await Promise.all([
-      getLocalRenewalHelperStatus(),
-      getLocalRenewalHelperReleaseMetadata()
-    ]);
-    return buildCustomerRenewalAssistant({
-      current,
-      status,
-      releaseMetadata
-    });
-  };
-
   const loadMailboxData = async (options?: { force?: boolean }) => {
     const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
     if (!activeOrganizationId) {
@@ -2622,29 +2302,6 @@ export function App() {
     }
   };
 
-  const buildIdleCustomerRenewalAssistant = (
-    current?: CustomerRenewalAssistantData | null
-  ): CustomerRenewalAssistantData =>
-    current
-      ? {
-          ...current,
-          helperMessage: current.helperMessage || "공동인증서를 읽어 헬퍼 연결을 확인하세요."
-        }
-      : {
-          agentOnline: false,
-          helperVersion: null,
-          helperMessage: "공동인증서를 읽어 헬퍼 연결을 확인하세요.",
-          helperCheckedAt: null,
-          latestVersion: null,
-          minSupportedVersion: null,
-          releaseDownloadUrl: defaultRenewalHelperDownloadUrl,
-          releaseReleasedAt: null,
-          upgradeState: "unknown",
-          upgradeMessage: null,
-          jobs: [],
-          certificates: []
-        };
-
   const loadOrganizationMembers = async (payload: BootstrapPayload, loadToken: number) => {
     if (payload.auth.activeOrganizationRole !== "owner") {
       setOrganizationMembers([]);
@@ -2668,13 +2325,8 @@ export function App() {
       ? await api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
       : [];
     ensureActiveLoad(loadToken);
-    const nextCustomerRenewalAssistant =
-      payload.auth.activeOrganizationId && payload.auth.activeOrganizationRole !== "viewer"
-        ? buildIdleCustomerRenewalAssistant(customerRenewalAssistant)
-        : null;
     setError("");
     setActiveOrganizationId(payload.auth.activeOrganizationId);
-    const nextSettingsForm = settingsToForm(payload.settings);
     const nextActiveOrganizationId = payload.auth.activeOrganizationId ?? null;
     const mailboxDataStillValid = mailboxLoadedOrganizationRef.current === nextActiveOrganizationId;
     const nextPayload =
@@ -2693,7 +2345,6 @@ export function App() {
     }
     customerCertificatePasswordCacheRef.current = {};
     setOpsConsole(nextOpsConsole);
-    setCustomerRenewalAssistant(nextCustomerRenewalAssistant);
     setCompletedBillingMonths(nextCompletedBillingMonths);
     setWorkspaceLimitEdits(
       nextOpsConsole
@@ -2707,9 +2358,7 @@ export function App() {
     );
     await loadOrganizationMembers(payload, loadToken);
     ensureActiveLoad(loadToken);
-    setSettingsForm(nextSettingsForm);
-    settingsAutosaveBaselineRef.current = JSON.stringify(buildSettingsPayload(nextSettingsForm).payload);
-    setSettingsAutosaveState("saved");
+    settingsScreenState.hydrateSettings(payload.settings);
     setCustomerForm((prev) => {
       if (prev.id) {
         const current = payload.customers.find((customer) => customer.id === prev.id);
@@ -2743,6 +2392,151 @@ export function App() {
     }
     throw lastError ?? new Error("초기 데이터를 불러오지 못했습니다.");
   };
+
+  const openAppDialog = (dialog: AppDialogState) =>
+    new Promise<boolean>((resolve) => {
+      appDialogResolverRef.current = resolve;
+      setAppDialog(dialog);
+    });
+
+  const closeAppDialog = (confirmed: boolean) => {
+    const resolve = appDialogResolverRef.current;
+    appDialogResolverRef.current = null;
+    setAppDialog(null);
+    resolve?.(confirmed);
+  };
+
+  const showAppAlert = async (
+    message: string,
+    options?: {
+      title?: string;
+      tone?: AppDialogTone;
+      confirmLabel?: string;
+    }
+  ) => {
+    await openAppDialog({
+      kind: "alert",
+      title: options?.title ?? "안내",
+      message,
+      confirmLabel: options?.confirmLabel ?? "확인",
+      tone: options?.tone ?? "default"
+    });
+  };
+
+  const showAppConfirm = (
+    message: string,
+    options?: {
+      title?: string;
+      tone?: AppDialogTone;
+      confirmLabel?: string;
+      cancelLabel?: string;
+    }
+  ) =>
+    openAppDialog({
+      kind: "confirm",
+      title: options?.title ?? "이 작업을 진행할까요?",
+      message,
+      confirmLabel: options?.confirmLabel ?? "진행하기",
+      cancelLabel: options?.cancelLabel ?? "취소",
+      tone: options?.tone ?? "default"
+    });
+
+  const runAction = async (
+    key: string,
+    action: () => Promise<void>,
+    options?: {
+      reload?: boolean;
+    }
+  ) => {
+    try {
+      setError("");
+      setBusyKey(key);
+      await action();
+      if (options?.reload !== false) {
+        await load();
+        if (shouldLoadMailboxData(activeTab, customerDetailTab)) {
+          await loadMailboxData({ force: true });
+        }
+      }
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "작업에 실패했습니다.");
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const {
+    canUseCustomerRenewalAssistant,
+    customerRenewalAssistant,
+    setCustomerRenewalAssistant,
+    customerRenewalAssistantJobs,
+    customerRenewalAssistantAllCertificates,
+    customerRenewalAssistantCertificates,
+    helperReady,
+    helperUpgradeRequired,
+    helperUpgradeAvailable,
+    helperActionBlockedReason,
+    renewalHelperDownloadUrl,
+    refreshCustomerRenewalAssistant,
+    syncCustomerRenewalCertificates,
+    loadCustomerRenewalCertificates,
+    ensureLocalRenewalHelperActionAllowed
+  } = useRenewalAssistantState({
+    activeTab,
+    isSettingsHelperActive: activeSettingsSection === "helper",
+    activeOrganizationId,
+    activeOrganizationRole: data?.auth.activeOrganizationRole,
+    defaultRenewalHelperDownloadUrl,
+    showAlert: showAppAlert
+  });
+
+  const settingsScreenState = useSettingsScreenState({
+    busyKey,
+    canManageOrganizationMembers: data?.auth.activeOrganizationRole === "owner",
+    helperReady,
+    helperCertificateCount: customerRenewalAssistantAllCertificates.length,
+    customerRenewalAssistantOnline: customerRenewalAssistant?.agentOnline ?? false,
+    customerRenewalAssistantUpgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
+    setGlobalError: setError,
+    revealField: (fieldKey) => setRevealedFields((prev) => ({ ...prev, [fieldKey]: !prev[fieldKey] ? true : prev[fieldKey] })),
+    onSavedSettingsChange: (savedSettings) => setData((prev) => (prev ? { ...prev, settings: savedSettings } : prev)),
+    onRenewalCertificatePasswordChange: (password) => {
+      customerRenewalPasswordRef.current = password;
+    },
+    onRenewalIssuePasswordChange: (password) => {
+      customerRenewalIssuePasswordRef.current = password;
+    },
+    refreshCustomerRenewalAssistant,
+    runAction,
+    showAlert: showAppAlert
+  });
+
+  const settingsForm = settingsScreenState.settingsForm;
+  const setSettingsForm = settingsScreenState.setSettingsForm;
+  const settingsHealth = settingsScreenState.settingsHealth;
+  const settingsSections = settingsScreenState.settingsSections;
+  const setupPendingCount = settingsScreenState.setupPendingCount;
+  const recommendedSettingsSection = settingsScreenState.recommendedSettingsSection;
+  const nextSettingsSection = settingsScreenState.nextSettingsSection;
+  const settingsAutosaveState = settingsScreenState.settingsAutosaveState;
+  const settingsAutosaveLabel = settingsScreenState.settingsAutosaveLabel;
+  const detectedMailProviderLabel = settingsScreenState.detectedMailProviderLabel;
+  const handleSettingsMailAddressChange = settingsScreenState.handleSettingsMailAddressChange;
+  const handleSettingsRenewalIssuePasswordChange = settingsScreenState.handleSettingsRenewalIssuePasswordChange;
+
+  const certificatesScreenModel = useCertificatesScreenModel({
+    customers: data?.customers ?? [],
+    customerCertificates: data?.customerCertificates ?? [],
+    customerRenewalAssistantOnline: customerRenewalAssistant?.agentOnline ?? false,
+    customerRenewalAssistantJobs,
+    customerRenewalAssistantAllCertificates,
+    deriveCustomerCertificateKind,
+    findLocalCertificateForStoredCustomerCertificate,
+    findStoredCustomerCertificateForLocalCertificate,
+    findCandidateCustomersForCertificate,
+    getLatestRenewalPreflightProbeForCertificate,
+    formatCustomerRenewalStatus
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -2810,11 +2604,9 @@ export function App() {
         setData(null);
         setOpsConsole(null);
         setOrganizationMembers([]);
-        setSettingsForm(null);
+        settingsScreenState.resetSettingsState();
         setAppDialog(null);
         appDialogResolverRef.current = null;
-        settingsAutosaveBaselineRef.current = "";
-        setSettingsAutosaveState("idle");
         setActiveOrganizationId(null);
       }
     });
@@ -2998,115 +2790,6 @@ export function App() {
   }, [creatingCustomer, customerForm.id]);
 
   useEffect(() => {
-    if (activeTab !== "home") {
-      return;
-    }
-
-    const hasPendingRenewalJobs = customerRenewalAssistant?.jobs.some(
-      (job) => job.status === "queued" || job.status === "claimed"
-    );
-    if (!hasPendingRenewalJobs) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void refreshCustomerRenewalAssistant().catch(() => undefined);
-    }, 3000);
-
-    return () => window.clearTimeout(timer);
-  }, [activeTab, customerRenewalAssistant]);
-
-  useEffect(() => {
-    if (activeTab !== "settings" && activeTab !== "certificates") {
-      customerRenewalAutoLoadedRef.current = false;
-      customerRenewalAutoLoadedOrganizationRef.current = null;
-      return;
-    }
-
-    const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
-    if (!activeOrganizationId || data?.auth.activeOrganizationRole === "viewer") {
-      customerRenewalAutoLoadedRef.current = false;
-      customerRenewalAutoLoadedOrganizationRef.current = null;
-      return;
-    }
-
-    if (customerRenewalAutoLoadedOrganizationRef.current !== activeOrganizationId) {
-      customerRenewalAutoLoadedOrganizationRef.current = activeOrganizationId;
-      customerRenewalAutoLoadedRef.current = false;
-    }
-
-    if (!customerRenewalAssistant || customerRenewalAutoLoadedRef.current) {
-      return;
-    }
-
-    customerRenewalAutoLoadedRef.current = true;
-    void (async () => {
-      let assistantSnapshot = customerRenewalAssistant;
-
-      if (!assistantSnapshot.agentOnline) {
-        setCustomerRenewalAssistant((prev) =>
-          prev
-            ? {
-                ...prev,
-                helperMessage: "로컬 헬퍼 연결을 확인하는 중입니다..."
-              }
-            : prev
-        );
-        assistantSnapshot = await loadCustomerRenewalAssistant(assistantSnapshot);
-        setCustomerRenewalAssistant(assistantSnapshot);
-      }
-    })().catch(() => {
-      customerRenewalAutoLoadedRef.current = false;
-    });
-  }, [activeTab, customerRenewalAssistant, data?.auth.activeOrganizationId, data?.auth.activeOrganizationRole]);
-
-  useEffect(() => {
-    const shouldRefreshHelperSummary =
-      activeTab === "certificates" || (activeTab === "settings" && activeSettingsSection === "helper");
-
-    if (!shouldRefreshHelperSummary) {
-      return;
-    }
-
-    if (!data?.auth.activeOrganizationId || data.auth.activeOrganizationRole === "viewer") {
-      return;
-    }
-
-    if (customerRenewalAssistant?.helperCheckedAt) {
-      return;
-    }
-
-    void refreshCustomerRenewalAssistant().catch(() => undefined);
-  }, [
-    activeTab,
-    activeSettingsSection,
-    customerRenewalAssistant?.helperCheckedAt,
-    data?.auth.activeOrganizationId,
-    data?.auth.activeOrganizationRole
-  ]);
-
-  useEffect(() => {
-    if (activeTab !== "home") {
-      return;
-    }
-
-    if (!data?.auth.activeOrganizationId || data.auth.activeOrganizationRole === "viewer") {
-      return;
-    }
-
-    if (customerRenewalAssistant?.helperCheckedAt) {
-      return;
-    }
-
-    void refreshCustomerRenewalAssistant().catch(() => undefined);
-  }, [
-    activeTab,
-    customerRenewalAssistant?.helperCheckedAt,
-    data?.auth.activeOrganizationId,
-    data?.auth.activeOrganizationRole
-  ]);
-
-  useEffect(() => {
     if (pendingCertSyncCustomerIds.length === 0) {
       return;
     }
@@ -3192,100 +2875,6 @@ export function App() {
   }, [activeTab, creatingCustomer, customerForm.id]);
 
   useEffect(() => {
-    if (!settingsForm) {
-      return;
-    }
-
-    const signature = getSettingsPayloadSignature(settingsForm);
-
-    if (!settingsAutosaveBaselineRef.current) {
-      settingsAutosaveBaselineRef.current = signature;
-      setSettingsAutosaveState("saved");
-      return;
-    }
-
-    if (signature === settingsAutosaveBaselineRef.current) {
-      setSettingsAutosaveState((prev) => (prev === "error" ? prev : "saved"));
-      return;
-    }
-
-    setSettingsAutosaveState("pending");
-
-    if (busyKey !== null || !canAutosaveSettings(settingsForm)) {
-      return;
-    }
-
-    const timerId = window.setTimeout(async () => {
-      try {
-        setSettingsAutosaveState("saving");
-        setError("");
-        const { payload } = buildSettingsPayload(settingsForm);
-        const savedSettings = await api<AppSettings>("/api/settings", {
-          method: "PUT",
-          body: JSON.stringify(payload)
-        });
-        applySavedSettings(savedSettings, {
-          syncForm: false,
-          baselineForm: settingsForm
-        });
-      } catch (saveError) {
-        setSettingsAutosaveState("error");
-        setError(saveError instanceof Error ? saveError.message : "설정 자동 저장에 실패했습니다.");
-      }
-    }, 700);
-
-    return () => window.clearTimeout(timerId);
-  }, [busyKey, settingsForm]);
-
-  const openAppDialog = (dialog: AppDialogState) =>
-    new Promise<boolean>((resolve) => {
-      appDialogResolverRef.current = resolve;
-      setAppDialog(dialog);
-    });
-
-  const closeAppDialog = (confirmed: boolean) => {
-    const resolve = appDialogResolverRef.current;
-    appDialogResolverRef.current = null;
-    setAppDialog(null);
-    resolve?.(confirmed);
-  };
-
-  const showAppAlert = async (
-    message: string,
-    options?: {
-      title?: string;
-      tone?: AppDialogTone;
-      confirmLabel?: string;
-    }
-  ) => {
-    await openAppDialog({
-      kind: "alert",
-      title: options?.title ?? "안내",
-      message,
-      confirmLabel: options?.confirmLabel ?? "확인",
-      tone: options?.tone ?? "default"
-    });
-  };
-
-  const showAppConfirm = (
-    message: string,
-    options?: {
-      title?: string;
-      tone?: AppDialogTone;
-      confirmLabel?: string;
-      cancelLabel?: string;
-    }
-  ) =>
-    openAppDialog({
-      kind: "confirm",
-      title: options?.title ?? "이 작업을 진행할까요?",
-      message,
-      confirmLabel: options?.confirmLabel ?? "진행하기",
-      cancelLabel: options?.cancelLabel ?? "취소",
-      tone: options?.tone ?? "default"
-    });
-
-  useEffect(() => {
     if (!appDialog) {
       return;
     }
@@ -3317,30 +2906,6 @@ export function App() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [appDialog]);
-
-  const runAction = async (
-    key: string,
-    action: () => Promise<void>,
-    options?: {
-      reload?: boolean;
-    }
-  ) => {
-    try {
-      setError("");
-      setBusyKey(key);
-      await action();
-      if (options?.reload !== false) {
-        await load();
-        if (shouldLoadMailboxData(activeTab, customerDetailTab)) {
-          await loadMailboxData({ force: true });
-        }
-      }
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "작업에 실패했습니다.");
-    } finally {
-      setBusyKey(null);
-    }
-  };
 
   const submitSupportRequest = async () => {
     try {
@@ -3434,11 +2999,9 @@ export function App() {
     setRecoveryMode(false);
     setRecoveryPasswordForm(basePasswordResetForm);
     setOrganizationMembers([]);
-    setSettingsForm(null);
+    settingsScreenState.resetSettingsState();
     setAppDialog(null);
     appDialogResolverRef.current = null;
-    settingsAutosaveBaselineRef.current = "";
-    setSettingsAutosaveState("idle");
     setActiveOrganizationId(null);
     clearSupabaseAuthHash();
     await supabase.auth.signOut();
@@ -3714,7 +3277,8 @@ export function App() {
         helperMessage: prev?.helperMessage ?? "로컬 헬퍼가 준비되었습니다.",
         jobs: prev?.jobs ?? [],
         certificates: prev?.certificates ?? [],
-        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+        defaultRenewalHelperDownloadUrl
       })
     );
     customerOnboardingCertificatesRef.current = certificates;
@@ -4435,135 +3999,6 @@ export function App() {
     setCompletedBillingNotice(`${summary.billingMonth} 정산월을 완료 처리했습니다.`);
   };
 
-  const buildSettingsPayload = (form: SettingsFormState) => {
-    const normalized = withSelectedMailProviderSettings(form);
-    const renewalIssuePassword = normalizeRenewalIssuePasswordInput(normalized.renewalIssuePassword);
-    return {
-      normalized,
-      payload: {
-        imapHost: normalized.imapHost,
-        imapPort: Number(normalized.imapPort),
-        imapSecure: normalized.imapSecure,
-        imapUser: normalized.mailAddress,
-        imapPass: normalized.mailPassword,
-        imapMailbox: normalized.imapMailbox,
-        smtpHost: normalized.smtpHost,
-        smtpPort: Number(normalized.smtpPort),
-        smtpSecure: normalized.smtpSecure,
-        smtpUser: normalized.mailAddress,
-        smtpPass: normalized.mailPassword,
-        smtpFromName: "AUTO-TAX",
-        smtpFromEmail: normalized.mailAddress,
-        notificationEmails: normalized.notificationEmailsText
-          .split(/[\n,]/)
-          .map((item) => item.trim())
-          .filter(Boolean),
-        defaultIssueDay: Number(normalized.defaultIssueDay),
-        defaultIssueHour: Number(normalized.defaultIssueHour),
-        defaultIssueMinute: Number(normalized.defaultIssueMinute),
-        mailPollMinutes: Number(normalized.mailPollMinutes),
-        mailSyncStartAt: null,
-        timezone: normalized.timezone,
-        popbillUserIdPrefix: normalized.popbillUserIdPrefix.trim(),
-        popbillSharedPassword: normalized.popbillSharedPassword,
-        operatorContactName: normalized.operatorContactName.trim(),
-        operatorContactEmail: normalized.operatorContactEmail.trim(),
-        operatorContactTel: normalized.operatorContactTel.trim(),
-        renewalContactDepartment: normalized.renewalContactDepartment.trim(),
-        renewalContactFax: normalized.renewalContactFax.trim(),
-        renewalCertificatePassword: normalized.renewalCertificatePassword,
-        renewalIssuePassword,
-        schedulerEnabled: normalized.schedulerEnabled
-      }
-    };
-  };
-
-  const buildMailSettingsSavePayload = (form: SettingsFormState) => {
-    const { normalized, payload } = buildSettingsPayload(form);
-    if (!data) {
-      return { normalized, payload };
-    }
-
-    return {
-      normalized,
-      payload: {
-        ...payload,
-        popbillUserIdPrefix: data.settings.popbillUserIdPrefix,
-        popbillSharedPassword: "",
-        operatorContactName: data.settings.operatorContactName,
-        operatorContactEmail: data.settings.operatorContactEmail,
-        operatorContactTel: data.settings.operatorContactTel,
-        renewalContactDepartment: data.settings.renewalContactDepartment,
-        renewalContactFax: data.settings.renewalContactFax,
-        renewalCertificatePassword: "",
-        renewalIssuePassword: ""
-      }
-    };
-  };
-
-  const getSettingsPayloadSignature = (form: SettingsFormState) => JSON.stringify(buildSettingsPayload(form).payload);
-
-  const canAutosaveSettings = (form: SettingsFormState) => {
-    const { payload } = buildSettingsPayload(form);
-    const isFiniteInteger = (value: number) => Number.isInteger(value) && Number.isFinite(value);
-
-    return (
-      isFiniteInteger(payload.imapPort) &&
-      payload.imapPort >= 1 &&
-      isFiniteInteger(payload.smtpPort) &&
-      payload.smtpPort >= 1 &&
-      isFiniteInteger(payload.defaultIssueDay) &&
-      payload.defaultIssueDay >= 1 &&
-      payload.defaultIssueDay <= 31 &&
-      isFiniteInteger(payload.defaultIssueHour) &&
-      payload.defaultIssueHour >= 0 &&
-      payload.defaultIssueHour <= 23 &&
-      isFiniteInteger(payload.defaultIssueMinute) &&
-      payload.defaultIssueMinute >= 0 &&
-      payload.defaultIssueMinute <= 59 &&
-      isFiniteInteger(payload.mailPollMinutes) &&
-      payload.mailPollMinutes >= 1 &&
-      payload.mailPollMinutes <= 1440 &&
-      (payload.renewalIssuePassword === "" || /^\d{6}$/.test(payload.renewalIssuePassword))
-    );
-  };
-
-  const applySavedSettings = (
-    savedSettings: AppSettings,
-    options?: {
-      syncForm?: boolean;
-      baselineForm?: SettingsFormState | null;
-    }
-  ) => {
-    const baselineForm = options?.baselineForm ?? settingsToForm(savedSettings);
-    if (options?.syncForm !== false) {
-      setSettingsForm(baselineForm);
-    }
-    settingsAutosaveBaselineRef.current = baselineForm ? getSettingsPayloadSignature(baselineForm) : "";
-    setData((prev) => (prev ? { ...prev, settings: savedSettings } : prev));
-    setSettingsAutosaveState("saved");
-  };
-
-  const loadCurrentPopbillSharedPassword = async () => {
-    if (!settingsForm) return;
-    const result = await api<{ password: string }>("/api/settings/popbill-shared-password");
-    const nextForm = { ...settingsForm, popbillSharedPassword: result.password };
-    settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
-    setSettingsAutosaveState("saved");
-    setSettingsForm(nextForm);
-    setRevealedFields((prev) => ({ ...prev, popbillSharedPassword: true }));
-  };
-
-  const fetchStoredRenewalCertificatePassword = async () => {
-    const result = await api<{ password: string }>("/api/settings/renewal-certificate-password");
-    return result.password.trim();
-  };
-
-  const fetchStoredRenewalIssuePassword = async () => {
-    const result = await api<{ password: string }>("/api/settings/renewal-issue-password");
-    return normalizeRenewalIssuePasswordInput(result.password.trim());
-  };
-
   const fetchStoredCustomerCertificatePassword = async (certificateId: number) => {
     const cachedPassword = customerCertificatePasswordCacheRef.current[certificateId]?.trim();
     if (cachedPassword) {
@@ -4579,86 +4014,6 @@ export function App() {
       };
     }
     return password;
-  };
-
-  const loadCurrentRenewalCertificatePassword = async () => {
-    if (!settingsForm) return;
-    const password = await fetchStoredRenewalCertificatePassword();
-    customerRenewalPasswordRef.current = password;
-    const nextForm = { ...settingsForm, renewalCertificatePassword: password };
-    settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
-    setSettingsAutosaveState("saved");
-    setSettingsForm(nextForm);
-    setRevealedFields((prev) => ({ ...prev, renewalCertificatePassword: true }));
-  };
-
-  const loadCurrentRenewalIssuePassword = async () => {
-    if (!settingsForm) return;
-    const password = await fetchStoredRenewalIssuePassword();
-    const nextForm = { ...settingsForm, renewalIssuePassword: password };
-    customerRenewalIssuePasswordRef.current = password;
-    settingsAutosaveBaselineRef.current = getSettingsPayloadSignature(nextForm);
-    setSettingsAutosaveState("saved");
-    setSettingsForm(nextForm);
-    setRevealedFields((prev) => ({ ...prev, renewalIssuePassword: true }));
-  };
-  const handleSettingsRenewalIssuePasswordChange = (nextValue: string) => {
-    const normalizedValue = normalizeRenewalIssuePasswordInput(nextValue);
-    customerRenewalIssuePasswordRef.current = normalizedValue.length === 6 ? normalizedValue : "";
-    setSettingsForm((prev) => (prev ? { ...prev, renewalIssuePassword: normalizedValue } : prev));
-  };
-
-  const testMailSettings = async () => {
-    if (!settingsForm) return;
-    const { normalized, payload } = buildMailSettingsSavePayload(settingsForm);
-    const result = await api<{
-      imapOk: boolean;
-      imapMessage: string;
-      smtpOk: boolean;
-      smtpMessage: string;
-      testMailSent: boolean;
-    }>("/api/system/mail-test", {
-      method: "POST",
-      body: JSON.stringify({
-        imapHost: payload.imapHost,
-        imapPort: payload.imapPort,
-        imapSecure: payload.imapSecure,
-        imapUser: payload.imapUser,
-        imapPass: payload.imapPass,
-        imapMailbox: payload.imapMailbox,
-        smtpHost: payload.smtpHost,
-        smtpPort: payload.smtpPort,
-        smtpSecure: payload.smtpSecure,
-        smtpUser: payload.smtpUser,
-        smtpPass: payload.smtpPass,
-        smtpFromName: "AUTO-TAX",
-        smtpFromEmail: payload.smtpFromEmail,
-        notificationEmails: payload.notificationEmails
-      })
-    });
-
-    const testSucceeded = result.imapOk && result.smtpOk;
-    if (testSucceeded) {
-      await api<AppSettings>("/api/settings", {
-        method: "PUT",
-        body: JSON.stringify(payload)
-      });
-      const verifiedSettings = await api<AppSettings>("/api/settings/mail-connection-verified", {
-        method: "POST"
-      });
-      applySavedSettings(verifiedSettings, {
-        syncForm: false,
-        baselineForm: normalized
-      });
-    }
-
-    await showAppAlert(
-      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\nIMAP: ${result.imapOk ? "성공" : "실패"}\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${result.smtpMessage}\n\n테스트 메일 발송: ${result.testMailSent ? "예" : "아니오"}\n\n설정 저장: ${testSucceeded ? "성공" : "실패로 저장 안 함"}`,
-      {
-        title: "메일 연결 테스트 결과",
-        tone: testSucceeded ? "success" : "warn"
-      }
-    );
   };
 
   const changePassword = async () => {
@@ -5036,23 +4391,14 @@ export function App() {
     );
   };
 
-  const refreshCustomerRenewalAssistant = async () => {
-    if (!data?.auth.activeOrganizationId || data.auth.activeOrganizationRole === "viewer") {
-      setCustomerRenewalAssistant(null);
-      return;
-    }
+  const fetchStoredRenewalCertificatePassword = async () => {
+    const result = await api<{ password: string }>("/api/settings/renewal-certificate-password");
+    return result.password.trim();
+  };
 
-    const [status, releaseMetadata] = await Promise.all([
-      getLocalRenewalHelperStatus(),
-      getLocalRenewalHelperReleaseMetadata()
-    ]);
-    setCustomerRenewalAssistant((prev) =>
-      buildCustomerRenewalAssistant({
-        current: prev,
-        status,
-        releaseMetadata
-      })
-    );
+  const fetchStoredRenewalIssuePassword = async () => {
+    const result = await api<{ password: string }>("/api/settings/renewal-issue-password");
+    return normalizeRenewalIssuePasswordInput(result.password.trim());
   };
 
   const resolveCustomerRenewalPassword = async (options?: { promptIfMissing?: boolean; linkedCertificateId?: number | null }) => {
@@ -5198,49 +4544,6 @@ export function App() {
     await api(`/api/customer-certificates/${certificateId}`, {
       method: "DELETE"
     });
-  };
-
-  const syncCustomerRenewalCertificates = async (options?: { showAlert?: boolean }) => {
-    ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
-    const showAlert = options?.showAlert ?? true;
-    const response = await requestLocalRenewalBridgeProbe();
-    const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
-    const bridgeJob = buildLocalRenewalBridgeJob(response.result, allCertificates.length);
-    const helperMessage = bridgeJob.error ?? bridgeJob.summary;
-
-    setCustomerRenewalAssistant((prev) =>
-      buildCustomerRenewalAssistant({
-        current: prev,
-        status: {
-          online: true,
-          version: response.version,
-          message: helperMessage
-        },
-        helperVersion: response.version,
-        helperMessage,
-        jobs: [bridgeJob, ...(prev?.jobs ?? [])],
-        certificates: allCertificates,
-        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
-      })
-    );
-
-    if (showAlert) {
-      await showAppAlert(
-        allCertificates.length > 0
-          ? `공동인증서 ${allCertificates.length}건을 불러왔습니다.\n공동인증서 탭에서 고객 연결과 갱신을 진행할 수 있습니다.`
-          : bridgeJob.error ?? "공동인증서를 불러오지 못했습니다.",
-        {
-          title: "공동인증서 읽기",
-          tone: allCertificates.length > 0 ? "success" : "danger"
-        }
-      );
-    }
-
-    return allCertificates;
-  };
-
-  const loadCustomerRenewalCertificates = async () => {
-    await syncCustomerRenewalCertificates({ showAlert: true });
   };
 
   const resolveLinkedCustomerCertificateForAction = async (certificateIndex: string) => {
@@ -5511,7 +4814,8 @@ export function App() {
         helperMessage,
         jobs,
         certificates,
-        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+        defaultRenewalHelperDownloadUrl
       })
     );
     await showAppAlert(alertMessage, {
@@ -5546,7 +4850,8 @@ export function App() {
         helperMessage: preflightJob.error ?? preflightJob.summary,
         jobs: [preflightJob, ...(prev?.jobs ?? [])],
         certificates: prev?.certificates ?? [],
-        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+        defaultRenewalHelperDownloadUrl
       })
     );
 
@@ -5666,7 +4971,8 @@ export function App() {
         helperMessage: status.statusText,
         jobs: [preflightJob, ...(prev?.jobs ?? [])],
         certificates: prev?.certificates ?? [],
-        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+        defaultRenewalHelperDownloadUrl
       })
     );
 
@@ -5749,7 +5055,8 @@ export function App() {
         helperMessage: response.result.message,
         jobs: prev?.jobs ?? [],
         certificates: prev?.certificates ?? [],
-        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+        defaultRenewalHelperDownloadUrl
       })
     );
 
@@ -6223,16 +5530,6 @@ export function App() {
       popbillPendingCustomers.push(customer);
     }
   }
-  const settingsHealth = {
-    mailReady: Boolean(
-      data.settings.imapUser &&
-      data.settings.smtpUser &&
-      data.settings.mailPasswordConfigured &&
-      data.settings.mailConnectionVerifiedAt
-    ),
-    popbillReady: data.settings.popbillConfigured,
-    operatorReady: data.settings.operatorConfigured
-  };
   const unmatchedMessages = data.inbox.filter((message) => {
     const status = getInboxDisplayParseStatus(message);
     return status === "unmatched" || status === "failed";
@@ -6346,18 +5643,6 @@ export function App() {
     customerReadinessMap.get(customer.id) ?? getCustomerIssueReadiness(customer);
   const customerRegistrationReady = hasRegisteredCustomers;
   const blockedCustomerCount = blockedIssueCustomers.length;
-  const setupChecklist = [
-    { key: "gmail", label: "메일 계정 연결", done: settingsHealth.mailReady },
-    { key: "defaults", label: "발행 기본값 입력", done: settingsHealth.popbillReady && settingsHealth.operatorReady },
-    {
-      key: "helper",
-      label: "로컬 헬퍼 준비",
-      done: Boolean(customerRenewalAssistant?.agentOnline) && (customerRenewalAssistant?.certificates ?? []).length > 0
-    },
-    { key: "customer", label: "고객 초기 등록", done: customerRegistrationReady },
-    { key: "certificate", label: "발행용 인증서 준비", done: customerRegistrationReady && popbillPendingCustomers.length === 0 }
-  ];
-  const setupPendingCount = setupChecklist.filter((step) => !step.done).length;
   const certAttentionCount = expiredCertCustomers.length + expiringSoonCustomers.length;
   const activeOrganizationMembership =
     data.auth.organizations.find((organization) => organization.organizationId === data.auth.activeOrganizationId) ?? null;
@@ -6369,10 +5654,6 @@ export function App() {
   const opsJobs = opsConsole?.renewalAutomation.jobs ?? [];
   const opsLogs = opsConsole?.logs ?? [];
   const opsWorkspaces = opsConsole?.workspaces ?? [];
-  const customerRenewalAssistantJobs = customerRenewalAssistant?.jobs ?? [];
-  const customerRenewalAssistantAllCertificates = customerRenewalAssistant?.certificates ?? [];
-  const customerRenewalAssistantCertificates = (customerRenewalAssistant?.certificates ?? []).filter(isElectronicTaxCertificate);
-  const canUseCustomerRenewalAssistant = data.auth.activeOrganizationRole !== "viewer";
   const customerRenewalCandidates: CustomerRenewalCandidateView[] = data.customers
     .filter((customer) => customer.popbillState === "joined" && customer.popbillCertRegistered)
     .map((customer) => {
@@ -6407,95 +5688,6 @@ export function App() {
       const rightTime = right.certificateExpireDate ? new Date(right.certificateExpireDate).getTime() : Number.MAX_SAFE_INTEGER;
       return leftTime - rightTime || left.customerName.localeCompare(right.customerName, "ko");
     });
-  const customerCertificateItems: CustomerCertificateCandidateView[] = [
-    ...data.customerCertificates.map((storedCertificate) => {
-      const linkedCustomer = data.customers.find((customer) => customer.id === storedCertificate.customerId) ?? null;
-      const localCertificate = findLocalCertificateForStoredCustomerCertificate(
-        storedCertificate,
-        customerRenewalAssistantAllCertificates
-      );
-      const preflightProbe = localCertificate
-        ? getLatestRenewalPreflightProbeForCertificate(localCertificate, customerRenewalAssistantJobs, null)
-        : null;
-      const status = localCertificate
-        ? formatCustomerRenewalStatus(preflightProbe)
-        : {
-            statusText: customerRenewalAssistant?.agentOnline ? "연결됨 · 로컬 인증서 읽기 전" : "연결됨",
-            statusTone: "default" as const,
-            paymentAmount: null,
-            canOpenPayment: false
-          };
-
-      return {
-        key: getStoredCustomerCertificateKey(storedCertificate),
-        certificateIndex: localCertificate ? String(localCertificate.index) : getStoredCustomerCertificateKey(storedCertificate),
-        certificateCn: storedCertificate.certificateName || linkedCustomer?.customerName || `연결된 인증서 #${storedCertificate.id}`,
-        certificateKind: storedCertificate.certificateKind,
-        certificateUsage: storedCertificate.certificateUsageName,
-        issuerName: storedCertificate.issuerName,
-        certificateExpireDate: storedCertificate.expireDate,
-        linkedCertificateId: storedCertificate.id,
-        linkedCustomerId: linkedCustomer?.id ?? null,
-        linkedCustomerLabel: linkedCustomer ? `${linkedCustomer.customerName} · ${linkedCustomer.corpName}` : null,
-        linkSource: storedCertificate.linkSource,
-        suggestedCustomerId: null,
-        suggestedCustomerLabel: null,
-        suggestionCount: 0,
-        statusText: status.statusText,
-        statusTone: status.statusTone,
-        paymentAmount: status.paymentAmount,
-        canOpenPayment: status.canOpenPayment
-      } satisfies CustomerCertificateCandidateView;
-    }),
-    ...customerRenewalAssistantAllCertificates
-      .filter((certificate) => !findStoredCustomerCertificateForLocalCertificate(certificate, data.customerCertificates))
-      .map((certificate) => {
-        const candidateCustomers = findCandidateCustomersForCertificate(certificate, data.customers);
-        const suggestedCustomer = candidateCustomers.length === 1 ? candidateCustomers[0] ?? null : null;
-        const preflightProbe = getLatestRenewalPreflightProbeForCertificate(certificate, customerRenewalAssistantJobs, null);
-        const status = formatCustomerRenewalStatus(preflightProbe);
-
-        return {
-          key: getLocalCertificateKey(certificate),
-          certificateIndex: String(certificate.index),
-          certificateCn: certificate.cn || `인증서 #${certificate.index}`,
-          certificateKind: deriveCustomerCertificateKind(certificate),
-          certificateUsage: certificate.usageToName,
-          issuerName: certificate.issuerToName,
-          certificateExpireDate: certificate.todate ?? certificate.detailValidateTo ?? null,
-          linkedCertificateId: null,
-          linkedCustomerId: null,
-          linkedCustomerLabel: null,
-          linkSource: null,
-          suggestedCustomerId: suggestedCustomer?.id ?? null,
-          suggestedCustomerLabel: suggestedCustomer ? `${suggestedCustomer.customerName} · ${suggestedCustomer.corpName}` : null,
-          suggestionCount: candidateCustomers.length,
-          statusText: status.statusText,
-          statusTone: status.statusTone,
-          paymentAmount: status.paymentAmount,
-          canOpenPayment: status.canOpenPayment
-        } satisfies CustomerCertificateCandidateView;
-      })
-  ]
-    .sort((left, right) => {
-      const kindOrder = (kind: CustomerCertificateKind) => {
-        if (kind === "electronic_tax") return 0;
-        if (kind === "general_personal") return 1;
-        if (kind === "general_business") return 2;
-        return 3;
-      };
-      const linkPriority = Number(Boolean(right.linkedCustomerId)) - Number(Boolean(left.linkedCustomerId));
-      if (linkPriority !== 0) {
-        return linkPriority;
-      }
-      const kindPriority = kindOrder(left.certificateKind) - kindOrder(right.certificateKind);
-      if (kindPriority !== 0) {
-        return kindPriority;
-      }
-      const leftTime = left.certificateExpireDate ? new Date(left.certificateExpireDate).getTime() : Number.MAX_SAFE_INTEGER;
-      const rightTime = right.certificateExpireDate ? new Date(right.certificateExpireDate).getTime() : Number.MAX_SAFE_INTEGER;
-      return leftTime - rightTime || left.certificateCn.localeCompare(right.certificateCn, "ko");
-    });
   const latestCustomerRenewalJob = customerRenewalAssistantJobs[0] ?? null;
   const isCreatingWorkspace = busyKey === "ops-create-workspace";
   const isSavingCustomer =
@@ -6507,7 +5699,6 @@ export function App() {
   const opsPartnerIsTest = opsConsole?.partnerPoints.isTest ?? false;
   const workspacePopbillIsTest = data.settings.popbillIsTest;
   const workspacePopbillModeLabel = workspacePopbillIsTest ? "팝빌 테스트" : "팝빌 운영";
-  const renewalHelperDownloadUrl = customerRenewalAssistant?.releaseDownloadUrl || defaultRenewalHelperDownloadUrl;
   const opsPartnerModeLabel = opsPartnerIsTest ? "테스트 모드" : "운영 모드";
   const opsPartnerModeDescription = opsPartnerIsTest
     ? "현재 팝빌 테스트 환경으로 연결되어 있습니다. 실제 고객 운영 전에는 운영 모드 전환 여부를 다시 확인하세요."
@@ -6524,17 +5715,6 @@ export function App() {
   const opsAgentStatusMeta = opsAgent ? getRenewalAgentStatusMeta(opsAgent) : null;
   const opsCertificates = opsAgent?.bridge.storageProbe.certificates ?? [];
   const canManageOrganizationMembers = data.auth.activeOrganizationRole === "owner";
-  const linkedCustomerCertificateCount = customerCertificateItems.filter((item) => item.linkedCustomerId !== null).length;
-  const helperUpgradeRequired = customerRenewalAssistant?.upgradeState === "upgrade-required";
-  const helperUpgradeAvailable = customerRenewalAssistant?.upgradeState === "upgrade-available";
-  const helperActionBlockedReason =
-    customerRenewalAssistant?.upgradeMessage
-      ? `${customerRenewalAssistant.upgradeMessage} 압축을 다시 받아 scripts\\renewal-helper-install.cmd 를 실행한 뒤 상태를 다시 확인하세요.`
-      : "지원되지 않는 로컬 헬퍼 버전입니다. 새 버전을 다시 설치한 뒤 상태를 다시 확인하세요.";
-  const helperReady =
-    Boolean(customerRenewalAssistant?.agentOnline) &&
-    customerRenewalAssistantAllCertificates.length > 0 &&
-    !helperUpgradeRequired;
   const issueSetupPendingCount = popbillPendingCustomers.length;
   const onboardingIssueSetupPendingCount = onboardingPendingCertificateCustomers.length;
   const onboardingCertificateReady = onboardingCustomerRegistrationReady && onboardingIssueSetupPendingCount === 0;
@@ -6544,13 +5724,6 @@ export function App() {
     onboardingFirstSyncReady &&
     unmatchedMessages.length === 0 &&
     (issuedDrafts.length > 0 || reviewDrafts.length === 0);
-  const recommendedSettingsSection: SettingsSectionId = !settingsHealth.mailReady
-    ? "gmail"
-    : !(settingsHealth.popbillReady && settingsHealth.operatorReady)
-      ? "popbill"
-      : !helperReady
-        ? "helper"
-        : "account";
   const openSettingsSection = (section: SettingsSectionId = recommendedSettingsSection) => {
     setActiveSettingsSection(section);
     setActiveTab("settings");
@@ -6607,58 +5780,6 @@ export function App() {
         ]
       : [])
   ];
-  const settingsSections: Array<{
-    id: SettingsSectionId;
-    step: number;
-    title: string;
-    done: boolean;
-    summary: string;
-  }> = [
-    {
-      id: "gmail",
-      step: 1,
-      title: "메일 연결",
-      done: settingsHealth.mailReady,
-      summary: settingsHealth.mailReady ? data.settings.imapUser || "준비됨" : "연결 테스트 필요"
-    },
-    {
-      id: "popbill",
-      step: 2,
-      title: "발행 설정",
-      done: settingsHealth.popbillReady && settingsHealth.operatorReady,
-      summary: settingsHealth.popbillReady && settingsHealth.operatorReady ? "준비됨" : "필수값 입력"
-    },
-    {
-      id: "helper",
-      step: 3,
-      title: "헬퍼 상태",
-      done: helperReady,
-      summary: helperReady
-        ? `준비됨 · ${customerRenewalAssistantAllCertificates.length}건 읽음`
-        : helperUpgradeRequired
-          ? "재설치 필요"
-          : customerRenewalAssistant?.agentOnline
-            ? helperUpgradeAvailable
-              ? "업데이트 권장"
-              : "헬퍼 연결됨 · 읽기 확인"
-            : "헬퍼 준비 필요"
-    },
-    {
-      id: "account",
-      step: 4,
-      title: "계정 / 작업공간",
-      done: true,
-      summary: canManageOrganizationMembers ? "사용자 / 비밀번호" : "비밀번호 변경"
-    }
-  ];
-  const settingsAutosaveLabel =
-    settingsAutosaveState === "saving"
-      ? "자동 저장 중"
-      : settingsAutosaveState === "error"
-        ? "저장 실패"
-        : settingsAutosaveState === "pending"
-          ? "저장 대기"
-          : "자동 저장";
   const isMailTesting = busyKey === "mail-test";
   const startCreatingCustomer = () => {
     setCreatingCustomer(true);
@@ -6746,7 +5867,8 @@ export function App() {
         helperMessage: registrationResponse.result.message,
         jobs: prev?.jobs ?? [],
         certificates: prev?.certificates ?? [],
-        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev)
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+        defaultRenewalHelperDownloadUrl
       })
     );
 
@@ -6843,25 +5965,6 @@ export function App() {
   };
   const refreshSingleCustomerCertificateStatus = async (customerId: number) => {
     await api(`/api/customers/${customerId}/popbill/cert-status`, { method: "POST" });
-  };
-  const detectedMailProviderLabel = MAIL_PROVIDER_CONFIG[inferMailProviderFromAddress(settingsForm.mailAddress, settingsForm.mailProvider)].label;
-  const handleSettingsMailAddressChange = (nextAddress: string) => {
-    setSettingsForm((prev) => {
-      if (!prev) return prev;
-      const nextProvider = inferMailProviderFromAddress(nextAddress, prev.mailProvider);
-      const config = MAIL_PROVIDER_CONFIG[nextProvider];
-      return {
-        ...prev,
-        mailAddress: nextAddress,
-        mailProvider: nextProvider,
-        imapHost: config.imapHost,
-        imapPort: config.imapPort,
-        imapSecure: config.imapSecure,
-        smtpHost: config.smtpHost,
-        smtpPort: config.smtpPort,
-        smtpSecure: config.smtpSecure
-      };
-    });
   };
   const canRunOnboardingFirstSync =
     settingsHealth.mailReady &&
@@ -7033,7 +6136,7 @@ export function App() {
         </div>
 
         <div className="button-row onboarding-primary-row">
-          <button type="button" disabled={busyKey !== null} onClick={() => void runAction("mail-test", testMailSettings, { reload: false })}>
+          <button type="button" disabled={busyKey !== null} onClick={() => void settingsScreenState.runMailSettingsTest()}>
             {isMailTesting ? "연결 테스트 중..." : "메일 연결 테스트"}
           </button>
         </div>
@@ -7238,17 +6341,17 @@ export function App() {
             <span>현재 단계의 메인 흐름은 위 필수 입력을 채우는 것입니다. 저장된 값은 정말 필요할 때만 불러오세요.</span>
             <div className="button-row">
               {data.settings.popbillSharedPasswordConfigured ? (
-                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction("load-popbill-shared-password", loadCurrentPopbillSharedPassword, { reload: false })}>
+                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void settingsScreenState.runLoadCurrentPopbillSharedPassword()}>
                   신규 고객 기본 비밀번호 불러오기
                 </button>
               ) : null}
               {data.settings.renewalIssuePasswordConfigured ? (
-                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction("load-renewal-issue-password", loadCurrentRenewalIssuePassword, { reload: false })}>
+                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void settingsScreenState.runLoadCurrentRenewalIssuePassword()}>
                   발급용 임시번호 불러오기
                 </button>
               ) : null}
               {data.settings.renewalCertificatePasswordConfigured ? (
-                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void runAction("load-renewal-certificate-password", loadCurrentRenewalCertificatePassword, { reload: false })}>
+                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void settingsScreenState.runLoadCurrentRenewalCertificatePassword()}>
                   인증서 공통 비밀번호 불러오기
                 </button>
               ) : null}
@@ -7334,7 +6437,7 @@ export function App() {
               type="button"
               className="btn-secondary"
               disabled={busyKey !== null}
-              onClick={() => void runAction("refresh-customer-renewal-helper", refreshCustomerRenewalAssistant, { reload: false })}
+              onClick={() => void settingsScreenState.runRefreshCustomerRenewalAssistant()}
             >
               상태 다시 확인
             </button>
@@ -7941,10 +7044,9 @@ export function App() {
       : !onboardingFirstSyncReady
         ? "아직 발행 결과가 없습니다. 메일 동기화와 초안 확인을 마치면 여기에 쌓입니다."
         : "아직 발행 완료 이력이 없습니다.";
-  const nextSettingsSection = settingsSections.find((section) => !section.done)?.id ?? "account";
-  const certificateUnlinkedCount = customerCertificateItems.filter((item) => item.linkedCustomerId === null).length;
-  const certificatePaymentReadyCount = customerCertificateItems.filter((item) => item.canOpenPayment).length;
-  const certificateActionNeededCount = customerCertificateItems.filter((item) => item.statusTone === "warn" || item.statusTone === "danger").length;
+  const certificateUnlinkedCount = certificatesScreenModel.metrics.unlinkedCount;
+  const certificatePaymentReadyCount = certificatesScreenModel.metrics.paymentReadyCount;
+  const certificateActionNeededCount = certificatesScreenModel.metrics.actionNeededCount;
   const homePrimaryActionLabel =
     reviewDrafts.length > 0
       ? `초안 ${reviewDrafts.length}건 확인`
@@ -8050,10 +7152,14 @@ export function App() {
           return;
         }
 
-        void runAction("refresh-customer-renewal-helper", refreshCustomerRenewalAssistant, { reload: false });
+        void settingsScreenState.runRefreshCustomerRenewalAssistant();
       },
       chips: [
-        { label: "읽은 인증서", value: `${customerRenewalAssistantAllCertificates.length}건`, tone: customerRenewalAssistantAllCertificates.length > 0 ? "default" : "warn" },
+        {
+          label: "읽은 인증서",
+          value: `${certificatesScreenModel.metrics.loadedCertificateCount}건`,
+          tone: certificatesScreenModel.metrics.loadedCertificateCount > 0 ? "default" : "warn"
+        },
         { label: "조치 필요", value: `${certificateActionNeededCount}건`, tone: certificateActionNeededCount > 0 ? "warn" : "success" },
         { label: "미연결", value: `${certificateUnlinkedCount}건`, tone: certificateUnlinkedCount > 0 ? "warn" : "success" },
         { label: "결제 가능", value: `${certificatePaymentReadyCount}건`, tone: certificatePaymentReadyCount > 0 ? "success" : "default" }
@@ -8647,11 +7753,8 @@ export function App() {
 
         {visibleActiveTab === "settings" ? (
           <SettingsScreen
-            settingsSections={settingsSections}
+            settingsState={settingsScreenState}
             activeSettingsSection={activeSettingsSection}
-            setupPendingCount={setupPendingCount}
-            settingsAutosaveState={settingsAutosaveState}
-            settingsAutosaveLabel={settingsAutosaveLabel}
             customerRegistrationReady={customerRegistrationReady}
             customerCount={data.customers.length}
             onboardingComplete={onboardingComplete}
@@ -8666,15 +7769,7 @@ export function App() {
             }
             openOnboarding={reopenOnboarding}
             busyKey={busyKey}
-            isMailTesting={isMailTesting}
-            settingsHealth={settingsHealth}
-            settingsForm={settingsForm}
-            detectedMailProviderLabel={detectedMailProviderLabel}
             revealedFields={revealedFields}
-            mailPasswordConfigured={data.settings.mailPasswordConfigured}
-            popbillSharedPasswordConfigured={data.settings.popbillSharedPasswordConfigured}
-            renewalCertificatePasswordConfigured={data.settings.renewalCertificatePasswordConfigured}
-            renewalIssuePasswordConfigured={data.settings.renewalIssuePasswordConfigured}
             customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
             customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
             customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
@@ -8693,18 +7788,10 @@ export function App() {
             passwordResetForm={passwordResetForm}
             organizationMemberForm={organizationMemberForm}
             setActiveSettingsSection={setActiveSettingsSection}
-            setSettingsForm={setSettingsForm}
             setPasswordChangeForm={setPasswordChangeForm}
             setPasswordResetForm={setPasswordResetForm}
             setOrganizationMemberForm={setOrganizationMemberForm}
-            onMailAddressChange={handleSettingsMailAddressChange}
-            onRenewalIssuePasswordChange={handleSettingsRenewalIssuePasswordChange}
             toggleRevealField={toggleRevealField}
-            testMailSettings={testMailSettings}
-            loadCurrentPopbillSharedPassword={loadCurrentPopbillSharedPassword}
-            loadCurrentRenewalCertificatePassword={loadCurrentRenewalCertificatePassword}
-            loadCurrentRenewalIssuePassword={loadCurrentRenewalIssuePassword}
-            refreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
             openCertificates={openCertificates}
             changePassword={changePassword}
             createOrganizationMember={createOrganizationMember}
@@ -8732,13 +7819,17 @@ export function App() {
             customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
             renewalHelperDownloadUrl={renewalHelperDownloadUrl}
             customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
-            certificateItems={customerCertificateItems}
-            onRefreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
-            onLoadCustomerRenewalCertificates={loadCustomerRenewalCertificates}
+            certificatesModel={certificatesScreenModel}
             onLinkCustomerCertificate={linkLocalCertificateToCustomer}
             onUnlinkCustomerCertificate={unlinkCustomerCertificate}
             onPrepareCustomerCertificateRenewal={prepareLinkedCustomerCertificateRenewal}
             onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
+            runRefreshCustomerRenewalAssistant={async () =>
+              runAction("customer-renewal-refresh", refreshCustomerRenewalAssistant, { reload: false })
+            }
+            runLoadCustomerRenewalCertificates={async () =>
+              runAction("customer-renewal-bridge-probe", loadCustomerRenewalCertificates, { reload: false })
+            }
             runAction={runAction}
             formatCertificateExpireDate={formatCertificateExpireDate}
           />
