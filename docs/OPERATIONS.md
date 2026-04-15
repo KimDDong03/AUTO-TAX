@@ -14,7 +14,6 @@ This file is for development and deployment work, not end-user operations.
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `AUTO_TAX_OPS_EMAILS`
-- `AUTO_TAX_SUPPORT_APP_PASSWORD`
 - `AUTO_TAX_POPBILL_LINK_ID`
 - `AUTO_TAX_POPBILL_SECRET_KEY`
 - `AUTO_TAX_POPBILL_IS_TEST`
@@ -176,18 +175,20 @@ Expected:
 
 ### Manual smoke checklist
 
-1. landing page renders
-2. public login works
-3. bootstrap loads with active workspace
-4. customer create/edit works
-5. mail sync endpoint responds
-6. draft list loads
-7. internal jobs can dispatch/run from ops UI
+1. customer-only access portal renders at `/`
+2. public login shows the existing error flow on invalid credentials
+3. recovery link follow-up screen still opens
+4. bootstrap loads with active workspace
+5. customer create/edit works
+6. mail sync endpoint responds
+7. draft list loads
+8. internal jobs can dispatch/run from ops UI
 
 ### Scripted smoke
 
 ```bash
 npm run test:e2e:smoke
+node scripts/public-access-portal-smoke.mjs
 ```
 
 ## 8. File Hygiene

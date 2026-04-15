@@ -17,7 +17,6 @@ test("core internal job routes expose maintenance separately without changing di
   registerCoreRoutes({
     app,
     store: null,
-    getLoggingStore: () => null,
     getRequestStore: () => {
       throw new Error("request store should not be used in internal job route test");
     },
@@ -27,9 +26,7 @@ test("core internal job routes expose maintenance separately without changing di
         activeOrganizationId: null
       }) as never,
     requireInternalJobAccess: () => "secret",
-    publicSupportRequestLimiter: (_req, _res, next) => next(),
     publicLoginLimiter: (_req, _res, next) => next(),
-    sendSupportRequest: async () => {},
     createSupabaseAdminClient: () => ({}) as never,
     createSupabasePublicClient: () =>
       ({

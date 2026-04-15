@@ -604,11 +604,11 @@ try {
 
   await recordStep("load login page", async () => {
     await page.goto(baseUrl, { waitUntil: "networkidle" });
-    await page.locator("#landing-login-card").getByLabel("로그인 계정").waitFor();
+    await page.locator("#public-login-card").getByLabel("로그인 계정").waitFor();
   });
 
   await recordStep("public login as temp owner", async () => {
-    const loginCard = page.locator("#landing-login-card");
+    const loginCard = page.locator("#public-login-card");
     await loginCard.getByLabel("로그인 계정").fill(ownerLoginId);
     await loginCard.getByLabel("비밀번호").fill(password);
     await Promise.all([
@@ -1154,7 +1154,7 @@ try {
 
   await recordStep("logout returns to public page", async () => {
     await page.getByRole("button", { name: "로그아웃" }).click();
-    await page.locator("#landing-login-card").getByLabel("로그인 계정").waitFor();
+    await page.locator("#public-login-card").getByLabel("로그인 계정").waitFor();
     await page.waitForTimeout(2000);
   });
 

@@ -8,7 +8,6 @@ import type {
   AppRateLimiter,
   CreateEmptyBootstrapWorkspace,
   CreateEmptySettings,
-  LoggingStoreGetter,
   RequestStoreGetter,
   RequireAuthContext,
   RequireInternalJobAccess
@@ -20,31 +19,13 @@ const publicLoginSchema = z.object({
   password: z.string().min(1).max(256)
 });
 
-const supportRequestSchema = z.object({
-  companyName: z.string().trim().min(1).max(120),
-  requesterName: z.string().trim().min(1).max(80),
-  requesterEmail: z.string().trim().email().max(255),
-  requesterPhone: z.string().trim().min(1).max(40),
-  message: z.string().trim().min(1).max(2000)
-});
-
 type RouteDeps = {
   app: Express;
   store: AppStore | null;
-  getLoggingStore: LoggingStoreGetter;
   getRequestStore: RequestStoreGetter;
   requireAuthContext: RequireAuthContext;
   requireInternalJobAccess: RequireInternalJobAccess;
-  publicSupportRequestLimiter: AppRateLimiter;
   publicLoginLimiter: AppRateLimiter;
-  sendSupportRequest: (payload: {
-    companyName: string;
-    requesterName: string;
-    requesterEmail: string;
-    requesterPhone: string;
-    message: string;
-    userAgent: string | null;
-  }) => Promise<void>;
   createSupabaseAdminClient: () => ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>;
   createSupabasePublicClient: () => ReturnType<typeof import("../supabase.js").createSupabasePublicClient>;
   findAuthUserByLoginId: (
@@ -66,13 +47,10 @@ export function registerCoreRoutes(deps: RouteDeps) {
   const {
     app,
     store,
-    getLoggingStore,
     getRequestStore,
     requireAuthContext,
     requireInternalJobAccess,
-    publicSupportRequestLimiter,
     publicLoginLimiter,
-    sendSupportRequest,
     createSupabaseAdminClient,
     createSupabasePublicClient,
     findAuthUserByLoginId,
@@ -89,25 +67,6 @@ export function registerCoreRoutes(deps: RouteDeps) {
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
-  });
-
-  app.post("/api/public/support-request", publicSupportRequestLimiter, async (req, res) => {
-    const payload = supportRequestSchema.parse(req.body ?? {});
-
-    try {
-      await sendSupportRequest({
-        ...payload,
-        userAgent: req.header("user-agent") ?? null
-      });
-    } catch (error) {
-      const loggingStore = getLoggingStore(res, store);
-      void loggingStore?.createLog("error", "support-request", "작업공간 개통 문의 메일 전송에 실패했습니다.", {
-        error: error instanceof Error ? error.message : String(error)
-      });
-        throw new HttpError(503, "문의 접수가 일시적으로 불가능합니다. 잠시 후 다시 시도해주세요.");
-    }
-
-    res.status(201).json({ ok: true });
   });
 
   app.post("/api/public/login", publicLoginLimiter, async (req, res) => {

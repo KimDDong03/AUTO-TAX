@@ -60,7 +60,6 @@ import {
 import { autoJoinCustomerPopbill } from "./services/popbill-customer-service.js";
 import { applyServerManagedSettings, getServerManagedSettings } from "./server-managed-settings.js";
 import type { AppStore } from "./store-contract.js";
-import { sendSupportRequest } from "./support-request.js";
 import {
   createSupabaseAdminClient,
   createSupabasePublicClient,
@@ -714,13 +713,6 @@ function hasValidRenewalAgentSecret(req: express.Request): boolean {
   return readRenewalAgentSecret(req) === configuredSecret;
 }
 
-const publicSupportRequestLimiter = createRateLimiter({
-  keyPrefix: "support-request",
-  windowMs: 60 * 60 * 1000,
-  max: 5,
-  message: "문의 요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
-});
-
 const publicLoginLimiter = createRateLimiter({
   keyPrefix: "public-login",
   windowMs: 10 * 60 * 1000,
@@ -799,13 +791,10 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
   registerCoreRoutes({
     app,
     store,
-    getLoggingStore,
     getRequestStore,
     requireAuthContext,
     requireInternalJobAccess,
-    publicSupportRequestLimiter,
     publicLoginLimiter,
-    sendSupportRequest,
     createSupabaseAdminClient,
     createSupabasePublicClient,
     findAuthUserByLoginId,
@@ -1049,4 +1038,3 @@ function isDirectExecution(): boolean {
 if (isDirectExecution()) {
   void startServer();
 }
-

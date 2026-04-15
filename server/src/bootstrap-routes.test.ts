@@ -78,13 +78,10 @@ test("bootstrap stays slim and mailbox/log data remains on dedicated endpoints",
   registerCoreRoutes({
     app,
     store: requestStore,
-    getLoggingStore: () => null,
     getRequestStore: () => requestStore,
     requireAuthContext: () => authContext as never,
     requireInternalJobAccess: () => "secret",
-    publicSupportRequestLimiter: (_req, _res, next) => next(),
     publicLoginLimiter: (_req, _res, next) => next(),
-    sendSupportRequest: async () => {},
     createSupabaseAdminClient: () => ({}) as never,
     createSupabasePublicClient: () =>
       ({

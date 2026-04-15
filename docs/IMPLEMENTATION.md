@@ -74,7 +74,6 @@ The product is multi-tenant. A logged-in session always operates against an acti
 - `server/src/routes/core-routes.ts`
   - health
   - public login
-  - support request
   - bootstrap
   - internal job endpoints
 - `server/src/routes/customer-popbill-routes.ts`
@@ -129,13 +128,14 @@ The product is multi-tenant. A logged-in session always operates against an acti
 
 ## 4. Primary Data Flows
 
-### A. Public login to workspace bootstrap
+### A. Public access portal login to workspace bootstrap
 
-1. `POST /api/public/login`
-2. Supabase session returned to client
-3. Client stores active workspace id
-4. `GET /api/bootstrap`
-5. `SupabaseStore.getDashboard()` returns scoped workspace data
+1. Public root renders the customer-only access portal
+2. `POST /api/public/login`
+3. Supabase session returned to client
+4. Client stores active workspace id
+5. `GET /api/bootstrap`
+6. `SupabaseStore.getDashboard()` returns scoped workspace data
 
 Main coupling:
 
@@ -223,8 +223,8 @@ Do not mix the two systems conceptually when debugging.
 1. Current runtime treats Popbill secrets as server-owned.
    Workspace values are supplemental; env overrides remain authoritative.
 2. Current UI exposes `owner` and non-owner behavior, not the full DB role matrix.
-3. `support-request` is not a marketing artifact.
-   It is a real public endpoint used from the landing page.
+3. Public root is a customer-only access portal, not a marketing landing page.
+   The only anonymous product action is public login.
 4. `public/` is generated output for Vercel static serving.
 5. `dist/renewal-local-helper` is generated packaging output, not source.
 

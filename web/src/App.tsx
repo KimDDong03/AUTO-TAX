@@ -10,11 +10,6 @@ import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./featu
 import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
 import { PublicLanding } from "./features/public/PublicLanding";
 import {
-  calculatePublicPrice,
-  normalizeManagedCustomerCount,
-  type PublicPricingPlanId
-} from "./features/public/public-content";
-import {
   downloadCustomerOnboardingTemplate,
   parseCustomerOnboardingWorkbook,
   type CustomerOnboardingCommitStartResponse,
@@ -214,14 +209,6 @@ type OpsWorkspaceFormState = {
   ownerLoginId: string;
   ownerDisplayName: string;
   ownerPassword: string;
-};
-
-type SupportRequestFormState = {
-  companyName: string;
-  requesterName: string;
-  requesterEmail: string;
-  requesterPhone: string;
-  message: string;
 };
 
 type CustomerFormState = {
@@ -509,14 +496,6 @@ const baseOpsWorkspaceForm: OpsWorkspaceFormState = {
   ownerPassword: ""
 };
 
-const baseSupportRequestForm: SupportRequestFormState = {
-  companyName: "",
-  requesterName: "",
-  requesterEmail: "",
-  requesterPhone: "",
-  message: ""
-};
-
 function getTabFromHash(hash: string): TabId | null {
   const value = hash.replace(/^#/, "");
 
@@ -788,23 +767,6 @@ function getParseStatusLabel(status: string): string {
 
 function formatMoney(value: number): string {
   return new Intl.NumberFormat("ko-KR").format(value);
-}
-
-function shouldReplaceSupportRequestMessage(value: string): boolean {
-  const trimmed = value.trim();
-  return trimmed === "" || trimmed.startsWith("예상 관리 고객 수:");
-}
-
-function buildSupportRequestPrefill(planId: PublicPricingPlanId, managedCustomerCount: number): string {
-  const pricing = calculatePublicPrice(planId, managedCustomerCount);
-
-  return [
-    `예상 관리 고객 수: ${pricing.managedCustomerCount.toLocaleString("ko-KR")}곳`,
-    `희망 요금 기준: ${pricing.plan.label}`,
-    `예상 월 구독료: ${formatMoney(pricing.totalPrice)}원`,
-    "",
-    "도입 상담을 받고 싶습니다."
-  ].join("\n");
 }
 
 function scrollToElementById(id: string): void {
@@ -1549,11 +1511,6 @@ export function App() {
   const [recoveryPasswordForm, setRecoveryPasswordForm] = useState<PasswordResetFormState>(
     createEmptyPasswordResetForm
   );
-  const [showSupportRequestForm, setShowSupportRequestForm] = useState(false);
-  const [supportRequestBusy, setSupportRequestBusy] = useState(false);
-  const [supportRequestForm, setSupportRequestForm] = useState<SupportRequestFormState>(baseSupportRequestForm);
-  const [pricingPlanId, setPricingPlanId] = useState<PublicPricingPlanId>("standard");
-  const [managedCustomerCountInput, setManagedCustomerCountInput] = useState("220");
   const [data, setData] = useState<BootstrapPayload | null>(null);
   const [opsConsole, setOpsConsole] = useState<OpsConsoleData | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
@@ -1630,8 +1587,6 @@ export function App() {
     onboardingComplete: false,
     isPlatformAdmin: false
   });
-  const publicManagedCustomerCount = normalizeManagedCustomerCount(managedCustomerCountInput);
-  const publicPricing = calculatePublicPrice(pricingPlanId, publicManagedCustomerCount);
   const deferredCustomerSearchQuery = useDeferredValue(customerSearchQuery);
   const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
   const showCompletedOnboardingNav =
@@ -2437,55 +2392,6 @@ export function App() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [appDialog]);
-
-  const submitSupportRequest = async () => {
-    try {
-      setError("");
-      setSupportRequestBusy(true);
-      await api("/api/public/support-request", {
-        method: "POST",
-        body: JSON.stringify({
-          companyName: supportRequestForm.companyName.trim(),
-          requesterName: supportRequestForm.requesterName.trim(),
-          requesterEmail: supportRequestForm.requesterEmail.trim(),
-          requesterPhone: supportRequestForm.requesterPhone.trim(),
-          message: supportRequestForm.message.trim()
-        })
-      });
-
-      setSupportRequestForm(baseSupportRequestForm);
-      setShowSupportRequestForm(false);
-      await showAppAlert("문의가 접수되었습니다. 확인 후 등록 안내 메일을 보내드리겠습니다.", {
-        title: "문의 접수 완료",
-        tone: "success"
-      });
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "문의 전송에 실패했습니다.");
-    } finally {
-      setSupportRequestBusy(false);
-    }
-  };
-
-  const scrollToLandingSection = (id: string) => {
-    if (typeof window === "undefined") return;
-
-    window.requestAnimationFrame(() => {
-      scrollToElementById(id);
-    });
-  };
-
-  const openSupportRequest = (prefillMessage?: string) => {
-    setShowSupportRequestForm(true);
-
-    if (prefillMessage) {
-      setSupportRequestForm((prev) => ({
-        ...prev,
-        message: shouldReplaceSupportRequestMessage(prev.message) ? prefillMessage : prev.message
-      }));
-    }
-
-    scrollToLandingSection("landing-login-card");
-  };
 
   const signIn = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -4875,25 +4781,10 @@ export function App() {
           setSignInAccount={setSignInAccount}
           signInPassword={signInPassword}
           setSignInPassword={setSignInPassword}
-          showSupportRequestForm={showSupportRequestForm}
-          setShowSupportRequestForm={setShowSupportRequestForm}
-          supportRequestForm={supportRequestForm}
-          setSupportRequestForm={setSupportRequestForm}
-          pricingPlanId={pricingPlanId}
-          setPricingPlanId={setPricingPlanId}
-          managedCustomerCountInput={managedCustomerCountInput}
-          setManagedCustomerCountInput={setManagedCustomerCountInput}
-          publicPricing={publicPricing}
-          pricingSupportRequestPrefill={buildSupportRequestPrefill(pricingPlanId, publicManagedCustomerCount)}
           authNotice={authNotice}
           error={error}
           authBusy={authBusy}
-          supportRequestBusy={supportRequestBusy}
           onSignIn={signIn}
-          onSubmitSupportRequest={submitSupportRequest}
-          onScrollToSection={scrollToLandingSection}
-          onOpenSupportRequest={openSupportRequest}
-          formatMoney={formatMoney}
         />
         {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
       </>

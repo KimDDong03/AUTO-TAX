@@ -24,12 +24,7 @@ export function readAccessToken(req: Request): string | null {
 }
 
 export function isAnonymousApiPath(req: Request): boolean {
-  return (
-    req.method === "OPTIONS" ||
-    req.path === "/health" ||
-    req.path === "/public/login" ||
-    req.path === "/public/support-request"
-  );
+  return req.method === "OPTIONS" || req.path === "/health" || req.path === "/public/login";
 }
 
 export function isInternalJobApiPath(req: Request): boolean {
