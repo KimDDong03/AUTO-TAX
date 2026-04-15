@@ -1,5 +1,5 @@
 import type React from "react";
-import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api, setActiveOrganizationId } from "./api";
 import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
@@ -25,6 +25,7 @@ import {
 } from "./features/initial-registration/customer-onboarding-workbook";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
 import { AccountPasswordPanel } from "./features/settings/AccountPasswordPanel";
+import { createSettingsActionAdapters } from "./features/settings/createSettingsActionAdapters";
 import {
   MAIL_PROVIDER_CONFIG,
   createEmptyPasswordResetForm,
@@ -34,6 +35,7 @@ import {
   useSettingsScreenState
 } from "./features/settings/useSettingsScreenState";
 import { useSettingsDerivedModel } from "./features/settings/useSettingsDerivedModel";
+import { useSettingsOnboardingModel } from "./features/settings/useSettingsOnboardingModel";
 import {
   deriveCustomerCertificateKind,
   findCandidateCustomersForCertificate,
@@ -1847,29 +1849,32 @@ export function App() {
       tone: options?.tone ?? "default"
     });
 
-  const runAction = async (
-    key: string,
-    action: () => Promise<void>,
-    options?: {
-      reload?: boolean;
-    }
-  ) => {
-    try {
-      setError("");
-      setBusyKey(key);
-      await action();
-      if (options?.reload !== false) {
-        await load();
-        if (shouldLoadMailboxData(activeTab, customerDetailTab)) {
-          await loadMailboxData({ force: true });
-        }
+  const runAction = useCallback(
+    async (
+      key: string,
+      action: () => Promise<void>,
+      options?: {
+        reload?: boolean;
       }
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "작업에 실패했습니다.");
-    } finally {
-      setBusyKey(null);
-    }
-  };
+    ) => {
+      try {
+        setError("");
+        setBusyKey(key);
+        await action();
+        if (options?.reload !== false) {
+          await load();
+          if (shouldLoadMailboxData(activeTab, customerDetailTab)) {
+            await loadMailboxData({ force: true });
+          }
+        }
+      } catch (actionError) {
+        setError(actionError instanceof Error ? actionError.message : "작업에 실패했습니다.");
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [activeTab, customerDetailTab, load, loadMailboxData]
+  );
 
   const {
     canUseCustomerRenewalAssistant,
@@ -1922,19 +1927,23 @@ export function App() {
   });
 
   const settingsForm = settingsScreenState.settingsForm;
-  const setSettingsForm = settingsScreenState.setSettingsForm;
   const settingsHealth = settingsScreenState.settingsHealth;
-  const settingsSections = settingsScreenState.settingsSections;
-  const settingsAutosaveLabel = settingsScreenState.settingsAutosaveLabel;
-  const detectedMailProviderLabel = settingsScreenState.detectedMailProviderLabel;
-  const handleSettingsMailAddressChange = settingsScreenState.handleSettingsMailAddressChange;
-  const handleSettingsRenewalIssuePasswordChange = settingsScreenState.handleSettingsRenewalIssuePasswordChange;
   const currentWorkspaceSettings = settingsScreenState.savedSettings ?? data?.settings ?? null;
-  const mailPasswordConfigured = settingsScreenState.mailPasswordConfigured;
-  const popbillSharedPasswordConfigured = settingsScreenState.popbillSharedPasswordConfigured;
-  const renewalCertificatePasswordConfigured =
-    settingsScreenState.renewalCertificatePasswordConfigured;
-  const renewalIssuePasswordConfigured = settingsScreenState.renewalIssuePasswordConfigured;
+  const toggleRevealField = useCallback((fieldKey: string) => {
+    setRevealedFields((prev) => ({
+      ...prev,
+      [fieldKey]: !prev[fieldKey]
+    }));
+  }, []);
+  const settingsFeatureOrchestration = useMemo(
+    () =>
+      createSettingsActionAdapters({
+        revealedFields,
+        toggleRevealField,
+        runAction
+      }),
+    [revealedFields, runAction, toggleRevealField]
+  );
 
   const certificatesScreenModel = useCertificatesScreenModel({
     customers: data?.customers ?? [],
@@ -2421,13 +2430,6 @@ export function App() {
       },
       { reload: false }
     );
-  };
-
-  const toggleRevealField = (fieldKey: string) => {
-    setRevealedFields((prev) => ({
-      ...prev,
-      [fieldKey]: !prev[fieldKey]
-    }));
   };
 
   const resolveCustomerAddress = async () => {
@@ -5021,15 +5023,48 @@ export function App() {
   const onboardingIssueSetupPendingCount = onboardingPendingCertificateCustomers.length;
   const onboardingCertificateReady = onboardingCustomerRegistrationReady && onboardingIssueSetupPendingCount === 0;
   const settingsDerivedModel = useSettingsDerivedModel({
-    settingsState: settingsScreenState,
-    helperReady,
-    helperOnline: customerRenewalAssistant?.agentOnline ?? false,
-    helperCertificateCount: customerRenewalAssistantAllCertificates.length,
-    helperUpgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
-    helperActionBlockedReason,
-    helperUpgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
-    onboardingCustomerRegistrationReady,
-    onboardingCertificateReady
+    actionBar: {
+      setupPendingCount: settingsScreenState.setupPendingCount,
+      nextSettingsSection: settingsScreenState.nextSettingsSection,
+      settingsHealth: settingsScreenState.settingsHealth,
+      helperReady,
+      settingsAutosaveLabel: settingsScreenState.settingsAutosaveLabel,
+      settingsAutosaveState: settingsScreenState.settingsAutosaveState
+    },
+    onboarding: {
+      fields: {
+        mailAddress: settingsForm!.mailAddress,
+        mailPassword: settingsForm!.mailPassword,
+        popbillUserIdPrefix: settingsForm!.popbillUserIdPrefix,
+        operatorContactName: settingsForm!.operatorContactName,
+        operatorContactTel: settingsForm!.operatorContactTel,
+        operatorContactEmail: settingsForm!.operatorContactEmail,
+        popbillSharedPassword: settingsForm!.popbillSharedPassword,
+        renewalIssuePassword: settingsForm!.renewalIssuePassword
+      },
+      settingsHealth: settingsScreenState.settingsHealth,
+      configured: {
+        mailPasswordConfigured: settingsScreenState.mailPasswordConfigured,
+        popbillSharedPasswordConfigured:
+          settingsScreenState.popbillSharedPasswordConfigured,
+        renewalIssuePasswordConfigured:
+          settingsScreenState.renewalIssuePasswordConfigured,
+        renewalCertificatePasswordConfigured:
+          settingsScreenState.renewalCertificatePasswordConfigured
+      },
+      helper: {
+        ready: helperReady,
+        online: customerRenewalAssistant?.agentOnline ?? false,
+        certificateCount: customerRenewalAssistantAllCertificates.length,
+        upgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
+        actionBlockedReason: helperActionBlockedReason,
+        upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null
+      },
+      progress: {
+        customerRegistrationReady: onboardingCustomerRegistrationReady,
+        certificateReady: onboardingCertificateReady
+      }
+    }
   });
   const settingsActionBar = settingsDerivedModel.actionBar;
   const settingsOnboardingModel = settingsDerivedModel.onboarding;
@@ -5287,12 +5322,61 @@ export function App() {
     settingsHealth.operatorReady &&
     helperReady &&
     onboardingCertificateReady;
-  const hasSavedOnboardingDefaults =
-    settingsOnboardingModel.hasSavedDefaults;
   const onboardingImportableCount =
     (customerOnboardingPreview?.createCount ?? 0) + (customerOnboardingPreview?.updateCount ?? 0);
   const onboardingBlockedCount = customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
-  const onboardingHelperStatusLine = settingsOnboardingModel.helperStatusLine;
+  const settingsOnboardingContent = useSettingsOnboardingModel({
+    settingsState: {
+      settingsForm: settingsForm!,
+      settingsAutosaveLabel: settingsScreenState.settingsAutosaveLabel,
+      detectedMailProviderLabel: settingsScreenState.detectedMailProviderLabel,
+      mailPasswordConfigured: settingsScreenState.mailPasswordConfigured,
+      popbillSharedPasswordConfigured:
+        settingsScreenState.popbillSharedPasswordConfigured,
+      renewalCertificatePasswordConfigured:
+        settingsScreenState.renewalCertificatePasswordConfigured,
+      renewalIssuePasswordConfigured:
+        settingsScreenState.renewalIssuePasswordConfigured,
+      setSettingsForm: settingsScreenState.setSettingsForm,
+      handleSettingsMailAddressChange:
+        settingsScreenState.handleSettingsMailAddressChange,
+      handleSettingsRenewalIssuePasswordChange:
+        settingsScreenState.handleSettingsRenewalIssuePasswordChange,
+      runMailSettingsTest: settingsScreenState.runMailSettingsTest,
+      runLoadCurrentPopbillSharedPassword:
+        settingsScreenState.runLoadCurrentPopbillSharedPassword,
+      runLoadCurrentRenewalCertificatePassword:
+        settingsScreenState.runLoadCurrentRenewalCertificatePassword,
+      runLoadCurrentRenewalIssuePassword:
+        settingsScreenState.runLoadCurrentRenewalIssuePassword,
+      runRefreshCustomerRenewalAssistant:
+        settingsScreenState.runRefreshCustomerRenewalAssistant
+    },
+    onboarding: settingsOnboardingModel,
+    orchestration: settingsFeatureOrchestration,
+    busyKey,
+    isMailTesting,
+    helperReady,
+    helperUpgradeRequired,
+    helperUpgradeAvailable,
+    helperActionBlockedReason,
+    helperOnline: customerRenewalAssistant?.agentOnline ?? false,
+    helperCheckedAt: customerRenewalAssistant?.helperCheckedAt ?? null,
+    helperCertificateCount: customerRenewalAssistantAllCertificates.length,
+    helperUpgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
+    helperLatestVersion: customerRenewalAssistant?.latestVersion ?? null,
+    helperMinSupportedVersion: customerRenewalAssistant?.minSupportedVersion ?? null,
+    renewalHelperDownloadUrl,
+    runReadCertificates: async () =>
+      runAction(
+        "customer-renewal-bridge-probe",
+        async () => {
+          await syncCustomerRenewalCertificates({ showAlert: false });
+        },
+        { reload: false }
+      ),
+    formatDateTime
+  });
   const onboardingRegistrationFlow = getInitialRegistrationFlowState({
     helperReady,
     helperCertificateCount: customerRenewalAssistantAllCertificates.length,
@@ -5308,478 +5392,9 @@ export function App() {
   const onboardingRegistrationPrimaryActionLabel = onboardingRegistrationFlow.primaryActionLabel;
   const onboardingRegistrationBlockedReason = onboardingRegistrationFlow.blockedReason;
   const onboardingFirstSyncBlockedSteps = settingsOnboardingModel.firstSyncBlockedSteps;
-  const onboardingRequiredHintText = "필수 입력 사항입니다.";
-  const getOnboardingRequiredFieldClassName = (hasError: boolean) =>
-    hasError ? "onboarding-required-field is-missing" : "onboarding-required-field";
-  const getOnboardingRequiredLabelClassName = (hasError: boolean) =>
-    hasError ? "onboarding-required-label is-missing" : "onboarding-required-label";
-  const getOnboardingRequiredInputClassName = (hasError: boolean) =>
-    hasError ? "onboarding-required-input is-missing" : "onboarding-required-input";
-  const getOnboardingRequiredHintClassName = (hasError: boolean) =>
-    hasError ? "field-hint onboarding-required-hint is-missing" : "field-hint onboarding-required-hint";
-  const renderOnboardingRequiredHint = (
-    hintId: string,
-    options: { missing: boolean; invalid?: boolean; invalidText?: string; defaultText?: string }
-  ) => {
-    const hasError = options.missing || Boolean(options.invalid);
-    const hintText = options.missing
-      ? onboardingRequiredHintText
-      : options.invalid
-        ? options.invalidText
-        : options.defaultText;
-    if (!hintText) {
-      return null;
-    }
-    return (
-      <span id={hintId} className={getOnboardingRequiredHintClassName(hasError)}>
-        {hintText}
-      </span>
-    );
-  };
-  const onboardingMailSetupContent = (
-    <div className="onboarding-step-body">
-      <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
-          <strong>
-            {settingsOnboardingModel.mail.headline}
-          </strong>
-          <p>지금은 연결만 확인합니다.</p>
-        </div>
-
-        <div className="onboarding-inline-status">
-          <div>
-            <span>자동 저장</span>
-            <strong>{settingsAutosaveLabel}</strong>
-          </div>
-          <div>
-            <span>메일 서비스</span>
-            <strong>{detectedMailProviderLabel}</strong>
-          </div>
-          <div>
-            <span>테스트 의미</span>
-            <strong>연결만 확인</strong>
-          </div>
-        </div>
-
-        <div className="onboarding-field-grid">
-          <label
-            className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.mail.address.hasError)}
-            data-required-empty={settingsOnboardingModel.mail.address.missing ? "true" : undefined}
-          >
-            <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.mail.address.hasError)}>메일 주소</span>
-            <input
-              type="email"
-              className={getOnboardingRequiredInputClassName(settingsOnboardingModel.mail.address.hasError)}
-              placeholder="example@mail.com"
-              value={settingsForm.mailAddress}
-              aria-invalid={settingsOnboardingModel.mail.address.hasError || undefined}
-              aria-describedby="onboarding-mail-address-hint"
-              onChange={(event) => handleSettingsMailAddressChange(event.target.value)}
-            />
-            {renderOnboardingRequiredHint(
-              "onboarding-mail-address-hint",
-              {
-                missing: settingsOnboardingModel.mail.address.missing,
-                invalid: settingsOnboardingModel.mail.address.invalid,
-                invalidText: "메일 형식이 올바르지 않습니다.",
-                defaultText: "한전 메일을 읽고 알림 메일을 보낼 때 함께 사용할 계정입니다."
-              }
-            )}
-          </label>
-          <label
-            className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.mail.password.hasError)}
-            data-required-empty={settingsOnboardingModel.mail.password.missing ? "true" : undefined}
-          >
-            <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.mail.password.hasError)}>앱 비밀번호</span>
-            <div
-              className={
-                settingsOnboardingModel.mail.password.hasError
-                  ? "password-field onboarding-password-field is-missing"
-                  : "password-field onboarding-password-field"
-              }
-            >
-              <input
-                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.mail.password.hasError)}
-                type={revealedFields.mailPassword ? "text" : "password"}
-                value={settingsForm.mailPassword}
-                aria-invalid={settingsOnboardingModel.mail.password.hasError || undefined}
-                aria-describedby="onboarding-mail-password-hint"
-                onChange={(event) => setSettingsForm((prev) => prev && { ...prev, mailPassword: event.target.value })}
-                placeholder={mailPasswordConfigured ? "변경할 때만 다시 입력" : "앱 비밀번호 입력"}
-              />
-              <button type="button" className="password-toggle" aria-label={revealedFields.mailPassword ? "앱 비밀번호 숨기기" : "앱 비밀번호 보기"} onClick={() => toggleRevealField("mailPassword")}>
-                <RevealIcon open={Boolean(revealedFields.mailPassword)} />
-              </button>
-            </div>
-            {renderOnboardingRequiredHint(
-              "onboarding-mail-password-hint",
-              {
-                missing: settingsOnboardingModel.mail.password.missing,
-                defaultText: mailPasswordConfigured
-                  ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 시 빈칸이면 저장된 값을 사용합니다."
-                  : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다."
-              }
-            )}
-          </label>
-        </div>
-
-        <div className="button-row onboarding-primary-row">
-          <button type="button" disabled={busyKey !== null} onClick={() => void settingsScreenState.runMailSettingsTest()}>
-            {isMailTesting ? "연결 테스트 중..." : "메일 연결 테스트"}
-          </button>
-        </div>
-      </section>
-
-      <details className="settings-advanced-panel">
-        <summary>알림 메일 / 추가 설정은 나중에 보기</summary>
-        <div className="onboarding-secondary-stack">
-          <label>
-            알림 수신 메일
-            <textarea rows={4} value={settingsForm.notificationEmailsText} onChange={(event) => setSettingsForm((prev) => prev && { ...prev, notificationEmailsText: event.target.value })} />
-            <span className="field-hint">파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나 쉼표로 구분합니다.</span>
-          </label>
-        </div>
-      </details>
-    </div>
-  );
-  const onboardingDefaultsContent = (
-    <div className="onboarding-step-body">
-      <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
-          <strong>
-            {settingsOnboardingModel.defaults.headline}
-          </strong>
-          <p>선택값은 나중에 입력해도 됩니다.</p>
-        </div>
-
-        <div className="onboarding-inline-status">
-          <div>
-            <span>자동 저장</span>
-            <strong>{settingsAutosaveLabel}</strong>
-          </div>
-          <div>
-            <span>팝빌 연결</span>
-            <strong>{settingsOnboardingModel.defaults.popbillReadyLabel}</strong>
-          </div>
-          <div>
-            <span>운영값</span>
-            <strong>{settingsOnboardingModel.defaults.operatorReadyLabel}</strong>
-          </div>
-        </div>
-
-        <section className="onboarding-section">
-          <div className="onboarding-section-head">
-            <strong>필수 입력</strong>
-            <span>먼저 채울 값</span>
-          </div>
-          <div className="onboarding-field-grid">
-            <label
-              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.popbillPrefix.hasError)}
-              data-required-empty={settingsOnboardingModel.defaults.popbillPrefix.missing ? "true" : undefined}
-            >
-              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.popbillPrefix.hasError)}>팝빌 접두어</span>
-              <input
-                id="onboarding-popbill-user-id-prefix"
-                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.popbillPrefix.hasError)}
-                value={settingsForm.popbillUserIdPrefix}
-                aria-invalid={settingsOnboardingModel.defaults.popbillPrefix.hasError || undefined}
-                aria-describedby="onboarding-popbill-prefix-hint"
-                onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })}
-                placeholder="예: TEST_"
-              />
-              {renderOnboardingRequiredHint(
-                "onboarding-popbill-prefix-hint",
-                {
-                  missing: settingsOnboardingModel.defaults.popbillPrefix.missing,
-                  defaultText: "예: `TEST_001` · 신규 고객 팝빌 아이디 앞에 붙습니다."
-                }
-              )}
-            </label>
-            <label
-              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.operatorName.hasError)}
-              data-required-empty={settingsOnboardingModel.defaults.operatorName.missing ? "true" : undefined}
-            >
-              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.operatorName.hasError)}>담당자 이름</span>
-              <input
-                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.operatorName.hasError)}
-                value={settingsForm.operatorContactName}
-                aria-invalid={settingsOnboardingModel.defaults.operatorName.hasError || undefined}
-                aria-describedby="onboarding-operator-name-hint"
-                onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })}
-                placeholder="담당자 이름"
-              />
-              {renderOnboardingRequiredHint("onboarding-operator-name-hint", {
-                missing: settingsOnboardingModel.defaults.operatorName.missing
-              })}
-            </label>
-            <label
-              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.operatorTel.hasError)}
-              data-required-empty={settingsOnboardingModel.defaults.operatorTel.missing ? "true" : undefined}
-            >
-              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.operatorTel.hasError)}>담당자 연락처</span>
-              <input
-                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.operatorTel.hasError)}
-                value={settingsForm.operatorContactTel}
-                aria-invalid={settingsOnboardingModel.defaults.operatorTel.hasError || undefined}
-                aria-describedby="onboarding-operator-tel-hint"
-                onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })}
-                placeholder="01012345678"
-              />
-              {renderOnboardingRequiredHint("onboarding-operator-tel-hint", {
-                missing: settingsOnboardingModel.defaults.operatorTel.missing
-              })}
-            </label>
-            <label
-              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.operatorEmail.hasError)}
-              data-required-empty={settingsOnboardingModel.defaults.operatorEmail.missing ? "true" : undefined}
-            >
-              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.operatorEmail.hasError)}>담당자 이메일</span>
-              <input
-                type="email"
-                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.operatorEmail.hasError)}
-                value={settingsForm.operatorContactEmail}
-                aria-invalid={settingsOnboardingModel.defaults.operatorEmail.hasError || undefined}
-                aria-describedby="onboarding-operator-email-hint"
-                onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })}
-                placeholder="operator@example.com"
-              />
-              {renderOnboardingRequiredHint("onboarding-operator-email-hint", {
-                missing: settingsOnboardingModel.defaults.operatorEmail.missing,
-                invalid: settingsOnboardingModel.defaults.operatorEmail.invalid,
-                invalidText: "메일 형식이 올바르지 않습니다."
-              })}
-            </label>
-            <label
-              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.popbillSharedPassword.hasError)}
-              data-required-empty={settingsOnboardingModel.defaults.popbillSharedPassword.missing ? "true" : undefined}
-            >
-              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.popbillSharedPassword.hasError)}>신규 고객 기본 비밀번호</span>
-              <div
-                className={
-                  settingsOnboardingModel.defaults.popbillSharedPassword.hasError
-                    ? "password-field onboarding-password-field is-missing"
-                    : "password-field onboarding-password-field"
-                }
-              >
-                <input
-                  className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.popbillSharedPassword.hasError)}
-                  type={revealedFields.popbillSharedPassword ? "text" : "password"}
-                  value={settingsForm.popbillSharedPassword}
-                  aria-invalid={settingsOnboardingModel.defaults.popbillSharedPassword.hasError || undefined}
-                  aria-describedby="onboarding-popbill-shared-password-hint"
-                  onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
-                  placeholder={popbillSharedPasswordConfigured ? "변경할 때만 다시 입력" : "신규 고객 공통 비밀번호"}
-                />
-                <button type="button" className="password-toggle" aria-label={revealedFields.popbillSharedPassword ? "팝빌 기본 비밀번호 숨기기" : "팝빌 기본 비밀번호 보기"} onClick={() => toggleRevealField("popbillSharedPassword")}>
-                  <RevealIcon open={Boolean(revealedFields.popbillSharedPassword)} />
-                </button>
-              </div>
-              {renderOnboardingRequiredHint(
-                "onboarding-popbill-shared-password-hint",
-                {
-                  missing: settingsOnboardingModel.defaults.popbillSharedPassword.missing,
-                  defaultText: popbillSharedPasswordConfigured
-                    ? "이미 저장된 값이 있습니다. 필요하면 아래 보조 영역에서 다시 불러오세요."
-                    : "신규 고객 계정 초기 비밀번호"
-                }
-              )}
-            </label>
-            <label
-              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.renewalIssuePassword.hasError)}
-              data-required-empty={settingsOnboardingModel.defaults.renewalIssuePassword.missing ? "true" : undefined}
-            >
-              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.renewalIssuePassword.hasError)}>공동인증서 발급용 임시번호</span>
-              <div
-                className={
-                  settingsOnboardingModel.defaults.renewalIssuePassword.hasError
-                    ? "password-field onboarding-password-field is-missing"
-                    : "password-field onboarding-password-field"
-                }
-              >
-                <input
-                  className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.renewalIssuePassword.hasError)}
-                  type={revealedFields.renewalIssuePassword ? "text" : "password"}
-                  value={settingsForm.renewalIssuePassword}
-                  inputMode="numeric"
-                  maxLength={6}
-                  aria-invalid={settingsOnboardingModel.defaults.renewalIssuePassword.hasError || undefined}
-                  aria-describedby="onboarding-renewal-issue-password-hint"
-                  onChange={(event) => handleSettingsRenewalIssuePasswordChange(event.target.value)}
-                  placeholder={renewalIssuePasswordConfigured ? "변경할 때만 다시 입력" : "숫자 6자리 입력"}
-                />
-                <button type="button" className="password-toggle" aria-label={revealedFields.renewalIssuePassword ? "발급용 임시번호 숨기기" : "발급용 임시번호 보기"} onClick={() => toggleRevealField("renewalIssuePassword")}>
-                  <RevealIcon open={Boolean(revealedFields.renewalIssuePassword)} />
-                </button>
-              </div>
-              {renderOnboardingRequiredHint(
-                "onboarding-renewal-issue-password-hint",
-                {
-                  missing: settingsOnboardingModel.defaults.renewalIssuePassword.missing,
-                  defaultText: renewalIssuePasswordConfigured
-                    ? "공동인증서 신청 및 갱신 신청용 6자리입니다. 필요하면 아래 보조 영역에서 다시 불러오세요."
-                    : "공동인증서 신청 및 갱신 신청용 6자리"
-                }
-              )}
-            </label>
-          </div>
-        </section>
-
-        <section className="onboarding-section onboarding-section-muted">
-          <div className="onboarding-section-head">
-            <strong>나중에 입력 가능</strong>
-            <span>필요할 때만</span>
-          </div>
-          <div className="onboarding-field-grid onboarding-field-grid-single">
-            <label>
-              인증서 공통 비밀번호 (선택)
-              <div className="password-field">
-                <input
-                  type={revealedFields.renewalCertificatePassword ? "text" : "password"}
-                  value={settingsForm.renewalCertificatePassword}
-                  onChange={(event) => setSettingsForm((prev) => prev && { ...prev, renewalCertificatePassword: event.target.value })}
-                  placeholder={renewalCertificatePasswordConfigured ? "변경할 때만 다시 입력" : "선택 입력"}
-                />
-                <button type="button" className="password-toggle" aria-label={revealedFields.renewalCertificatePassword ? "공동인증서 공통 비밀번호 숨기기" : "공동인증서 공통 비밀번호 보기"} onClick={() => toggleRevealField("renewalCertificatePassword")}>
-                  <RevealIcon open={Boolean(revealedFields.renewalCertificatePassword)} />
-                </button>
-              </div>
-              <span className="field-hint">
-                {renewalCertificatePasswordConfigured
-                  ? "이미 저장된 값이 있습니다. 필요하면 아래 보조 영역에서 다시 불러오세요. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."
-                  : "비밀번호가 모두 같을 때만 사용합니다. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."}
-              </span>
-            </label>
-          </div>
-        </section>
-      </section>
-
-      {hasSavedOnboardingDefaults ? (
-        <details className="settings-advanced-panel">
-          <summary>저장된 값 다시 불러오기는 필요할 때만 보기</summary>
-          <div className="helper-box-stack">
-            <strong>보조 작업</strong>
-            <span>현재 단계의 메인 흐름은 위 필수 입력을 채우는 것입니다. 저장된 값은 정말 필요할 때만 불러오세요.</span>
-            <div className="button-row">
-              {popbillSharedPasswordConfigured ? (
-                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void settingsScreenState.runLoadCurrentPopbillSharedPassword()}>
-                  신규 고객 기본 비밀번호 불러오기
-                </button>
-              ) : null}
-              {renewalIssuePasswordConfigured ? (
-                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void settingsScreenState.runLoadCurrentRenewalIssuePassword()}>
-                  발급용 임시번호 불러오기
-                </button>
-              ) : null}
-              {renewalCertificatePasswordConfigured ? (
-                <button type="button" className="btn-secondary" disabled={busyKey !== null} onClick={() => void settingsScreenState.runLoadCurrentRenewalCertificatePassword()}>
-                  인증서 공통 비밀번호 불러오기
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </details>
-      ) : null}
-    </div>
-  );
-  const onboardingHelperContent = (
-    <div className="onboarding-step-body">
-      <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
-          <strong>
-            {helperReady
-              ? "공동인증서 확인 완료"
-              : helperUpgradeRequired
-                ? "헬퍼를 다시 설치하세요."
-                : helperUpgradeAvailable
-                  ? "업데이트 후 다시 확인해 두세요."
-                  : customerRenewalAssistant?.agentOnline
-                    ? "공동인증서를 읽으세요."
-                    : "헬퍼를 먼저 실행하세요."}
-          </strong>
-          <p>{onboardingHelperStatusLine}</p>
-        </div>
-
-        <div className="onboarding-inline-status">
-          <div>
-            <span>헬퍼 상태</span>
-            <strong>{customerRenewalAssistant?.agentOnline ? "연결됨" : "연결 안 됨"}</strong>
-          </div>
-          <div>
-            <span>읽은 공동인증서</span>
-            <strong>{customerRenewalAssistantAllCertificates.length}건</strong>
-          </div>
-          <div>
-            <span>마지막 확인</span>
-            <strong>{formatDateTime(customerRenewalAssistant?.helperCheckedAt ?? null)}</strong>
-          </div>
-        </div>
-
-        <div className="button-row onboarding-primary-row">
-          <button
-            type="button"
-            disabled={busyKey !== null || !customerRenewalAssistant?.agentOnline || helperUpgradeRequired}
-            title={
-              helperUpgradeRequired
-                ? helperActionBlockedReason
-                : customerRenewalAssistant?.agentOnline
-                  ? undefined
-                  : "먼저 헬퍼를 설치하고 실행한 뒤 아래 보조 영역에서 상태를 다시 확인하세요."
-            }
-            onClick={() =>
-              void runAction(
-                "customer-renewal-bridge-probe",
-                async () => {
-                  await syncCustomerRenewalCertificates({ showAlert: false });
-                },
-                { reload: false }
-              )
-            }
-          >
-            {busyKey === "customer-renewal-bridge-probe" ? "공동인증서 읽는 중..." : "공동인증서 읽기"}
-          </button>
-        </div>
-        {helperUpgradeRequired || helperUpgradeAvailable ? (
-          <div className="helper-box-stack settings-install-guide">
-            <strong>{helperUpgradeRequired ? "헬퍼 재설치 필요" : "헬퍼 업데이트 권장"}</strong>
-            <span>{customerRenewalAssistant?.upgradeMessage}</span>
-            {customerRenewalAssistant?.latestVersion ? <span>최신 버전: v{customerRenewalAssistant.latestVersion}</span> : null}
-            {customerRenewalAssistant?.minSupportedVersion ? <span>최소 지원 버전: v{customerRenewalAssistant.minSupportedVersion}</span> : null}
-          </div>
-        ) : null}
-      </section>
-
-      <details className="settings-advanced-panel">
-        <summary>상태 다시 확인 / 설치 안내 / 다운로드는 필요할 때만 보기</summary>
-        <div className="helper-box-stack settings-install-guide">
-          <strong>문제 해결과 보조 작업</strong>
-          <div className="button-row">
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={busyKey !== null}
-              onClick={() => void settingsScreenState.runRefreshCustomerRenewalAssistant()}
-            >
-              상태 다시 확인
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => window.location.assign(renewalHelperDownloadUrl)}
-            >
-              헬퍼 다운로드
-            </button>
-          </div>
-          <span>
-            고객 PC에서는 <code>renewal-local-helper</code> 압축을 푼 뒤 <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
-          </span>
-          <span>설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시 실행됩니다.</span>
-          <span>
-            문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>, <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code> 바로가기로 확인할 수 있습니다.
-          </span>
-        </div>
-      </details>
-    </div>
-  );
+  const onboardingMailSetupContent = settingsOnboardingContent.mailContent;
+  const onboardingDefaultsContent = settingsOnboardingContent.defaultsContent;
+  const onboardingHelperContent = settingsOnboardingContent.helperContent;
   const onboardingCertificateAutoTargetCount = pendingOnboardingCertificateRegistrationTargets.length;
   const onboardingCertificateNeedsManualFollowUp =
     onboardingCustomerRegistrationReady && onboardingCertificateAutoTargetCount === 0 && onboardingIssueSetupPendingCount > 0;
@@ -7077,7 +6692,6 @@ export function App() {
             }
             openOnboarding={reopenOnboarding}
             busyKey={busyKey}
-            revealedFields={revealedFields}
             customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
             customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
             customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
@@ -7089,9 +6703,8 @@ export function App() {
             customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
             renewalHelperDownloadUrl={renewalHelperDownloadUrl}
             setActiveSettingsSection={setActiveSettingsSection}
-            toggleRevealField={toggleRevealField}
+            orchestration={settingsFeatureOrchestration}
             openCertificates={openCertificates}
-            runAction={runAction}
             formatDateTime={formatDateTime}
           />
         ) : null}
@@ -7133,9 +6746,12 @@ export function App() {
               subtitle={`현재 로그인한 플랫폼 관리자 계정(${data.auth.email ?? "이메일 없음"})의 비밀번호를 바꿉니다.`}
               hintText="플랫폼 운영 계정도 여기서 직접 새 비밀번호를 저장할 수 있습니다."
               account={settingsScreenState.account}
-              revealedFields={revealedFields}
-              toggleRevealField={toggleRevealField}
-              runAction={runAction}
+              reveals={settingsFeatureOrchestration.reveals.accountPassword}
+              onSubmit={() =>
+                settingsFeatureOrchestration.actions.changePassword(
+                  settingsScreenState.account.changePassword
+                )
+              }
             />
             {opsConsole ? (
               <>

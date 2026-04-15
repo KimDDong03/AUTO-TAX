@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type React from "react";
+import type { SettingsFeatureOrchestration } from "./createSettingsActionAdapters";
 import type { SettingsTabModel } from "./SettingsTab";
 import type {
   SettingsScreenState,
@@ -20,9 +21,7 @@ export type SettingsScreenProps = {
   openOnboarding: () => void;
   openCertificates: () => void;
   busyKey: string | null;
-  revealedFields: Record<string, boolean>;
-  toggleRevealField: (fieldKey: string) => void;
-  runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
+  orchestration: SettingsFeatureOrchestration;
   formatDateTime: (value: string | null) => string;
   customerRenewalAssistantOnline: boolean;
   customerRenewalAssistantHelperVersion: string | null;
@@ -57,7 +56,6 @@ export function useSettingsScreenModel(props: SettingsScreenProps) {
       settingsHealth: props.settingsState.settingsHealth,
       settingsForm: props.settingsState.settingsForm!,
       detectedMailProviderLabel: props.settingsState.detectedMailProviderLabel,
-      revealedFields: props.revealedFields,
       mailPasswordConfigured: props.settingsState.mailPasswordConfigured,
       popbillSharedPasswordConfigured: props.settingsState.popbillSharedPasswordConfigured,
       renewalCertificatePasswordConfigured: props.settingsState.renewalCertificatePasswordConfigured,
@@ -77,14 +75,13 @@ export function useSettingsScreenModel(props: SettingsScreenProps) {
       setSettingsForm: props.settingsState.setSettingsForm,
       onMailAddressChange: props.settingsState.handleSettingsMailAddressChange,
       onRenewalIssuePasswordChange: props.settingsState.handleSettingsRenewalIssuePasswordChange,
-      toggleRevealField: props.toggleRevealField,
+      orchestration: props.orchestration,
       runMailSettingsTest: props.settingsState.runMailSettingsTest,
       runLoadCurrentPopbillSharedPassword: props.settingsState.runLoadCurrentPopbillSharedPassword,
       runLoadCurrentRenewalCertificatePassword: props.settingsState.runLoadCurrentRenewalCertificatePassword,
       runLoadCurrentRenewalIssuePassword: props.settingsState.runLoadCurrentRenewalIssuePassword,
       runRefreshCustomerRenewalAssistant: props.settingsState.runRefreshCustomerRenewalAssistant,
       openCertificates: props.openCertificates,
-      runAction: props.runAction,
       formatDateTime: props.formatDateTime
     }),
     [props]

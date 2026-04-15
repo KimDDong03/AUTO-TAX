@@ -1,15 +1,14 @@
 import { Panel, RevealIcon } from "../../components/ui";
+import type { SettingsPasswordRevealPair } from "./createSettingsActionAdapters";
 import type { SettingsAccountState } from "./settingsAccountTypes";
 
 type AccountPasswordPanelProps = {
   title: string;
   subtitle: string;
   hintText: string;
-  account: Pick<SettingsAccountState, "passwordChangeForm" | "setPasswordChangeForm" | "changePassword">;
-  revealedFields: Record<string, boolean>;
-  toggleRevealField: (fieldKey: string) => void;
-  runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
-  actionKey?: string;
+  account: Pick<SettingsAccountState, "passwordChangeForm" | "setPasswordChangeForm">;
+  reveals: SettingsPasswordRevealPair;
+  onSubmit: () => Promise<void>;
   actionLabel?: string;
   className?: string;
 };
@@ -30,10 +29,8 @@ export function AccountPasswordPanel({
   subtitle,
   hintText,
   account,
-  revealedFields,
-  toggleRevealField,
-  runAction,
-  actionKey = "change-password",
+  reveals,
+  onSubmit,
   actionLabel = "비밀번호 변경",
   className
 }: AccountPasswordPanelProps) {
@@ -44,11 +41,7 @@ export function AccountPasswordPanel({
       subtitle={subtitle}
       actions={
         <button
-          onClick={() =>
-            void runAction(actionKey, account.changePassword, {
-              reload: false
-            })
-          }
+          onClick={() => void onSubmit()}
         >
           {actionLabel}
         </button>
@@ -59,7 +52,7 @@ export function AccountPasswordPanel({
           새 비밀번호
           <div className="password-field">
             <input
-              type={revealedFields.nextPassword ? "text" : "password"}
+              type={reveals.nextPassword.visible ? "text" : "password"}
               value={account.passwordChangeForm.nextPassword}
               onChange={(event) => updatePasswordChangeField(account, "nextPassword", event.target.value)}
               placeholder="8자 이상 입력"
@@ -67,10 +60,10 @@ export function AccountPasswordPanel({
             <button
               type="button"
               className="password-toggle"
-              aria-label={revealedFields.nextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
-              onClick={() => toggleRevealField("nextPassword")}
+              aria-label={reveals.nextPassword.visible ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
+              onClick={reveals.nextPassword.toggle}
             >
-              <RevealIcon open={Boolean(revealedFields.nextPassword)} />
+              <RevealIcon open={reveals.nextPassword.visible} />
             </button>
           </div>
         </label>
@@ -78,7 +71,7 @@ export function AccountPasswordPanel({
           새 비밀번호 확인
           <div className="password-field">
             <input
-              type={revealedFields.confirmPassword ? "text" : "password"}
+              type={reveals.confirmPassword.visible ? "text" : "password"}
               value={account.passwordChangeForm.confirmPassword}
               onChange={(event) => updatePasswordChangeField(account, "confirmPassword", event.target.value)}
               placeholder="한 번 더 입력"
@@ -86,10 +79,10 @@ export function AccountPasswordPanel({
             <button
               type="button"
               className="password-toggle"
-              aria-label={revealedFields.confirmPassword ? "비밀번호 확인 숨기기" : "비밀번호 확인 보기"}
-              onClick={() => toggleRevealField("confirmPassword")}
+              aria-label={reveals.confirmPassword.visible ? "비밀번호 확인 숨기기" : "비밀번호 확인 보기"}
+              onClick={reveals.confirmPassword.toggle}
             >
-              <RevealIcon open={Boolean(revealedFields.confirmPassword)} />
+              <RevealIcon open={reveals.confirmPassword.visible} />
             </button>
           </div>
           <span className="field-hint">{hintText}</span>

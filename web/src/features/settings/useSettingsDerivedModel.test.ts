@@ -1,43 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { SettingsFormState, SettingsHealth } from "./useSettingsScreenState";
+import type { SettingsHealth } from "./useSettingsScreenState";
 import {
   buildSettingsActionBarModel,
   buildSettingsOnboardingModel,
-  getSettingsSectionLabel
+  getSettingsSectionLabel,
+  type SettingsOnboardingFields
 } from "./useSettingsDerivedModel";
 
-function createSettingsForm(
-  overrides: Partial<SettingsFormState> = {}
-): SettingsFormState {
+function createSettingsOnboardingFields(
+  overrides: Partial<SettingsOnboardingFields> = {}
+): SettingsOnboardingFields {
   return {
-    mailProvider: "gmail",
-    imapHost: "imap.gmail.com",
-    imapPort: "993",
-    imapSecure: true,
     mailAddress: "",
     mailPassword: "",
-    imapMailbox: "INBOX",
-    smtpHost: "smtp.gmail.com",
-    smtpPort: "465",
-    smtpSecure: true,
-    notificationEmailsText: "",
-    defaultIssueDay: "26",
-    defaultIssueHour: "9",
-    defaultIssueMinute: "0",
-    mailPollMinutes: "60",
-    mailSyncStartAt: "",
-    timezone: "Asia/Seoul",
     popbillUserIdPrefix: "",
-    popbillSharedPassword: "",
     operatorContactName: "",
     operatorContactEmail: "",
     operatorContactTel: "",
-    renewalContactDepartment: "",
-    renewalContactFax: "",
-    renewalCertificatePassword: "",
+    popbillSharedPassword: "",
     renewalIssuePassword: "",
-    schedulerEnabled: true,
     ...overrides
   };
 }
@@ -75,7 +57,7 @@ test("buildSettingsActionBarModel maps next settings section and autosave tone",
 
 test("buildSettingsOnboardingModel keeps mail/default validation and blocked step order", () => {
   const onboarding = buildSettingsOnboardingModel({
-    settingsForm: createSettingsForm({
+    fields: createSettingsOnboardingFields({
       mailAddress: "bad-email",
       popbillUserIdPrefix: "",
       operatorContactName: "",
@@ -83,18 +65,24 @@ test("buildSettingsOnboardingModel keeps mail/default validation and blocked ste
       operatorContactEmail: "still-bad"
     }),
     settingsHealth: incompleteHealth,
-    mailPasswordConfigured: false,
-    popbillSharedPasswordConfigured: false,
-    renewalIssuePasswordConfigured: false,
-    renewalCertificatePasswordConfigured: false,
-    helperReady: false,
-    helperOnline: false,
-    helperCertificateCount: 0,
-    helperUpgradeState: "unknown",
-    helperActionBlockedReason: "재설치 필요",
-    helperUpgradeMessage: null,
-    onboardingCustomerRegistrationReady: false,
-    onboardingCertificateReady: false
+    configured: {
+      mailPasswordConfigured: false,
+      popbillSharedPasswordConfigured: false,
+      renewalIssuePasswordConfigured: false,
+      renewalCertificatePasswordConfigured: false
+    },
+    helper: {
+      ready: false,
+      online: false,
+      certificateCount: 0,
+      upgradeState: "unknown",
+      actionBlockedReason: "재설치 필요",
+      upgradeMessage: null
+    },
+    progress: {
+      customerRegistrationReady: false,
+      certificateReady: false
+    }
   });
 
   assert.equal(onboarding.mail.headline, "메일 주소와 앱 비밀번호만 입력하세요.");
@@ -123,7 +111,7 @@ test("buildSettingsOnboardingModel keeps mail/default validation and blocked ste
 
 test("buildSettingsOnboardingModel preserves helper upgrade summary and saved default detection", () => {
   const onboarding = buildSettingsOnboardingModel({
-    settingsForm: createSettingsForm({
+    fields: createSettingsOnboardingFields({
       mailAddress: "ops@example.com",
       popbillUserIdPrefix: "TEST_",
       operatorContactName: "담당자",
@@ -135,18 +123,24 @@ test("buildSettingsOnboardingModel preserves helper upgrade summary and saved de
       popbillReady: true,
       operatorReady: true
     },
-    mailPasswordConfigured: true,
-    popbillSharedPasswordConfigured: true,
-    renewalIssuePasswordConfigured: true,
-    renewalCertificatePasswordConfigured: false,
-    helperReady: false,
-    helperOnline: true,
-    helperCertificateCount: 0,
-    helperUpgradeState: "upgrade-available",
-    helperActionBlockedReason: "재설치 필요",
-    helperUpgradeMessage: "업데이트 후 다시 확인해 두세요.",
-    onboardingCustomerRegistrationReady: true,
-    onboardingCertificateReady: true
+    configured: {
+      mailPasswordConfigured: true,
+      popbillSharedPasswordConfigured: true,
+      renewalIssuePasswordConfigured: true,
+      renewalCertificatePasswordConfigured: false
+    },
+    helper: {
+      ready: false,
+      online: true,
+      certificateCount: 0,
+      upgradeState: "upgrade-available",
+      actionBlockedReason: "재설치 필요",
+      upgradeMessage: "업데이트 후 다시 확인해 두세요."
+    },
+    progress: {
+      customerRegistrationReady: true,
+      certificateReady: true
+    }
   });
 
   assert.equal(onboarding.defaults.headline, "필수값 입력 완료");

@@ -5,7 +5,6 @@ import type {
   SettingsAutosaveState,
   SettingsFormState,
   SettingsHealth,
-  SettingsScreenState,
   SettingsSectionId
 } from "./useSettingsScreenState";
 
@@ -20,6 +19,15 @@ export type SettingsActionBarModel = {
   primaryActionLabel: string;
   primarySection: SettingsSectionId;
   chips: SettingsActionBarChip[];
+};
+
+export type SettingsActionBarDerivationInput = {
+  setupPendingCount: number;
+  nextSettingsSection: SettingsSectionId;
+  settingsHealth: SettingsHealth;
+  helperReady: boolean;
+  settingsAutosaveLabel: string;
+  settingsAutosaveState: SettingsAutosaveState;
 };
 
 type SettingsOnboardingFieldState = {
@@ -59,29 +67,50 @@ export type SettingsOnboardingModel = {
   };
 };
 
+export type SettingsOnboardingFields = Pick<
+  SettingsFormState,
+  | "mailAddress"
+  | "mailPassword"
+  | "popbillUserIdPrefix"
+  | "operatorContactName"
+  | "operatorContactTel"
+  | "operatorContactEmail"
+  | "popbillSharedPassword"
+  | "renewalIssuePassword"
+>;
+
+export type SettingsOnboardingConfiguredState = {
+  mailPasswordConfigured: boolean;
+  popbillSharedPasswordConfigured: boolean;
+  renewalIssuePasswordConfigured: boolean;
+  renewalCertificatePasswordConfigured: boolean;
+};
+
+export type SettingsOnboardingHelperState = {
+  ready: boolean;
+  online: boolean;
+  certificateCount: number;
+  upgradeState: LocalRenewalHelperUpgradeState;
+  actionBlockedReason: string;
+  upgradeMessage: string | null;
+};
+
+export type SettingsOnboardingProgressState = {
+  customerRegistrationReady: boolean;
+  certificateReady: boolean;
+};
+
+export type SettingsOnboardingDerivationInput = {
+  fields: SettingsOnboardingFields;
+  settingsHealth: SettingsHealth;
+  configured: SettingsOnboardingConfiguredState;
+  helper: SettingsOnboardingHelperState;
+  progress: SettingsOnboardingProgressState;
+};
+
 type UseSettingsDerivedModelArgs = {
-  settingsState: Pick<
-    SettingsScreenState,
-    | "setupPendingCount"
-    | "nextSettingsSection"
-    | "settingsHealth"
-    | "settingsAutosaveLabel"
-    | "settingsAutosaveState"
-    | "settingsForm"
-    | "mailPasswordConfigured"
-    | "popbillSharedPasswordConfigured"
-    | "renewalCertificatePasswordConfigured"
-    | "renewalIssuePasswordConfigured"
-    | "detectedMailProviderLabel"
-  >;
-  helperReady: boolean;
-  helperOnline: boolean;
-  helperCertificateCount: number;
-  helperUpgradeState: LocalRenewalHelperUpgradeState;
-  helperActionBlockedReason: string;
-  helperUpgradeMessage: string | null;
-  onboardingCustomerRegistrationReady: boolean;
-  onboardingCertificateReady: boolean;
+  actionBar: SettingsActionBarDerivationInput;
+  onboarding: SettingsOnboardingDerivationInput;
 };
 
 export function getSettingsSectionLabel(section: SettingsSectionId): string {
@@ -105,14 +134,7 @@ export function buildSettingsActionBarModel({
   helperReady,
   settingsAutosaveLabel,
   settingsAutosaveState
-}: {
-  setupPendingCount: number;
-  nextSettingsSection: SettingsSectionId;
-  settingsHealth: SettingsHealth;
-  helperReady: boolean;
-  settingsAutosaveLabel: string;
-  settingsAutosaveState: SettingsAutosaveState;
-}): SettingsActionBarModel {
+}: SettingsActionBarDerivationInput): SettingsActionBarModel {
   return {
     title: setupPendingCount > 0 ? "준비 상태 점검" : "설정 준비 완료",
     primaryActionLabel: getSettingsSectionLabel(nextSettingsSection),
@@ -148,75 +170,52 @@ export function buildSettingsActionBarModel({
 }
 
 export function buildSettingsOnboardingModel({
-  settingsForm,
+  fields,
   settingsHealth,
-  mailPasswordConfigured,
-  popbillSharedPasswordConfigured,
-  renewalIssuePasswordConfigured,
-  renewalCertificatePasswordConfigured,
-  helperReady,
-  helperOnline,
-  helperCertificateCount,
-  helperUpgradeState,
-  helperActionBlockedReason,
-  helperUpgradeMessage,
-  onboardingCustomerRegistrationReady,
-  onboardingCertificateReady
-}: {
-  settingsForm: SettingsFormState;
-  settingsHealth: SettingsHealth;
-  mailPasswordConfigured: boolean;
-  popbillSharedPasswordConfigured: boolean;
-  renewalIssuePasswordConfigured: boolean;
-  renewalCertificatePasswordConfigured: boolean;
-  helperReady: boolean;
-  helperOnline: boolean;
-  helperCertificateCount: number;
-  helperUpgradeState: LocalRenewalHelperUpgradeState;
-  helperActionBlockedReason: string;
-  helperUpgradeMessage: string | null;
-  onboardingCustomerRegistrationReady: boolean;
-  onboardingCertificateReady: boolean;
-}): SettingsOnboardingModel {
-  const onboardingMailAddressMissing = settingsForm.mailAddress.trim() === "";
+  configured,
+  helper,
+  progress
+}: SettingsOnboardingDerivationInput): SettingsOnboardingModel {
+  const onboardingMailAddressMissing = fields.mailAddress.trim() === "";
   const onboardingMailAddressInvalid =
-    !onboardingMailAddressMissing && !isLikelyEmailAddress(settingsForm.mailAddress);
+    !onboardingMailAddressMissing && !isLikelyEmailAddress(fields.mailAddress);
   const onboardingMailPasswordMissing =
-    settingsForm.mailPassword.trim() === "" && !mailPasswordConfigured;
-  const onboardingPopbillPrefixMissing = settingsForm.popbillUserIdPrefix.trim() === "";
-  const onboardingOperatorNameMissing = settingsForm.operatorContactName.trim() === "";
-  const onboardingOperatorTelMissing = settingsForm.operatorContactTel.trim() === "";
-  const onboardingOperatorEmailMissing = settingsForm.operatorContactEmail.trim() === "";
+    fields.mailPassword.trim() === "" && !configured.mailPasswordConfigured;
+  const onboardingPopbillPrefixMissing = fields.popbillUserIdPrefix.trim() === "";
+  const onboardingOperatorNameMissing = fields.operatorContactName.trim() === "";
+  const onboardingOperatorTelMissing = fields.operatorContactTel.trim() === "";
+  const onboardingOperatorEmailMissing = fields.operatorContactEmail.trim() === "";
   const onboardingOperatorEmailInvalid =
-    !onboardingOperatorEmailMissing && !isLikelyEmailAddress(settingsForm.operatorContactEmail);
+    !onboardingOperatorEmailMissing &&
+    !isLikelyEmailAddress(fields.operatorContactEmail);
   const onboardingPopbillSharedPasswordMissing =
-    settingsForm.popbillSharedPassword.trim() === "" &&
-    !popbillSharedPasswordConfigured;
+    fields.popbillSharedPassword.trim() === "" &&
+    !configured.popbillSharedPasswordConfigured;
   const onboardingRenewalIssuePasswordMissing =
-    normalizeRenewalIssuePasswordInput(settingsForm.renewalIssuePassword).length === 0 &&
-    !renewalIssuePasswordConfigured;
-  const onboardingHelperStatusLine = helperReady
-    ? `인증서 ${helperCertificateCount}건 읽음`
-    : helperUpgradeState === "upgrade-required"
-      ? helperActionBlockedReason
-      : helperUpgradeState === "upgrade-available" && helperUpgradeMessage
-        ? helperUpgradeMessage
-        : helperOnline
+    normalizeRenewalIssuePasswordInput(fields.renewalIssuePassword).length === 0 &&
+    !configured.renewalIssuePasswordConfigured;
+  const onboardingHelperStatusLine = helper.ready
+    ? `인증서 ${helper.certificateCount}건 읽음`
+    : helper.upgradeState === "upgrade-required"
+      ? helper.actionBlockedReason
+      : helper.upgradeState === "upgrade-available" && helper.upgradeMessage
+        ? helper.upgradeMessage
+        : helper.online
           ? "헬퍼 연결됨"
           : "상태 미확인";
 
   return {
     hasSavedDefaults:
-      popbillSharedPasswordConfigured ||
-      renewalIssuePasswordConfigured ||
-      renewalCertificatePasswordConfigured,
+      configured.popbillSharedPasswordConfigured ||
+      configured.renewalIssuePasswordConfigured ||
+      configured.renewalCertificatePasswordConfigured,
     helperStatusLine: onboardingHelperStatusLine,
     firstSyncBlockedSteps: [
       !settingsHealth.mailReady ? "메일 연결" : null,
       !(settingsHealth.popbillReady && settingsHealth.operatorReady) ? "발행 기본값 입력" : null,
-      !helperReady ? "로컬 헬퍼 준비" : null,
-      !onboardingCustomerRegistrationReady ? "고객 초기 등록" : null,
-      !onboardingCertificateReady ? "인증서 연결 마무리" : null
+      !helper.ready ? "로컬 헬퍼 준비" : null,
+      !progress.customerRegistrationReady ? "고객 초기 등록" : null,
+      !progress.certificateReady ? "인증서 연결 마무리" : null
     ].filter((value): value is string => Boolean(value)),
     mail: {
       headline: settingsHealth.mailReady ? "메일 연결 완료" : "메일 주소와 앱 비밀번호만 입력하세요.",
@@ -275,53 +274,14 @@ function isLikelyEmailAddress(value: string): boolean {
 }
 
 export function useSettingsDerivedModel({
-  settingsState,
-  helperReady,
-  helperOnline,
-  helperCertificateCount,
-  helperUpgradeState,
-  helperActionBlockedReason,
-  helperUpgradeMessage,
-  onboardingCustomerRegistrationReady,
-  onboardingCertificateReady
+  actionBar,
+  onboarding
 }: UseSettingsDerivedModelArgs) {
   return useMemo(
     () => ({
-      actionBar: buildSettingsActionBarModel({
-        setupPendingCount: settingsState.setupPendingCount,
-        nextSettingsSection: settingsState.nextSettingsSection,
-        settingsHealth: settingsState.settingsHealth,
-        helperReady,
-        settingsAutosaveLabel: settingsState.settingsAutosaveLabel,
-        settingsAutosaveState: settingsState.settingsAutosaveState
-      }),
-      onboarding: buildSettingsOnboardingModel({
-        settingsForm: settingsState.settingsForm!,
-        settingsHealth: settingsState.settingsHealth,
-        mailPasswordConfigured: settingsState.mailPasswordConfigured,
-        popbillSharedPasswordConfigured: settingsState.popbillSharedPasswordConfigured,
-        renewalIssuePasswordConfigured: settingsState.renewalIssuePasswordConfigured,
-        renewalCertificatePasswordConfigured: settingsState.renewalCertificatePasswordConfigured,
-        helperReady,
-        helperOnline,
-        helperCertificateCount,
-        helperUpgradeState,
-        helperActionBlockedReason,
-        helperUpgradeMessage,
-        onboardingCustomerRegistrationReady,
-        onboardingCertificateReady
-      })
+      actionBar: buildSettingsActionBarModel(actionBar),
+      onboarding: buildSettingsOnboardingModel(onboarding)
     }),
-    [
-      helperActionBlockedReason,
-      helperCertificateCount,
-      helperOnline,
-      helperReady,
-      helperUpgradeMessage,
-      helperUpgradeState,
-      onboardingCertificateReady,
-      onboardingCustomerRegistrationReady,
-      settingsState
-    ]
+    [actionBar, onboarding]
   );
 }
