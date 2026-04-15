@@ -1,8 +1,8 @@
 import type React from "react";
 import { Panel, RevealIcon, SetupPanel } from "../../components/ui";
+import { AccountPasswordPanel } from "./AccountPasswordPanel";
 import type {
   OrganizationMemberFormState,
-  PasswordChangeFormState,
   PasswordResetFormState,
   SettingsAccountState,
   SettingsAutosaveState,
@@ -10,6 +10,7 @@ import type {
   SettingsHealth,
   SettingsSectionId
 } from "./useSettingsScreenState";
+import { getSettingsSectionLabel } from "./useSettingsDerivedModel";
 
 type SettingsFormSetter = React.Dispatch<React.SetStateAction<SettingsFormState | null>>;
 
@@ -88,10 +89,6 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
     field: K,
     value: SettingsFormState[K]
   ) => updateNullableObjectField(props.setSettingsForm, field, value);
-  const setPasswordChangeField = <K extends keyof PasswordChangeFormState>(
-    field: K,
-    value: PasswordChangeFormState[K]
-  ) => updateObjectField(props.account.setPasswordChangeForm, field, value);
   const setPasswordResetField = <K extends keyof PasswordResetFormState>(
     field: K,
     value: PasswordResetFormState[K]
@@ -101,14 +98,7 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
     value: OrganizationMemberFormState[K]
   ) => updateObjectField(props.account.setOrganizationMemberForm, field, value);
   const nextSettingsSection = props.settingsSections.find((section) => !section.done)?.id ?? "account";
-  const nextSettingsSectionLabel =
-    nextSettingsSection === "gmail"
-      ? "메일 연결"
-      : nextSettingsSection === "popbill"
-        ? "발행 설정"
-        : nextSettingsSection === "helper"
-          ? "헬퍼 상태"
-          : "계정 / 작업공간";
+  const nextSettingsSectionLabel = getSettingsSectionLabel(nextSettingsSection);
   const helperUpgradeNotice =
     props.customerRenewalAssistantUpgradeState === "upgrade-required"
       ? {
@@ -585,43 +575,15 @@ export function SettingsTab({ model: props }: SettingsTabProps) {
               </div>
             </Panel>
 
-            <Panel
+            <AccountPasswordPanel
               title="비밀번호 변경"
               subtitle="현재 계정"
-              actions={
-                <button
-                  onClick={() =>
-                    void props.runAction("change-password", props.account.changePassword, {
-                      reload: false
-                    })
-                  }
-                >
-                  비밀번호 변경
-                </button>
-              }
-            >
-              <div className="form-grid">
-                <label>
-                  새 비밀번호
-                  <div className="password-field">
-                    <input type={props.revealedFields.nextPassword ? "text" : "password"} value={props.account.passwordChangeForm.nextPassword} onChange={(event) => setPasswordChangeField("nextPassword", event.target.value)} placeholder="8자 이상 입력" />
-                    <button type="button" className="password-toggle" aria-label={props.revealedFields.nextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"} onClick={() => props.toggleRevealField("nextPassword")}>
-                      <RevealIcon open={Boolean(props.revealedFields.nextPassword)} />
-                    </button>
-                  </div>
-                </label>
-                <label>
-                  새 비밀번호 확인
-                  <div className="password-field">
-                    <input type={props.revealedFields.confirmPassword ? "text" : "password"} value={props.account.passwordChangeForm.confirmPassword} onChange={(event) => setPasswordChangeField("confirmPassword", event.target.value)} placeholder="한 번 더 입력" />
-                    <button type="button" className="password-toggle" aria-label={props.revealedFields.confirmPassword ? "비밀번호 확인 숨기기" : "비밀번호 확인 보기"} onClick={() => props.toggleRevealField("confirmPassword")}>
-                      <RevealIcon open={Boolean(props.revealedFields.confirmPassword)} />
-                    </button>
-                  </div>
-                  <span className="field-hint">새 비밀번호는 8자 이상으로 입력하고, 두 칸이 정확히 같아야 저장됩니다.</span>
-                </label>
-              </div>
-            </Panel>
+              hintText="새 비밀번호는 8자 이상으로 입력하고, 두 칸이 정확히 같아야 저장됩니다."
+              account={props.account}
+              revealedFields={props.revealedFields}
+              toggleRevealField={props.toggleRevealField}
+              runAction={props.runAction}
+            />
 
             <Panel
               title="작업공간 사용자 관리"

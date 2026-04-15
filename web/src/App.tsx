@@ -24,6 +24,7 @@ import {
   type CustomerOnboardingWorkbookInput
 } from "./features/initial-registration/customer-onboarding-workbook";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
+import { AccountPasswordPanel } from "./features/settings/AccountPasswordPanel";
 import {
   MAIL_PROVIDER_CONFIG,
   createEmptyPasswordResetForm,
@@ -32,6 +33,7 @@ import {
   type SettingsSectionId,
   useSettingsScreenState
 } from "./features/settings/useSettingsScreenState";
+import { useSettingsDerivedModel } from "./features/settings/useSettingsDerivedModel";
 import {
   deriveCustomerCertificateKind,
   findCandidateCustomersForCertificate,
@@ -669,11 +671,6 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
     renewalContactMobile: customer.renewalContactMobile,
     memo: customer.memo
   };
-}
-
-function isLikelyEmailAddress(value: string): boolean {
-  const trimmed = value.trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
 }
 
 function getDraftStatusLabel(status: string): string {
@@ -1928,10 +1925,6 @@ export function App() {
   const setSettingsForm = settingsScreenState.setSettingsForm;
   const settingsHealth = settingsScreenState.settingsHealth;
   const settingsSections = settingsScreenState.settingsSections;
-  const setupPendingCount = settingsScreenState.setupPendingCount;
-  const recommendedSettingsSection = settingsScreenState.recommendedSettingsSection;
-  const nextSettingsSection = settingsScreenState.nextSettingsSection;
-  const settingsAutosaveState = settingsScreenState.settingsAutosaveState;
   const settingsAutosaveLabel = settingsScreenState.settingsAutosaveLabel;
   const detectedMailProviderLabel = settingsScreenState.detectedMailProviderLabel;
   const handleSettingsMailAddressChange = settingsScreenState.handleSettingsMailAddressChange;
@@ -5027,13 +5020,26 @@ export function App() {
   const issueSetupPendingCount = popbillPendingCustomers.length;
   const onboardingIssueSetupPendingCount = onboardingPendingCertificateCustomers.length;
   const onboardingCertificateReady = onboardingCustomerRegistrationReady && onboardingIssueSetupPendingCount === 0;
+  const settingsDerivedModel = useSettingsDerivedModel({
+    settingsState: settingsScreenState,
+    helperReady,
+    helperOnline: customerRenewalAssistant?.agentOnline ?? false,
+    helperCertificateCount: customerRenewalAssistantAllCertificates.length,
+    helperUpgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
+    helperActionBlockedReason,
+    helperUpgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
+    onboardingCustomerRegistrationReady,
+    onboardingCertificateReady
+  });
+  const settingsActionBar = settingsDerivedModel.actionBar;
+  const settingsOnboardingModel = settingsDerivedModel.onboarding;
   const onboardingFirstSyncReady = data.inbox.length > 0 || data.drafts.length > 0;
   const exceptionHandlingReady = onboardingFirstSyncReady && unmatchedMessages.length === 0;
   const firstIssueCheckReady =
     onboardingFirstSyncReady &&
     unmatchedMessages.length === 0 &&
     (issuedDrafts.length > 0 || reviewDrafts.length === 0);
-  const openSettingsSection = (section: SettingsSectionId = recommendedSettingsSection) => {
+  const openSettingsSection = (section: SettingsSectionId = settingsActionBar.primarySection) => {
     setActiveSettingsSection(section);
     setActiveTab("settings");
   };
@@ -5282,21 +5288,11 @@ export function App() {
     helperReady &&
     onboardingCertificateReady;
   const hasSavedOnboardingDefaults =
-    popbillSharedPasswordConfigured ||
-    renewalIssuePasswordConfigured ||
-    renewalCertificatePasswordConfigured;
+    settingsOnboardingModel.hasSavedDefaults;
   const onboardingImportableCount =
     (customerOnboardingPreview?.createCount ?? 0) + (customerOnboardingPreview?.updateCount ?? 0);
   const onboardingBlockedCount = customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
-  const onboardingHelperStatusLine = helperReady
-    ? `인증서 ${customerRenewalAssistantAllCertificates.length}건 읽음`
-    : helperUpgradeRequired
-      ? helperActionBlockedReason
-      : helperUpgradeAvailable && customerRenewalAssistant?.upgradeMessage
-        ? customerRenewalAssistant.upgradeMessage
-        : customerRenewalAssistant?.agentOnline
-          ? "헬퍼 연결됨"
-          : "상태 미확인";
+  const onboardingHelperStatusLine = settingsOnboardingModel.helperStatusLine;
   const onboardingRegistrationFlow = getInitialRegistrationFlowState({
     helperReady,
     helperCertificateCount: customerRenewalAssistantAllCertificates.length,
@@ -5311,35 +5307,8 @@ export function App() {
   const onboardingRegistrationStage = onboardingRegistrationFlow.stage;
   const onboardingRegistrationPrimaryActionLabel = onboardingRegistrationFlow.primaryActionLabel;
   const onboardingRegistrationBlockedReason = onboardingRegistrationFlow.blockedReason;
-  const onboardingFirstSyncBlockedSteps = [
-    !settingsHealth.mailReady ? "메일 연결" : null,
-    !(settingsHealth.popbillReady && settingsHealth.operatorReady) ? "발행 기본값 입력" : null,
-    !helperReady ? "로컬 헬퍼 준비" : null,
-    !onboardingCustomerRegistrationReady ? "고객 초기 등록" : null,
-    !onboardingCertificateReady ? "인증서 연결 마무리" : null
-  ].filter((value): value is string => Boolean(value));
+  const onboardingFirstSyncBlockedSteps = settingsOnboardingModel.firstSyncBlockedSteps;
   const onboardingRequiredHintText = "필수 입력 사항입니다.";
-  const onboardingMailAddressMissing = settingsForm.mailAddress.trim() === "";
-  const onboardingMailAddressInvalid =
-    !onboardingMailAddressMissing && !isLikelyEmailAddress(settingsForm.mailAddress);
-  const onboardingMailAddressHasError =
-    onboardingMailAddressMissing || onboardingMailAddressInvalid;
-  const onboardingMailPasswordMissing =
-    settingsForm.mailPassword.trim() === "" && !mailPasswordConfigured;
-  const onboardingPopbillPrefixMissing = settingsForm.popbillUserIdPrefix.trim() === "";
-  const onboardingOperatorNameMissing = settingsForm.operatorContactName.trim() === "";
-  const onboardingOperatorTelMissing = settingsForm.operatorContactTel.trim() === "";
-  const onboardingOperatorEmailMissing = settingsForm.operatorContactEmail.trim() === "";
-  const onboardingOperatorEmailInvalid =
-    !onboardingOperatorEmailMissing && !isLikelyEmailAddress(settingsForm.operatorContactEmail);
-  const onboardingOperatorEmailHasError =
-    onboardingOperatorEmailMissing || onboardingOperatorEmailInvalid;
-  const onboardingPopbillSharedPasswordMissing =
-    settingsForm.popbillSharedPassword.trim() === "" &&
-    !popbillSharedPasswordConfigured;
-  const onboardingRenewalIssuePasswordMissing =
-    normalizeRenewalIssuePasswordInput(settingsForm.renewalIssuePassword).length === 0 &&
-    !renewalIssuePasswordConfigured;
   const getOnboardingRequiredFieldClassName = (hasError: boolean) =>
     hasError ? "onboarding-required-field is-missing" : "onboarding-required-field";
   const getOnboardingRequiredLabelClassName = (hasError: boolean) =>
@@ -5372,9 +5341,7 @@ export function App() {
       <section className="onboarding-main-card">
         <div className="onboarding-main-copy">
           <strong>
-            {settingsHealth.mailReady
-              ? "메일 연결 완료"
-              : "메일 주소와 앱 비밀번호만 입력하세요."}
+            {settingsOnboardingModel.mail.headline}
           </strong>
           <p>지금은 연결만 확인합니다.</p>
         </div>
@@ -5395,35 +5362,47 @@ export function App() {
         </div>
 
         <div className="onboarding-field-grid">
-          <label className={getOnboardingRequiredFieldClassName(onboardingMailAddressHasError)} data-required-empty={onboardingMailAddressMissing ? "true" : undefined}>
-            <span className={getOnboardingRequiredLabelClassName(onboardingMailAddressHasError)}>메일 주소</span>
+          <label
+            className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.mail.address.hasError)}
+            data-required-empty={settingsOnboardingModel.mail.address.missing ? "true" : undefined}
+          >
+            <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.mail.address.hasError)}>메일 주소</span>
             <input
               type="email"
-              className={getOnboardingRequiredInputClassName(onboardingMailAddressHasError)}
+              className={getOnboardingRequiredInputClassName(settingsOnboardingModel.mail.address.hasError)}
               placeholder="example@mail.com"
               value={settingsForm.mailAddress}
-              aria-invalid={onboardingMailAddressHasError || undefined}
+              aria-invalid={settingsOnboardingModel.mail.address.hasError || undefined}
               aria-describedby="onboarding-mail-address-hint"
               onChange={(event) => handleSettingsMailAddressChange(event.target.value)}
             />
             {renderOnboardingRequiredHint(
               "onboarding-mail-address-hint",
               {
-                missing: onboardingMailAddressMissing,
-                invalid: onboardingMailAddressInvalid,
+                missing: settingsOnboardingModel.mail.address.missing,
+                invalid: settingsOnboardingModel.mail.address.invalid,
                 invalidText: "메일 형식이 올바르지 않습니다.",
                 defaultText: "한전 메일을 읽고 알림 메일을 보낼 때 함께 사용할 계정입니다."
               }
             )}
           </label>
-          <label className={getOnboardingRequiredFieldClassName(onboardingMailPasswordMissing)} data-required-empty={onboardingMailPasswordMissing ? "true" : undefined}>
-            <span className={getOnboardingRequiredLabelClassName(onboardingMailPasswordMissing)}>앱 비밀번호</span>
-            <div className={onboardingMailPasswordMissing ? "password-field onboarding-password-field is-missing" : "password-field onboarding-password-field"}>
+          <label
+            className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.mail.password.hasError)}
+            data-required-empty={settingsOnboardingModel.mail.password.missing ? "true" : undefined}
+          >
+            <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.mail.password.hasError)}>앱 비밀번호</span>
+            <div
+              className={
+                settingsOnboardingModel.mail.password.hasError
+                  ? "password-field onboarding-password-field is-missing"
+                  : "password-field onboarding-password-field"
+              }
+            >
               <input
-                className={getOnboardingRequiredInputClassName(onboardingMailPasswordMissing)}
+                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.mail.password.hasError)}
                 type={revealedFields.mailPassword ? "text" : "password"}
                 value={settingsForm.mailPassword}
-                aria-invalid={onboardingMailPasswordMissing || undefined}
+                aria-invalid={settingsOnboardingModel.mail.password.hasError || undefined}
                 aria-describedby="onboarding-mail-password-hint"
                 onChange={(event) => setSettingsForm((prev) => prev && { ...prev, mailPassword: event.target.value })}
                 placeholder={mailPasswordConfigured ? "변경할 때만 다시 입력" : "앱 비밀번호 입력"}
@@ -5435,7 +5414,7 @@ export function App() {
             {renderOnboardingRequiredHint(
               "onboarding-mail-password-hint",
               {
-                missing: onboardingMailPasswordMissing,
+                missing: settingsOnboardingModel.mail.password.missing,
                 defaultText: mailPasswordConfigured
                   ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 시 빈칸이면 저장된 값을 사용합니다."
                   : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다."
@@ -5468,9 +5447,7 @@ export function App() {
       <section className="onboarding-main-card">
         <div className="onboarding-main-copy">
           <strong>
-            {settingsHealth.popbillReady && settingsHealth.operatorReady
-              ? "필수값 입력 완료"
-              : "필수값만 먼저 입력하세요."}
+            {settingsOnboardingModel.defaults.headline}
           </strong>
           <p>선택값은 나중에 입력해도 됩니다.</p>
         </div>
@@ -5482,11 +5459,11 @@ export function App() {
           </div>
           <div>
             <span>팝빌 연결</span>
-            <strong>{settingsHealth.popbillReady ? "준비됨" : "입력 필요"}</strong>
+            <strong>{settingsOnboardingModel.defaults.popbillReadyLabel}</strong>
           </div>
           <div>
             <span>운영값</span>
-            <strong>{settingsHealth.operatorReady ? "준비됨" : "입력 필요"}</strong>
+            <strong>{settingsOnboardingModel.defaults.operatorReadyLabel}</strong>
           </div>
         </div>
 
@@ -5496,13 +5473,16 @@ export function App() {
             <span>먼저 채울 값</span>
           </div>
           <div className="onboarding-field-grid">
-            <label className={getOnboardingRequiredFieldClassName(onboardingPopbillPrefixMissing)} data-required-empty={onboardingPopbillPrefixMissing ? "true" : undefined}>
-              <span className={getOnboardingRequiredLabelClassName(onboardingPopbillPrefixMissing)}>팝빌 접두어</span>
+            <label
+              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.popbillPrefix.hasError)}
+              data-required-empty={settingsOnboardingModel.defaults.popbillPrefix.missing ? "true" : undefined}
+            >
+              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.popbillPrefix.hasError)}>팝빌 접두어</span>
               <input
                 id="onboarding-popbill-user-id-prefix"
-                className={getOnboardingRequiredInputClassName(onboardingPopbillPrefixMissing)}
+                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.popbillPrefix.hasError)}
                 value={settingsForm.popbillUserIdPrefix}
-                aria-invalid={onboardingPopbillPrefixMissing || undefined}
+                aria-invalid={settingsOnboardingModel.defaults.popbillPrefix.hasError || undefined}
                 aria-describedby="onboarding-popbill-prefix-hint"
                 onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillUserIdPrefix: event.target.value })}
                 placeholder="예: TEST_"
@@ -5510,60 +5490,82 @@ export function App() {
               {renderOnboardingRequiredHint(
                 "onboarding-popbill-prefix-hint",
                 {
-                  missing: onboardingPopbillPrefixMissing,
+                  missing: settingsOnboardingModel.defaults.popbillPrefix.missing,
                   defaultText: "예: `TEST_001` · 신규 고객 팝빌 아이디 앞에 붙습니다."
                 }
               )}
             </label>
-            <label className={getOnboardingRequiredFieldClassName(onboardingOperatorNameMissing)} data-required-empty={onboardingOperatorNameMissing ? "true" : undefined}>
-              <span className={getOnboardingRequiredLabelClassName(onboardingOperatorNameMissing)}>담당자 이름</span>
+            <label
+              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.operatorName.hasError)}
+              data-required-empty={settingsOnboardingModel.defaults.operatorName.missing ? "true" : undefined}
+            >
+              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.operatorName.hasError)}>담당자 이름</span>
               <input
-                className={getOnboardingRequiredInputClassName(onboardingOperatorNameMissing)}
+                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.operatorName.hasError)}
                 value={settingsForm.operatorContactName}
-                aria-invalid={onboardingOperatorNameMissing || undefined}
+                aria-invalid={settingsOnboardingModel.defaults.operatorName.hasError || undefined}
                 aria-describedby="onboarding-operator-name-hint"
                 onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactName: event.target.value })}
                 placeholder="담당자 이름"
               />
-              {renderOnboardingRequiredHint("onboarding-operator-name-hint", { missing: onboardingOperatorNameMissing })}
+              {renderOnboardingRequiredHint("onboarding-operator-name-hint", {
+                missing: settingsOnboardingModel.defaults.operatorName.missing
+              })}
             </label>
-            <label className={getOnboardingRequiredFieldClassName(onboardingOperatorTelMissing)} data-required-empty={onboardingOperatorTelMissing ? "true" : undefined}>
-              <span className={getOnboardingRequiredLabelClassName(onboardingOperatorTelMissing)}>담당자 연락처</span>
+            <label
+              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.operatorTel.hasError)}
+              data-required-empty={settingsOnboardingModel.defaults.operatorTel.missing ? "true" : undefined}
+            >
+              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.operatorTel.hasError)}>담당자 연락처</span>
               <input
-                className={getOnboardingRequiredInputClassName(onboardingOperatorTelMissing)}
+                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.operatorTel.hasError)}
                 value={settingsForm.operatorContactTel}
-                aria-invalid={onboardingOperatorTelMissing || undefined}
+                aria-invalid={settingsOnboardingModel.defaults.operatorTel.hasError || undefined}
                 aria-describedby="onboarding-operator-tel-hint"
                 onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactTel: event.target.value })}
                 placeholder="01012345678"
               />
-              {renderOnboardingRequiredHint("onboarding-operator-tel-hint", { missing: onboardingOperatorTelMissing })}
+              {renderOnboardingRequiredHint("onboarding-operator-tel-hint", {
+                missing: settingsOnboardingModel.defaults.operatorTel.missing
+              })}
             </label>
-            <label className={getOnboardingRequiredFieldClassName(onboardingOperatorEmailHasError)} data-required-empty={onboardingOperatorEmailMissing ? "true" : undefined}>
-              <span className={getOnboardingRequiredLabelClassName(onboardingOperatorEmailHasError)}>담당자 이메일</span>
+            <label
+              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.operatorEmail.hasError)}
+              data-required-empty={settingsOnboardingModel.defaults.operatorEmail.missing ? "true" : undefined}
+            >
+              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.operatorEmail.hasError)}>담당자 이메일</span>
               <input
                 type="email"
-                className={getOnboardingRequiredInputClassName(onboardingOperatorEmailHasError)}
+                className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.operatorEmail.hasError)}
                 value={settingsForm.operatorContactEmail}
-                aria-invalid={onboardingOperatorEmailHasError || undefined}
+                aria-invalid={settingsOnboardingModel.defaults.operatorEmail.hasError || undefined}
                 aria-describedby="onboarding-operator-email-hint"
                 onChange={(event) => setSettingsForm((prev) => prev && { ...prev, operatorContactEmail: event.target.value })}
                 placeholder="operator@example.com"
               />
               {renderOnboardingRequiredHint("onboarding-operator-email-hint", {
-                missing: onboardingOperatorEmailMissing,
-                invalid: onboardingOperatorEmailInvalid,
+                missing: settingsOnboardingModel.defaults.operatorEmail.missing,
+                invalid: settingsOnboardingModel.defaults.operatorEmail.invalid,
                 invalidText: "메일 형식이 올바르지 않습니다."
               })}
             </label>
-            <label className={getOnboardingRequiredFieldClassName(onboardingPopbillSharedPasswordMissing)} data-required-empty={onboardingPopbillSharedPasswordMissing ? "true" : undefined}>
-              <span className={getOnboardingRequiredLabelClassName(onboardingPopbillSharedPasswordMissing)}>신규 고객 기본 비밀번호</span>
-              <div className={onboardingPopbillSharedPasswordMissing ? "password-field onboarding-password-field is-missing" : "password-field onboarding-password-field"}>
+            <label
+              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.popbillSharedPassword.hasError)}
+              data-required-empty={settingsOnboardingModel.defaults.popbillSharedPassword.missing ? "true" : undefined}
+            >
+              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.popbillSharedPassword.hasError)}>신규 고객 기본 비밀번호</span>
+              <div
+                className={
+                  settingsOnboardingModel.defaults.popbillSharedPassword.hasError
+                    ? "password-field onboarding-password-field is-missing"
+                    : "password-field onboarding-password-field"
+                }
+              >
                 <input
-                  className={getOnboardingRequiredInputClassName(onboardingPopbillSharedPasswordMissing)}
+                  className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.popbillSharedPassword.hasError)}
                   type={revealedFields.popbillSharedPassword ? "text" : "password"}
                   value={settingsForm.popbillSharedPassword}
-                  aria-invalid={onboardingPopbillSharedPasswordMissing || undefined}
+                  aria-invalid={settingsOnboardingModel.defaults.popbillSharedPassword.hasError || undefined}
                   aria-describedby="onboarding-popbill-shared-password-hint"
                   onChange={(event) => setSettingsForm((prev) => prev && { ...prev, popbillSharedPassword: event.target.value })}
                   placeholder={popbillSharedPasswordConfigured ? "변경할 때만 다시 입력" : "신규 고객 공통 비밀번호"}
@@ -5575,23 +5577,32 @@ export function App() {
               {renderOnboardingRequiredHint(
                 "onboarding-popbill-shared-password-hint",
                 {
-                  missing: onboardingPopbillSharedPasswordMissing,
+                  missing: settingsOnboardingModel.defaults.popbillSharedPassword.missing,
                   defaultText: popbillSharedPasswordConfigured
                     ? "이미 저장된 값이 있습니다. 필요하면 아래 보조 영역에서 다시 불러오세요."
                     : "신규 고객 계정 초기 비밀번호"
                 }
               )}
             </label>
-            <label className={getOnboardingRequiredFieldClassName(onboardingRenewalIssuePasswordMissing)} data-required-empty={onboardingRenewalIssuePasswordMissing ? "true" : undefined}>
-              <span className={getOnboardingRequiredLabelClassName(onboardingRenewalIssuePasswordMissing)}>공동인증서 발급용 임시번호</span>
-              <div className={onboardingRenewalIssuePasswordMissing ? "password-field onboarding-password-field is-missing" : "password-field onboarding-password-field"}>
+            <label
+              className={getOnboardingRequiredFieldClassName(settingsOnboardingModel.defaults.renewalIssuePassword.hasError)}
+              data-required-empty={settingsOnboardingModel.defaults.renewalIssuePassword.missing ? "true" : undefined}
+            >
+              <span className={getOnboardingRequiredLabelClassName(settingsOnboardingModel.defaults.renewalIssuePassword.hasError)}>공동인증서 발급용 임시번호</span>
+              <div
+                className={
+                  settingsOnboardingModel.defaults.renewalIssuePassword.hasError
+                    ? "password-field onboarding-password-field is-missing"
+                    : "password-field onboarding-password-field"
+                }
+              >
                 <input
-                  className={getOnboardingRequiredInputClassName(onboardingRenewalIssuePasswordMissing)}
+                  className={getOnboardingRequiredInputClassName(settingsOnboardingModel.defaults.renewalIssuePassword.hasError)}
                   type={revealedFields.renewalIssuePassword ? "text" : "password"}
                   value={settingsForm.renewalIssuePassword}
                   inputMode="numeric"
                   maxLength={6}
-                  aria-invalid={onboardingRenewalIssuePasswordMissing || undefined}
+                  aria-invalid={settingsOnboardingModel.defaults.renewalIssuePassword.hasError || undefined}
                   aria-describedby="onboarding-renewal-issue-password-hint"
                   onChange={(event) => handleSettingsRenewalIssuePasswordChange(event.target.value)}
                   placeholder={renewalIssuePasswordConfigured ? "변경할 때만 다시 입력" : "숫자 6자리 입력"}
@@ -5603,7 +5614,7 @@ export function App() {
               {renderOnboardingRequiredHint(
                 "onboarding-renewal-issue-password-hint",
                 {
-                  missing: onboardingRenewalIssuePasswordMissing,
+                  missing: settingsOnboardingModel.defaults.renewalIssuePassword.missing,
                   defaultText: renewalIssuePasswordConfigured
                     ? "공동인증서 신청 및 갱신 신청용 6자리입니다. 필요하면 아래 보조 영역에서 다시 불러오세요."
                     : "공동인증서 신청 및 갱신 신청용 6자리"
@@ -6245,7 +6256,7 @@ export function App() {
       setRequestedOnboardingStepId(null);
     }
     if (nextTab === "settings") {
-      openSettingsSection(recommendedSettingsSection);
+      openSettingsSection(settingsActionBar.primarySection);
     }
   };
 
@@ -6475,22 +6486,10 @@ export function App() {
       ]
     },
     settings: {
-      title: setupPendingCount > 0 ? "준비 상태 점검" : "설정 준비 완료",
-      primaryActionLabel:
-        nextSettingsSection === "gmail"
-          ? "메일 연결"
-          : nextSettingsSection === "popbill"
-            ? "발행 설정"
-            : nextSettingsSection === "helper"
-              ? "헬퍼 상태"
-              : "계정 / 작업공간",
-      onPrimaryAction: () => setActiveSettingsSection(nextSettingsSection),
-      chips: [
-        { label: "메일", value: settingsHealth.mailReady ? "준비됨" : "확인 필요", tone: settingsHealth.mailReady ? "success" : "warn" },
-        { label: "발행", value: settingsHealth.popbillReady && settingsHealth.operatorReady ? "준비됨" : "입력 필요", tone: settingsHealth.popbillReady && settingsHealth.operatorReady ? "success" : "warn" },
-        { label: "인증서", value: helperReady ? "준비됨" : "확인 필요", tone: helperReady ? "success" : "warn" },
-        { label: "자동 저장", value: settingsAutosaveLabel, tone: settingsAutosaveState === "error" ? "danger" : settingsAutosaveState === "saving" ? "warn" : "default" }
-      ]
+      title: settingsActionBar.title,
+      primaryActionLabel: settingsActionBar.primaryActionLabel,
+      onPrimaryAction: () => setActiveSettingsSection(settingsActionBar.primarySection),
+      chips: settingsActionBar.chips
     },
     ops: {
       title: "플랫폼 운영 상태",
@@ -7129,63 +7128,15 @@ export function App() {
 
         {visibleActiveTab === "ops" ? (
           <div className="ops-layout">
-            <Panel
+            <AccountPasswordPanel
               title="플랫폼 관리자 계정 보안"
               subtitle={`현재 로그인한 플랫폼 관리자 계정(${data.auth.email ?? "이메일 없음"})의 비밀번호를 바꿉니다.`}
-              actions={<button onClick={() => void runAction("change-password", settingsScreenState.account.changePassword, { reload: false })}>비밀번호 변경</button>}
-            >
-              <div className="form-grid">
-                <label>
-                  새 비밀번호
-                  <div className="password-field">
-                    <input
-                      type={revealedFields.nextPassword ? "text" : "password"}
-                      value={settingsScreenState.account.passwordChangeForm.nextPassword}
-                      onChange={(event) =>
-                        settingsScreenState.account.setPasswordChangeForm((prev) => ({
-                          ...prev,
-                          nextPassword: event.target.value
-                        }))
-                      }
-                      placeholder="8자 이상 입력"
-                    />
-                    <button
-                      type="button"
-                      className="password-toggle"
-                      aria-label={revealedFields.nextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
-                      onClick={() => toggleRevealField("nextPassword")}
-                    >
-                      <RevealIcon open={Boolean(revealedFields.nextPassword)} />
-                    </button>
-                  </div>
-                </label>
-                <label>
-                  새 비밀번호 확인
-                  <div className="password-field">
-                    <input
-                      type={revealedFields.confirmPassword ? "text" : "password"}
-                      value={settingsScreenState.account.passwordChangeForm.confirmPassword}
-                      onChange={(event) =>
-                        settingsScreenState.account.setPasswordChangeForm((prev) => ({
-                          ...prev,
-                          confirmPassword: event.target.value
-                        }))
-                      }
-                      placeholder="한 번 더 입력"
-                    />
-                    <button
-                      type="button"
-                      className="password-toggle"
-                      aria-label={revealedFields.confirmPassword ? "비밀번호 확인 숨기기" : "비밀번호 확인 보기"}
-                      onClick={() => toggleRevealField("confirmPassword")}
-                    >
-                      <RevealIcon open={Boolean(revealedFields.confirmPassword)} />
-                    </button>
-                  </div>
-                  <span className="field-hint">플랫폼 운영 계정도 여기서 직접 새 비밀번호를 저장할 수 있습니다.</span>
-                </label>
-              </div>
-            </Panel>
+              hintText="플랫폼 운영 계정도 여기서 직접 새 비밀번호를 저장할 수 있습니다."
+              account={settingsScreenState.account}
+              revealedFields={revealedFields}
+              toggleRevealField={toggleRevealField}
+              runAction={runAction}
+            />
             {opsConsole ? (
               <>
                 <Panel
