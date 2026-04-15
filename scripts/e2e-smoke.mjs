@@ -616,7 +616,17 @@ try {
       loginCard.getByRole("button", { name: "로그인" }).click()
     ]);
     await navButton("도입 준비").waitFor();
-    await page.waitForURL((url) => url.hash === "#onboarding", { timeout: 15000 });
+    try {
+      await page.waitForURL((url) => url.hash === "#onboarding", { timeout: 15000 });
+    } catch {
+      const onboardingStep = page.locator("#onboarding-active-step");
+      if ((await onboardingStep.count()) === 0) {
+        await page.evaluate(() => {
+          window.location.hash = "#onboarding";
+        });
+        await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
+      }
+    }
     await navButton("홈").waitFor();
     await navButton("고객").waitFor();
   });
@@ -890,13 +900,112 @@ try {
       window.location.hash = "#customers";
     });
     await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
-    await page.locator(".panel-customer-list").waitFor();
-    const allCustomersButton = page.getByRole("button", { name: /^전체 \d+명$/ }).first();
-    if ((await allCustomersButton.count()) > 0) {
-      await allCustomersButton.click();
+    const customerPanel = page.locator(".panel-customer-list");
+    await customerPanel.waitFor();
+    try {
+      const allFilter = page.locator(".customer-console-filter-strip button").filter({ hasText: "전체" }).first();
+      if ((await allFilter.count()) > 0) {
+        await allFilter.click();
+      }
+      await page.locator(".customer-console-search input").fill(onboardingCorpName);
+      const targetRow = page.locator(".customer-console-table tbody tr").filter({ hasText: onboardingCorpName }).first();
+      await targetRow.waitFor();
+      await targetRow.getByText(onboardingBusinessNumber, { exact: false }).waitFor();
+    } catch (error) {
+      throw new Error(
+        `customer console row not visible. cause=${error instanceof Error ? error.message : String(error)} panel=${JSON.stringify(
+          await customerPanel.innerText()
+        )}`
+      );
     }
-    await page.locator(".customer-console-search input").fill(onboardingCorpName);
-    await page.locator(".customer-summary").filter({ hasText: onboardingCorpName }).first().waitFor();
+  });
+
+  await recordStep("customer console row opens drawer and keeps status scan visible", async () => {
+    const targetRow = page.locator(".customer-console-table tbody tr").filter({ hasText: onboardingCorpName }).first();
+    const widthsBefore = await page.evaluate(() => {
+      const readWidth = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        return Math.round(element.getBoundingClientRect().width);
+      };
+
+      return {
+        panel: readWidth(".panel-customer-list"),
+        metrics: readWidth(".customer-console-metrics"),
+        controls: readWidth(".customer-console-controls"),
+        table: readWidth(".customer-console-table-wrap")
+      };
+    });
+    await targetRow.click();
+
+    const backdrop = page.locator(".customer-console-drawer-backdrop");
+    const drawer = page.locator(".customer-console-drawer");
+    await backdrop.waitFor({ timeout: 15000 });
+    await drawer.waitFor({ timeout: 15000 });
+    await backdrop.hover();
+    await drawer.getByText(onboardingCorpName, { exact: false }).waitFor();
+    await drawer.getByText(onboardingBusinessNumber, { exact: false }).waitFor();
+    await drawer.getByText("상태 요약", { exact: true }).waitFor();
+    await drawer.getByText("기본 정보 편집", { exact: false }).waitFor();
+    const drawerLayout = await drawer.evaluate((element) => {
+      const styles = window.getComputedStyle(element);
+      return {
+        position: styles.position,
+        right: styles.right
+      };
+    });
+    const backdropColor = await backdrop.evaluate((element) => window.getComputedStyle(element).backgroundColor);
+    const widthsAfter = await page.evaluate(() => {
+      const readWidth = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        return Math.round(element.getBoundingClientRect().width);
+      };
+
+      return {
+        panel: readWidth(".panel-customer-list"),
+        metrics: readWidth(".customer-console-metrics"),
+        controls: readWidth(".customer-console-controls"),
+        table: readWidth(".customer-console-table-wrap")
+      };
+    });
+    if (drawerLayout.position !== "fixed") {
+      throw new Error(`customer drawer should overlay with fixed positioning. got=${JSON.stringify(drawerLayout)}`);
+    }
+    if (!/rgba?\(15,\s*23,\s*42(?:,|\))/.test(backdropColor)) {
+      throw new Error(`customer drawer backdrop hover color regressed. got=${backdropColor}`);
+    }
+    for (const key of ["panel", "metrics", "controls", "table"]) {
+      const before = widthsBefore[key];
+      const after = widthsAfter[key];
+      if (before === null || after === null) {
+        throw new Error(`customer console width probe missing for ${key}. before=${JSON.stringify(widthsBefore)} after=${JSON.stringify(widthsAfter)}`);
+      }
+      if (Math.abs(before - after) > 1) {
+        throw new Error(`customer console width changed while drawer opened for ${key}. before=${before} after=${after}`);
+      }
+    }
+    await drawer.getByRole("button", { name: /발행 이력 \d+/ }).click();
+    await drawer.getByText("발행 이력", { exact: true }).waitFor();
+    await drawer.getByRole("button", { name: "개요", exact: true }).click();
+    await drawer.getByText("해결 필요 항목", { exact: false }).waitFor();
+    await drawer.getByRole("button", { name: "닫기", exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector(".customer-console-drawer"), null, { timeout: 15000 });
+    await targetRow.waitFor();
+  });
+
+  await recordStep("customer console create drawer opens in-place and closes cleanly", async () => {
+    const customersShell = page.locator(".customer-console-shell");
+    await customersShell.getByRole("button", { name: "새 고객", exact: true }).first().click();
+
+    const drawer = page.locator(".customer-console-drawer");
+    await drawer.waitFor({ timeout: 15000 });
+    await drawer.getByText("새 고객 등록", { exact: true }).waitFor();
+    await drawer.getByText("등록 가이드", { exact: true }).waitFor();
+    await drawer.getByText("대표자명, 사업자번호, 상호, 주소를 먼저 저장한 뒤 추가 정보를 보강하세요.", { exact: false }).waitFor();
+    await drawer.getByRole("button", { name: "닫기", exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector(".customer-console-drawer"), null, { timeout: 15000 });
+    await page.locator(".customer-console-table tbody tr").filter({ hasText: onboardingCorpName }).first().waitFor();
   });
 
   await recordStep("settings member management flow", async () => {

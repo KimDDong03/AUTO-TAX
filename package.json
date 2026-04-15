@@ -26,7 +26,7 @@
     "start": "node dist/server/main.js",
     "check": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit && tsc -p tsconfig.vercel.json --noEmit",
     "test:server": "node --import tsx --test server/src/**/*.test.ts",
-    "test:e2e:smoke": "node --env-file=.env scripts/e2e-smoke.mjs",
+    "test:e2e:smoke": "npm run build:web && node --env-file=.env scripts/e2e-smoke.mjs",
     "rebuild:node": "node scripts/fix-popbill-package.mjs",
     "postinstall": "node scripts/fix-popbill-package.mjs"
   },

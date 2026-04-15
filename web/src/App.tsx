@@ -5198,6 +5198,13 @@ export function App() {
     setCustomerAddressResolveMessage("");
     customerAddressLookupRef.current = "";
   };
+  const cancelCreatingCustomer = () => {
+    setCreatingCustomer(false);
+    setCustomerDetailTab("info");
+    setCustomerForm(createCustomerFormDefaults());
+    setCustomerAddressResolveMessage("");
+    customerAddressLookupRef.current = "";
+  };
   const selectCustomerForEdit = (customer: Customer) => {
     setCreatingCustomer(false);
     setCustomerDetailTab("info");
@@ -6062,29 +6069,14 @@ export function App() {
       ]
     },
     customers: {
-      title:
-        blockedCustomerCount > 0
-          ? "막힌 고객 우선"
-          : data.customers.length === 0
-            ? "첫 고객 등록"
-            : "고객 상태 / 다음 조치",
-      primaryActionLabel:
-        blockedCustomerCount > 0
-          ? `막힌 고객 ${blockedCustomerCount}명`
-          : data.customers.length === 0
-            ? "새 고객 등록"
-            : `발행 가능 ${readyNowCustomers.length}명`,
-      onPrimaryAction: () => {
-        setCustomerListFilter(blockedCustomerCount > 0 ? "blocked" : data.customers.length === 0 ? "all" : "ready");
-        if (data.customers.length === 0) {
-          startCreatingCustomer();
-        }
-      },
+      title: data.customers.length === 0 ? "고객 데이터 콘솔 준비" : "고객 데이터 콘솔",
+      primaryActionLabel: "새 고객",
+      onPrimaryAction: startCreatingCustomer,
       chips: [
         { label: "전체", value: `${data.customers.length}명`, tone: data.customers.length > 0 ? "default" : "warn" },
-        { label: "막힘", value: `${blockedCustomerCount}명`, tone: blockedCustomerCount > 0 ? "danger" : "success" },
+        { label: "조치 필요", value: `${blockedCustomerCount}명`, tone: blockedCustomerCount > 0 ? "danger" : "success" },
         { label: "발행 가능", value: `${readyNowCustomers.length}명`, tone: readyNowCustomers.length > 0 ? "success" : "default" },
-        { label: "연결 마무리", value: `${popbillPendingCustomers.length}명`, tone: popbillPendingCustomers.length > 0 ? "warn" : "success" }
+        { label: "연결 필요", value: `${popbillPendingCustomers.length}명`, tone: popbillPendingCustomers.length > 0 ? "warn" : "success" }
       ]
     },
     certificates: {
@@ -6624,6 +6616,7 @@ export function App() {
             expiringSoonCustomers={expiringSoonCustomers}
             filteredCustomers={filteredCustomers}
             selectedCustomer={selectedCustomer}
+            creatingCustomer={creatingCustomer}
             selectedCustomerReadiness={selectedCustomerReadiness}
             selectedCustomerIssues={selectedCustomerIssues}
             selectedCustomerIssuedDrafts={selectedCustomerIssuedDrafts}
@@ -6657,6 +6650,7 @@ export function App() {
             setCustomerForm={setCustomerForm}
             setCustomerAddressResolveMessage={setCustomerAddressResolveMessage}
             onCreateCustomer={startCreatingCustomer}
+            onCancelCreateCustomer={cancelCreatingCustomer}
             onRefreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
             onLoadCustomerRenewalCertificates={loadCustomerRenewalCertificates}
             onStartCustomerRenewal={startCustomerRenewal}
