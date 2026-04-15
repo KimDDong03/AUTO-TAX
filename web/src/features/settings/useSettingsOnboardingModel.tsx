@@ -64,21 +64,35 @@ export function selectSettingsOnboardingState(
     | "runRefreshCustomerRenewalAssistant"
   >
 ): SettingsOnboardingState {
-  const fields = settingsState.settingsForm!;
+  const fields: SettingsOnboardingFields = settingsState.settingsForm
+    ? {
+        mailAddress: settingsState.settingsForm.mailAddress,
+        mailPassword: settingsState.settingsForm.mailPassword,
+        notificationEmailsText: settingsState.settingsForm.notificationEmailsText,
+        popbillUserIdPrefix: settingsState.settingsForm.popbillUserIdPrefix,
+        operatorContactName: settingsState.settingsForm.operatorContactName,
+        operatorContactTel: settingsState.settingsForm.operatorContactTel,
+        operatorContactEmail: settingsState.settingsForm.operatorContactEmail,
+        popbillSharedPassword: settingsState.settingsForm.popbillSharedPassword,
+        renewalIssuePassword: settingsState.settingsForm.renewalIssuePassword,
+        renewalCertificatePassword:
+          settingsState.settingsForm.renewalCertificatePassword
+      }
+    : {
+        mailAddress: "",
+        mailPassword: "",
+        notificationEmailsText: "",
+        popbillUserIdPrefix: "",
+        operatorContactName: "",
+        operatorContactTel: "",
+        operatorContactEmail: "",
+        popbillSharedPassword: "",
+        renewalIssuePassword: "",
+        renewalCertificatePassword: ""
+      };
 
   return {
-    fields: {
-      mailAddress: fields.mailAddress,
-      mailPassword: fields.mailPassword,
-      notificationEmailsText: fields.notificationEmailsText,
-      popbillUserIdPrefix: fields.popbillUserIdPrefix,
-      operatorContactName: fields.operatorContactName,
-      operatorContactTel: fields.operatorContactTel,
-      operatorContactEmail: fields.operatorContactEmail,
-      popbillSharedPassword: fields.popbillSharedPassword,
-      renewalIssuePassword: fields.renewalIssuePassword,
-      renewalCertificatePassword: fields.renewalCertificatePassword
-    },
+    fields,
     autosaveLabel: settingsState.settingsAutosaveLabel,
     detectedMailProviderLabel: settingsState.detectedMailProviderLabel,
     configured: {

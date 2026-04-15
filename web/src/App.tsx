@@ -1932,6 +1932,90 @@ export function App() {
   const settingsForm = settingsScreenState.settingsForm;
   const settingsHealth = settingsScreenState.settingsHealth;
   const currentWorkspaceSettings = settingsScreenState.savedSettings ?? data?.settings ?? null;
+  const isMailTesting = busyKey === "mail-test";
+  const customerOnboardingSessionActive =
+    customerOnboardingSessionState.commitDone ||
+    customerOnboardingSessionState.previewReady ||
+    customerOnboardingWorkbook !== null ||
+    customerOnboardingPreview !== null ||
+    customerOnboardingFileName.trim() !== "";
+  const onboardingElectronicTaxBusinessNumbers = new Set(
+    (customerOnboardingWorkbook?.certificates ?? [])
+      .filter((certificate) => certificate.certificateKind === "electronic_tax")
+      .map((certificate) => digitsOnly(certificate.businessNumber))
+      .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
+  );
+  const settingsDerivedOnboardingPendingCertificateCount =
+    !data
+      ? 0
+      : customerOnboardingSessionActive
+        ? [...onboardingElectronicTaxBusinessNumbers]
+            .map(
+              (businessNumber) =>
+                data.customers.find(
+                  (customer) => digitsOnly(customer.businessNumber) === businessNumber
+                ) ?? null
+            )
+            .filter(
+              (customer): customer is Customer =>
+                Boolean(
+                  customer &&
+                    (customer.popbillState !== "joined" || !customer.popbillCertRegistered)
+                )
+            ).length
+        : data.customers.filter(
+            (customer) =>
+              customer.popbillState !== "joined" || !customer.popbillCertRegistered
+          ).length;
+  const settingsDerivedCustomerRegistrationReady = customerOnboardingSessionActive
+    ? customerOnboardingSessionState.commitDone
+    : (data?.customers.length ?? 0) > 0;
+  const settingsDerivedModel = useSettingsDerivedModel({
+    actionBar: {
+      setupPendingCount: settingsScreenState.setupPendingCount,
+      nextSettingsSection: settingsScreenState.nextSettingsSection,
+      settingsHealth,
+      helperReady,
+      settingsAutosaveLabel: settingsScreenState.settingsAutosaveLabel,
+      settingsAutosaveState: settingsScreenState.settingsAutosaveState
+    },
+    onboarding: {
+      fields: {
+        mailAddress: settingsForm?.mailAddress ?? "",
+        mailPassword: settingsForm?.mailPassword ?? "",
+        popbillUserIdPrefix: settingsForm?.popbillUserIdPrefix ?? "",
+        operatorContactName: settingsForm?.operatorContactName ?? "",
+        operatorContactTel: settingsForm?.operatorContactTel ?? "",
+        operatorContactEmail: settingsForm?.operatorContactEmail ?? "",
+        popbillSharedPassword: settingsForm?.popbillSharedPassword ?? "",
+        renewalIssuePassword: settingsForm?.renewalIssuePassword ?? ""
+      },
+      settingsHealth,
+      configured: {
+        mailPasswordConfigured: settingsScreenState.mailPasswordConfigured,
+        popbillSharedPasswordConfigured:
+          settingsScreenState.popbillSharedPasswordConfigured,
+        renewalIssuePasswordConfigured:
+          settingsScreenState.renewalIssuePasswordConfigured,
+        renewalCertificatePasswordConfigured:
+          settingsScreenState.renewalCertificatePasswordConfigured
+      },
+      helper: {
+        ready: helperReady,
+        online: customerRenewalAssistant?.agentOnline ?? false,
+        certificateCount: customerRenewalAssistantAllCertificates.length,
+        upgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
+        actionBlockedReason: helperActionBlockedReason,
+        upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null
+      },
+      progress: {
+        customerRegistrationReady: settingsDerivedCustomerRegistrationReady,
+        certificateReady:
+          settingsDerivedCustomerRegistrationReady &&
+          settingsDerivedOnboardingPendingCertificateCount === 0
+      }
+    }
+  });
   const toggleRevealField = useCallback((fieldKey: string) => {
     setRevealedFields((prev) => ({
       ...prev,
@@ -1947,6 +2031,37 @@ export function App() {
       }),
     [revealedFields, runAction, toggleRevealField]
   );
+  const settingsOnboardingState =
+    selectSettingsOnboardingState(settingsScreenState);
+  const settingsOnboardingContent = useSettingsOnboardingModel({
+    settingsState: settingsOnboardingState,
+    onboarding: settingsDerivedModel.onboarding,
+    orchestration: settingsFeatureOrchestration,
+    busyKey,
+    isMailTesting,
+    helper: {
+      ready: helperReady,
+      upgradeRequired: helperUpgradeRequired,
+      upgradeAvailable: helperUpgradeAvailable,
+      actionBlockedReason: helperActionBlockedReason,
+      online: customerRenewalAssistant?.agentOnline ?? false,
+      checkedAt: customerRenewalAssistant?.helperCheckedAt ?? null,
+      certificateCount: customerRenewalAssistantAllCertificates.length,
+      upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
+      latestVersion: customerRenewalAssistant?.latestVersion ?? null,
+      minSupportedVersion: customerRenewalAssistant?.minSupportedVersion ?? null
+    },
+    renewalHelperDownloadUrl,
+    runReadCertificates: async () =>
+      runAction(
+        "customer-renewal-bridge-probe",
+        async () => {
+          await syncCustomerRenewalCertificates({ showAlert: false });
+        },
+        { reload: false }
+      ),
+    formatDateTime
+  });
 
   const certificatesScreenModel = useCertificatesScreenModel({
     customers: data?.customers ?? [],
@@ -4902,12 +5017,6 @@ export function App() {
   const selectedQuickRegisterMessage = quickRegisterForm.messageId
     ? quickRegisterMessages.find((message) => message.id === quickRegisterForm.messageId) ?? null
     : null;
-  const onboardingElectronicTaxBusinessNumbers = new Set(
-    (customerOnboardingWorkbook?.certificates ?? [])
-      .filter((certificate) => certificate.certificateKind === "electronic_tax")
-      .map((certificate) => digitsOnly(certificate.businessNumber))
-      .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
-  );
   const pendingOnboardingCertificateRegistrationTargets = (customerOnboardingWorkbook?.customers ?? [])
     .map((row) => digitsOnly(row.businessNumber))
     .filter((businessNumber, index, values): businessNumber is string => Boolean(businessNumber) && values.indexOf(businessNumber) === index)
@@ -4918,12 +5027,6 @@ export function App() {
         Boolean(customer && customer.popbillState === "joined" && !customer.popbillCertRegistered)
     );
   const hasRegisteredCustomers = data.customers.length > 0;
-  const customerOnboardingSessionActive =
-    customerOnboardingSessionState.commitDone ||
-    customerOnboardingSessionState.previewReady ||
-    customerOnboardingWorkbook !== null ||
-    customerOnboardingPreview !== null ||
-    customerOnboardingFileName.trim() !== "";
   const onboardingCustomerRegistrationReady = customerOnboardingSessionActive
     ? customerOnboardingSessionState.commitDone
     : hasRegisteredCustomers;
@@ -5025,50 +5128,6 @@ export function App() {
   const issueSetupPendingCount = popbillPendingCustomers.length;
   const onboardingIssueSetupPendingCount = onboardingPendingCertificateCustomers.length;
   const onboardingCertificateReady = onboardingCustomerRegistrationReady && onboardingIssueSetupPendingCount === 0;
-  const settingsDerivedModel = useSettingsDerivedModel({
-    actionBar: {
-      setupPendingCount: settingsScreenState.setupPendingCount,
-      nextSettingsSection: settingsScreenState.nextSettingsSection,
-      settingsHealth: settingsScreenState.settingsHealth,
-      helperReady,
-      settingsAutosaveLabel: settingsScreenState.settingsAutosaveLabel,
-      settingsAutosaveState: settingsScreenState.settingsAutosaveState
-    },
-    onboarding: {
-      fields: {
-        mailAddress: settingsForm!.mailAddress,
-        mailPassword: settingsForm!.mailPassword,
-        popbillUserIdPrefix: settingsForm!.popbillUserIdPrefix,
-        operatorContactName: settingsForm!.operatorContactName,
-        operatorContactTel: settingsForm!.operatorContactTel,
-        operatorContactEmail: settingsForm!.operatorContactEmail,
-        popbillSharedPassword: settingsForm!.popbillSharedPassword,
-        renewalIssuePassword: settingsForm!.renewalIssuePassword
-      },
-      settingsHealth: settingsScreenState.settingsHealth,
-      configured: {
-        mailPasswordConfigured: settingsScreenState.mailPasswordConfigured,
-        popbillSharedPasswordConfigured:
-          settingsScreenState.popbillSharedPasswordConfigured,
-        renewalIssuePasswordConfigured:
-          settingsScreenState.renewalIssuePasswordConfigured,
-        renewalCertificatePasswordConfigured:
-          settingsScreenState.renewalCertificatePasswordConfigured
-      },
-      helper: {
-        ready: helperReady,
-        online: customerRenewalAssistant?.agentOnline ?? false,
-        certificateCount: customerRenewalAssistantAllCertificates.length,
-        upgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
-        actionBlockedReason: helperActionBlockedReason,
-        upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null
-      },
-      progress: {
-        customerRegistrationReady: onboardingCustomerRegistrationReady,
-        certificateReady: onboardingCertificateReady
-      }
-    }
-  });
   const settingsActionBar = settingsDerivedModel.actionBar;
   const settingsOnboardingModel = settingsDerivedModel.onboarding;
   const onboardingFirstSyncReady = data.inbox.length > 0 || data.drafts.length > 0;
@@ -5133,7 +5192,6 @@ export function App() {
         ]
       : [])
   ];
-  const isMailTesting = busyKey === "mail-test";
   const startCreatingCustomer = () => {
     setCreatingCustomer(true);
     setCustomerForm(createCustomerFormDefaults());
@@ -5328,37 +5386,6 @@ export function App() {
   const onboardingImportableCount =
     (customerOnboardingPreview?.createCount ?? 0) + (customerOnboardingPreview?.updateCount ?? 0);
   const onboardingBlockedCount = customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
-  const settingsOnboardingState =
-    selectSettingsOnboardingState(settingsScreenState);
-  const settingsOnboardingContent = useSettingsOnboardingModel({
-    settingsState: settingsOnboardingState,
-    onboarding: settingsOnboardingModel,
-    orchestration: settingsFeatureOrchestration,
-    busyKey,
-    isMailTesting,
-    helper: {
-      ready: helperReady,
-      upgradeRequired: helperUpgradeRequired,
-      upgradeAvailable: helperUpgradeAvailable,
-      actionBlockedReason: helperActionBlockedReason,
-      online: customerRenewalAssistant?.agentOnline ?? false,
-      checkedAt: customerRenewalAssistant?.helperCheckedAt ?? null,
-      certificateCount: customerRenewalAssistantAllCertificates.length,
-      upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
-      latestVersion: customerRenewalAssistant?.latestVersion ?? null,
-      minSupportedVersion: customerRenewalAssistant?.minSupportedVersion ?? null
-    },
-    renewalHelperDownloadUrl,
-    runReadCertificates: async () =>
-      runAction(
-        "customer-renewal-bridge-probe",
-        async () => {
-          await syncCustomerRenewalCertificates({ showAlert: false });
-        },
-        { reload: false }
-      ),
-    formatDateTime
-  });
   const onboardingRegistrationFlow = getInitialRegistrationFlowState({
     helperReady,
     helperCertificateCount: customerRenewalAssistantAllCertificates.length,

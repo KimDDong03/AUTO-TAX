@@ -226,14 +226,14 @@ export function useRenewalAssistantState({
 
   const canUseCustomerRenewalAssistant = Boolean(activeOrganizationId) && activeOrganizationRole !== "viewer";
 
-  const refreshCustomerRenewalAssistant = useCallback(async () => {
+  const loadCustomerRenewalAssistantSummary = useCallback(async (options?: { force?: boolean }) => {
     if (!canUseCustomerRenewalAssistant) {
       setCustomerRenewalAssistant(null);
       return;
     }
 
     const [status, releaseMetadata] = await Promise.all([
-      getLocalRenewalHelperStatus(),
+      getLocalRenewalHelperStatus({ force: options?.force }),
       getLocalRenewalHelperReleaseMetadata()
     ]);
     setCustomerRenewalAssistant((prev) =>
@@ -245,6 +245,10 @@ export function useRenewalAssistantState({
       })
     );
   }, [canUseCustomerRenewalAssistant, defaultRenewalHelperDownloadUrl]);
+
+  const refreshCustomerRenewalAssistant = useCallback(async () => {
+    await loadCustomerRenewalAssistantSummary({ force: true });
+  }, [loadCustomerRenewalAssistantSummary]);
 
   const ensureLocalRenewalHelperActionAllowed = useCallback(
     (actionLabel: string) => {
@@ -347,11 +351,11 @@ export function useRenewalAssistantState({
     }
 
     const timer = window.setTimeout(() => {
-      void refreshCustomerRenewalAssistant().catch(() => undefined);
+      void loadCustomerRenewalAssistantSummary().catch(() => undefined);
     }, 3000);
 
     return () => window.clearTimeout(timer);
-  }, [activeTab, customerRenewalAssistant, refreshCustomerRenewalAssistant]);
+  }, [activeTab, customerRenewalAssistant, loadCustomerRenewalAssistantSummary]);
 
   useEffect(() => {
     if (activeTab !== "settings" && activeTab !== "certificates") {
@@ -377,9 +381,7 @@ export function useRenewalAssistantState({
 
     customerRenewalAutoLoadedRef.current = true;
     void (async () => {
-      let assistantSnapshot = customerRenewalAssistant;
-
-      if (!assistantSnapshot.agentOnline) {
+      if (!customerRenewalAssistant.agentOnline) {
         setCustomerRenewalAssistant((prev) =>
           prev
             ? {
@@ -388,17 +390,7 @@ export function useRenewalAssistantState({
               }
             : prev
         );
-        const [status, releaseMetadata] = await Promise.all([
-          getLocalRenewalHelperStatus(),
-          getLocalRenewalHelperReleaseMetadata()
-        ]);
-        assistantSnapshot = buildCustomerRenewalAssistant({
-          current: assistantSnapshot,
-          status,
-          releaseMetadata,
-          defaultRenewalHelperDownloadUrl
-        });
-        setCustomerRenewalAssistant(assistantSnapshot);
+        await loadCustomerRenewalAssistantSummary();
       }
     })().catch(() => {
       customerRenewalAutoLoadedRef.current = false;
@@ -408,7 +400,7 @@ export function useRenewalAssistantState({
     activeTab,
     canUseCustomerRenewalAssistant,
     customerRenewalAssistant,
-    defaultRenewalHelperDownloadUrl
+    loadCustomerRenewalAssistantSummary
   ]);
 
   useEffect(() => {
@@ -419,13 +411,13 @@ export function useRenewalAssistantState({
       return;
     }
 
-    void refreshCustomerRenewalAssistant().catch(() => undefined);
+    void loadCustomerRenewalAssistantSummary().catch(() => undefined);
   }, [
     activeTab,
     canUseCustomerRenewalAssistant,
     customerRenewalAssistant?.helperCheckedAt,
     isSettingsHelperActive,
-    refreshCustomerRenewalAssistant
+    loadCustomerRenewalAssistantSummary
   ]);
 
   const customerRenewalAssistantJobs = customerRenewalAssistant?.jobs ?? [];

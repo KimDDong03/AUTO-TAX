@@ -70,6 +70,20 @@ export type LocalRenewalHelperReleaseMetadata = {
   releasedAt: string;
 };
 
+type GetLocalRenewalHelperStatusOptions = {
+  force?: boolean;
+};
+
+const LOCAL_RENEWAL_HELPER_OFFLINE_RETRY_MS = 15_000;
+
+let localRenewalHelperStatusInFlight: Promise<LocalRenewalHelperStatus> | null = null;
+let cachedOfflineLocalRenewalHelperStatus:
+  | {
+      status: LocalRenewalHelperStatus;
+      checkedAt: number;
+    }
+  | null = null;
+
 function buildHelperUnavailableMessage(): string {
   return "로컬 헬퍼가 실행 중이지 않습니다. 고객 PC에서 로컬 헬퍼를 먼저 실행하세요.";
 }
@@ -100,23 +114,57 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
   return (await response.json()) as T;
 }
 
-export async function getLocalRenewalHelperStatus(): Promise<LocalRenewalHelperStatus> {
-  try {
-    const payload = await localRenewalHelperRequest<LocalRenewalHelperHealthResponse>("/health", {
-      method: "GET"
-    });
-    return {
-      online: true,
-      version: payload.version,
-      message: payload.status.notes[0] ?? "로컬 헬퍼가 준비되었습니다."
-    };
-  } catch (error) {
-    return {
-      online: false,
-      version: null,
-      message: error instanceof Error ? error.message : buildHelperUnavailableMessage()
-    };
+export async function getLocalRenewalHelperStatus(
+  options?: GetLocalRenewalHelperStatusOptions
+): Promise<LocalRenewalHelperStatus> {
+  const force = options?.force ?? false;
+  const now = Date.now();
+
+  if (
+    !force &&
+    cachedOfflineLocalRenewalHelperStatus &&
+    now - cachedOfflineLocalRenewalHelperStatus.checkedAt < LOCAL_RENEWAL_HELPER_OFFLINE_RETRY_MS
+  ) {
+    return cachedOfflineLocalRenewalHelperStatus.status;
   }
+
+  if (localRenewalHelperStatusInFlight) {
+    return await localRenewalHelperStatusInFlight;
+  }
+
+  localRenewalHelperStatusInFlight = (async () => {
+    try {
+      const payload = await localRenewalHelperRequest<LocalRenewalHelperHealthResponse>("/health", {
+        method: "GET"
+      });
+      cachedOfflineLocalRenewalHelperStatus = null;
+      return {
+        online: true,
+        version: payload.version,
+        message: payload.status.notes[0] ?? "로컬 헬퍼가 준비되었습니다."
+      };
+    } catch (error) {
+      const status = {
+        online: false,
+        version: null,
+        message: error instanceof Error ? error.message : buildHelperUnavailableMessage()
+      } satisfies LocalRenewalHelperStatus;
+      cachedOfflineLocalRenewalHelperStatus = {
+        status,
+        checkedAt: Date.now()
+      };
+      return status;
+    } finally {
+      localRenewalHelperStatusInFlight = null;
+    }
+  })();
+
+  return await localRenewalHelperStatusInFlight;
+}
+
+export function resetLocalRenewalHelperStatusCacheForTests(): void {
+  localRenewalHelperStatusInFlight = null;
+  cachedOfflineLocalRenewalHelperStatus = null;
 }
 
 export async function getLocalRenewalHelperReleaseMetadata(): Promise<LocalRenewalHelperReleaseMetadata | null> {
