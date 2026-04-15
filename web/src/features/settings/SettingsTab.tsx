@@ -52,12 +52,12 @@ type SettingsTabProps = {
   onMailAddressChange: (value: string) => void;
   onRenewalIssuePasswordChange: (value: string) => void;
   toggleRevealField: (fieldKey: string) => void;
-  refreshAllCertificateStatuses: () => Promise<void>;
   testMailSettings: () => Promise<void>;
   loadCurrentPopbillSharedPassword: () => Promise<void>;
   loadCurrentRenewalCertificatePassword: () => Promise<void>;
   loadCurrentRenewalIssuePassword: () => Promise<void>;
   refreshCustomerRenewalAssistant: () => Promise<void>;
+  openCertificates: () => void;
   changePassword: () => Promise<void>;
   createOrganizationMember: () => Promise<void>;
   openMemberPasswordReset: (member: OrganizationMemberSummary) => void;
@@ -77,7 +77,7 @@ export function SettingsTab(props: SettingsTabProps) {
       : nextSettingsSection === "popbill"
         ? "발행 설정"
         : nextSettingsSection === "helper"
-          ? "인증서 / 헬퍼"
+          ? "헬퍼 상태"
           : "계정 / 작업공간";
   const helperUpgradeNotice =
     props.customerRenewalAssistantUpgradeState === "upgrade-required"
@@ -154,8 +154,8 @@ export function SettingsTab(props: SettingsTabProps) {
               <button type="button" onClick={() => props.setActiveSettingsSection(nextSettingsSection)}>
                 {nextSettingsSectionLabel} 열기
               </button>
-              <button className="btn-secondary" onClick={() => void props.runAction("refresh-certificates", props.refreshAllCertificateStatuses)}>
-                인증서 일괄 점검
+              <button type="button" className="btn-secondary" onClick={props.openCertificates}>
+                인증서 화면 열기
               </button>
             </div>
           </div>
@@ -408,6 +408,9 @@ export function SettingsTab(props: SettingsTabProps) {
                       >
                         상태 다시 확인
                       </button>
+                      <button type="button" onClick={props.openCertificates}>
+                        인증서 화면 열기
+                      </button>
                     </div>
                   </div>
                   <span>상태: {props.customerRenewalAssistantHelperMessage}</span>
@@ -445,18 +448,23 @@ export function SettingsTab(props: SettingsTabProps) {
           <SetupPanel
             step={3}
             className="panel-settings-helper"
-            title="인증서 / 헬퍼 준비"
+            title="헬퍼 상태"
             done={props.customerRenewalAssistantOnline && props.customerRenewalLoadedCertificateCount > 0}
-            note="헬퍼 연결 / 인증서 읽기 상태"
+            note="헬퍼 연결 / 인증서 읽기 요약"
             actions={
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={props.busyKey !== null}
-                onClick={() => void props.runAction("refresh-customer-renewal-helper", props.refreshCustomerRenewalAssistant, { reload: false })}
-              >
-                상태 다시 확인
-              </button>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={props.busyKey !== null}
+                  onClick={() => void props.runAction("refresh-customer-renewal-helper", props.refreshCustomerRenewalAssistant, { reload: false })}
+                >
+                  상태 다시 확인
+                </button>
+                <button type="button" onClick={props.openCertificates}>
+                  인증서 화면 열기
+                </button>
+              </div>
             }
           >
             <div className="settings-field-stack">
@@ -481,12 +489,8 @@ export function SettingsTab(props: SettingsTabProps) {
                       >
                         헬퍼 다운로드
                       </button>
-                      <button
-                        type="button"
-                        disabled={props.busyKey !== null}
-                        onClick={() => void props.runAction("refresh-certificates", props.refreshAllCertificateStatuses)}
-                      >
-                        인증서 일괄 점검
+                      <button type="button" onClick={props.openCertificates}>
+                        인증서 화면 열기
                       </button>
                     </div>
                   </div>

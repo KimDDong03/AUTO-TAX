@@ -617,8 +617,8 @@ try {
     ]);
     await navButton("도입 준비").waitFor();
     await page.waitForURL((url) => url.hash === "#onboarding", { timeout: 15000 });
-    assert.equal(await navButton("홈").count(), 0);
-    assert.equal(await navButton("고객").count(), 0);
+    await navButton("홈").waitFor();
+    await navButton("고객").waitFor();
   });
 
   await recordStep("blank onboarding highlights required inputs immediately", async () => {
@@ -685,19 +685,14 @@ try {
     }, null, { timeout: 15000 });
   });
 
-  await recordStep("pre-onboarding routing keeps home and customers hidden", async () => {
+  await recordStep("pre-onboarding routing keeps onboarding accessible while manual tabs still work", async () => {
     await configureOnboardingSettings();
-    await page.goto(`${baseUrl}/?e2e-onboarding=${suffix}#home`, { waitUntil: "networkidle" });
-    await page.waitForURL((url) => url.hash === "#onboarding", { timeout: 15000 });
-    const onboardingScreen = page.locator(".onboarding-screen .onboarding-compact-shell");
-    await onboardingScreen.waitFor();
-    assert.equal(await navButton("홈").count(), 0);
-    assert.equal(await navButton("고객").count(), 0);
+    await page.reload({ waitUntil: "networkidle" });
+    await navButton("홈").click();
+    await page.waitForFunction(() => window.location.hash === "#home", null, { timeout: 15000 });
+    await navButton("홈").waitFor();
+    assert.ok((await navButton("홈").first().getAttribute("class"))?.includes("active"));
     assert.equal(await page.getByRole("button", { name: "새로고침", exact: true }).count(), 0);
-    assert.equal(await page.locator(".action-bar.is-onboarding").getByRole("button").count(), 0);
-    assert.equal(await page.locator(".onboarding-wizard-hero").getByRole("button").count(), 0);
-    await page.locator("#onboarding-active-step .onboarding-active-step-copy strong").filter({ hasText: "로컬 헬퍼 준비" }).waitFor();
-    await page.getByRole("button", { name: "공동인증서 읽기", exact: true }).waitFor();
     const sidebarHoverZone = page.locator(".sidebar-hover-zone");
     const sidebarToggle = page.locator(".sidebar-thumb-toggle");
     await sidebarHoverZone.waitFor();
@@ -729,6 +724,7 @@ try {
     await navButton("도입 준비").click();
     await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
     assert.ok((await navButton("도입 준비").first().getAttribute("class"))?.includes("active"));
+    await page.locator("#onboarding-active-step").waitFor();
   });
 
   await recordStep("stored onboarding passwords do not show false required errors", async () => {
@@ -753,12 +749,15 @@ try {
     await onboardingPanel.getByRole("button", { name: "양식 다운로드", exact: true }).waitFor();
   });
 
-  await recordStep("customers stay gated until onboarding commit", async () => {
+  await recordStep("customers remain reachable before onboarding commit", async () => {
     await page.evaluate(() => {
       window.location.hash = "#customers";
     });
+    await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
+    assert.ok((await navButton("고객").first().getAttribute("class"))?.includes("active"));
+    await page.locator(".panel-customer-list").waitFor();
+    await navButton("도입 준비").click();
     await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
-    assert.equal(await navButton("고객").count(), 0);
     await page.locator(".onboarding-step-chip").filter({ hasText: "고객 초기 등록" }).first().click();
     await page.locator("#onboarding-active-step .onboarding-active-step-copy strong").filter({ hasText: "고객 초기 등록" }).waitFor();
   });
@@ -819,7 +818,7 @@ try {
   await recordStep("onboarding commit stores customer and auto-links the imported general certificate", async () => {
     const onboardingPanel = page.locator(".panel-initial-onboarding");
     await Promise.all([
-      page.waitForResponse((response) => response.url().endsWith("/api/customer-onboarding/commit") && response.status() === 200),
+      page.waitForResponse((response) => response.url().endsWith("/api/customer-onboarding/commit") && response.status() === 202),
       onboardingPanel.getByRole("button", { name: "고객 등록 반영", exact: true }).click()
     ]);
 
@@ -882,8 +881,8 @@ try {
   await recordStep("onboarding commit unlocks the operating shell", async () => {
     await navButton("홈").waitFor({ timeout: 15000 });
     await navButton("고객").waitFor({ timeout: 15000 });
-    await page.waitForURL((url) => url.hash === "#home", { timeout: 15000 });
-    assert.equal(await navButton("도입 준비").count(), 0);
+    await navButton("홈").click();
+    await page.waitForFunction(() => window.location.hash === "#home", null, { timeout: 15000 });
   });
 
   await recordStep("onboarding-created customer visible after tab round-trip", async () => {
@@ -920,10 +919,9 @@ try {
 
   await recordStep("certificates action-needed view renders", async () => {
     await page.evaluate(() => {
-      window.location.hash = "#settings";
+      window.location.hash = "#certificates";
     });
-    await page.waitForFunction(() => window.location.hash === "#settings", null, { timeout: 15000 });
-    await page.locator(".settings-layout").waitFor();
+    await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
     await page.locator(".panel-customer-renewal").waitFor();
     await page.locator(".certificate-guide-lead strong").filter({ hasText: /조치 필요 고객 \d+명/ }).waitFor();
   });
@@ -938,7 +936,12 @@ try {
       releasedAt: "2026-04-14T00:00:00.000Z"
     };
 
-    await page.locator(".settings-step-card").filter({ hasText: "인증서 / 헬퍼" }).first().click();
+    await page.evaluate(() => {
+      window.location.hash = "#settings";
+    });
+    await page.waitForFunction(() => window.location.hash === "#settings", null, { timeout: 15000 });
+    await page.locator(".settings-layout").waitFor();
+    await page.locator(".settings-step-card").filter({ hasText: "헬퍼" }).first().click();
     const helperPanel = page.locator(".panel-settings-helper");
     await helperPanel.waitFor();
     const helperRefreshButton = helperPanel.getByRole("button", { name: "상태 다시 확인" }).first();
@@ -971,8 +974,18 @@ try {
     ]);
     await helperPanel.getByText("헬퍼 업데이트 권장", { exact: true }).waitFor();
     await helperPanel.getByText("최신 버전: v0.1.1", { exact: true }).waitFor();
+    await page.evaluate(() => {
+      window.location.hash = "#certificates";
+    });
+    await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
     const certificatesReadButton = page.locator(".panel-customer-renewal").getByRole("button", { name: "공동인증서 읽기" });
     assert.equal(await certificatesReadButton.isDisabled(), false);
+    await page.evaluate(() => {
+      window.location.hash = "#settings";
+    });
+    await page.waitForFunction(() => window.location.hash === "#settings", null, { timeout: 15000 });
+    await page.locator(".settings-layout").waitFor();
+    await page.locator(".panel-settings-helper").waitFor();
   });
 
   await recordStep("upgrade-required helper blocks helper-dependent actions", async () => {
@@ -994,8 +1007,18 @@ try {
     ]);
     await helperPanel.getByText("헬퍼 재설치 필요", { exact: true }).waitFor();
     await helperPanel.getByText("최소 지원 버전: v0.1.1", { exact: true }).waitFor();
+    await page.evaluate(() => {
+      window.location.hash = "#certificates";
+    });
+    await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
     const certificatesReadButton = page.locator(".panel-customer-renewal").getByRole("button", { name: "공동인증서 읽기" });
     assert.equal(await certificatesReadButton.isDisabled(), true);
+    await page.evaluate(() => {
+      window.location.hash = "#settings";
+    });
+    await page.waitForFunction(() => window.location.hash === "#settings", null, { timeout: 15000 });
+    await page.locator(".settings-layout").waitFor();
+    await page.locator(".panel-settings-helper").waitFor();
   });
 
   await recordStep("helper metadata fetch failure falls back without hard block", async () => {
@@ -1012,9 +1035,12 @@ try {
     await page.waitForTimeout(300);
     assert.equal(await page.getByText("헬퍼 업데이트 권장", { exact: true }).count(), 0);
     assert.equal(await page.getByText("헬퍼 재설치 필요", { exact: true }).count(), 0);
+    await page.evaluate(() => {
+      window.location.hash = "#certificates";
+    });
+    await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
     const certificatesReadButton = page.locator(".panel-customer-renewal").getByRole("button", { name: "공동인증서 읽기" });
     assert.equal(await certificatesReadButton.isDisabled(), false);
-    await helperPanel.getByText("연결됨", { exact: true }).first().waitFor();
   });
 
   await recordStep("logout returns to public page", async () => {

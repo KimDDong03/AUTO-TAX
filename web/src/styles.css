@@ -1229,6 +1229,10 @@ textarea {
   overflow: hidden;
 }
 
+.content-certificates {
+  overflow: hidden;
+}
+
 .customers-screen {
   display: grid;
   gap: 0.9rem;
@@ -5758,6 +5762,7 @@ body {
 
 .content-home,
 .content-customers,
+.content-certificates,
 .content-settings,
 .content-ops {
   overflow: auto;
@@ -6051,6 +6056,11 @@ body {
 }
 
 .settings-screen {
+  display: grid;
+  gap: 1rem;
+}
+
+.certificates-screen {
   display: grid;
   gap: 1rem;
 }
@@ -6637,6 +6647,10 @@ td {
 }
 
 .settings-screen {
+  gap: 0.82rem;
+}
+
+.certificates-screen {
   gap: 0.82rem;
 }
 

@@ -3,7 +3,7 @@ import { useDeferredValue, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api, setActiveOrganizationId } from "./api";
 import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
-import { CertificatesTab } from "./features/certificates/CertificatesTab";
+import { CertificatesScreen } from "./features/certificates/CertificatesScreen";
 import { CustomersTab } from "./features/customers/CustomersTab";
 import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
 import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
@@ -22,7 +22,7 @@ import {
   type CustomerOnboardingTemplateWorkbookInput,
   type CustomerOnboardingWorkbookInput
 } from "./features/initial-registration/customer-onboarding-workbook";
-import { SettingsTab } from "./features/settings/SettingsTab";
+import { SettingsScreen } from "./features/settings/SettingsScreen";
 import {
   getLocalRenewalHelperReleaseMetadata,
   getLocalRenewalHelperStatus,
@@ -59,7 +59,7 @@ import type {
   RenewalAutomationPayload
 } from "./types";
 
-type TabId = "onboarding" | "home" | "customers" | "settings" | "ops";
+type TabId = "onboarding" | "home" | "customers" | "certificates" | "settings" | "ops";
 type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
 
 const ONBOARDING_NAV_STORAGE_KEY_PREFIX = "auto-tax:onboarding-nav:";
@@ -650,7 +650,11 @@ function getTabFromHash(hash: string): TabId | null {
     return "home";
   }
 
-  if (value === "certificates" || value === "settings") {
+  if (value === "certificates") {
+    return "certificates";
+  }
+
+  if (value === "settings") {
     return "settings";
   }
 
@@ -678,6 +682,7 @@ function resolveWorkspaceTab(
   if (
     requestedTab === "home" ||
     requestedTab === "customers" ||
+    requestedTab === "certificates" ||
     requestedTab === "settings" ||
     requestedTab === "onboarding"
   ) {
@@ -3012,7 +3017,7 @@ export function App() {
   }, [activeTab, customerRenewalAssistant]);
 
   useEffect(() => {
-    if (activeTab !== "settings") {
+    if (activeTab !== "settings" && activeTab !== "certificates") {
       customerRenewalAutoLoadedRef.current = false;
       customerRenewalAutoLoadedOrganizationRef.current = null;
       return;
@@ -3056,7 +3061,10 @@ export function App() {
   }, [activeTab, customerRenewalAssistant, data?.auth.activeOrganizationId, data?.auth.activeOrganizationRole]);
 
   useEffect(() => {
-    if (activeTab !== "settings" || activeSettingsSection !== "helper") {
+    const shouldRefreshHelperSummary =
+      activeTab === "certificates" || (activeTab === "settings" && activeSettingsSection === "helper");
+
+    if (!shouldRefreshHelperSummary) {
       return;
     }
 
@@ -6547,6 +6555,9 @@ export function App() {
     setActiveSettingsSection(section);
     setActiveTab("settings");
   };
+  const openCertificates = () => {
+    setActiveTab("certificates");
+  };
   const workPriorityCards = [
     ...(unmatchedMessages.length > 0
       ? [
@@ -6572,9 +6583,9 @@ export function App() {
             count: certAttentionCount,
             description: expiredCertCustomers.length > 0 ? "만료 고객부터 먼저 확인하세요." : "만료 전 점검이 필요합니다.",
             tone: expiredCertCustomers.length > 0 ? ("danger" as const) : ("warn" as const),
-            actionLabel: "설정에서 확인",
+            actionLabel: "인증서에서 확인",
             onAction: () => {
-              openSettingsSection("helper");
+              openCertificates();
             }
           }
         ]
@@ -6620,7 +6631,7 @@ export function App() {
     {
       id: "helper",
       step: 3,
-      title: "인증서 / 헬퍼",
+      title: "헬퍼 상태",
       done: helperReady,
       summary: helperReady
         ? `준비됨 · ${customerRenewalAssistantAllCertificates.length}건 읽음`
@@ -7423,8 +7434,7 @@ export function App() {
               }
 
               if (onboardingIssueSetupPendingCount > 0) {
-                setActiveSettingsSection("helper");
-                setActiveTab("settings");
+                openCertificates();
                 return;
               }
 
@@ -7463,7 +7473,7 @@ export function App() {
       <details className="settings-advanced-panel">
         <summary>인증서 관리 화면은 필요할 때만 열기</summary>
         <div className="button-row">
-          <button type="button" className="btn-secondary" onClick={() => { setActiveSettingsSection("helper"); setActiveTab("settings"); }}>
+          <button type="button" className="btn-secondary" onClick={openCertificates}>
             인증서 관리 열기
           </button>
         </div>
@@ -7807,6 +7817,7 @@ export function App() {
       ? [
           { id: "home" as const, label: "홈", icon: "dashboard" },
           { id: "customers" as const, label: "고객", icon: "group" },
+          { id: "certificates" as const, label: "인증서", icon: "settings" },
           { id: "settings" as const, label: "설정", icon: "settings" },
           ...(showOnboardingNavItem ? [{ id: "onboarding" as const, label: "도입 준비", icon: "dashboard" }] : [])
         ]
@@ -7931,6 +7942,9 @@ export function App() {
         ? "아직 발행 결과가 없습니다. 메일 동기화와 초안 확인을 마치면 여기에 쌓입니다."
         : "아직 발행 완료 이력이 없습니다.";
   const nextSettingsSection = settingsSections.find((section) => !section.done)?.id ?? "account";
+  const certificateUnlinkedCount = customerCertificateItems.filter((item) => item.linkedCustomerId === null).length;
+  const certificatePaymentReadyCount = customerCertificateItems.filter((item) => item.canOpenPayment).length;
+  const certificateActionNeededCount = customerCertificateItems.filter((item) => item.statusTone === "warn" || item.statusTone === "danger").length;
   const homePrimaryActionLabel =
     reviewDrafts.length > 0
       ? `초안 ${reviewDrafts.length}건 확인`
@@ -7964,7 +7978,7 @@ export function App() {
           : firstPendingOnboardingStep?.id === "defaults"
             ? "발행 설정 열기"
             : firstPendingOnboardingStep?.id === "helper"
-              ? "인증서 / 헬퍼 열기"
+              ? "헬퍼 상태 열기"
               : firstPendingOnboardingStep?.primaryActionLabel ?? "도입 준비 보기",
       onPrimaryAction: () => {
         if (firstPendingOnboardingStep?.id === "mail") {
@@ -8027,6 +8041,24 @@ export function App() {
         { label: "연결 마무리", value: `${popbillPendingCustomers.length}명`, tone: popbillPendingCustomers.length > 0 ? "warn" : "success" }
       ]
     },
+    certificates: {
+      title: certificateActionNeededCount > 0 ? "인증서 조치 필요" : "인증서 상태 확인",
+      primaryActionLabel: helperReady ? "인증서 불러오기" : "헬퍼 상태 확인",
+      onPrimaryAction: () => {
+        if (helperReady) {
+          void runAction("customer-renewal-bridge-probe", loadCustomerRenewalCertificates, { reload: false });
+          return;
+        }
+
+        void runAction("refresh-customer-renewal-helper", refreshCustomerRenewalAssistant, { reload: false });
+      },
+      chips: [
+        { label: "읽은 인증서", value: `${customerRenewalAssistantAllCertificates.length}건`, tone: customerRenewalAssistantAllCertificates.length > 0 ? "default" : "warn" },
+        { label: "조치 필요", value: `${certificateActionNeededCount}건`, tone: certificateActionNeededCount > 0 ? "warn" : "success" },
+        { label: "미연결", value: `${certificateUnlinkedCount}건`, tone: certificateUnlinkedCount > 0 ? "warn" : "success" },
+        { label: "결제 가능", value: `${certificatePaymentReadyCount}건`, tone: certificatePaymentReadyCount > 0 ? "success" : "default" }
+      ]
+    },
     settings: {
       title: setupPendingCount > 0 ? "준비 상태 점검" : "설정 준비 완료",
       primaryActionLabel:
@@ -8035,7 +8067,7 @@ export function App() {
           : nextSettingsSection === "popbill"
             ? "발행 설정"
             : nextSettingsSection === "helper"
-              ? "인증서 / 헬퍼"
+              ? "헬퍼 상태"
               : "계정 / 작업공간",
       onPrimaryAction: () => setActiveSettingsSection(nextSettingsSection),
       chips: [
@@ -8072,8 +8104,8 @@ export function App() {
   });
   const activeScreenBar = screenActionBar[visibleActiveTab];
   const activeNavLabel = navItems.find((item) => item.id === visibleActiveTab)?.label ?? "AUTO-TAX";
-  const showHomeSyncButton = hasActiveWorkspace && visibleActiveTab === "home";
-  const showScreenPrimaryAction = visibleActiveTab !== "onboarding";
+  const showHomeSyncButton = false;
+  const showScreenPrimaryAction = visibleActiveTab === "ops" || visibleActiveTab === "certificates";
   const showActionBarActions = showHomeSyncButton || showScreenPrimaryAction;
   const workspaceBadgeText = (activeWorkspaceName || "AUTO-TAX").replace(/\s+/g, "").slice(0, 2).toUpperCase() || "AT";
   const sidebarToggleLabel = sidebarCollapsed ? "사이드바 펼치기" : "사이드바 숨기기";
@@ -8205,6 +8237,8 @@ export function App() {
               ? "content content-home"
               : visibleActiveTab === "customers"
                 ? "content content-customers"
+                : visibleActiveTab === "certificates"
+                  ? "content content-certificates"
                 : visibleActiveTab === "settings"
                   ? "content content-settings"
                   : visibleActiveTab === "ops"
@@ -8612,101 +8646,102 @@ export function App() {
         ) : null}
 
         {visibleActiveTab === "settings" ? (
-          <div className="settings-screen">
-            <SettingsTab
-              settingsSections={settingsSections}
-              activeSettingsSection={activeSettingsSection}
-              setupPendingCount={setupPendingCount}
-              settingsAutosaveState={settingsAutosaveState}
-              settingsAutosaveLabel={settingsAutosaveLabel}
-              customerRegistrationReady={customerRegistrationReady}
-              customerCount={data.customers.length}
-              onboardingComplete={onboardingComplete}
-              onboardingProgressText={onboardingHeroProgressText}
-              onboardingPendingStepCount={onboardingPendingStepCount}
-              showCompletedOnboardingNav={showCompletedOnboardingNav}
-              onShowCompletedOnboardingNavChange={(nextValue) =>
-                setOnboardingNavPreference({
-                  organizationId: activeOrganizationId,
-                  showCompletedOnboardingNav: nextValue
-                })
-              }
-              openOnboarding={reopenOnboarding}
-              busyKey={busyKey}
-              isMailTesting={isMailTesting}
-              settingsHealth={settingsHealth}
-              settingsForm={settingsForm}
-              detectedMailProviderLabel={detectedMailProviderLabel}
-              revealedFields={revealedFields}
-              mailPasswordConfigured={data.settings.mailPasswordConfigured}
-              popbillSharedPasswordConfigured={data.settings.popbillSharedPasswordConfigured}
-              renewalCertificatePasswordConfigured={data.settings.renewalCertificatePasswordConfigured}
-              renewalIssuePasswordConfigured={data.settings.renewalIssuePasswordConfigured}
-              customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
-              customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
-              customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
-              customerRenewalAssistantUpgradeState={customerRenewalAssistant?.upgradeState ?? "unknown"}
-              customerRenewalAssistantUpgradeMessage={customerRenewalAssistant?.upgradeMessage ?? null}
-              customerRenewalAssistantLatestVersion={customerRenewalAssistant?.latestVersion ?? null}
-              customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
-              customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
-              customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
-              renewalHelperDownloadUrl={renewalHelperDownloadUrl}
-              canManageOrganizationMembers={canManageOrganizationMembers}
-              organizationMembers={organizationMembers}
-              currentUserId={data.auth.userId}
-              passwordResetTarget={passwordResetTarget}
-              passwordChangeForm={passwordChangeForm}
-              passwordResetForm={passwordResetForm}
-              organizationMemberForm={organizationMemberForm}
-              setActiveSettingsSection={setActiveSettingsSection}
-              setSettingsForm={setSettingsForm}
-              setPasswordChangeForm={setPasswordChangeForm}
-              setPasswordResetForm={setPasswordResetForm}
-              setOrganizationMemberForm={setOrganizationMemberForm}
-              onMailAddressChange={handleSettingsMailAddressChange}
-              onRenewalIssuePasswordChange={handleSettingsRenewalIssuePasswordChange}
-              toggleRevealField={toggleRevealField}
-              refreshAllCertificateStatuses={refreshAllCertificateStatuses}
-              testMailSettings={testMailSettings}
-              loadCurrentPopbillSharedPassword={loadCurrentPopbillSharedPassword}
-              loadCurrentRenewalCertificatePassword={loadCurrentRenewalCertificatePassword}
-              loadCurrentRenewalIssuePassword={loadCurrentRenewalIssuePassword}
-              refreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
-              changePassword={changePassword}
-              createOrganizationMember={createOrganizationMember}
-              openMemberPasswordReset={openMemberPasswordReset}
-              removeOrganizationMember={removeOrganizationMember}
-              submitPasswordReset={submitPasswordReset}
-              cancelPasswordReset={cancelPasswordReset}
-              runAction={runAction}
-              getWorkspaceMemberRoleLabel={getWorkspaceMemberRoleLabel}
-              formatDateTime={formatDateTime}
-            />
-            <CertificatesTab
-              customers={data.customers}
-              busyKey={busyKey}
-              canUseCustomerRenewalAssistant={canUseCustomerRenewalAssistant}
-              customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
-              customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
-              customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
-              customerRenewalAssistantUpgradeState={customerRenewalAssistant?.upgradeState ?? "unknown"}
-              customerRenewalAssistantUpgradeMessage={customerRenewalAssistant?.upgradeMessage ?? null}
-              customerRenewalAssistantLatestVersion={customerRenewalAssistant?.latestVersion ?? null}
-              customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
-              renewalHelperDownloadUrl={renewalHelperDownloadUrl}
-              customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
-              certificateItems={customerCertificateItems}
-              onRefreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
-              onLoadCustomerRenewalCertificates={loadCustomerRenewalCertificates}
-              onLinkCustomerCertificate={linkLocalCertificateToCustomer}
-              onUnlinkCustomerCertificate={unlinkCustomerCertificate}
-              onPrepareCustomerCertificateRenewal={prepareLinkedCustomerCertificateRenewal}
-              onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
-              runAction={runAction}
-              formatCertificateExpireDate={formatCertificateExpireDate}
-            />
-          </div>
+          <SettingsScreen
+            settingsSections={settingsSections}
+            activeSettingsSection={activeSettingsSection}
+            setupPendingCount={setupPendingCount}
+            settingsAutosaveState={settingsAutosaveState}
+            settingsAutosaveLabel={settingsAutosaveLabel}
+            customerRegistrationReady={customerRegistrationReady}
+            customerCount={data.customers.length}
+            onboardingComplete={onboardingComplete}
+            onboardingProgressText={onboardingHeroProgressText}
+            onboardingPendingStepCount={onboardingPendingStepCount}
+            showCompletedOnboardingNav={showCompletedOnboardingNav}
+            onShowCompletedOnboardingNavChange={(nextValue) =>
+              setOnboardingNavPreference({
+                organizationId: activeOrganizationId,
+                showCompletedOnboardingNav: nextValue
+              })
+            }
+            openOnboarding={reopenOnboarding}
+            busyKey={busyKey}
+            isMailTesting={isMailTesting}
+            settingsHealth={settingsHealth}
+            settingsForm={settingsForm}
+            detectedMailProviderLabel={detectedMailProviderLabel}
+            revealedFields={revealedFields}
+            mailPasswordConfigured={data.settings.mailPasswordConfigured}
+            popbillSharedPasswordConfigured={data.settings.popbillSharedPasswordConfigured}
+            renewalCertificatePasswordConfigured={data.settings.renewalCertificatePasswordConfigured}
+            renewalIssuePasswordConfigured={data.settings.renewalIssuePasswordConfigured}
+            customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
+            customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
+            customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
+            customerRenewalAssistantUpgradeState={customerRenewalAssistant?.upgradeState ?? "unknown"}
+            customerRenewalAssistantUpgradeMessage={customerRenewalAssistant?.upgradeMessage ?? null}
+            customerRenewalAssistantLatestVersion={customerRenewalAssistant?.latestVersion ?? null}
+            customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
+            customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
+            customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
+            renewalHelperDownloadUrl={renewalHelperDownloadUrl}
+            canManageOrganizationMembers={canManageOrganizationMembers}
+            organizationMembers={organizationMembers}
+            currentUserId={data.auth.userId}
+            passwordResetTarget={passwordResetTarget}
+            passwordChangeForm={passwordChangeForm}
+            passwordResetForm={passwordResetForm}
+            organizationMemberForm={organizationMemberForm}
+            setActiveSettingsSection={setActiveSettingsSection}
+            setSettingsForm={setSettingsForm}
+            setPasswordChangeForm={setPasswordChangeForm}
+            setPasswordResetForm={setPasswordResetForm}
+            setOrganizationMemberForm={setOrganizationMemberForm}
+            onMailAddressChange={handleSettingsMailAddressChange}
+            onRenewalIssuePasswordChange={handleSettingsRenewalIssuePasswordChange}
+            toggleRevealField={toggleRevealField}
+            testMailSettings={testMailSettings}
+            loadCurrentPopbillSharedPassword={loadCurrentPopbillSharedPassword}
+            loadCurrentRenewalCertificatePassword={loadCurrentRenewalCertificatePassword}
+            loadCurrentRenewalIssuePassword={loadCurrentRenewalIssuePassword}
+            refreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
+            openCertificates={openCertificates}
+            changePassword={changePassword}
+            createOrganizationMember={createOrganizationMember}
+            openMemberPasswordReset={openMemberPasswordReset}
+            removeOrganizationMember={removeOrganizationMember}
+            submitPasswordReset={submitPasswordReset}
+            cancelPasswordReset={cancelPasswordReset}
+            runAction={runAction}
+            getWorkspaceMemberRoleLabel={getWorkspaceMemberRoleLabel}
+            formatDateTime={formatDateTime}
+          />
+        ) : null}
+
+        {visibleActiveTab === "certificates" ? (
+          <CertificatesScreen
+            customers={data.customers}
+            busyKey={busyKey}
+            canUseCustomerRenewalAssistant={canUseCustomerRenewalAssistant}
+            customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
+            customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
+            customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
+            customerRenewalAssistantUpgradeState={customerRenewalAssistant?.upgradeState ?? "unknown"}
+            customerRenewalAssistantUpgradeMessage={customerRenewalAssistant?.upgradeMessage ?? null}
+            customerRenewalAssistantLatestVersion={customerRenewalAssistant?.latestVersion ?? null}
+            customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
+            renewalHelperDownloadUrl={renewalHelperDownloadUrl}
+            customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
+            certificateItems={customerCertificateItems}
+            onRefreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
+            onLoadCustomerRenewalCertificates={loadCustomerRenewalCertificates}
+            onLinkCustomerCertificate={linkLocalCertificateToCustomer}
+            onUnlinkCustomerCertificate={unlinkCustomerCertificate}
+            onPrepareCustomerCertificateRenewal={prepareLinkedCustomerCertificateRenewal}
+            onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
+            runAction={runAction}
+            formatCertificateExpireDate={formatCertificateExpireDate}
+          />
         ) : null}
 
         {visibleActiveTab === "ops" ? (
