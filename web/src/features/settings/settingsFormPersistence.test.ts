@@ -92,6 +92,8 @@ test("buildSettingsPayload normalizes provider fields and numeric secret input",
   assert.equal(normalized.mailProvider, "naver");
   assert.equal(normalized.imapHost, "imap.naver.com");
   assert.equal(normalized.smtpHost, "smtp.naver.com");
+  assert.equal(payload.smtpFromName, "AUTO-TAX");
+  assert.equal(payload.mailSyncStartAt, null);
   assert.deepEqual(payload.notificationEmails, ["a@example.com", "b@example.com"]);
   assert.equal(payload.renewalIssuePassword, "12345");
 });
@@ -99,11 +101,13 @@ test("buildSettingsPayload normalizes provider fields and numeric secret input",
 test("buildMailSettingsSavePayload preserves saved defaults during connection test", () => {
   const savedSettings = createSettings({
     popbillUserIdPrefix: "HAE_",
+    smtpFromName: "세금계산서봇",
     operatorContactName: "홍길동",
     operatorContactEmail: "owner@example.com",
     operatorContactTel: "01012345678",
     renewalContactDepartment: "세무",
-    renewalContactFax: "0212345678"
+    renewalContactFax: "0212345678",
+    mailSyncStartAt: "2026-04-16T00:00:00.000Z"
   });
   const form = {
     ...settingsToForm(savedSettings),
@@ -119,6 +123,8 @@ test("buildMailSettingsSavePayload preserves saved defaults during connection te
   const { payload } = buildMailSettingsSavePayload(form, savedSettings);
 
   assert.equal(payload.popbillUserIdPrefix, "HAE_");
+  assert.equal(payload.smtpFromName, "세금계산서봇");
+  assert.equal(payload.mailSyncStartAt, "2026-04-16T00:00:00.000Z");
   assert.equal(payload.popbillSharedPassword, "");
   assert.equal(payload.operatorContactName, "홍길동");
   assert.equal(payload.operatorContactEmail, "owner@example.com");

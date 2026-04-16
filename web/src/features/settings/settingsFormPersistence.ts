@@ -178,6 +178,7 @@ export function buildSettingsPayload(form: SettingsFormState) {
       smtpSecure: normalized.smtpSecure,
       smtpUser: normalized.mailAddress.trim(),
       smtpPass: normalized.mailPassword.trim(),
+      smtpFromName: "AUTO-TAX",
       smtpFromEmail: normalized.mailAddress.trim(),
       notificationEmails: normalized.notificationEmailsText
         .split(/\r?\n/)
@@ -187,6 +188,7 @@ export function buildSettingsPayload(form: SettingsFormState) {
       defaultIssueHour: Number(normalized.defaultIssueHour || 0),
       defaultIssueMinute: Number(normalized.defaultIssueMinute || 0),
       mailPollMinutes: Number(normalized.mailPollMinutes || 0),
+      mailSyncStartAt: normalized.mailSyncStartAt.trim() || null,
       timezone: normalized.timezone.trim(),
       popbillUserIdPrefix: normalized.popbillUserIdPrefix.trim(),
       popbillSharedPassword: normalized.popbillSharedPassword.trim(),
@@ -215,6 +217,8 @@ export function buildMailSettingsSavePayload(
     normalized,
     payload: {
       ...payload,
+      smtpFromName: savedSettings.smtpFromName,
+      mailSyncStartAt: savedSettings.mailSyncStartAt,
       popbillUserIdPrefix: savedSettings.popbillUserIdPrefix,
       popbillSharedPassword: "",
       operatorContactName: savedSettings.operatorContactName,
