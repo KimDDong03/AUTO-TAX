@@ -1,0 +1,6 @@
+{
+  "last_turn_at": "2026-04-15T10:57:19.484Z",
+  "last_progress_at": "2026-04-15T10:57:19.484Z",
+  "turn_count": 7,
+  "last_agent_output": "고쳤어요.\n\n원인\n- 로컬만 실패한 이유는 브라우저가 `:5174` 같은 Vite dev 포트 기준으로 `POST /api/public/login`을 보내고 있었기 때문입니다.\n-"
+}

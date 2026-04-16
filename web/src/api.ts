@@ -1,4 +1,5 @@
 import { getSessionSafely } from "./supabase";
+import { resolveApiUrl } from "./api-url";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "auto-tax.active-organization-id";
 
@@ -63,10 +64,18 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
     headers.set("X-Organization-Id", activeOrganizationId);
   }
 
-  const response = await fetch(url, {
-    ...init,
-    headers
-  });
+  const response = await fetch(
+    resolveApiUrl(url, {
+      explicitBaseUrl: import.meta.env.VITE_API_BASE_URL,
+      isDev: import.meta.env.DEV,
+      locationProtocol: typeof window !== "undefined" ? window.location.protocol : null,
+      locationHostname: typeof window !== "undefined" ? window.location.hostname : null
+    }),
+    {
+      ...init,
+      headers
+    }
+  );
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({ error: "요청 실패" }))) as {

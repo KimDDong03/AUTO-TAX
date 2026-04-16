@@ -4579,6 +4579,14 @@ export function App() {
   };
 
   const openDraftPopbillUrl = async (draftId: number, type: "view-url" | "print-url") => {
+    if (type === "view-url") {
+      void api(`/api/drafts/${draftId}/pilot-preview-opened`, {
+        method: "POST"
+      }).catch((error) => {
+        console.warn("draft-preview-opened 계측 기록에 실패했습니다.", error);
+      });
+    }
+
     const result = await api<{ url: string }>(`/api/drafts/${draftId}/popbill/${type}`);
     window.open(result.url, "_blank", "noopener,noreferrer");
   };

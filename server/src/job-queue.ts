@@ -3,6 +3,7 @@ import { issueDraftNow } from "./automation.js";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
 import { syncMailbox } from "./mail-sync.js";
 import { sendNotification } from "./notifier.js";
+import { buildPilotLogContext } from "./pilot-issuance.js";
 import { getServerManagedSettings } from "./server-managed-settings.js";
 import { runCustomerOnboardingCommitBatch } from "./services/customer-onboarding-batch-service.js";
 import { createSupabaseAdminClient } from "./supabase.js";
@@ -704,10 +705,36 @@ async function executeAutoIssueJob(job: QueueJob): Promise<Record<string, unknow
     };
   }
 
+  const autoIssueContext = {
+    draftId: payload.draftId,
+    customerId: claimedDraft.customerId,
+    issueMode: claimedDraft.issueMode,
+    jobId: job.id,
+    jobType: job.jobType
+  };
+  await store.createLog(
+    "info",
+    "job-runner",
+    "자동 발행 실행이 시작되었습니다.",
+    buildPilotLogContext(autoIssueContext, {
+      eventType: "auto-issue-started"
+    })
+  );
+
   const customer = await store.getCustomer(claimedDraft.customerId);
   if (!customer) {
     const message = `자동 발행 대상 고객을 찾지 못했습니다. draftId=${payload.draftId}`;
     await store.updateDraftStatus(payload.draftId, "failed", message);
+    await store.createLog(
+      "error",
+      "job-runner",
+      "자동 발행 큐 작업이 실패했습니다.",
+      buildPilotLogContext(autoIssueContext, {
+        eventType: "auto-issue-failed",
+        errorCategory: "auto-issue",
+        error: message
+      })
+    );
     await sendNotification(
       await store.getSettings(),
       "[AUTO-TAX] 자동 발행 실패",
@@ -718,10 +745,14 @@ async function executeAutoIssueJob(job: QueueJob): Promise<Record<string, unknow
 
   try {
     const issuedDraft = await issueDraftNow(store, await getServerManagedSettings(store), customer, claimedDraft);
-    await store.createLog("info", "job-runner", "자동 발행 큐 작업을 완료했습니다.", {
-      draftId: payload.draftId,
-      customerId: customer.id
-    });
+    await store.createLog(
+      "info",
+      "job-runner",
+      "자동 발행 큐 작업을 완료했습니다.",
+      buildPilotLogContext(autoIssueContext, {
+        eventType: "auto-issue-succeeded"
+      })
+    );
 
     return {
       skipped: false,
@@ -732,11 +763,16 @@ async function executeAutoIssueJob(job: QueueJob): Promise<Record<string, unknow
   } catch (error) {
     const message = error instanceof Error ? error.message : "자동 발행 실패";
     await store.updateDraftStatus(payload.draftId, "failed", message);
-    await store.createLog("error", "job-runner", "자동 발행 큐 작업이 실패했습니다.", {
-      draftId: payload.draftId,
-      customerId: customer.id,
-      error: message
-    });
+    await store.createLog(
+      "error",
+      "job-runner",
+      "자동 발행 큐 작업이 실패했습니다.",
+      buildPilotLogContext(autoIssueContext, {
+        eventType: "auto-issue-failed",
+        errorCategory: "auto-issue",
+        error: message
+      })
+    );
     await sendNotification(
       await store.getSettings(),
       "[AUTO-TAX] 자동 발행 실패",

@@ -131,5 +131,12 @@ test("refreshAllCertificateStatuses keeps summary semantics without reloading cu
   assert.match(notificationBodies[0] ?? "", /30일 이내 만료 예정 고객 1건/);
   assert.equal(logs.length, 2);
   assert.equal(logs[0]?.level, "error");
+  assert.deepEqual(logs[0]?.context, {
+    customerId: 2,
+    customerName: "임박 고객",
+    error: "인증서 조회 실패",
+    errorCategory: "external-api",
+    errorOperation: "cert-expire-date"
+  });
   assert.equal(logs[1]?.level, "info");
 });

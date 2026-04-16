@@ -1,6 +1,7 @@
 import type { Express, Response } from "express";
 import { z } from "zod";
 import { HttpError } from "../http-errors.js";
+import { buildPilotLogContext } from "../pilot-issuance.js";
 import { RenewalAutomationManager } from "../renewal-automation.js";
 import { createSupabaseAdminClient } from "../supabase.js";
 import { SupabaseStore } from "../supabase-store.js";
@@ -148,6 +149,16 @@ function selectLatestRequesterCertificates(
   );
 
   return latestCompletedBridgeProbe?.result?.bridge.storageProbe.certificates ?? [];
+}
+
+function buildRenewalAgentFailureContext(
+  baseContext: Record<string, unknown>,
+  additions: Record<string, unknown> = {}
+) {
+  return buildPilotLogContext(baseContext, {
+    errorCategory: "certificate/local-helper",
+    ...additions
+  });
 }
 
 export function registerRenewalRoutes(deps: RouteDeps) {
@@ -353,18 +364,30 @@ export function registerRenewalRoutes(deps: RouteDeps) {
           });
           autoQueuedPreflightJobId = autoJob.id;
         } else if (store) {
-          await store.createLog("warn", "renewal-agent", "인증서 등록 후 자동 분석용 공동인증서를 자동 매칭하지 못했습니다.", {
-            jobId: job.id,
-            customerId: job.customerId
-          });
+          await store.createLog(
+            "warn",
+            "renewal-agent",
+            "인증서 등록 후 자동 분석용 공동인증서를 자동 매칭하지 못했습니다.",
+            buildRenewalAgentFailureContext({
+              jobId: job.id,
+              jobType: job.type,
+              customerId: job.customerId
+            })
+          );
         }
       } catch (error) {
         if (store) {
-          await store.createLog("warn", "renewal-agent", "인증서 등록 후 자동 분석 작업 준비에 실패했습니다.", {
-            jobId: job.id,
-            customerId: job.customerId,
-            error: error instanceof Error ? error.message : "원인 미상"
-          });
+          await store.createLog(
+            "warn",
+            "renewal-agent",
+            "인증서 등록 후 자동 분석 작업 준비에 실패했습니다.",
+            buildRenewalAgentFailureContext({
+              jobId: job.id,
+              jobType: job.type,
+              customerId: job.customerId,
+              error: error instanceof Error ? error.message : "원인 미상"
+            })
+          );
         }
       }
     }
@@ -374,11 +397,17 @@ export function registerRenewalRoutes(deps: RouteDeps) {
         taxProfileSync = await syncCustomerTaxProfileFromPreflight(job.customerId, payload.result);
       } catch (error) {
         if (store) {
-          await store.createLog("warn", "renewal-agent", "인증서 분석 업태/업종 자동 반영에 실패했습니다.", {
-            jobId: job.id,
-            customerId: job.customerId,
-            error: error instanceof Error ? error.message : "원인 미상"
-          });
+          await store.createLog(
+            "warn",
+            "renewal-agent",
+            "인증서 분석 업태/업종 자동 반영에 실패했습니다.",
+            buildRenewalAgentFailureContext({
+              jobId: job.id,
+              jobType: job.type,
+              customerId: job.customerId,
+              error: error instanceof Error ? error.message : "원인 미상"
+            })
+          );
         }
       }
     }
@@ -421,12 +450,12 @@ export function registerRenewalRoutes(deps: RouteDeps) {
           : job.type === "renewal-preflight"
             ? "로컬 인증서 갱신 경로 분석 작업이 실패했습니다."
             : "로컬 인증서 목록 진단 작업이 실패했습니다.",
-        {
+        buildRenewalAgentFailureContext({
           jobId: job.id,
-          type: job.type,
+          jobType: job.type,
           claimedBy: job.claimedBy,
           error: job.error
-        }
+        })
       );
     }
 

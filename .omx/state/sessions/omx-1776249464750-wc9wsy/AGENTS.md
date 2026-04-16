@@ -543,14 +543,14 @@ When changing renewal helper behavior:
 
 <!-- OMX:RUNTIME:START -->
 <session_context>
-**Session:** omx-1776205581563-ady630 | 2026-04-14T22:26:21.799Z
+**Session:** omx-1776249464750-wc9wsy | 2026-04-15T10:37:45.165Z
 
 **Codebase Map:**
-  scripts/: build-renewal-local-helper-package, e2e-smoke, fix-popbill-package, popbill-cert-registration, renewal-agent, renewal-local-helper, signgate-fee-payment
+  scripts/: build-renewal-local-helper-package, e2e-smoke, fix-popbill-package, popbill-cert-registration, public-access-portal-smoke, renewal-agent, renewal-local-helper, signgate-fee-payment
   api/: index
   server/: address-resolver, admin-types, api-access, app-shell, auth-user-service, auth-utils.test, auth-utils, automation, bootstrap-routes.test, certificate-monitor.test
   supabase/: index
-  web/: App, api, ui, CertificatesTab, CustomersTab, InitialRegistrationTab, customer-onboarding-workbook, OnboardingTab, SettingsTab, local-renewal-helper
+  web/: App, api, ui, CertificatesScreen, CertificatesTab, useCertificatesScreenModel, CustomersTab, InitialRegistrationTab, customer-onboarding-workbook, OnboardingTab
 
 **Explore Command Preference:** enabled via `USE_OMX_EXPLORE_CMD` (default-on; opt out with `0`, `false`, `no`, or `off`)
 - Advisory steering only: agents SHOULD treat `omx explore` as the default first stop for direct inspection and SHOULD reserve `omx sparkshell` for qualifying read-only shell-native tasks.

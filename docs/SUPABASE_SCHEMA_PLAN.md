@@ -279,6 +279,7 @@ Important fields:
 Important invariant:
 
 - `popbill_environment` protects against cross-environment misuse of older drafts
+- Phase 1 pilot instrumentation does not add a new draft table; it links draft lifecycle metrics through `app_logs.context_json.draftId`
 
 ### organization_completed_billing_months
 
@@ -298,6 +299,31 @@ Important fields:
 - `scope`
 - `message`
 - `context_json`
+
+Phase 1 pilot issuance reporting reuses `app_logs` instead of adding a new metrics table.
+The server now expects `context_json` to carry aggregatable fields when relevant:
+
+- `eventType`
+- `draftId`
+- `customerId`
+- `issueMode`
+- `errorCategory`
+- `draftSource`
+- `pipeline`
+- `previewSource`
+- `status`
+- `errorCode`
+- `errorOperation`
+- `syncStage`
+- `reprocessStage`
+- `retryReason`
+
+Important invariant:
+
+- workspace/organization scoping stays authoritative in the `organization_id` column
+- draft timeline reconstruction and pilot rate calculations read `organization_id` + `context_json.*` together
+- no Phase 1 schema migration was added; the reporting layer is app-level over existing `app_logs`
+- `draft-preview-opened` is now sourced from the explicit web UI preview-click log (`POST /api/drafts/:id/pilot-preview-opened`), not the older backend `view-url` approximation
 
 ### job_queue
 
@@ -389,3 +415,4 @@ These exist for compatibility with older code paths and client-side assumptions.
 - product UX and DB role matrix are not fully aligned
 - some integration columns still exist for compatibility but are no longer the main runtime source
 - renewal automation persistence exists outside `job_queue`, so debugging requires checking two systems
+- pilot reporting currently depends on consistent `app_logs.context_json` keys rather than dedicated materialized metrics tables

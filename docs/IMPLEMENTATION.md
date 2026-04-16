@@ -179,11 +179,53 @@ Main files:
 3. Draft routes call Popbill client
 4. Draft stores environment and Popbill result
 
+Phase 1 pilot instrumentation lives alongside this flow:
+
+- `server/src/mail-sync.ts`
+  - writes `draft-created`
+  - writes `auto-issue-scheduled` when a matched `auto` customer draft is created as `scheduled`
+  - writes structured `errorCategory` values for `parse`, `customer-match`, `draft-create`
+- `server/src/mail-reprocess.ts`
+  - writes structured `errorCategory` values for `parse`, `customer-match`, `draft-create`, `mail-sync` on the reprocess path
+  - writes `draft-created` with `draftSource: "mail-reprocess"` when unmatched mail is successfully reprocessed into a draft
+- `server/src/routes/draft-routes.ts`
+  - writes `manual-issue-clicked`, `manual-issue-succeeded`, `manual-issue-failed`
+  - writes `draft-preview-opened` when the web UI explicitly POSTs `/api/drafts/:id/pilot-preview-opened`
+  - exposes `GET /api/drafts/pilot-report` and `GET /api/drafts/:id/pilot-timeline`
+- `server/src/job-queue.ts`
+  - writes `auto-issue-started`, `auto-issue-succeeded`, `auto-issue-failed`
+- `server/src/pilot-issuance.ts`
+  - normalizes `app_logs.context_json`
+  - infers/falls back to the Phase 1 error taxonomy where older logs do not have explicit buckets
+  - calculates the pilot report metrics on the server side
+- `server/src/api-access.ts`, `server/src/routes/renewal-routes.ts`, `server/src/certificate-monitor.ts`, `server/src/main.ts`
+  - now write explicit `errorCategory` values for `auth/session`, `certificate/local-helper`, `external-api`
+- `server/src/services/popbill-customer-service.ts`
+  - now writes explicit `external-api` + `errorOperation` context for Popbill auto-join retry/failure paths
+
+Structured pilot log context uses `app_logs.organization_id` plus `context_json` keys such as:
+
+- `eventType`
+- `draftId`
+- `customerId`
+- `issueMode`
+- `errorCategory`
+- `draftSource`
+- `pipeline`
+- `previewSource`
+- `status`
+- `errorCode`
+- `errorOperation`
+- `syncStage`
+- `reprocessStage`
+- `retryReason`
+
 Main files:
 
 - `server/src/routes/draft-routes.ts`
 - `server/src/services/draft-service.ts`
 - `server/src/popbill-client.ts`
+- `server/src/pilot-issuance.ts`
 
 ### E. Local certificate / renewal assistance
 
@@ -258,5 +300,22 @@ If you touch renewal flows:
 - `server/src/supabase-store.ts` remains large and central
 - role model in DB is broader than role model in product UX
 - renewal flow is partially automated but still operationally fragile
+
+## 9. Pilot report calculation notes
+
+Current Phase 1 pilot report shape is returned by `GET /api/drafts/pilot-report`.
+
+- `autoDraftCreationSuccessRate`
+  - `draft-created` from `mail-sync`
+  - divided by `draft-created + parse/customer-match/draft-create` exceptions from `mail-sync`
+- `finalIssueSuccessRate`
+  - `manual-issue-succeeded + auto-issue-succeeded`
+  - divided by all manual/auto final issuance successes + failures
+- `exceptionRate`
+  - `(mail-sync draft generation exceptions + final issuance failures)`
+  - divided by `(draft generation attempts + final issuance attempts)`
+
+`draft-preview-opened` is now recorded from the web UI's explicit preview button click via `POST /api/drafts/:id/pilot-preview-opened`.
+It is more precise than the earlier backend `view-url` approximation, but it still represents the user action, not a guaranteed Popbill DOM render completion signal.
 
 See `docs/IMPLEMENTATION_STATUS.md` for active backlog and risk ordering.

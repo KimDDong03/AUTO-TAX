@@ -3,6 +3,7 @@ import { simpleParser } from "mailparser";
 import type { AppSettings, InvoiceDraft } from "./domain.js";
 import { sendNotification } from "./notifier.js";
 import { parseKepcoMail } from "./parser.js";
+import { buildPilotLogContext } from "./pilot-issuance.js";
 import type { AppStore } from "./store-contract.js";
 
 export interface MailSyncResult {
@@ -58,10 +59,14 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
     }
   });
 
-  await client.connect();
+  let syncStage: "connect" | "mailbox-open" | "fetch-loop" | "checkpoint" = "connect";
+  let connected = false;
 
   try {
+    await client.connect();
+    connected = true;
     const syncMailboxName = settings.imapMailbox || "INBOX";
+    syncStage = "mailbox-open";
     const mailbox = await client.mailboxOpen(syncMailboxName);
     const lastSyncedUid = await store.getMailSyncCheckpoint(syncMailboxName);
     const useUidCheckpoint = lastSyncedUid !== null && lastSyncedUid > 0;
@@ -70,6 +75,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
     const fetchOptions = useUidCheckpoint ? { uid: true } : undefined;
     let maxSeenUid = lastSyncedUid ?? 0;
 
+    syncStage = "fetch-loop";
     for await (const message of client.fetch(fetchRange, {
       uid: true,
       envelope: true,
@@ -92,115 +98,15 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
         continue;
       }
 
-       const receivedAtIso = toIso(message.internalDate);
+      const receivedAtIso = toIso(message.internalDate);
 
       const sourceText = message.source.toString("utf8");
       const parsedMime = await simpleParser(message.source);
       const bodyText = parsedMime.text ?? parsedMime.html?.toString() ?? sourceText;
 
+      let parsedMail;
       try {
-        const parsedMail = parseKepcoMail(bodyText);
-        if (completedBillingMonthSet.has(parsedMail.billingMonth)) {
-          await store.saveInboxMessage({
-            messageUid,
-            mailbox: syncMailboxName,
-            fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
-            subject,
-            receivedAt: receivedAtIso,
-            rawSource: sourceText,
-            textBody: bodyText,
-            parseStatus: "ignored",
-            parseError: "초기 등록에서 완료 처리한 정산월입니다.",
-            parsedData: parsedMail
-          });
-          await store.createLog("info", "mail-sync", "완료 처리한 정산월 메일을 검토 대상에서 제외했습니다.", {
-            subject,
-            billingMonth: parsedMail.billingMonth
-          });
-          result.imported += 1;
-          continue;
-        }
-
-        const customer = await store.findCustomerByMatchAddress(parsedMail.plantAddress);
-        if (!customer) {
-          await store.saveInboxMessage({
-            messageUid,
-            mailbox: syncMailboxName,
-            fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
-            subject,
-            receivedAt: receivedAtIso,
-            rawSource: sourceText,
-            textBody: bodyText,
-            parseStatus: "unmatched",
-            parsedData: parsedMail
-          });
-          await store.createLog("warn", "mail-sync", "발전소 주소와 고객을 매칭하지 못했습니다.", {
-            subject,
-            plantName: parsedMail.plantName,
-            plantAddress: parsedMail.plantAddress
-          });
-          await sendNotification(
-            settings,
-            "[AUTO-TAX] 고객 매칭 실패",
-            `메일 제목: ${subject}\n발전소명: ${parsedMail.plantName}\n발전소 주소: ${parsedMail.plantAddress}\n고객 매칭에 실패하여 검수가 필요합니다.`
-          );
-          result.unmatched += 1;
-          continue;
-        }
-
-        const existingDraft = await store.findDraftByCustomerAndBillingMonth(customer.id, parsedMail.billingMonth);
-        if (existingDraft) {
-          await store.saveInboxMessage({
-            messageUid,
-            mailbox: syncMailboxName,
-            fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
-            subject,
-            receivedAt: receivedAtIso,
-            rawSource: sourceText,
-            textBody: bodyText,
-            parseStatus: "duplicate",
-            parseError: `이미 ${parsedMail.billingMonth} 건이 있습니다. 기존 상태: ${existingDraft.status}`,
-            parsedData: parsedMail,
-            customerId: customer.id,
-            draftId: existingDraft.id
-          });
-          await store.createLog("warn", "mail-sync", "같은 고객/정산월 메일이 다시 들어와 중복 의심으로 보관했습니다.", {
-            subject,
-            customerId: customer.id,
-            billingMonth: parsedMail.billingMonth,
-            existingDraftId: existingDraft.id,
-            existingDraftStatus: existingDraft.status
-          });
-          continue;
-        }
-
-        const inbox = await store.saveInboxMessage({
-          messageUid,
-          mailbox: syncMailboxName,
-          fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
-          subject,
-          receivedAt: receivedAtIso,
-          rawSource: sourceText,
-          textBody: bodyText,
-          parseStatus: "parsed",
-          parsedData: parsedMail,
-          customerId: customer.id
-        });
-
-        const shouldAutoSchedule = mode === "scheduled" && customer.issueMode === "auto";
-        const status: InvoiceDraft["status"] = shouldAutoSchedule ? "scheduled" : "review";
-        await store.createDraft({
-          customer,
-          sourceMessageId: inbox.id,
-          status,
-          scheduledFor: shouldAutoSchedule ? scheduledAt : null,
-          parsedMail
-        });
-        result.createdDrafts += 1;
-        if (shouldAutoSchedule) {
-          result.scheduledDrafts += 1;
-        }
-        result.imported += 1;
+        parsedMail = parseKepcoMail(bodyText);
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "파싱 실패";
         await store.saveInboxMessage({
@@ -214,21 +120,214 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
           parseStatus: "failed",
           parseError: messageText
         });
-        await store.createLog("error", "mail-sync", "메일 파싱에 실패했습니다.", { subject, error: messageText });
+        await store.createLog(
+          "error",
+          "mail-sync",
+          "메일 파싱에 실패했습니다.",
+          buildPilotLogContext(
+            {
+              subject,
+              error: messageText
+            },
+            {
+              pipeline: "mail-sync",
+              errorCategory: "parse",
+              messageUid
+            }
+          )
+        );
         await sendNotification(
           settings,
           "[AUTO-TAX] 메일 파싱 실패",
           `메일 제목: ${subject}\n오류: ${messageText}\n검수가 필요합니다.`
         );
         result.failures += 1;
+        continue;
       }
+
+      if (completedBillingMonthSet.has(parsedMail.billingMonth)) {
+        await store.saveInboxMessage({
+          messageUid,
+          mailbox: syncMailboxName,
+          fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
+          subject,
+          receivedAt: receivedAtIso,
+          rawSource: sourceText,
+          textBody: bodyText,
+          parseStatus: "ignored",
+          parseError: "초기 등록에서 완료 처리한 정산월입니다.",
+          parsedData: parsedMail
+        });
+        await store.createLog("info", "mail-sync", "완료 처리한 정산월 메일을 검토 대상에서 제외했습니다.", {
+          subject,
+          billingMonth: parsedMail.billingMonth
+        });
+        result.imported += 1;
+        continue;
+      }
+
+      const customer = await store.findCustomerByMatchAddress(parsedMail.plantAddress);
+      if (!customer) {
+        await store.saveInboxMessage({
+          messageUid,
+          mailbox: syncMailboxName,
+          fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
+          subject,
+          receivedAt: receivedAtIso,
+          rawSource: sourceText,
+          textBody: bodyText,
+          parseStatus: "unmatched",
+          parsedData: parsedMail
+        });
+        await store.createLog(
+          "warn",
+          "mail-sync",
+          "발전소 주소와 고객을 매칭하지 못했습니다.",
+          buildPilotLogContext(
+            {
+              subject,
+              plantName: parsedMail.plantName,
+              plantAddress: parsedMail.plantAddress
+            },
+            {
+              pipeline: "mail-sync",
+              errorCategory: "customer-match",
+              messageUid
+            }
+          )
+        );
+        await sendNotification(
+          settings,
+          "[AUTO-TAX] 고객 매칭 실패",
+          `메일 제목: ${subject}\n발전소명: ${parsedMail.plantName}\n발전소 주소: ${parsedMail.plantAddress}\n고객 매칭에 실패하여 검수가 필요합니다.`
+        );
+        result.unmatched += 1;
+        continue;
+      }
+
+      const existingDraft = await store.findDraftByCustomerAndBillingMonth(customer.id, parsedMail.billingMonth);
+      if (existingDraft) {
+        await store.saveInboxMessage({
+          messageUid,
+          mailbox: syncMailboxName,
+          fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
+          subject,
+          receivedAt: receivedAtIso,
+          rawSource: sourceText,
+          textBody: bodyText,
+          parseStatus: "duplicate",
+          parseError: `이미 ${parsedMail.billingMonth} 건이 있습니다. 기존 상태: ${existingDraft.status}`,
+          parsedData: parsedMail,
+          customerId: customer.id,
+          draftId: existingDraft.id
+        });
+        await store.createLog("warn", "mail-sync", "같은 고객/정산월 메일이 다시 들어와 중복 의심으로 보관했습니다.", {
+          subject,
+          customerId: customer.id,
+          billingMonth: parsedMail.billingMonth,
+          existingDraftId: existingDraft.id,
+          existingDraftStatus: existingDraft.status
+        });
+        continue;
+      }
+
+      const inbox = await store.saveInboxMessage({
+        messageUid,
+        mailbox: syncMailboxName,
+        fromAddress: parsedMail.originalFrom || parsedMime.from?.text || "",
+        subject,
+        receivedAt: receivedAtIso,
+        rawSource: sourceText,
+        textBody: bodyText,
+        parseStatus: "parsed",
+        parsedData: parsedMail,
+        customerId: customer.id
+      });
+
+      const shouldAutoSchedule = mode === "scheduled" && customer.issueMode === "auto";
+      const status: InvoiceDraft["status"] = shouldAutoSchedule ? "scheduled" : "review";
+
+      try {
+        await store.createDraft({
+          customer,
+          sourceMessageId: inbox.id,
+          status,
+          scheduledFor: shouldAutoSchedule ? scheduledAt : null,
+          parsedMail,
+          draftSource: "mail-sync"
+        });
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : "초안 생성 실패";
+        await store.updateInboxMatchResult({
+          messageId: inbox.id,
+          parseStatus: "failed",
+          parseError: messageText,
+          parsedMail,
+          customerId: customer.id,
+          draftId: null
+        });
+        await store.createLog(
+          "error",
+          "mail-sync",
+          "초안 생성에 실패했습니다.",
+          buildPilotLogContext(
+            {
+              subject,
+              customerId: customer.id,
+              issueMode: customer.issueMode,
+              billingMonth: parsedMail.billingMonth,
+              error: messageText
+            },
+            {
+              pipeline: "mail-sync",
+              errorCategory: "draft-create",
+              messageUid
+            }
+          )
+        );
+        await sendNotification(
+          settings,
+          "[AUTO-TAX] 초안 생성 실패",
+          `메일 제목: ${subject}\n고객: ${customer.customerName}\n오류: ${messageText}\n검수가 필요합니다.`
+        );
+        result.failures += 1;
+        continue;
+      }
+
+      result.createdDrafts += 1;
+      if (shouldAutoSchedule) {
+        result.scheduledDrafts += 1;
+      }
+      result.imported += 1;
     }
 
+    syncStage = "checkpoint";
     if (maxSeenUid > (lastSyncedUid ?? 0)) {
       await store.updateMailSyncCheckpoint(syncMailboxName, maxSeenUid);
     }
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : "메일 동기화 실패";
+    await store.createLog(
+      "error",
+      "mail-sync",
+      "메일 동기화가 중단되었습니다.",
+      buildPilotLogContext(
+        {
+          mode,
+          error: messageText
+        },
+        {
+          pipeline: "mail-sync",
+          errorCategory: "mail-sync",
+          syncStage
+        }
+      )
+    );
+    throw error;
   } finally {
-    await client.logout();
+    if (connected) {
+      await client.logout().catch(() => undefined);
+    }
   }
 
   await store.createLog("info", "mail-sync", "메일 동기화를 완료했습니다.", {

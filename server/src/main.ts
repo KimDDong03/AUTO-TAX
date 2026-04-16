@@ -16,6 +16,7 @@ import { buildApiErrorBody, getErrorMessage, getErrorStatus } from "./http-error
 import { testMailConnections } from "./mail-test.js";
 import { reprocessInboxMessage } from "./mail-reprocess.js";
 import { syncMailbox } from "./mail-sync.js";
+import { buildPilotLogContext } from "./pilot-issuance.js";
 import {
   cancelTaxInvoice,
   checkIsMember,
@@ -257,6 +258,18 @@ function resolveRequestIp(req: express.Request): string {
   }
 
   return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+function resolveApiErrorCategory(status: number, message: string, error: unknown): "auth/session" | "external-api" | null {
+  if (error instanceof PopbillApiError) {
+    return "external-api";
+  }
+
+  if (status === 401 || status === 403 || /인증|세션|로그인|권한/.test(message)) {
+    return "auth/session";
+  }
+
+  return null;
 }
 
 function pruneExpiredRateLimitEntries(now: number): void {
@@ -776,6 +789,15 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
       hasValidJobSecret,
       hasValidRenewalAgentSecret,
       resolveAuthenticatedAppSession,
+      createLoggingStoreForOrganizationId: async ({ organizationId, actorUserId }) => {
+        const loggingStore = new SupabaseStore({
+          organizationId,
+          actorUserId: actorUserId ?? undefined,
+          bootstrapOrganization: false
+        });
+        await loggingStore.initialize();
+        return loggingStore;
+      },
       createRequestStore: async (authContext: AuthenticatedAppSession) => {
         const requestStore = new SupabaseStore({
           organizationId: authContext.activeOrganizationId ?? undefined,
@@ -928,16 +950,31 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const message = error instanceof Error ? error.message : "서버 오류";
+    const status = getErrorStatus(error, 500);
+    const errorCategory = resolveApiErrorCategory(status, message, error);
     const loggingStore = getLoggingStore(res, store);
-    void loggingStore?.createLog("error", "api", "API 요청 처리에 실패했습니다.", {
-      error: message,
-      stack: error instanceof Error ? error.stack ?? null : null
-    });
+    void loggingStore?.createLog(
+      "error",
+      "api",
+      "API 요청 처리에 실패했습니다.",
+      buildPilotLogContext(
+        {
+          error: message,
+          stack: error instanceof Error ? error.stack ?? null : null
+        },
+        {
+          status,
+          errorCategory: errorCategory ?? undefined,
+          errorCode: error instanceof PopbillApiError ? error.code : undefined,
+          errorOperation: error instanceof PopbillApiError ? error.operation : undefined
+        }
+      )
+    );
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: error.flatten() });
       return;
     }
-    res.status(getErrorStatus(error, 500)).json(buildApiErrorBody(error, "서버 오류가 발생했습니다."));
+    res.status(status).json(buildApiErrorBody(error, "서버 오류가 발생했습니다."));
   });
 
   registerAppShell({
@@ -997,7 +1034,20 @@ export async function startServer(options: StartServerOptions = {}) {
         }
         void refreshAllCertificateStatuses(store).catch((error) => {
           const message = error instanceof Error ? error.message : "인증서 자동 점검 실패";
-          void store.createLog("error", "popbill", "앱 시작 시 인증서 자동 점검에 실패했습니다.", { error: message });
+          void store.createLog(
+            "error",
+            "popbill",
+            "앱 시작 시 인증서 자동 점검에 실패했습니다.",
+            buildPilotLogContext(
+              {
+                error: message
+              },
+              {
+                errorCategory: "external-api",
+                errorOperation: "cert-expire-date"
+              }
+            )
+          );
         });
       });
     }

@@ -25,6 +25,7 @@ This file is for development and deployment work, not end-user operations.
 
 ### Optional / situational
 
+- `VITE_API_BASE_URL`
 - `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`
 - `SUPABASE_DB_PASSWORD`
 - `AUTO_TAX_RENEWAL_AGENT_*`

@@ -1,11 +1,18 @@
 import type { InvoiceDraft, MailParseStatus } from "./domain.js";
 import { parseKepcoMail } from "./parser.js";
+import { buildPilotLogContext } from "./pilot-issuance.js";
 import type { AppStore } from "./store-contract.js";
+
+type MailReprocessDeps = {
+  parseKepcoMail?: typeof parseKepcoMail;
+};
 
 export async function reprocessInboxMessage(
   store: AppStore,
-  messageId: number
+  messageId: number,
+  deps: MailReprocessDeps = {}
 ): Promise<{ status: MailParseStatus; draft?: InvoiceDraft | null }> {
+  const parseMail = deps.parseKepcoMail ?? parseKepcoMail;
   const message = await store.getInboxMessage(messageId);
   if (!message) {
     throw new Error("메일을 찾지 못했습니다.");
@@ -26,8 +33,53 @@ export async function reprocessInboxMessage(
     }
   }
 
+  let customerIdForLog: number | null = null;
+  let draftIdForLog: number | null = null;
+  let issueModeForLog: InvoiceDraft["issueMode"] | null = null;
+  let reprocessStage:
+    | "parse"
+    | "completed-billing-month"
+    | "customer-match"
+    | "duplicate-check"
+    | "create-draft"
+    | "other" = "parse";
+
   try {
-    const parsedMail = parseKepcoMail(message.textBody || message.rawSource);
+    let parsedMail;
+    try {
+      parsedMail = parseMail(message.textBody || message.rawSource);
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "메일 파싱 실패";
+      await store.updateInboxMatchResult({
+        messageId,
+        parseStatus: "failed",
+        parseError: messageText,
+        parsedMail: null,
+        customerId: null,
+        draftId: null
+      });
+      await store.createLog(
+        "error",
+        "mail-reprocess",
+        "미매칭 메일 재처리 중 메일 파싱에 실패했습니다.",
+        buildPilotLogContext(
+          {
+            messageId,
+            error: messageText
+          },
+          {
+            pipeline: "mail-reprocess",
+            draftSource: "mail-reprocess",
+            errorCategory: "parse",
+            reprocessStage: "parse",
+            status: "failed"
+          }
+        )
+      );
+      return { status: "failed" };
+    }
+
+    reprocessStage = "completed-billing-month";
     const completedBillingMonthSet = new Set((await store.listCompletedBillingMonths()).map((item) => item.billingMonth));
 
     if (completedBillingMonthSet.has(parsedMail.billingMonth)) {
@@ -39,13 +91,26 @@ export async function reprocessInboxMessage(
         customerId: null,
         draftId: null
       });
-      await store.createLog("info", "mail-reprocess", "완료 처리한 정산월 메일을 재처리 대상에서 제외했습니다.", {
-        messageId,
-        billingMonth: parsedMail.billingMonth
-      });
+      await store.createLog(
+        "info",
+        "mail-reprocess",
+        "완료 처리한 정산월 메일을 재처리 대상에서 제외했습니다.",
+        buildPilotLogContext(
+          {
+            messageId,
+            billingMonth: parsedMail.billingMonth
+          },
+          {
+            pipeline: "mail-reprocess",
+            draftSource: "mail-reprocess",
+            status: "ignored"
+          }
+        )
+      );
       return { status: "ignored" };
     }
 
+    reprocessStage = "customer-match";
     const customer = await store.findCustomerByMatchAddress(parsedMail.plantAddress);
 
     if (!customer) {
@@ -57,11 +122,35 @@ export async function reprocessInboxMessage(
         customerId: null,
         draftId: null
       });
+      await store.createLog(
+        "warn",
+        "mail-reprocess",
+        "미매칭 메일 재처리 중 고객 매칭에 실패했습니다.",
+        buildPilotLogContext(
+          {
+            messageId,
+            billingMonth: parsedMail.billingMonth,
+            plantName: parsedMail.plantName,
+            plantAddress: parsedMail.plantAddress
+          },
+          {
+            pipeline: "mail-reprocess",
+            draftSource: "mail-reprocess",
+            errorCategory: "customer-match",
+            status: "unmatched"
+          }
+        )
+      );
       return { status: "unmatched" };
     }
 
+    customerIdForLog = customer.id;
+    issueModeForLog = customer.issueMode;
+    reprocessStage = "duplicate-check";
     const existingDraft = await store.findDraftByCustomerAndBillingMonth(customer.id, parsedMail.billingMonth);
     if (existingDraft) {
+      draftIdForLog = existingDraft.id;
+      issueModeForLog = existingDraft.issueMode;
       await store.updateInboxMatchResult({
         messageId,
         parseStatus: "duplicate",
@@ -70,12 +159,27 @@ export async function reprocessInboxMessage(
         customerId: customer.id,
         draftId: existingDraft.id
       });
-      await store.createLog("warn", "mail-reprocess", "재처리 중 같은 고객/정산월 건이 확인되어 중복 의심으로 유지했습니다.", {
-        messageId,
-        customerId: customer.id,
-        existingDraftId: existingDraft.id,
-        billingMonth: parsedMail.billingMonth
-      });
+      await store.createLog(
+        "warn",
+        "mail-reprocess",
+        "재처리 중 같은 고객/정산월 건이 확인되어 중복 의심으로 유지했습니다.",
+        buildPilotLogContext(
+          {
+            messageId,
+            customerId: customer.id,
+            draftId: existingDraft.id,
+            issueMode: existingDraft.issueMode,
+            existingDraftId: existingDraft.id,
+            existingDraftStatus: existingDraft.status,
+            billingMonth: parsedMail.billingMonth
+          },
+          {
+            pipeline: "mail-reprocess",
+            draftSource: "mail-reprocess",
+            status: "duplicate"
+          }
+        )
+      );
       return { status: "duplicate", draft: existingDraft };
     }
 
@@ -88,19 +192,72 @@ export async function reprocessInboxMessage(
       draftId: null
     });
 
-    const draft = await store.createDraft({
-      customer,
-      sourceMessageId: messageId,
-      status: "review",
-      scheduledFor: null,
-      parsedMail
-    });
+    reprocessStage = "create-draft";
+    let draft: InvoiceDraft;
+    try {
+      draft = await store.createDraft({
+        customer,
+        sourceMessageId: messageId,
+        status: "review",
+        scheduledFor: null,
+        parsedMail,
+        draftSource: "mail-reprocess"
+      });
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "초안 생성 실패";
+      await store.updateInboxMatchResult({
+        messageId,
+        parseStatus: "failed",
+        parseError: messageText,
+        parsedMail,
+        customerId: customer.id,
+        draftId: null
+      });
+      await store.createLog(
+        "error",
+        "mail-reprocess",
+        "미매칭 메일 재처리 중 초안 생성에 실패했습니다.",
+        buildPilotLogContext(
+          {
+            messageId,
+            customerId: customer.id,
+            issueMode: customer.issueMode,
+            billingMonth: parsedMail.billingMonth,
+            error: messageText
+          },
+          {
+            pipeline: "mail-reprocess",
+            draftSource: "mail-reprocess",
+            errorCategory: "draft-create",
+            reprocessStage: "create-draft",
+            status: "failed"
+          }
+        )
+      );
+      return { status: "failed" };
+    }
 
-    await store.createLog("info", "mail-reprocess", "미매칭 메일 재처리에 성공했습니다.", {
-      messageId,
-      customerId: customer.id,
-      draftId: draft.id
-    });
+    draftIdForLog = draft.id;
+    issueModeForLog = draft.issueMode;
+    await store.createLog(
+      "info",
+      "mail-reprocess",
+      "미매칭 메일 재처리에 성공했습니다.",
+      buildPilotLogContext(
+        {
+          messageId,
+          customerId: customer.id,
+          draftId: draft.id,
+          issueMode: draft.issueMode
+        },
+        {
+          pipeline: "mail-reprocess",
+          draftSource: "mail-reprocess",
+          eventType: "draft-created",
+          status: "parsed"
+        }
+      )
+    );
 
     return { status: "parsed", draft };
   } catch (error) {
@@ -110,13 +267,30 @@ export async function reprocessInboxMessage(
       parseStatus: "failed",
       parseError: messageText,
       parsedMail: null,
-      customerId: null,
-      draftId: null
-    });
-    await store.createLog("error", "mail-reprocess", "미매칭 메일 재처리에 실패했습니다.", {
-      messageId,
-      error: messageText
-    });
+        customerId: null,
+        draftId: null
+      });
+    await store.createLog(
+      "error",
+      "mail-reprocess",
+      "미매칭 메일 재처리에 실패했습니다.",
+      buildPilotLogContext(
+        {
+          messageId,
+          customerId: customerIdForLog ?? undefined,
+          draftId: draftIdForLog ?? undefined,
+          issueMode: issueModeForLog ?? undefined,
+          error: messageText
+        },
+        {
+          pipeline: "mail-reprocess",
+          draftSource: "mail-reprocess",
+          errorCategory: "mail-sync",
+          reprocessStage,
+          status: "failed"
+        }
+      )
+    );
     return { status: "failed" };
   }
 }

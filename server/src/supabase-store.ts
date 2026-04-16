@@ -14,9 +14,12 @@ import type {
   LogEntry,
   MailParseStatus,
   ParsedMail,
+  PilotDraftTimeline,
+  PilotIssuanceReport,
   PopbillEnvironment,
   PopbillState
 } from "./domain.js";
+import { buildPilotDraftTimeline, buildPilotIssuanceReport, buildPilotLogContext } from "./pilot-issuance.js";
 import { createSupabaseAdminClient } from "./supabase.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
 import { decryptSecret, encryptSecret } from "./secret-box.js";
@@ -378,6 +381,18 @@ function mapLog(row: Row): LogEntry {
     message: asString(row.message),
     contextJson: asJsonString(row.context_json),
     createdAt: asString(row.created_at, nowIso())
+  };
+}
+
+function mapPilotLogRow(row: Row) {
+  return {
+    organizationId: asString(row.organization_id),
+    actorUserId: asNullableString(row.actor_user_id),
+    createdAt: asString(row.created_at, nowIso()),
+    level: asString(row.level, "info") as LogEntry["level"],
+    scope: asString(row.scope),
+    message: asString(row.message),
+    contextJson: row.context_json ?? {}
   };
 }
 
@@ -1628,6 +1643,7 @@ export class SupabaseStore implements AppStore {
     status: DraftStatus;
     scheduledFor: string | null;
     parsedMail: ParsedMail;
+    draftSource?: "mail-sync" | "mail-reprocess" | "other";
   }): Promise<InvoiceDraft> {
     const sourceMessageRow = await this.getInboxRowByLegacyId(args.sourceMessageId);
     if (!sourceMessageRow) {
@@ -1694,7 +1710,29 @@ export class SupabaseStore implements AppStore {
         .eq("id", asString(sourceMessageRow.id))
     );
 
-    return this.buildDraftPayload(inserted as Row);
+    const draft = await this.buildDraftPayload(inserted as Row);
+    const draftContext = {
+      draftId: draft.id,
+      customerId: draft.customerId,
+      issueMode: draft.issueMode,
+      draftSource: args.draftSource ?? "other",
+      sourceMessageId: draft.sourceMessageId,
+      billingMonth: draft.billingMonth,
+      status: draft.status
+    };
+
+    await this.createLog("info", "drafts", "초안을 생성했습니다.", buildPilotLogContext(draftContext, {
+      eventType: "draft-created"
+    }));
+
+    if (draft.status === "scheduled") {
+      await this.createLog("info", "drafts", "자동 발행 대기 상태로 초안을 예약했습니다.", buildPilotLogContext(draftContext, {
+        eventType: "auto-issue-scheduled",
+        scheduledFor: draft.scheduledFor
+      }));
+    }
+
+    return draft;
   }
 
   async findDraftByCustomerAndBillingMonth(customerId: number, billingMonth: string): Promise<InvoiceDraft | null> {
@@ -1862,6 +1900,44 @@ export class SupabaseStore implements AppStore {
         .limit(200)
     );
     return (rows as Row[]).map(mapLog);
+  }
+
+  private async listAppLogRows(options: {
+    from?: string | null;
+    to?: string | null;
+    draftId?: number | null;
+  } = {}): Promise<Row[]> {
+    await this.initialize();
+    const pageSize = 500;
+    const rows: Row[] = [];
+    const organizationId = this.requireOrganizationId();
+
+    for (let offset = 0; ; offset += pageSize) {
+      let query = this.client
+        .from("app_logs")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .order("created_at", { ascending: true });
+
+      if (options.from) {
+        query = query.gte("created_at", options.from);
+      }
+      if (options.to) {
+        query = query.lte("created_at", options.to);
+      }
+      if (options.draftId !== undefined && options.draftId !== null) {
+        query = query.contains("context_json", { draftId: options.draftId });
+      }
+
+      const page = await assertNoError("파일럿 로그 조회 실패", query.range(offset, offset + pageSize - 1));
+      const pageRows = (page ?? []) as Row[];
+      rows.push(...pageRows);
+      if (pageRows.length < pageSize) {
+        break;
+      }
+    }
+
+    return rows;
   }
 
   async updateDraftStatus(
@@ -2039,6 +2115,32 @@ export class SupabaseStore implements AppStore {
         context_json: context ?? {}
       })
     );
+  }
+
+  async getPilotIssuanceReport(options: { from?: string | null; to?: string | null } = {}): Promise<PilotIssuanceReport> {
+    const rows = await this.listAppLogRows(options);
+    return buildPilotIssuanceReport({
+      organizationId: this.requireOrganizationId(),
+      from: options.from ?? null,
+      to: options.to ?? null,
+      logs: rows.map(mapPilotLogRow)
+    });
+  }
+
+  async getDraftPilotTimeline(draftId: number): Promise<PilotDraftTimeline | null> {
+    const draft = await this.getDraft(draftId);
+    if (!draft) {
+      return null;
+    }
+
+    const rows = await this.listAppLogRows({ draftId });
+    return buildPilotDraftTimeline({
+      organizationId: this.requireOrganizationId(),
+      draftId,
+      customerId: draft.customerId,
+      issueMode: draft.issueMode,
+      logs: rows.map(mapPilotLogRow)
+    });
   }
 
   async getBootstrapWorkspace(): Promise<Omit<DashboardPayload, "logs" | "renewalAutomation">> {

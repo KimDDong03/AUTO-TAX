@@ -1,5 +1,6 @@
 import type { Customer } from "./domain.js";
 import { sendNotification } from "./notifier.js";
+import { buildPilotLogContext } from "./pilot-issuance.js";
 import { getCertificateExpireDate } from "./popbill-client.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
 import type { AppStore } from "./store-contract.js";
@@ -133,11 +134,22 @@ export async function refreshAllCertificateStatuses(
         ok: false,
         error: message
       });
-      await store.createLog("error", "popbill", "인증서 일괄 점검 중 고객 만료일 조회에 실패했습니다.", {
-        customerId: customer.id,
-        customerName: customer.customerName,
-        error: message
-      });
+      await store.createLog(
+        "error",
+        "popbill",
+        "인증서 일괄 점검 중 고객 만료일 조회에 실패했습니다.",
+        buildPilotLogContext(
+          {
+            customerId: customer.id,
+            customerName: customer.customerName,
+            error: message
+          },
+          {
+            errorCategory: "external-api",
+            errorOperation: "cert-expire-date"
+          }
+        )
+      );
     }
   }
 

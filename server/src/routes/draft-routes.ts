@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { issueDraftNow } from "../automation.js";
 import type { AppSettings, DraftStatus, InvoiceDraft } from "../domain.js";
 import type { ApiErrorBody } from "../http-errors.js";
+import { buildPilotLogContext } from "../pilot-issuance.js";
 import { cancelTaxInvoice, getTaxInvoiceInfo, getTaxInvoicePrintURL, getTaxInvoiceViewURL } from "../popbill-client.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";
@@ -23,6 +24,24 @@ type RouteDeps = {
   ) => Promise<void>;
 };
 
+function parseOptionalIsoTimestamp(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("유효한 ISO 시각이 아닙니다.");
+  }
+
+  return parsed.toISOString();
+}
+
 export function registerDraftRoutes(deps: RouteDeps) {
   const {
     app,
@@ -42,6 +61,30 @@ export function registerDraftRoutes(deps: RouteDeps) {
     res.json(await requestStore.listDrafts());
   });
 
+  app.get("/api/drafts/pilot-report", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+
+    try {
+      const from = parseOptionalIsoTimestamp(req.query.from);
+      const to = parseOptionalIsoTimestamp(req.query.to);
+      res.json(await requestStore.getPilotIssuanceReport({ from, to }));
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "잘못된 조회 조건입니다." });
+    }
+  });
+
+  app.get("/api/drafts/:id/pilot-timeline", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const draftId = Number(req.params.id);
+    const timeline = await requestStore.getDraftPilotTimeline(draftId);
+    if (!timeline) {
+      res.status(404).json({ error: "발행 대기건을 찾지 못했습니다." });
+      return;
+    }
+
+    res.json(timeline);
+  });
+
   app.post("/api/drafts/:id/issue", async (req, res) => {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
@@ -58,19 +101,63 @@ export function registerDraftRoutes(deps: RouteDeps) {
       return;
     }
 
+    const manualIssueContext = {
+      draftId,
+      customerId: claimedDraft.customerId,
+      issueMode: claimedDraft.issueMode,
+      issuePath: "single"
+    };
+    await requestStore.createLog(
+      "info",
+      "drafts",
+      "수동 발행 버튼 실행이 기록되었습니다.",
+      buildPilotLogContext(manualIssueContext, {
+        eventType: "manual-issue-clicked"
+      })
+    );
+
     const customer = await requestStore.getCustomer(draft.customerId);
     if (!customer) {
+      const message = "고객을 찾지 못했습니다.";
+      await requestStore.updateDraftStatus(draftId, "failed", message);
+      await requestStore.createLog(
+        "error",
+        "drafts",
+        "수동 발행에 실패했습니다.",
+        buildPilotLogContext(manualIssueContext, {
+          eventType: "manual-issue-failed",
+          errorCategory: "manual-issue",
+          error: message
+        })
+      );
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
 
     try {
       const issued = await issueDraftNow(requestStore, await getServerManagedSettings(requestStore), customer, claimedDraft);
-      await requestStore.createLog("info", "drafts", "수동 발행을 완료했습니다.", { draftId, customerId: customer.id });
+      await requestStore.createLog(
+        "info",
+        "drafts",
+        "수동 발행을 완료했습니다.",
+        buildPilotLogContext(manualIssueContext, {
+          eventType: "manual-issue-succeeded"
+        })
+      );
       res.json(issued);
     } catch (error) {
       const message = getErrorMessage(error, "수동 발행 실패");
       const failed = await requestStore.updateDraftStatus(draftId, "failed", message);
+      await requestStore.createLog(
+        "error",
+        "drafts",
+        "수동 발행에 실패했습니다.",
+        buildPilotLogContext(manualIssueContext, {
+          eventType: "manual-issue-failed",
+          errorCategory: "manual-issue",
+          error: message
+        })
+      );
       res.status(getErrorStatus(error, 500)).json({
         ...buildApiErrorBody(error, message),
         draft: failed
@@ -91,19 +178,63 @@ export function registerDraftRoutes(deps: RouteDeps) {
         continue;
       }
 
+      const manualIssueContext = {
+        draftId: draft.id,
+        customerId: claimedDraft.customerId,
+        issueMode: claimedDraft.issueMode,
+        issuePath: "bulk-manual"
+      };
+      await requestStore.createLog(
+        "info",
+        "drafts",
+        "일괄 수동 발행 버튼 실행이 기록되었습니다.",
+        buildPilotLogContext(manualIssueContext, {
+          eventType: "manual-issue-clicked"
+        })
+      );
+
       const customer = await requestStore.getCustomer(draft.customerId);
       if (!customer) {
-        await requestStore.updateDraftStatus(draft.id, "failed", "고객 정보를 찾지 못했습니다.");
+        const message = "고객 정보를 찾지 못했습니다.";
+        await requestStore.updateDraftStatus(draft.id, "failed", message);
+        await requestStore.createLog(
+          "error",
+          "drafts",
+          "수동 발행에 실패했습니다.",
+          buildPilotLogContext(manualIssueContext, {
+            eventType: "manual-issue-failed",
+            errorCategory: "manual-issue",
+            error: message
+          })
+        );
         results.push({ draftId: draft.id, customerId: draft.customerId, status: "failed", error: "고객 정보를 찾지 못했습니다." });
         continue;
       }
 
       try {
         await issueDraftNow(requestStore, await getServerManagedSettings(requestStore), customer, claimedDraft);
+        await requestStore.createLog(
+          "info",
+          "drafts",
+          "수동 발행을 완료했습니다.",
+          buildPilotLogContext(manualIssueContext, {
+            eventType: "manual-issue-succeeded"
+          })
+        );
         results.push({ draftId: draft.id, customerId: customer.id, status: "issued" });
       } catch (error) {
         const message = getErrorMessage(error, "일괄 발행 실패");
         await requestStore.updateDraftStatus(draft.id, "failed", message);
+        await requestStore.createLog(
+          "error",
+          "drafts",
+          "수동 발행에 실패했습니다.",
+          buildPilotLogContext(manualIssueContext, {
+            eventType: "manual-issue-failed",
+            errorCategory: "manual-issue",
+            error: message
+          })
+        );
         results.push({ draftId: draft.id, customerId: customer.id, status: "failed", error: message });
       }
     }
@@ -177,6 +308,42 @@ export function registerDraftRoutes(deps: RouteDeps) {
     const info = await getTaxInvoiceInfo(settings, customer, draft);
     await backfillDraftPopbillEnvironmentIfMissing(requestStore, settings, draft);
     res.json(info);
+  });
+
+  app.post("/api/drafts/:id/pilot-preview-opened", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const draftId = Number(req.params.id);
+    const draft = await requestStore.getDraft(draftId);
+    if (!draft) {
+      res.status(404).json({ error: "발행 건을 찾지 못했습니다." });
+      return;
+    }
+
+    const customer = await requestStore.getCustomer(draft.customerId);
+    if (!customer) {
+      res.status(404).json({ error: "고객을 찾지 못했습니다." });
+      return;
+    }
+
+    await requestStore.createLog(
+      "info",
+      "drafts",
+      "초안 미리보기 열기 버튼 실행이 기록되었습니다.",
+      buildPilotLogContext(
+        {
+          draftId,
+          customerId: customer.id,
+          issueMode: draft.issueMode,
+          previewPath: "view-url",
+          previewSource: "ui-click"
+        },
+        {
+          eventType: "draft-preview-opened"
+        }
+      )
+    );
+
+    res.json({ ok: true });
   });
 
   app.get("/api/drafts/:id/popbill/view-url", async (req, res) => {

@@ -220,6 +220,102 @@ export interface LogEntry {
   createdAt: string;
 }
 
+export const PILOT_ISSUANCE_EVENT_TYPES = [
+  "draft-created",
+  "draft-preview-opened",
+  "manual-issue-clicked",
+  "manual-issue-succeeded",
+  "manual-issue-failed",
+  "auto-issue-scheduled",
+  "auto-issue-started",
+  "auto-issue-succeeded",
+  "auto-issue-failed"
+] as const;
+
+export type PilotIssuanceEventType = (typeof PILOT_ISSUANCE_EVENT_TYPES)[number];
+
+export const PILOT_ERROR_CATEGORIES = [
+  "auth/session",
+  "mail-sync",
+  "parse",
+  "customer-match",
+  "draft-create",
+  "manual-issue",
+  "auto-issue",
+  "certificate/local-helper",
+  "external-api"
+] as const;
+
+export type PilotErrorCategory = (typeof PILOT_ERROR_CATEGORIES)[number];
+
+export interface PilotRateMetric {
+  numerator: number;
+  denominator: number;
+  rate: number | null;
+}
+
+export interface PilotIssuanceEventCount {
+  eventType: PilotIssuanceEventType;
+  count: number;
+}
+
+export interface PilotErrorCategoryCount {
+  errorCategory: PilotErrorCategory;
+  count: number;
+}
+
+export interface PilotIssuanceReport {
+  organizationId: string;
+  generatedAt: string;
+  period: {
+    from: string | null;
+    to: string | null;
+  };
+  metrics: {
+    autoDraftCreationSuccessRate: PilotRateMetric;
+    finalIssueSuccessRate: PilotRateMetric;
+    exceptionRate: PilotRateMetric;
+  };
+  eventCounts: PilotIssuanceEventCount[];
+  errorCategoryCounts: PilotErrorCategoryCount[];
+  totals: {
+    trackedDrafts: number;
+    trackedEvents: number;
+    draftCreationAttempts: number;
+    finalIssueAttempts: number;
+    exceptionCount: number;
+  };
+  notes: {
+    autoDraftCreationSuccessRate: string;
+    finalIssueSuccessRate: string;
+    exceptionRate: string;
+    draftPreviewOpened: string;
+  };
+}
+
+export interface PilotDraftTimelineEntry {
+  organizationId: string;
+  actorUserId: string | null;
+  createdAt: string;
+  level: LogEntry["level"];
+  scope: string;
+  message: string;
+  eventType: PilotIssuanceEventType | null;
+  draftId: number;
+  customerId: number | null;
+  issueMode: IssueMode | null;
+  errorCategory: PilotErrorCategory | null;
+  context: Record<string, unknown>;
+}
+
+export interface PilotDraftTimeline {
+  organizationId: string;
+  draftId: number;
+  customerId: number | null;
+  issueMode: IssueMode | null;
+  events: PilotDraftTimelineEntry[];
+}
+
 export type RenewalAutomationJobType = "bridge-probe" | "certid-probe" | "renewal-preflight";
 export type RenewalAutomationJobStatus = "queued" | "claimed" | "completed" | "failed";
 export type RenewalBridgeSummary = "ok" | "partial" | "down" | "unknown";

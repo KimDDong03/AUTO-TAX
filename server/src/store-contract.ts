@@ -13,6 +13,8 @@ import type {
   LogEntry,
   MailParseStatus,
   ParsedMail,
+  PilotDraftTimeline,
+  PilotIssuanceReport,
   PopbillEnvironment,
   PopbillState
 } from "./domain.js";
@@ -67,6 +69,7 @@ export interface AppStore {
     status: DraftStatus;
     scheduledFor: string | null;
     parsedMail: ParsedMail;
+    draftSource?: "mail-sync" | "mail-reprocess" | "other";
   }): Promise<InvoiceDraft>;
   findDraftByCustomerAndBillingMonth(customerId: number, billingMonth: string): Promise<InvoiceDraft | null>;
   refreshDraftFromParsedMail(draftId: number, parsedMail: ParsedMail): Promise<InvoiceDraft>;
@@ -97,6 +100,8 @@ export interface AppStore {
   markDraftRequested(draftId: number): Promise<void>;
   getDueAutoDrafts(now: Date): Promise<InvoiceDraft[]>;
   createLog(level: LogEntry["level"], scope: string, message: string, context?: unknown): Promise<void>;
+  getPilotIssuanceReport(options?: { from?: string | null; to?: string | null }): Promise<PilotIssuanceReport>;
+  getDraftPilotTimeline(draftId: number): Promise<PilotDraftTimeline | null>;
   getBootstrapWorkspace(): Promise<Omit<DashboardPayload, "logs" | "renewalAutomation">>;
   getDashboard(): Promise<Omit<DashboardPayload, "renewalAutomation">>;
   updateSettings(input: Partial<AppSettings>): Promise<AppSettings>;
