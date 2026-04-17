@@ -57,10 +57,23 @@ function Test-LocalRenewalHelperRunning {
   }
 }
 
+function CommandLineContains {
+  param(
+    [string]$CommandLine,
+    [string]$Needle
+  )
+
+  if ([string]::IsNullOrWhiteSpace($CommandLine) -or [string]::IsNullOrWhiteSpace($Needle)) {
+    return $false
+  }
+
+  return $CommandLine.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
 function Wait-LocalRenewalHelperStop {
   param(
     [int]$Port,
-    [int]$Attempts = 20,
+    [int]$Attempts = 60,
     [int]$DelayMs = 500
   )
 
@@ -95,7 +108,8 @@ function Wait-LocalRenewalHelperStart {
 
 function Get-LocalRenewalHelperProcessIds {
   param(
-    [int]$Port
+    [int]$Port,
+    [string[]]$LauncherScriptPaths = @()
   )
 
   $candidateProcessIds = New-Object System.Collections.Generic.HashSet[int]
@@ -111,12 +125,28 @@ function Get-LocalRenewalHelperProcessIds {
 
   try {
     @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
-      ($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and
-      $_.CommandLine -and (
-        $_.CommandLine -like "*renewal-local-helper.ts*" -or
-        $_.CommandLine -like "*renewal-local-helper.cjs*" -or
-        $_.CommandLine -like "*renewal-local-helper.mjs*"
-      )
+      $commandLine = $_.CommandLine
+      if ([string]::IsNullOrWhiteSpace($commandLine)) {
+        return $false
+      }
+
+      if (($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and (
+        $commandLine.IndexOf("renewal-local-helper.ts", [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $commandLine.IndexOf("renewal-local-helper.cjs", [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $commandLine.IndexOf("renewal-local-helper.mjs", [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+      )) {
+        return $true
+      }
+
+      if ($_.Name -ieq "powershell.exe") {
+        foreach ($launcherScriptPath in @($LauncherScriptPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+          if (CommandLineContains -CommandLine $commandLine -Needle $launcherScriptPath) {
+            return $true
+          }
+        }
+      }
+
+      return $false
     }) | ForEach-Object {
       [void]$candidateProcessIds.Add([int]$_.ProcessId)
     }
@@ -162,7 +192,8 @@ function Stop-ExistingLocalRenewalHelper {
     [int]$Port,
     [string]$TaskName,
     [string[]]$StopScripts,
-    [string]$PowerShellExe
+    [string]$PowerShellExe,
+    [string[]]$LauncherScriptPaths
   )
 
   try {
@@ -183,7 +214,7 @@ function Stop-ExistingLocalRenewalHelper {
   }
 
   for ($attempt = 0; $attempt -lt 4; $attempt += 1) {
-    $processIds = @(Get-LocalRenewalHelperProcessIds -Port $Port)
+    $processIds = @(Get-LocalRenewalHelperProcessIds -Port $Port -LauncherScriptPaths $LauncherScriptPaths)
     if ($processIds.Count -eq 0 -and -not (Test-LocalRenewalHelperRunning -Port $Port)) {
       return $true
     }
@@ -240,6 +271,10 @@ $stopScriptCandidates = @(
   (Join-Path $installRoot "scripts\\stop-renewal-local-helper.ps1"),
   (Join-Path $sourceRoot "scripts\\stop-renewal-local-helper.ps1")
 ) | Select-Object -Unique
+$launcherScriptCandidates = @(
+  (Join-Path $installRoot "scripts\\start-renewal-local-helper.ps1"),
+  (Join-Path $sourceRoot "scripts\\start-renewal-local-helper.ps1")
+) | Select-Object -Unique
 
 if (Test-LocalRenewalHelperRunning -Port $helperPort) {
   $stopped = $false
@@ -248,7 +283,8 @@ if (Test-LocalRenewalHelperRunning -Port $helperPort) {
       -Port $helperPort `
       -TaskName $taskName `
       -StopScripts $stopScriptCandidates `
-      -PowerShellExe $powershellExe
+      -PowerShellExe $powershellExe `
+      -LauncherScriptPaths $launcherScriptCandidates
   } elseif ($WhatIfPreference) {
     $stopped = $true
   }

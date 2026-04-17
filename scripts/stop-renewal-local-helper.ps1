@@ -17,9 +17,24 @@ function Get-HelperPort {
   return 35119
 }
 
+function CommandLineContains {
+  param(
+    [string]$CommandLine,
+    [string]$Needle
+  )
+
+  if ([string]::IsNullOrWhiteSpace($CommandLine) -or [string]::IsNullOrWhiteSpace($Needle)) {
+    return $false
+  }
+
+  return $CommandLine.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
 $helperPort = Get-HelperPort
 $taskName = "AUTO-TAX Renewal Local Helper"
 $candidateProcessIds = New-Object System.Collections.Generic.HashSet[int]
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$launcherScriptPath = (Join-Path $scriptDir "start-renewal-local-helper.ps1")
 
 try {
   Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
@@ -37,12 +52,20 @@ try {
 }
 
 @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-  ($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and
-  $_.CommandLine -and (
-    $_.CommandLine -like "*renewal-local-helper.ts*" -or
-    $_.CommandLine -like "*renewal-local-helper.cjs*" -or
-    $_.CommandLine -like "*renewal-local-helper.mjs*"
-  )
+  $commandLine = $_.CommandLine
+  if ([string]::IsNullOrWhiteSpace($commandLine)) {
+    return $false
+  }
+
+  if (($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and (
+    $commandLine.IndexOf("renewal-local-helper.ts", [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+    $commandLine.IndexOf("renewal-local-helper.cjs", [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+    $commandLine.IndexOf("renewal-local-helper.mjs", [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  )) {
+    return $true
+  }
+
+  return ($_.Name -ieq "powershell.exe") -and (CommandLineContains -CommandLine $commandLine -Needle $launcherScriptPath)
 }) | ForEach-Object {
   [void]$candidateProcessIds.Add([int]$_.ProcessId)
 }
