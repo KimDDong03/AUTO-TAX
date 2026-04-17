@@ -42,6 +42,35 @@ export type PopbillCertificateSelectionDetailProbe = {
   evidence: string[];
 };
 
+type PopbillChooserReadinessCertificate = {
+  index: string | number | null | undefined;
+  cn?: string | null;
+  usageToName?: string | null;
+  userDN?: string | null;
+};
+
+export type PopbillChooserDebugDuplicateCnCandidate = {
+  certificateCn: string;
+  certificateIndices: string[];
+  userDNs: string[];
+};
+
+export type PopbillChooserDebugReadinessBlocker =
+  | "local-bridge-certificates-unavailable"
+  | "duplicate-electronic-tax-cn-missing"
+  | "valid-popbill-cert-url-not-yet-verified";
+
+export type PopbillChooserDebugReadiness = {
+  available: boolean;
+  electronicTaxCertificateCount: number;
+  duplicateElectronicTaxCnCount: number;
+  ambiguousCnReady: boolean;
+  duplicateElectronicTaxCnCandidates: PopbillChooserDebugDuplicateCnCandidate[];
+  blockers: PopbillChooserDebugReadinessBlocker[];
+  nextAction: string;
+  message: string;
+};
+
 export const POPBILL_DEBUG_ARTIFACT_STAGES = [
   "no-visible-cn-match",
   "ambiguous-cn-match",
@@ -538,6 +567,102 @@ export function getPopbillDebugArtifactSupport(): {
     artifactDir: resolvePopbillDebugArtifactDirPath(),
     stages: [...POPBILL_DEBUG_ARTIFACT_STAGES]
   };
+}
+
+export function summarizePopbillChooserDebugReadiness(
+  certificates: PopbillChooserReadinessCertificate[]
+): Omit<PopbillChooserDebugReadiness, "available"> {
+  const electronicTaxCertificates = certificates.filter((certificate) =>
+    isElectronicTaxUsageName(certificate.usageToName ?? "")
+  );
+  const duplicateGroups = new Map<
+    string,
+    {
+      certificateCn: string;
+      certificateIndices: string[];
+      userDNs: string[];
+    }
+  >();
+
+  for (const certificate of electronicTaxCertificates) {
+    const certificateCn = String(certificate.cn ?? "").trim();
+    const normalizedCn = normalizeCertificateFingerprint(certificateCn);
+    if (!normalizedCn) {
+      continue;
+    }
+
+    const duplicateGroup = duplicateGroups.get(normalizedCn) ?? {
+      certificateCn,
+      certificateIndices: [],
+      userDNs: []
+    };
+    const certificateIndex = String(certificate.index ?? "").trim();
+    const userDN = String(certificate.userDN ?? "").trim();
+    if (certificateIndex && !duplicateGroup.certificateIndices.includes(certificateIndex)) {
+      duplicateGroup.certificateIndices.push(certificateIndex);
+    }
+    if (userDN && !duplicateGroup.userDNs.includes(userDN)) {
+      duplicateGroup.userDNs.push(userDN);
+    }
+    duplicateGroups.set(normalizedCn, duplicateGroup);
+  }
+
+  const duplicateElectronicTaxCnCandidates = Array.from(duplicateGroups.values())
+    .filter((candidate) => candidate.certificateIndices.length > 1)
+    .sort((left, right) => left.certificateCn.localeCompare(right.certificateCn, "ko"));
+  const duplicateElectronicTaxCnCount = duplicateElectronicTaxCnCandidates.length;
+  const ambiguousCnReady = duplicateElectronicTaxCnCount > 0;
+
+  return {
+    electronicTaxCertificateCount: electronicTaxCertificates.length,
+    duplicateElectronicTaxCnCount,
+    ambiguousCnReady,
+    duplicateElectronicTaxCnCandidates,
+    blockers: ambiguousCnReady
+      ? ["valid-popbill-cert-url-not-yet-verified"]
+      : ["duplicate-electronic-tax-cn-missing", "valid-popbill-cert-url-not-yet-verified"],
+    nextAction: ambiguousCnReady
+      ? "이제 실제 Popbill cert-url 발급이 되는 workspace/customer에서 live Child.html artifact를 확보하세요."
+      : "같은 CN의 전자세금용 공동인증서가 있는 PC/브리지에서 상태를 다시 확인한 뒤, 실제 Popbill cert-url 발급 가능 상태를 검증하세요.",
+    message:
+      duplicateElectronicTaxCnCount > 0
+        ? `같은 CN의 전자세금용 공동인증서가 ${duplicateElectronicTaxCnCount}개 그룹 있어 ambiguous-cn-match live 재현이 가능합니다.`
+        : "현재 로컬 브리지 전자세금용 공동인증서에는 같은 CN 중복이 없어 ambiguous-cn-match live 재현이 불가능합니다."
+  };
+}
+
+export async function getPopbillChooserDebugReadiness(): Promise<PopbillChooserDebugReadiness> {
+  try {
+    const { storageProbe } = await collectBridgeCertificateList({ preferCached: false });
+    if (!storageProbe.ok) {
+      return {
+        available: false,
+        electronicTaxCertificateCount: 0,
+        duplicateElectronicTaxCnCount: 0,
+        ambiguousCnReady: false,
+        duplicateElectronicTaxCnCandidates: [],
+        blockers: ["local-bridge-certificates-unavailable", "valid-popbill-cert-url-not-yet-verified"],
+        nextAction: "먼저 로컬 브리지/공동인증서 목록 조회를 복구한 뒤, duplicate electronic_tax CN과 실제 Popbill cert-url 발급 상태를 다시 확인하세요.",
+        message: storageProbe.error ?? "로컬 브리지에서 공동인증서 목록을 읽지 못했습니다."
+      };
+    }
+
+    return {
+      available: true,
+      ...summarizePopbillChooserDebugReadiness(storageProbe.certificates)
+    };
+  } catch (error) {
+    return {
+      available: false,
+      electronicTaxCertificateCount: 0,
+      duplicateElectronicTaxCnCount: 0,
+      ambiguousCnReady: false,
+      duplicateElectronicTaxCnCandidates: [],
+      blockers: ["local-bridge-certificates-unavailable", "valid-popbill-cert-url-not-yet-verified"],
+      nextAction: "먼저 로컬 브리지/공동인증서 목록 조회를 복구한 뒤, duplicate electronic_tax CN과 실제 Popbill cert-url 발급 상태를 다시 확인하세요.",
+      message: error instanceof Error ? error.message : "로컬 브리지에서 공동인증서 목록을 읽지 못했습니다."
+    };
+  }
 }
 
 function sanitizeDebugArtifactName(value: string): string {

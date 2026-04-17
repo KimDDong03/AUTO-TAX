@@ -4,6 +4,7 @@ import {
   getPopbillDebugArtifactSupport,
   matchPopbillCandidateIdentifiers,
   pickPopbillCertificateCandidate,
+  summarizePopbillChooserDebugReadiness,
   type PopbillCertificateIframeCandidate,
   type PopbillCertificateSelectionDetailProbe
 } from "./popbill-cert-registration.ts";
@@ -203,6 +204,79 @@ test("pickPopbillCertificateCandidate fails closed when metadata and selection d
   assert.deepEqual(result, {
     selector: null,
     reason: null
+  });
+});
+
+test("summarizePopbillChooserDebugReadiness reports blocked when electronic-tax CNs are all unique", () => {
+  const result = summarizePopbillChooserDebugReadiness([
+    {
+      index: "2",
+      cn: "정해능 발전소",
+      usageToName: "전자세금용",
+      userDN: "USER-DN-2"
+    },
+    {
+      index: "4",
+      cn: "정혜원 발전소",
+      usageToName: "전자세금용",
+      userDN: "USER-DN-4"
+    },
+    {
+      index: "1",
+      cn: "사업자 범용",
+      usageToName: "사업자(범용)",
+      userDN: "USER-DN-1"
+    }
+  ]);
+
+  assert.deepEqual(result, {
+    electronicTaxCertificateCount: 2,
+    duplicateElectronicTaxCnCount: 0,
+    ambiguousCnReady: false,
+    duplicateElectronicTaxCnCandidates: [],
+    blockers: ["duplicate-electronic-tax-cn-missing", "valid-popbill-cert-url-not-yet-verified"],
+    nextAction:
+      "같은 CN의 전자세금용 공동인증서가 있는 PC/브리지에서 상태를 다시 확인한 뒤, 실제 Popbill cert-url 발급 가능 상태를 검증하세요.",
+    message: "현재 로컬 브리지 전자세금용 공동인증서에는 같은 CN 중복이 없어 ambiguous-cn-match live 재현이 불가능합니다."
+  });
+});
+
+test("summarizePopbillChooserDebugReadiness reports duplicate electronic-tax CN groups", () => {
+  const result = summarizePopbillChooserDebugReadiness([
+    {
+      index: "2",
+      cn: "정해능 발전소",
+      usageToName: "전자세금용",
+      userDN: "USER-DN-2"
+    },
+    {
+      index: "5",
+      cn: "정해능 발전소",
+      usageToName: "전자세금용",
+      userDN: "USER-DN-5"
+    },
+    {
+      index: "7",
+      cn: "황해구 발전소",
+      usageToName: "전자세금용",
+      userDN: "USER-DN-7"
+    }
+  ]);
+
+  assert.deepEqual(result, {
+    electronicTaxCertificateCount: 3,
+    duplicateElectronicTaxCnCount: 1,
+    ambiguousCnReady: true,
+    duplicateElectronicTaxCnCandidates: [
+      {
+        certificateCn: "정해능 발전소",
+        certificateIndices: ["2", "5"],
+        userDNs: ["USER-DN-2", "USER-DN-5"]
+      }
+    ],
+    blockers: ["valid-popbill-cert-url-not-yet-verified"],
+    nextAction: "이제 실제 Popbill cert-url 발급이 되는 workspace/customer에서 live Child.html artifact를 확보하세요.",
+    message: "같은 CN의 전자세금용 공동인증서가 1개 그룹 있어 ambiguous-cn-match live 재현이 가능합니다."
   });
 });
 

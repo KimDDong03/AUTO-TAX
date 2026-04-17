@@ -60,4 +60,26 @@ if ($health) {
       Write-Output "popbillDebugArtifactStages=$($health.popbillDebugArtifacts.stages -join ',')"
     }
   }
+  if ($health.popbillChooserDebug) {
+    Write-Output "popbillChooserDebugAvailable=$(if ($health.popbillChooserDebug.available) { 'enabled' } else { 'disabled' })"
+    Write-Output "popbillAmbiguousCnReady=$(if ($health.popbillChooserDebug.ambiguousCnReady) { 'enabled' } else { 'blocked' })"
+    Write-Output "popbillElectronicTaxCertificateCount=$($health.popbillChooserDebug.electronicTaxCertificateCount)"
+    Write-Output "popbillDuplicateElectronicTaxCnCount=$($health.popbillChooserDebug.duplicateElectronicTaxCnCount)"
+    if ($health.popbillChooserDebug.duplicateElectronicTaxCnCandidates) {
+      $duplicateCandidates = @($health.popbillChooserDebug.duplicateElectronicTaxCnCandidates | ForEach-Object {
+        $indices = @($_.certificateIndices) -join '/'
+        "$($_.certificateCn)[$indices]"
+      })
+      Write-Output "popbillDuplicateElectronicTaxCns=$($duplicateCandidates -join ',')"
+    }
+    if ($health.popbillChooserDebug.blockers) {
+      Write-Output "popbillChooserDebugBlockers=$(@($health.popbillChooserDebug.blockers) -join ',')"
+    }
+    if ($health.popbillChooserDebug.message) {
+      Write-Output "popbillChooserDebugMessage=$($health.popbillChooserDebug.message)"
+    }
+    if ($health.popbillChooserDebug.nextAction) {
+      Write-Output "popbillChooserDebugNextAction=$($health.popbillChooserDebug.nextAction)"
+    }
+  }
 }

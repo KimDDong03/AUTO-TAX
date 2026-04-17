@@ -8,15 +8,8 @@
   "keyword": "",
   "phase": "complete",
   "activated_at": "",
-  "updated_at": "2026-04-14T03:10:33.412Z",
-  "active_skills": [
-    {
-      "skill": "plan",
-      "phase": "complete",
-      "active": true,
-      "updated_at": "2026-04-14T03:10:33.412Z"
-    }
-  ],
+  "updated_at": "2026-04-17T01:49:40.935Z",
+  "active_skills": [],
   "completed_at": "2026-04-17T00:00:00+09:00",
   "artifact": ".omx/plans/2026-04-14-supabase-disk-io-mitigation-plan.md",
   "started_at": "2026-04-17T00:00:00+09:00",

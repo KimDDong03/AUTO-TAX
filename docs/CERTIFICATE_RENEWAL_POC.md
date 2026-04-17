@@ -127,6 +127,22 @@ Latest helper builds also expose `popbillDebugArtifactSupport`, `popbillDebugArt
 through `npm run renewal-helper:status` / `GET /health`, so use that first to confirm the installed helper bundle
 actually contains debug-artifact support before changing Popbill selector logic.
 
+The same health/status surface now also exposes Popbill chooser debug readiness:
+
+- `popbillChooserDebugAvailable`
+- `popbillAmbiguousCnReady`
+- `popbillElectronicTaxCertificateCount`
+- `popbillDuplicateElectronicTaxCnCount`
+- `popbillDuplicateElectronicTaxCns`
+- `popbillChooserDebugBlockers`
+- `popbillChooserDebugMessage`
+- `popbillChooserDebugNextAction`
+
+Use those fields before chasing an `ambiguous-cn-match` live artifact. If `popbillAmbiguousCnReady=blocked`, the current PC
+does not currently have duplicate `electronic_tax` CNs, so that exact ambiguous chooser state cannot be reproduced locally yet.
+`popbillChooserDebugBlockers` intentionally keeps `valid-popbill-cert-url-not-yet-verified` until you prove that a real
+workspace/customer can still issue Popbill `cert-url`; the local helper can only verify the local duplicate-CN prerequisite.
+
 ### Renewal agent
 
 - `AUTO_TAX_SERVER_URL`
@@ -148,6 +164,15 @@ actually contains debug-artifact support before changing Popbill selector logic.
 9. if the helper reports a Popbill debug artifact path, open the saved JSON + `*.frame.html` snapshot before changing selector logic
 10. if no artifact path is produced, run `npm run renewal-helper:status` (or `GET /health`) and confirm
     `popbillDebugArtifactSupport=enabled` plus the resolved artifact directory/stages from the installed helper build
+11. if you specifically need an `ambiguous-cn-match` live artifact, confirm `popbillAmbiguousCnReady=enabled` first; otherwise the
+    current local certificate set cannot reproduce duplicate-CN ambiguity on this PC
+12. if Popbill `cert-url` issuance itself fails before `Child.html` opens (for example `POPBILL -99004021`, `링크아이디가 존재하지 않습니다.`),
+    fix the server-managed Popbill LinkID/SecretKey path first; that is an upstream config blocker, not chooser-selector evidence
+    if it fails with `POPBILL -99003008` instead, the target customer is not currently recognized as an active Popbill member,
+    so re-check customer join state / business-number alignment before touching chooser selectors
+13. use `popbillChooserDebugBlockers` / `popbillChooserDebugNextAction` as the fast gate:
+    - `duplicate-electronic-tax-cn-missing` means the local PC cannot reproduce ambiguous live chooser state yet
+    - `valid-popbill-cert-url-not-yet-verified` means you still have to prove a real workspace/customer can issue `cert-url`
 
 ## 9. Known Fragility
 
@@ -157,6 +182,10 @@ actually contains debug-artifact support before changing Popbill selector logic.
 - certificate passwords may come from row-level input or workspace-level fallback
 - Popbill certificate chooser automation still cannot assume serial/userDN/index are present in the visible candidate row. Public/sample DOM traces for the same certificate module show table/list rows such as `tr#row0dataTable` with leaf `span[title]` text and scrollbar containers like `#MLjquiScrollAreaDownverticalScrollBardataTable`, but they do not prove that serial/userDN/index are exposed per-row in a stable attribute.
 - Current helper therefore uses a fail-closed strategy: inspect visible candidate row/list text, row/span attributes (`title`, `id`, `name`, `value`, `data-*`, `aria-*`, `onclick`), hidden/select/input values, and then a second pass that clicks each ambiguous row only to inspect selected/detail DOM evidence. It auto-clicks only when serial/userDN become a unique match, or when `certificateIndex` appears in an explicit `certificateIndex`/`certID`/`인증서번호`-style field. Generic row ids like `row0dataTable` remain diagnostic-only. Otherwise it aborts and writes JSON + frame HTML debug artifacts for the next session.
+- In practice there are two separate blockers for live ambiguous evidence collection:
+  1. the local bridge must currently expose duplicate `electronic_tax` CNs on that Windows machine
+  2. the server-managed Popbill settings must be valid enough to issue a real `cert-url`
+  If either prerequisite is missing, do not widen selector logic; fix the prerequisite or keep fail-closed behavior.
 
 ## 10. What To Update When Changing This Area
 

@@ -3,7 +3,11 @@ import path from "node:path";
 import express from "express";
 import { z } from "zod";
 import { collectBridgeCertificateList, collectBridgeProbeResult, prepareRenewPaymentOpenContext } from "./renewal-agent.ts";
-import { getPopbillDebugArtifactSupport, registerPopbillCertificate } from "./popbill-cert-registration.ts";
+import {
+  getPopbillChooserDebugReadiness,
+  getPopbillDebugArtifactSupport,
+  registerPopbillCertificate
+} from "./popbill-cert-registration.ts";
 import { openSignGateRenewPaymentWindow } from "./signgate-fee-payment.ts";
 import { sanitizeSensitiveData, sanitizeSensitiveText } from "../server/src/utils.js";
 
@@ -222,7 +226,10 @@ export function createRenewalLocalHelperApp() {
 
   app.get("/health", async (_req, res, next) => {
     try {
-      const probe = await collectBridgeProbeResult({ includeDetailedProbe: false });
+      const [probe, popbillChooserDebug] = await Promise.all([
+        collectBridgeProbeResult({ includeDetailedProbe: false }),
+        getPopbillChooserDebugReadiness()
+      ]);
       res.json({
         ok: true,
         version,
@@ -231,7 +238,8 @@ export function createRenewalLocalHelperApp() {
           bridgeSummary: probe.bridge.summary,
           notes: probe.notes
         },
-        popbillDebugArtifacts: getPopbillDebugArtifactSupport()
+        popbillDebugArtifacts: getPopbillDebugArtifactSupport(),
+        popbillChooserDebug
       });
     } catch (error) {
       next(error);

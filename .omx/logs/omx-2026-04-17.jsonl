@@ -1,2 +1,4 @@
 {"event":"session_start","session_id":"omx-1776385170773-kiaw8i","pid":174620,"timestamp":"2026-04-17T00:19:31.783Z","_ts":"2026-04-17T00:19:31.783Z"}
 {"event":"session_start","session_id":"omx-1776385183622-5c3ziv","pid":170896,"timestamp":"2026-04-17T00:19:44.713Z","_ts":"2026-04-17T00:19:44.714Z"}
+{"event":"session_end","session_id":"omx-1776385183622-5c3ziv","timestamp":"2026-04-17T01:49:40.932Z","_ts":"2026-04-17T01:49:40.933Z"}
+{"event":"session_start","session_id":"omx-1776394519886-gmhai8","pid":236492,"timestamp":"2026-04-17T02:55:21.030Z","_ts":"2026-04-17T02:55:21.031Z"}
