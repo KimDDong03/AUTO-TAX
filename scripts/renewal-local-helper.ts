@@ -3,18 +3,43 @@ import path from "node:path";
 import express from "express";
 import { z } from "zod";
 import { collectBridgeCertificateList, collectBridgeProbeResult, prepareRenewPaymentOpenContext } from "./renewal-agent.ts";
-import { registerPopbillCertificate } from "./popbill-cert-registration.ts";
+import {
+  getPopbillChooserDebugReadiness,
+  getPopbillDebugArtifactSupport,
+  registerPopbillCertificate
+} from "./popbill-cert-registration.ts";
 import { openSignGateRenewPaymentWindow } from "./signgate-fee-payment.ts";
+import { sanitizeSensitiveData, sanitizeSensitiveText } from "../server/src/utils.js";
 
 const DEFAULT_PORT = 35119;
 const DEFAULT_ALLOWED_ORIGINS = ["https://auto-tax-alpha.vercel.app"];
 const PREFLIGHT_TRANSPORT_RETRY_COUNT = 1;
 const PREFLIGHT_TRANSPORT_RETRY_DELAY_MS = 250;
 
-function readPackageVersion(): string {
+function readHelperVersionMetadata(): string {
+  const entryDirectory = process.argv[1] ? path.dirname(process.argv[1]) : null;
+  const candidateVersionFiles = [
+    path.resolve(process.cwd(), "scripts", "renewal-local-helper-release.json"),
+    path.resolve(process.cwd(), "dist", "renewal-local-helper", "app", "renewal-local-helper-release.json"),
+    entryDirectory ? path.resolve(entryDirectory, "renewal-local-helper-release.json") : null,
+    entryDirectory ? path.resolve(entryDirectory, "..", "scripts", "renewal-local-helper-release.json") : null
+  ].filter((value): value is string => Boolean(value));
+
+  for (const versionFile of candidateVersionFiles) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(versionFile, "utf8")) as { version?: string; latestVersion?: string };
+      const version = parsed.version?.trim() || parsed.latestVersion?.trim();
+      if (version) {
+        return version;
+      }
+    } catch {
+      continue;
+    }
+  }
+
   const candidatePackageFiles = [
     path.resolve(process.cwd(), "package.json"),
-    process.argv[1] ? path.resolve(path.dirname(process.argv[1]), "..", "package.json") : null
+    entryDirectory ? path.resolve(entryDirectory, "..", "package.json") : null
   ].filter((value): value is string => Boolean(value));
 
   for (const packageFile of candidatePackageFiles) {
@@ -115,7 +140,11 @@ const renewalOpenPaymentSchema = renewalPreparePaymentSchema;
 
 const popbillCertificateRegistrationSchema = z.object({
   certificateRegistrationUrl: z.string().url(),
-  certificateCn: z.string().trim().min(1),
+  certificateIndex: z.number().int().positive(),
+  certificateCn: z.string().trim().nullable().optional(),
+  certificateKind: z.literal("electronic_tax").default("electronic_tax"),
+  serial: z.string().trim().nullable().optional(),
+  userDN: z.string().trim().nullable().optional(),
   certificatePassword: z.string().trim().min(1)
 });
 
@@ -174,9 +203,13 @@ async function collectPreflightProbeResultWithRetry(
 
 export function createRenewalLocalHelperApp() {
   const app = express();
-  const version = readPackageVersion();
+  const version = readHelperVersionMetadata();
 
   app.disable("x-powered-by");
+  app.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
   app.use((req, res, next) => {
     if (!applyCors(req, res)) {
       return;
@@ -193,7 +226,10 @@ export function createRenewalLocalHelperApp() {
 
   app.get("/health", async (_req, res, next) => {
     try {
-      const probe = await collectBridgeProbeResult({ includeDetailedProbe: false });
+      const [probe, popbillChooserDebug] = await Promise.all([
+        collectBridgeProbeResult({ includeDetailedProbe: false }),
+        getPopbillChooserDebugReadiness()
+      ]);
       res.json({
         ok: true,
         version,
@@ -201,7 +237,9 @@ export function createRenewalLocalHelperApp() {
           processDetected: probe.process.detected,
           bridgeSummary: probe.bridge.summary,
           notes: probe.notes
-        }
+        },
+        popbillDebugArtifacts: getPopbillDebugArtifactSupport(),
+        popbillChooserDebug
       });
     } catch (error) {
       next(error);
@@ -286,12 +324,12 @@ export function createRenewalLocalHelperApp() {
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: error.flatten() });
+      res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: sanitizeSensitiveData(error.flatten()) });
       return;
     }
 
     res.status(500).json({
-      error: error instanceof Error ? error.message : "로컬 헬퍼 요청 처리에 실패했습니다."
+      error: sanitizeSensitiveText(error instanceof Error ? error.message : "로컬 헬퍼 요청 처리에 실패했습니다.")
     });
   });
 
