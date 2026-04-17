@@ -756,88 +756,86 @@ async function inspectPopbillCertificateSelectionFrame(
         serial: String(rawTarget.serial ?? ""),
         userDN: String(rawTarget.userDN ?? "")
       };
+      const normalizedTargetCn = String(targetValue.certificateCn ?? "")
+        .replace(/\s+/g, "")
+        .trim()
+        .toLowerCase();
+      const candidatesBySelector = new Map<string, PopbillCertificateIframeCandidate>();
 
-      const normalize = (value: string | null | undefined) =>
-        String(value ?? "")
+      for (const matchedLeafElement of Array.from(body.querySelectorAll("*"))) {
+        if (!(matchedLeafElement instanceof HTMLElement)) {
+          continue;
+        }
+
+        const matchedLeafStyle = window.getComputedStyle(matchedLeafElement);
+        if (
+          matchedLeafStyle.display === "none" ||
+          matchedLeafStyle.visibility === "hidden" ||
+          matchedLeafElement.getClientRects().length === 0
+        ) {
+          continue;
+        }
+
+        const matchedLeafText = String(matchedLeafElement.innerText || matchedLeafElement.textContent || "")
           .replace(/\s+/g, "")
           .trim()
           .toLowerCase();
-      const isVisible = (element: Element): element is HTMLElement => {
-        if (!(element instanceof HTMLElement)) {
-          return false;
+        if (!normalizedTargetCn || !matchedLeafText.includes(normalizedTargetCn)) {
+          continue;
         }
 
-        const style = window.getComputedStyle(element);
-        if (style.display === "none" || style.visibility === "hidden") {
-          return false;
-        }
-
-        return element.getClientRects().length > 0;
-      };
-      const includesTargetCn = (element: Element) => {
-        if (!(element instanceof HTMLElement)) {
-          return false;
-        }
-
-        return normalize(element.innerText || element.textContent || "").includes(normalize(targetValue.certificateCn));
-      };
-      const selectorFromElement = (element: Element) => {
-        if (!(element instanceof HTMLElement)) {
-          return "";
-        }
-
-        if (element.id) {
-          return `#${CSS.escape(element.id)}`;
-        }
-
-        const segments: string[] = [];
-        let current: HTMLElement | null = element;
-        while (current && current !== body) {
-          let segment = current.tagName.toLowerCase();
-          let sibling = current.previousElementSibling;
-          let position = 1;
-          while (sibling) {
-            if (sibling.tagName === current.tagName) {
-              position += 1;
-            }
-            sibling = sibling.previousElementSibling;
+        let hasVisibleChildMatch = false;
+        for (const child of Array.from(matchedLeafElement.children)) {
+          if (!(child instanceof HTMLElement)) {
+            continue;
           }
-          segment += `:nth-of-type(${position})`;
-          segments.unshift(segment);
-          current = current.parentElement;
+
+          const childStyle = window.getComputedStyle(child);
+          if (childStyle.display === "none" || childStyle.visibility === "hidden" || child.getClientRects().length === 0) {
+            continue;
+          }
+
+          const childText = String(child.innerText || child.textContent || "")
+            .replace(/\s+/g, "")
+            .trim()
+            .toLowerCase();
+          if (childText.includes(normalizedTargetCn)) {
+            hasVisibleChildMatch = true;
+            break;
+          }
         }
 
-        return segments.length > 0 ? `body > ${segments.join(" > ")}` : "body";
-      };
-      const hasInterestingAttributes = (element: HTMLElement) =>
-        Array.from(element.attributes).some(({ name, value }) => {
-          const trimmedValue = value.trim();
-          return (
-            trimmedValue !== "" &&
-            (name === "id" ||
-              name === "name" ||
-              name === "value" ||
-              name === "title" ||
-              name === "class" ||
-              name === "role" ||
-              name === "onclick" ||
-              name.startsWith("data-") ||
-              name.startsWith("aria-"))
-          );
-        });
-      const resolveCandidateContainer = (element: HTMLElement) => {
-        let current: HTMLElement | null = element;
-        let best: HTMLElement = element;
+        if (hasVisibleChildMatch) {
+          continue;
+        }
+
+        let container: HTMLElement = matchedLeafElement;
+        let current: HTMLElement | null = matchedLeafElement;
         let depth = 0;
         while (current && current !== body && depth < 6) {
-          const hasInterestingInputs =
-            current.querySelector("input, option[selected], select, textarea") !== null;
-          if (
-            hasInterestingInputs ||
-            hasInterestingAttributes(current) ||
-            current.matches("tr, li, label, button, a, td, div")
-          ) {
-            best = current;
+          const hasInterestingInputs = current.querySelector("input, option[selected], select, textarea") !== null;
+          let hasInterestingAttributes = false;
+          for (const attribute of Array.from(current.attributes)) {
+            const trimmedValue = attribute.value.trim();
+            if (
+              trimmedValue !== "" &&
+              (attribute.name === "id" ||
+                attribute.name === "name" ||
+                attribute.name === "value" ||
+                attribute.name === "title" ||
+                attribute.name === "class" ||
+                attribute.name === "role" ||
+                attribute.name === "onclick" ||
+                attribute.name.startsWith("data-") ||
+                attribute.name.startsWith("aria-"))
+            ) {
+              hasInterestingAttributes = true;
+              break;
+            }
+          }
+
+          if (hasInterestingInputs || hasInterestingAttributes || current.matches("tr, li, label, button, a, td, div")) {
+            container = current;
           }
 
           if (
@@ -845,76 +843,137 @@ async function inspectPopbillCertificateSelectionFrame(
             current.getAttribute("onclick") ||
             current.getAttribute("role") === "button"
           ) {
-            return current;
+            container = current;
+            break;
           }
 
           current = current.parentElement;
           depth += 1;
         }
 
-        return best;
-      };
-      const collectCandidateStrings = (container: HTMLElement, leafElement: HTMLElement) => {
+        let selector = "";
+        if (container.id) {
+          selector = `#${CSS.escape(container.id)}`;
+        } else {
+          const segments: string[] = [];
+          let selectorCurrent: HTMLElement | null = container;
+          while (selectorCurrent && selectorCurrent !== body) {
+            let segment = selectorCurrent.tagName.toLowerCase();
+            let sibling = selectorCurrent.previousElementSibling;
+            let position = 1;
+            while (sibling) {
+              if (sibling.tagName === selectorCurrent.tagName) {
+                position += 1;
+              }
+              sibling = sibling.previousElementSibling;
+            }
+            segment += `:nth-of-type(${position})`;
+            segments.unshift(segment);
+            selectorCurrent = selectorCurrent.parentElement;
+          }
+          selector = segments.length > 0 ? `body > ${segments.join(" > ")}` : "body";
+        }
+
+        if (!selector || candidatesBySelector.has(selector)) {
+          continue;
+        }
+
         const attributes: string[] = [];
         const hiddenValues: string[] = [];
         const seenAttributes = new Set<string>();
         const seenHiddenValues = new Set<string>();
-        const chain = [
-          leafElement,
+        const chainCandidates = [
+          matchedLeafElement,
           container,
           container.parentElement,
           container.parentElement?.parentElement
-        ].filter(
-          (candidate): candidate is HTMLElement => candidate instanceof HTMLElement
-        );
-        const pushAttribute = (scope: string, name: string, value: string | null | undefined) => {
-          const trimmedValue = String(value ?? "").trim();
-          if (
-            !trimmedValue ||
-            !(
-              name === "id" ||
-              name === "name" ||
-              name === "value" ||
-              name === "title" ||
-              name === "role" ||
-              name === "class" ||
-              name === "onclick" ||
-              name.startsWith("data-") ||
-              name.startsWith("aria-")
-            )
-          ) {
-            return;
+        ];
+        for (let level = 0; level < chainCandidates.length; level += 1) {
+          const chainCandidate = chainCandidates[level];
+          if (!(chainCandidate instanceof HTMLElement)) {
+            continue;
           }
 
-          const descriptor = `${scope}:${name}=${trimmedValue}`;
-          if (!seenAttributes.has(descriptor)) {
-            seenAttributes.add(descriptor);
-            attributes.push(descriptor);
-          }
-        };
-        const pushHiddenValue = (scope: string, parts: Array<string | null | undefined>) => {
-          const descriptor = parts.map((value) => String(value ?? "").trim()).filter(Boolean).join("=");
-          if (!descriptor || seenHiddenValues.has(`${scope}:${descriptor}`)) {
-            return;
-          }
+          for (const attribute of Array.from(chainCandidate.attributes)) {
+            const trimmedValue = String(attribute.value ?? "").trim();
+            if (
+              !trimmedValue ||
+              !(
+                attribute.name === "id" ||
+                attribute.name === "name" ||
+                attribute.name === "value" ||
+                attribute.name === "title" ||
+                attribute.name === "role" ||
+                attribute.name === "class" ||
+                attribute.name === "onclick" ||
+                attribute.name.startsWith("data-") ||
+                attribute.name.startsWith("aria-")
+              )
+            ) {
+              continue;
+            }
 
-          seenHiddenValues.add(`${scope}:${descriptor}`);
-          hiddenValues.push(`${scope}:${descriptor}`);
-        };
-
-        for (const [level, candidate] of chain.entries()) {
-          for (const attribute of Array.from(candidate.attributes)) {
-            pushAttribute(`chain${level}`, attribute.name, attribute.value);
+            const descriptor = `chain${level}:${attribute.name}=${trimmedValue}`;
+            if (!seenAttributes.has(descriptor)) {
+              seenAttributes.add(descriptor);
+              attributes.push(descriptor);
+            }
           }
         }
 
         for (const descendant of Array.from(container.querySelectorAll("*")).slice(0, 20)) {
-          if (!(descendant instanceof HTMLElement) || !hasInterestingAttributes(descendant)) {
+          if (!(descendant instanceof HTMLElement)) {
+            continue;
+          }
+
+          let descendantHasInterestingAttributes = false;
+          for (const attribute of Array.from(descendant.attributes)) {
+            const trimmedValue = attribute.value.trim();
+            if (
+              trimmedValue !== "" &&
+              (attribute.name === "id" ||
+                attribute.name === "name" ||
+                attribute.name === "value" ||
+                attribute.name === "title" ||
+                attribute.name === "class" ||
+                attribute.name === "role" ||
+                attribute.name === "onclick" ||
+                attribute.name.startsWith("data-") ||
+                attribute.name.startsWith("aria-"))
+            ) {
+              descendantHasInterestingAttributes = true;
+              break;
+            }
+          }
+
+          if (!descendantHasInterestingAttributes) {
             continue;
           }
 
           for (const attribute of Array.from(descendant.attributes)) {
-            pushAttribute("desc", attribute.name, attribute.value);
+            const trimmedValue = String(attribute.value ?? "").trim();
+            if (
+              !trimmedValue ||
+              !(
+                attribute.name === "id" ||
+                attribute.name === "name" ||
+                attribute.name === "value" ||
+                attribute.name === "title" ||
+                attribute.name === "role" ||
+                attribute.name === "class" ||
+                attribute.name === "onclick" ||
+                attribute.name.startsWith("data-") ||
+                attribute.name.startsWith("aria-")
+              )
+            ) {
+              continue;
+            }
+
+            const descriptor = `desc:${attribute.name}=${trimmedValue}`;
+            if (!seenAttributes.has(descriptor)) {
+              seenAttributes.add(descriptor);
+              attributes.push(descriptor);
+            }
           }
         }
 
@@ -923,34 +982,25 @@ async function inspectPopbillCertificateSelectionFrame(
             continue;
           }
 
-          pushHiddenValue("field", [
-            field.getAttribute("name"),
-            field.getAttribute("id"),
-            field.getAttribute("value"),
-            field.textContent
-          ]);
-        }
+          const parts = [
+            String(field.getAttribute("name") ?? "").trim(),
+            String(field.getAttribute("id") ?? "").trim(),
+            String(field.getAttribute("value") ?? "").trim(),
+            String(field.textContent ?? "").trim()
+          ].filter(Boolean);
+          const descriptor = parts.join("=");
+          if (!descriptor) {
+            continue;
+          }
 
-        return { attributes, hiddenValues };
-      };
-      const matchedLeafElements = Array.from(body.querySelectorAll("*")).filter((element) => {
-        if (!isVisible(element) || !includesTargetCn(element)) {
-          return false;
-        }
-
-        return !Array.from(element.children).some((child) => isVisible(child) && includesTargetCn(child));
-      });
-      const candidatesBySelector = new Map<string, PopbillCertificateIframeCandidate>();
-
-      for (const matchedLeafElement of matchedLeafElements) {
-        const container = resolveCandidateContainer(matchedLeafElement);
-        const selector = selectorFromElement(container);
-        if (!selector || candidatesBySelector.has(selector)) {
-          continue;
+          const hiddenDescriptor = `field:${descriptor}`;
+          if (!seenHiddenValues.has(hiddenDescriptor)) {
+            seenHiddenValues.add(hiddenDescriptor);
+            hiddenValues.push(hiddenDescriptor);
+          }
         }
 
         const text = (container.innerText || container.textContent || "").replace(/\s+/g, " ").trim();
-        const { attributes, hiddenValues } = collectCandidateStrings(container, matchedLeafElement as HTMLElement);
         candidatesBySelector.set(selector, {
           selector,
           text,
@@ -1009,40 +1059,6 @@ async function inspectPopbillCertificateSelectionDetails(
       (body) => {
         const evidence: string[] = [];
         const seenEvidence = new Set<string>();
-        const pushEvidence = (scope: string, value: string | null | undefined) => {
-          const trimmedValue = String(value ?? "").replace(/\s+/g, " ").trim();
-          if (!trimmedValue) {
-            return;
-          }
-
-          const descriptor = `${scope}:${trimmedValue}`;
-          if (!seenEvidence.has(descriptor)) {
-            seenEvidence.add(descriptor);
-            evidence.push(descriptor);
-          }
-        };
-        const collectElementEvidence = (scope: string, element: Element | null | undefined) => {
-          if (!(element instanceof HTMLElement)) {
-            return;
-          }
-
-          pushEvidence(`${scope}:text`, element.innerText || element.textContent || "");
-          for (const attribute of Array.from(element.attributes)) {
-            if (
-              attribute.name === "id" ||
-              attribute.name === "name" ||
-              attribute.name === "value" ||
-              attribute.name === "title" ||
-              attribute.name === "role" ||
-              attribute.name === "class" ||
-              attribute.name === "onclick" ||
-              attribute.name.startsWith("data-") ||
-              attribute.name.startsWith("aria-")
-            ) {
-              pushEvidence(`${scope}:attr:${attribute.name}`, attribute.value);
-            }
-          }
-        };
 
         const selectors = [
           "[aria-selected='true']",
@@ -1067,19 +1083,126 @@ async function inspectPopbillCertificateSelectionDetails(
         ];
         for (const selector of selectors) {
           for (const element of Array.from(body.querySelectorAll(selector)).slice(0, 4)) {
-            collectElementEvidence(selector, element);
+            if (!(element instanceof HTMLElement)) {
+              continue;
+            }
+
+            const textDescriptor = `${selector}:text:${String(element.innerText || element.textContent || "")
+              .replace(/\s+/g, " ")
+              .trim()}`;
+            if (!seenEvidence.has(textDescriptor) && !textDescriptor.endsWith(":")) {
+              seenEvidence.add(textDescriptor);
+              evidence.push(textDescriptor);
+            }
+
+            for (const attribute of Array.from(element.attributes)) {
+              if (
+                attribute.name === "id" ||
+                attribute.name === "name" ||
+                attribute.name === "value" ||
+                attribute.name === "title" ||
+                attribute.name === "role" ||
+                attribute.name === "class" ||
+                attribute.name === "onclick" ||
+                attribute.name.startsWith("data-") ||
+                attribute.name.startsWith("aria-")
+              ) {
+                const trimmedValue = String(attribute.value ?? "").replace(/\s+/g, " ").trim();
+                if (!trimmedValue) {
+                  continue;
+                }
+
+                const attributeDescriptor = `${selector}:attr:${attribute.name}:${trimmedValue}`;
+                if (!seenEvidence.has(attributeDescriptor)) {
+                  seenEvidence.add(attributeDescriptor);
+                  evidence.push(attributeDescriptor);
+                }
+              }
+            }
           }
         }
 
-        collectElementEvidence("active", document.activeElement);
+        if (document.activeElement instanceof HTMLElement) {
+          const activeTextDescriptor = `active:text:${String(document.activeElement.innerText || document.activeElement.textContent || "")
+            .replace(/\s+/g, " ")
+            .trim()}`;
+          if (!seenEvidence.has(activeTextDescriptor) && !activeTextDescriptor.endsWith(":")) {
+            seenEvidence.add(activeTextDescriptor);
+            evidence.push(activeTextDescriptor);
+          }
+
+          for (const attribute of Array.from(document.activeElement.attributes)) {
+            if (
+              attribute.name === "id" ||
+              attribute.name === "name" ||
+              attribute.name === "value" ||
+              attribute.name === "title" ||
+              attribute.name === "role" ||
+              attribute.name === "class" ||
+              attribute.name === "onclick" ||
+              attribute.name.startsWith("data-") ||
+              attribute.name.startsWith("aria-")
+            ) {
+              const trimmedValue = String(attribute.value ?? "").replace(/\s+/g, " ").trim();
+              if (!trimmedValue) {
+                continue;
+              }
+
+              const activeDescriptor = `active:attr:${attribute.name}:${trimmedValue}`;
+              if (!seenEvidence.has(activeDescriptor)) {
+                seenEvidence.add(activeDescriptor);
+                evidence.push(activeDescriptor);
+              }
+            }
+          }
+        }
+
         for (const field of Array.from(body.querySelectorAll("input, option[selected], select, textarea")).slice(0, 20)) {
           if (!(field instanceof HTMLElement)) {
             continue;
           }
 
-          collectElementEvidence("field", field);
-          pushEvidence("field:value", field.getAttribute("value"));
-          pushEvidence("field:text", field.textContent);
+          const fieldTextDescriptor = `field:text:${String(field.innerText || field.textContent || "")
+            .replace(/\s+/g, " ")
+            .trim()}`;
+          if (!seenEvidence.has(fieldTextDescriptor) && !fieldTextDescriptor.endsWith(":")) {
+            seenEvidence.add(fieldTextDescriptor);
+            evidence.push(fieldTextDescriptor);
+          }
+
+          for (const attribute of Array.from(field.attributes)) {
+            if (
+              attribute.name === "id" ||
+              attribute.name === "name" ||
+              attribute.name === "value" ||
+              attribute.name === "title" ||
+              attribute.name === "role" ||
+              attribute.name === "class" ||
+              attribute.name === "onclick" ||
+              attribute.name.startsWith("data-") ||
+              attribute.name.startsWith("aria-")
+            ) {
+              const trimmedValue = String(attribute.value ?? "").replace(/\s+/g, " ").trim();
+              if (!trimmedValue) {
+                continue;
+              }
+
+              const fieldAttributeDescriptor = `field:attr:${attribute.name}:${trimmedValue}`;
+              if (!seenEvidence.has(fieldAttributeDescriptor)) {
+                seenEvidence.add(fieldAttributeDescriptor);
+                evidence.push(fieldAttributeDescriptor);
+              }
+            }
+          }
+
+          const fieldValue = String(field.getAttribute("value") ?? "").replace(/\s+/g, " ").trim();
+          if (fieldValue) {
+            const fieldValueDescriptor = `field:value:${fieldValue}`;
+            if (!seenEvidence.has(fieldValueDescriptor)) {
+              seenEvidence.add(fieldValueDescriptor);
+              evidence.push(fieldValueDescriptor);
+            }
+          }
         }
 
         return {
