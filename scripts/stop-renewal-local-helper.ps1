@@ -18,7 +18,14 @@ function Get-HelperPort {
 }
 
 $helperPort = Get-HelperPort
+$taskName = "AUTO-TAX Renewal Local Helper"
 $candidateProcessIds = New-Object System.Collections.Generic.HashSet[int]
+
+try {
+  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
+} catch {
+  # The scheduled task may not currently be running.
+}
 
 try {
   @(Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $helperPort -State Listen -ErrorAction Stop |
@@ -30,9 +37,11 @@ try {
 }
 
 @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+  ($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and
   $_.CommandLine -and (
     $_.CommandLine -like "*renewal-local-helper.ts*" -or
-    $_.CommandLine -like "*start-renewal-local-helper.ps1*"
+    $_.CommandLine -like "*renewal-local-helper.cjs*" -or
+    $_.CommandLine -like "*renewal-local-helper.mjs*"
   )
 }) | ForEach-Object {
   [void]$candidateProcessIds.Add([int]$_.ProcessId)
@@ -50,6 +59,15 @@ foreach ($processId in $candidateProcessIds) {
     $taskKillSucceeded = ($LASTEXITCODE -eq 0)
   } catch {
     $taskKillSucceeded = $false
+  }
+
+  if (-not $taskKillSucceeded) {
+    try {
+      Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+      $taskKillSucceeded = $true
+    } catch {
+      $taskKillSucceeded = $false
+    }
   }
 
   if ($taskKillSucceeded) {

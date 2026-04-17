@@ -40,6 +40,20 @@ function Test-LocalRenewalHelperRunning {
     $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -Method Get -TimeoutSec 2
     return $response.ok -eq $true
   } catch {
+    # Health probe failed, fall back to process inspection.
+  }
+
+  try {
+    $process = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+      ($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and
+      $_.CommandLine -and (
+        $_.CommandLine -like "*renewal-local-helper.ts*" -or
+        $_.CommandLine -like "*renewal-local-helper.cjs*" -or
+        $_.CommandLine -like "*renewal-local-helper.mjs*"
+      )
+    } | Select-Object -First 1
+    return $null -ne $process
+  } catch {
     return $false
   }
 }
@@ -61,7 +75,7 @@ if (
     ((Test-Path $bundledHelperScript) -or (Test-Path $bundledHelperScriptLegacy))
   )
 ) {
-  throw "로컬 헬퍼 스크립트를 찾지 못했습니다: $helperScript"
+  throw "Local helper script not found: $helperScript"
 }
 
 $alreadyRunning = Test-LocalRenewalHelperRunning -Port $helperPort
@@ -103,7 +117,7 @@ if ((Test-Path $bundledNodeExe) -and ((Test-Path $bundledHelperScript) -or (Test
   $npmCmdInfo = Get-Command npm.cmd -ErrorAction SilentlyContinue
   $npmCmd = if ($npmCmdInfo) { $npmCmdInfo.Source } else { $null }
   if (-not $npmCmd) {
-    throw "tsx.cmd와 npm.cmd를 모두 찾지 못했습니다. 먼저 npm install을 실행하세요."
+    throw "Could not find tsx.cmd or npm.cmd. Run npm install first."
   }
 
   $command = $npmCmd

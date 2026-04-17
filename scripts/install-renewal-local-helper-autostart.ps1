@@ -44,9 +44,11 @@ function Test-LocalRenewalHelperRunning {
 
   try {
     $process = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+      ($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and
       $_.CommandLine -and (
         $_.CommandLine -like "*renewal-local-helper.ts*" -or
-        $_.CommandLine -like "*start-renewal-local-helper.ps1*"
+        $_.CommandLine -like "*renewal-local-helper.cjs*" -or
+        $_.CommandLine -like "*renewal-local-helper.mjs*"
       )
     } | Select-Object -First 1
     return $null -ne $process
@@ -73,6 +75,158 @@ function Wait-LocalRenewalHelperStop {
   return $false
 }
 
+function Wait-LocalRenewalHelperStart {
+  param(
+    [int]$Port,
+    [int]$Attempts = 60,
+    [int]$DelayMs = 500
+  )
+
+  for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
+    if (Test-LocalRenewalHelperRunning -Port $Port) {
+      return $true
+    }
+
+    Start-Sleep -Milliseconds $DelayMs
+  }
+
+  return $false
+}
+
+function Get-LocalRenewalHelperProcessIds {
+  param(
+    [int]$Port
+  )
+
+  $candidateProcessIds = New-Object System.Collections.Generic.HashSet[int]
+
+  try {
+    @(Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $Port -State Listen -ErrorAction Stop |
+      Select-Object -ExpandProperty OwningProcess -Unique) | ForEach-Object {
+        [void]$candidateProcessIds.Add([int]$_)
+      }
+  } catch {
+    # The helper may no longer be listening. Fall back to process inspection.
+  }
+
+  try {
+    @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+      ($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and
+      $_.CommandLine -and (
+        $_.CommandLine -like "*renewal-local-helper.ts*" -or
+        $_.CommandLine -like "*renewal-local-helper.cjs*" -or
+        $_.CommandLine -like "*renewal-local-helper.mjs*"
+      )
+    }) | ForEach-Object {
+      [void]$candidateProcessIds.Add([int]$_.ProcessId)
+    }
+  } catch {
+    # Ignore process inspection failures and return whatever we already found.
+  }
+
+  return @($candidateProcessIds)
+}
+
+function Stop-LocalRenewalHelperProcessTree {
+  param(
+    [int[]]$ProcessIds
+  )
+
+  foreach ($processId in @($ProcessIds | Select-Object -Unique)) {
+    if ($processId -le 0) {
+      continue
+    }
+
+    $taskKillSucceeded = $false
+    try {
+      & taskkill.exe /PID $processId /T /F 2>$null | Out-Null
+      $taskKillSucceeded = ($LASTEXITCODE -eq 0)
+    } catch {
+      $taskKillSucceeded = $false
+    }
+
+    if ($taskKillSucceeded) {
+      continue
+    }
+
+    try {
+      Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+    } catch {
+      # Ignore individual termination failures and let the caller verify shutdown.
+    }
+  }
+}
+
+function Stop-ExistingLocalRenewalHelper {
+  param(
+    [int]$Port,
+    [string]$TaskName,
+    [string[]]$StopScripts,
+    [string]$PowerShellExe
+  )
+
+  try {
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
+  } catch {
+    # The scheduled task may not currently be running.
+  }
+
+  foreach ($stopScript in $StopScripts) {
+    if (-not (Test-Path $stopScript)) {
+      continue
+    }
+
+    & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $stopScript | Out-Null
+    if (Wait-LocalRenewalHelperStop -Port $Port) {
+      return $true
+    }
+  }
+
+  for ($attempt = 0; $attempt -lt 4; $attempt += 1) {
+    $processIds = @(Get-LocalRenewalHelperProcessIds -Port $Port)
+    if ($processIds.Count -eq 0 -and -not (Test-LocalRenewalHelperRunning -Port $Port)) {
+      return $true
+    }
+
+    Stop-LocalRenewalHelperProcessTree -ProcessIds $processIds
+    if (Wait-LocalRenewalHelperStop -Port $Port -Attempts 24 -DelayMs 500) {
+      return $true
+    }
+
+    Start-Sleep -Milliseconds 500
+  }
+
+  return -not (Test-LocalRenewalHelperRunning -Port $Port)
+}
+
+function Copy-InstallFilesWithRetry {
+  param(
+    [string]$SourceRoot,
+    [string]$InstallRoot,
+    [int]$Attempts = 6,
+    [int]$DelayMs = 1000
+  )
+
+  $lastError = $null
+  for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
+    try {
+      New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
+      Copy-Item -Path (Join-Path $SourceRoot "*") -Destination $InstallRoot -Recurse -Force
+      return
+    } catch {
+      $lastError = $_
+      if ($attempt -ge ($Attempts - 1)) {
+        throw
+      }
+      Start-Sleep -Milliseconds $DelayMs
+    }
+  }
+
+  if ($lastError) {
+    throw $lastError
+  }
+}
+
 $sourceRoot = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
 $packageAppMarker = Join-Path $sourceRoot "app\\renewal-local-helper.cjs"
 $legacyPackageAppMarker = Join-Path $sourceRoot "app\\renewal-local-helper.mjs"
@@ -89,33 +243,24 @@ $stopScriptCandidates = @(
 
 if (Test-LocalRenewalHelperRunning -Port $helperPort) {
   $stopped = $false
-  foreach ($stopScript in $stopScriptCandidates) {
-    if (-not (Test-Path $stopScript)) {
-      continue
-    }
-
-    if ($PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Stop running helper before reinstall")) {
-      & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $stopScript | Out-Null
-    } elseif ($WhatIfPreference) {
-      $stopped = $true
-      break
-    }
-
-    if (Wait-LocalRenewalHelperStop -Port $helperPort) {
-      $stopped = $true
-      break
-    }
+  if ($PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Stop running helper before reinstall")) {
+    $stopped = Stop-ExistingLocalRenewalHelper `
+      -Port $helperPort `
+      -TaskName $taskName `
+      -StopScripts $stopScriptCandidates `
+      -PowerShellExe $powershellExe
+  } elseif ($WhatIfPreference) {
+    $stopped = $true
   }
 
   if (-not $stopped -and -not $WhatIfPreference) {
-    throw "기존 로컬 헬퍼를 종료하지 못했습니다. 바탕화면의 AUTO-TAX Helper Stop을 먼저 실행한 뒤 다시 설치하세요."
+    throw "Failed to stop the running AUTO-TAX helper automatically. Run AUTO-TAX Helper Stop and retry the install."
   }
 }
 
 if ($isPackagedInstall -and ($sourceRoot -ne $installRoot)) {
   if ($PSCmdlet.ShouldProcess($installRoot, "Copy packaged renewal helper files to stable install location")) {
-    New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
-    Copy-Item -Path (Join-Path $sourceRoot "*") -Destination $installRoot -Recurse -Force
+    Copy-InstallFilesWithRetry -SourceRoot $sourceRoot -InstallRoot $installRoot
   }
 }
 
@@ -127,7 +272,7 @@ $currentUser = if ($env:USERDOMAIN) { "$($env:USERDOMAIN)\$($env:USERNAME)" } el
 $desktopPath = [Environment]::GetFolderPath("Desktop")
 
 if (-not (Test-Path $launcherScript)) {
-  throw "시작 스크립트를 찾지 못했습니다: $launcherScript"
+  throw "Helper launcher script not found: $launcherScript"
 }
 
 $action = New-ScheduledTaskAction `
@@ -145,7 +290,7 @@ $settings = New-ScheduledTaskSettingsSet `
 if ($PSCmdlet.ShouldProcess($taskName, "Register renewal local helper scheduled task")) {
   Register-ScheduledTask `
     -TaskName $taskName `
-    -Description "AUTO-TAX 고객용 로컬 공동인증서 헬퍼 자동 실행" `
+    -Description "AUTO-TAX local certificate helper autostart" `
     -Action $action `
     -Trigger $trigger `
     -Principal $principal `
@@ -153,8 +298,9 @@ if ($PSCmdlet.ShouldProcess($taskName, "Register renewal local helper scheduled 
     -Force | Out-Null
 }
 
-if ($StartNow -and $PSCmdlet.ShouldProcess($taskName, "Start renewal local helper scheduled task")) {
-  Start-ScheduledTask -TaskName $taskName
+if ($StartNow -and $PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Start helper immediately after install")) {
+  & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $launcherScript -Detached | Out-Null
+  [void](Wait-LocalRenewalHelperStart -Port $helperPort)
 }
 
 if (-not $SkipDesktopShortcuts) {
@@ -163,25 +309,25 @@ if (-not $SkipDesktopShortcuts) {
       Name = "AUTO-TAX Helper Start.lnk"
       Target = $powershellExe
       Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$launcherScript`" -Detached"
-      Description = "AUTO-TAX 로컬 공동인증서 헬퍼 시작"
+      Description = "AUTO-TAX local certificate helper start"
     },
     @{
       Name = "AUTO-TAX Helper Stop.lnk"
       Target = $powershellExe
       Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$stopScript`""
-      Description = "AUTO-TAX 로컬 공동인증서 헬퍼 종료"
+      Description = "AUTO-TAX local certificate helper stop"
     },
     @{
       Name = "AUTO-TAX Helper Status.lnk"
       Target = $powershellExe
       Arguments = "-NoProfile -NoExit -ExecutionPolicy Bypass -File `"$statusScript`""
-      Description = "AUTO-TAX 로컬 공동인증서 헬퍼 상태 확인"
+      Description = "AUTO-TAX local certificate helper status"
     },
     @{
       Name = "AUTO-TAX Helper Disable Autostart.lnk"
       Target = $powershellExe
       Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$uninstallScript`""
-      Description = "AUTO-TAX 로컬 공동인증서 헬퍼 로그인 자동실행만 해제"
+      Description = "AUTO-TAX local certificate helper disable autostart"
     }
   )
 
