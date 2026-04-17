@@ -20,6 +20,7 @@ import {
   parseRenewInfoSnapshotFromData,
 } from "../server/src/services/renewal-page-parser.js";
 import { resolveSelectionPassword } from "../server/src/services/renewal-password.js";
+import { sanitizeSensitiveText } from "../server/src/utils.js";
 import type {
   RenewalInfoSnapshot,
   RenewalPreflightComparisonProfile,
@@ -2940,8 +2941,9 @@ export async function runRenewalAgentLoop(): Promise<void> {
             `[renewal-agent] job ${job.id} completed: ${result.bridge.summary}`,
           );
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "브리지 진단 실패";
+          const message = sanitizeSensitiveText(
+            error instanceof Error ? error.message : "브리지 진단 실패"
+          );
           await failJob(serverUrl, agentId, job.id, message, secret);
           console.error(`[renewal-agent] job ${job.id} failed: ${message}`);
         }
@@ -2959,8 +2961,9 @@ export async function runRenewalAgentLoop(): Promise<void> {
             `[renewal-agent] job ${job.id} certID probe: ${result.bridge.selectionProbe.ok ? (result.bridge.selectionProbe.certID ?? "ok") : (result.bridge.selectionProbe.error ?? "failed")}`,
           );
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "certID 조회 실패";
+          const message = sanitizeSensitiveText(
+            error instanceof Error ? error.message : "certID 조회 실패"
+          );
           await failJob(serverUrl, agentId, job.id, message, secret);
           console.error(`[renewal-agent] job ${job.id} failed: ${message}`);
         }
@@ -2981,15 +2984,17 @@ export async function runRenewalAgentLoop(): Promise<void> {
             `[renewal-agent] job ${job.id} renewal preflight: ${result.bridge.preflightProbe.branch}${result.bridge.preflightProbe.nextUrl ? ` -> ${result.bridge.preflightProbe.nextUrl}` : ""}${result.bridge.preflightProbe.renewInfoAutoSubmitSummary ? ` / ${result.bridge.preflightProbe.renewInfoAutoSubmitSummary}` : ""}`,
           );
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "갱신 경로 분석 실패";
+          const message = sanitizeSensitiveText(
+            error instanceof Error ? error.message : "갱신 경로 분석 실패"
+          );
           await failJob(serverUrl, agentId, job.id, message, secret);
           console.error(`[renewal-agent] job ${job.id} failed: ${message}`);
         }
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "에이전트 루프 실패";
+      const message = sanitizeSensitiveText(
+        error instanceof Error ? error.message : "에이전트 루프 실패"
+      );
       console.error(`[renewal-agent] ${message}`);
     }
 

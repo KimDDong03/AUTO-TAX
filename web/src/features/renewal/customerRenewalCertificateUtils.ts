@@ -45,6 +45,13 @@ export function normalizeRenewalCertificateKey(value: string | number | null | u
   return String(value ?? "").trim().toLowerCase();
 }
 
+export type RenewalCertificateIdentity = {
+  certificateIndex?: string | number | null;
+  certificateCn?: string | null;
+  serial?: string | null;
+  userDN?: string | null;
+};
+
 export function normalizeCustomerRenewalName(value: string | null | undefined): string {
   return String(value ?? "")
     .replace(/\s+/g, "")
@@ -102,6 +109,54 @@ export function matchesRenewalCertificate(
   const certificateCn = normalizeRenewalCertificateKey(certificate.cn);
   const targetCn = normalizeRenewalCertificateKey(target.certificateCn);
   return certificateCn !== "" && targetCn !== "" && certificateCn === targetCn;
+}
+
+export function findRenewalCertificatesByIdentity(
+  certificates: RenewalAgentCertificate[],
+  target: RenewalCertificateIdentity
+): RenewalAgentCertificate[] {
+  const certificateIndex = normalizeRenewalCertificateKey(target.certificateIndex);
+  const certificateCn = normalizeRenewalCertificateKey(target.certificateCn);
+  const serial = normalizeRenewalCertificateKey(target.serial);
+  const userDN = normalizeRenewalCertificateKey(target.userDN);
+
+  if (serial !== "" || userDN !== "") {
+    return certificates.filter((certificate) => {
+      const certificateSerial = normalizeRenewalCertificateKey(certificate.serial);
+      const certificateUserDN = normalizeRenewalCertificateKey(certificate.userDN);
+
+      if (serial !== "" && certificateSerial !== serial) {
+        return false;
+      }
+      if (userDN !== "" && certificateUserDN !== userDN) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  if (certificateIndex !== "" && certificateCn !== "") {
+    return certificates.filter(
+      (certificate) =>
+        normalizeRenewalCertificateKey(certificate.index) === certificateIndex &&
+        normalizeRenewalCertificateKey(certificate.cn) === certificateCn
+    );
+  }
+
+  if (certificateIndex !== "") {
+    return certificates.filter(
+      (certificate) => normalizeRenewalCertificateKey(certificate.index) === certificateIndex
+    );
+  }
+
+  if (certificateCn !== "") {
+    return certificates.filter(
+      (certificate) => normalizeRenewalCertificateKey(certificate.cn) === certificateCn
+    );
+  }
+
+  return [];
 }
 
 function matchesCustomerRenewalCertificateName(

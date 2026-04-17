@@ -4,6 +4,7 @@ import type { Customer, CustomerCertificate, RenewalBridgePreflightProbe } from 
 import type { RenewalAgentCertificate } from "./useRenewalAssistantState";
 import {
   deriveCustomerCertificateKind,
+  findRenewalCertificatesByIdentity,
   findCandidateCustomersForCertificate,
   findStoredCustomerCertificateForLocalCertificate,
   formatCustomerRenewalStatus
@@ -100,6 +101,45 @@ test("findStoredCustomerCertificateForLocalCertificate prefers primary when mult
   const match = findStoredCustomerCertificateForLocalCertificate(certificate, [secondary, primary]);
 
   assert.equal(match?.id, 2);
+});
+
+test("findRenewalCertificatesByIdentity prefers serial/userDN when certificate index changes", () => {
+  const certificates = [
+    createCertificate({
+      index: "9",
+      cn: "같은 CN",
+      serial: "SERIAL-OLD",
+      userDN: "USER-DN-OLD"
+    }),
+    createCertificate({
+      index: "22",
+      cn: "같은 CN",
+      serial: "SERIAL-KEEP",
+      userDN: "USER-DN-KEEP"
+    })
+  ];
+
+  const matches = findRenewalCertificatesByIdentity(certificates, {
+    certificateIndex: "101",
+    certificateCn: "같은 CN",
+    serial: "SERIAL-KEEP",
+    userDN: "USER-DN-KEEP"
+  });
+
+  assert.deepEqual(matches.map((certificate) => certificate.index), ["22"]);
+});
+
+test("findRenewalCertificatesByIdentity returns every same-cn candidate when only CN is known", () => {
+  const certificates = [
+    createCertificate({ index: "1", cn: "중복 CN", serial: "SERIAL-1", userDN: "USER-DN-1" }),
+    createCertificate({ index: "2", cn: "중복 CN", serial: "SERIAL-2", userDN: "USER-DN-2" })
+  ];
+
+  const matches = findRenewalCertificatesByIdentity(certificates, {
+    certificateCn: "중복 CN"
+  });
+
+  assert.deepEqual(matches.map((certificate) => certificate.index), ["1", "2"]);
 });
 
 test("findCandidateCustomersForCertificate only suggests electronic tax customers by normalized name", () => {

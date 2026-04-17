@@ -24,6 +24,7 @@ type TemplateWorkbookModule = {
     file: File
   ) => Promise<{
     fileName: string;
+    warnings: string[];
     workbook: {
       certificates: Array<Record<string, string | number>>;
       plants: Array<Record<string, string | number>>;
@@ -70,7 +71,7 @@ function createCertificate(
   };
 }
 
-test("downloadCustomerOnboardingTemplate writes final onboarding workbook columns and filters sheets by role", async () => {
+test("downloadCustomerOnboardingTemplate writes only electronic-tax onboarding sheets", async () => {
   const { downloadCustomerOnboardingTemplate } = await loadTemplateWorkbookModule();
   let writtenWorkbook: XLSX.WorkBook | null = null;
   let writtenFileName = "";
@@ -108,52 +109,27 @@ test("downloadCustomerOnboardingTemplate writes final onboarding workbook column
   }
   const workbookOutput = writtenWorkbook as XLSX.WorkBook;
 
-  const certificateRows = XLSX.utils.sheet_to_json(workbookOutput.Sheets["공동인증서"], {
-    header: 1,
-    raw: false,
-    defval: ""
-  }) as string[][];
+  assert.equal(workbookOutput.Sheets["공동인증서"], undefined);
   const plantRows = XLSX.utils.sheet_to_json(workbookOutput.Sheets["발전소"], {
     header: 1,
     raw: false,
     defval: ""
   }) as string[][];
 
-  assert.deepEqual(certificateRows[0], [
-    "로컬인증서번호",
-    "인증서 종류",
-    "인증서명(CN)",
-    "용도표시명",
-    "발급기관",
-    "만료일",
-    "인증서 비밀번호"
-  ]);
-  assert.equal(certificateRows.length, 3);
-  assert.deepEqual(
-    certificateRows.slice(1).map((row) => row[2]),
-    ["개인 범용 인증서", "사업자 범용 인증서"]
-  );
-
   assert.deepEqual(plantRows[0], ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"]);
   assert.equal(plantRows.length, 2);
   assert.deepEqual(plantRows[1], ["1", "전자세금 인증서", "", ""]);
 });
 
-test("parseCustomerOnboardingWorkbook reads the simplified onboarding workbook and skips empty rows", async () => {
+test("parseCustomerOnboardingWorkbook reads the simplified electronic-tax workbook without requiring a legacy sheet", async () => {
   const { parseCustomerOnboardingWorkbook } = await loadTemplateWorkbookModule();
   const workbook = XLSX.utils.book_new();
-  const certificateSheet = XLSX.utils.aoa_to_sheet([
-    ["로컬인증서번호", "인증서 종류", "인증서명(CN)", "용도표시명", "발급기관", "만료일", "인증서 비밀번호"],
-    ["7", "사업자범용", "범용 공동인증서", "사업자 범용", "금융결제원", "2027-12-31", "pw-general"],
-    ["", "", "", "", "", "", ""]
-  ]);
   const plantSheet = XLSX.utils.aoa_to_sheet([
     ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"],
     ["1", "전자세금 인증서", "여주 1호기", "pw-tax"],
     ["", "", "", ""]
   ]);
 
-  XLSX.utils.book_append_sheet(workbook, certificateSheet, "공동인증서");
   XLSX.utils.book_append_sheet(workbook, plantSheet, "발전소");
 
   const file = new File(
@@ -162,6 +138,42 @@ test("parseCustomerOnboardingWorkbook reads the simplified onboarding workbook a
   );
   const parsed = await parseCustomerOnboardingWorkbook(XLSX, file);
 
+  assert.deepEqual(parsed.warnings, []);
+  assert.deepEqual(parsed.workbook.certificates, []);
+  assert.deepEqual(parsed.workbook.plants, [
+    {
+      rowIndex: 2,
+      certificateIndex: "1",
+      certificateName: "전자세금 인증서",
+      plantName: "여주 1호기",
+      certificatePassword: "pw-tax"
+    }
+  ]);
+});
+
+test("parseCustomerOnboardingWorkbook keeps legacy certificate-sheet rows read-compatible and warns that they are ignored", async () => {
+  const { parseCustomerOnboardingWorkbook } = await loadTemplateWorkbookModule();
+  const workbook = XLSX.utils.book_new();
+  const certificateSheet = XLSX.utils.aoa_to_sheet([
+    ["로컬인증서번호", "인증서 종류", "인증서명(CN)", "용도표시명", "발급기관", "만료일", "인증서 비밀번호"],
+    ["7", "사업자범용", "범용 공동인증서", "사업자 범용", "금융결제원", "2027-12-31", "pw-general"]
+  ]);
+  const plantSheet = XLSX.utils.aoa_to_sheet([
+    ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"],
+    ["1", "전자세금 인증서", "여주 1호기", "pw-tax"]
+  ]);
+
+  XLSX.utils.book_append_sheet(workbook, certificateSheet, "공동인증서");
+  XLSX.utils.book_append_sheet(workbook, plantSheet, "발전소");
+
+  const file = new File(
+    [XLSX.write(workbook, { type: "buffer", bookType: "xlsx" })],
+    "AUTO-TAX_초기등록_양식_구형.xlsx"
+  );
+  const parsed = await parseCustomerOnboardingWorkbook(XLSX, file);
+
+  assert.equal(parsed.warnings.length, 1);
+  assert.match(parsed.warnings[0] ?? "", /무시됩니다/);
   assert.deepEqual(parsed.workbook.certificates, [
     {
       rowIndex: 2,
@@ -172,15 +184,6 @@ test("parseCustomerOnboardingWorkbook reads the simplified onboarding workbook a
       issuerName: "금융결제원",
       expireDate: "2027-12-31",
       certificatePassword: "pw-general"
-    }
-  ]);
-  assert.deepEqual(parsed.workbook.plants, [
-    {
-      rowIndex: 2,
-      certificateIndex: "1",
-      certificateName: "전자세금 인증서",
-      plantName: "여주 1호기",
-      certificatePassword: "pw-tax"
     }
   ]);
 });

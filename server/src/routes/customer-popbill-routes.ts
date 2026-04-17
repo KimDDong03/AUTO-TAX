@@ -9,6 +9,9 @@ import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";
 import type { AutoJoinCustomerResult } from "../services/popbill-customer-service.js";
 
+const AUTO_ISSUE_ENABLEMENT_EVIDENCE_REQUIRED_MESSAGE =
+  "자동 발행은 이 고객으로 최소 1회 이상 정상 발행을 확인한 뒤 활성화할 수 있습니다.";
+
 type RouteDeps = {
   app: Express;
   store: AppStore | null;
@@ -136,11 +139,12 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const certificateId = Number(req.params.id);
-    const password = await requestStore.getCustomerCertificatePassword(certificateId);
-    await requestStore.createLog("warn", "customer-certificates", "고객 공동인증서 비밀번호를 조회했습니다.", {
+    await requestStore.createLog("warn", "customer-certificates", "고객 공동인증서 비밀번호 재표시 요청을 차단했습니다.", {
       certificateId
     });
-    res.json({ password });
+    res.status(410).json({
+      error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 로컬 헬퍼에서 다시 입력하세요."
+    });
   });
 
   app.delete("/api/customer-certificates/:id", async (req, res) => {
@@ -179,12 +183,31 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
   });
 
   app.put("/api/customers/:id", async (req, res) => {
-    requireWorkspaceEditor(res);
+    const authContext = requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
     const payload = normalizeCustomerInput(customerSchema.parse(req.body));
+    const currentCustomer = await requestStore.getCustomer(customerId);
+    if (currentCustomer?.issueMode === "review" && payload.issueMode === "auto") {
+      const canEnableAutoIssue = await requestStore.canEnableAutoIssueForCustomer(customerId);
+      if (!canEnableAutoIssue) {
+        res.status(409).json({ error: AUTO_ISSUE_ENABLEMENT_EVIDENCE_REQUIRED_MESSAGE });
+        return;
+      }
+    }
     const customer = await requestStore.saveCustomer(payload, customerId);
     await requestStore.createLog("info", "customers", "고객 정보를 수정했습니다.", { customerId });
+    if (currentCustomer && currentCustomer.issueMode !== customer.issueMode) {
+      await requestStore.createLog("info", "customers", "고객 자동 발행 설정을 변경했습니다.", {
+        eventType: "issue-mode-changed",
+        actorUserId: authContext.userId,
+        organizationId: authContext.activeOrganizationId,
+        customerId,
+        changedAt: customer.updatedAt,
+        previousIssueMode: currentCustomer.issueMode,
+        nextIssueMode: customer.issueMode
+      });
+    }
     res.json(toClientCustomer(customer));
   });
 

@@ -72,8 +72,8 @@ const onboardingElectronicTaxCertificate = {
   usageToName: "전자세금용",
   todate: "2027-12-31",
   oid: null,
-  serial: null,
-  userDN: null,
+  serial: `SERIAL-${suffix}-TAX`,
+  userDN: `USER-DN-${suffix}-TAX`,
   validateFrom: null,
   detailValidateTo: null,
   certDirPath: `C:/CERTS/${suffix}/tax`
@@ -97,11 +97,15 @@ let ownerUserId = null;
 let browser = null;
 let onboardingWorkbookDir = null;
 let onboardingWorkbookPath = null;
+let onboardingImportedCustomerId = null;
 const helperRequestLog = {
   healthCount: 0,
   bridgeProbeCount: 0,
   certificateListCount: 0,
-  preflightRequests: []
+  preflightRequests: [],
+  popbillCertificateRegistrationRequests: [],
+  popbillCertificateUrlRequests: [],
+  popbillCertificateStatusRefreshRequests: []
 };
 let fakeHelperVersion = "0.1.0";
 let fakeHelperMetadataMode = "ok";
@@ -278,6 +282,56 @@ function buildHelperProbeResponse(extra) {
 }
 
 async function mockLocalHelperRoutes(page) {
+  await page.route("**/api/customers/*/popbill/cert-url", async (route) => {
+    const request = route.request();
+    const match = new URL(request.url()).pathname.match(/\/api\/customers\/(\d+)\/popbill\/cert-url$/);
+    const customerId = Number(match?.[1] ?? "0");
+    helperRequestLog.popbillCertificateUrlRequests.push({ customerId });
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify({
+        url: `https://fake-popbill.local/certificate-registration/${customerId || "unknown"}`
+      })
+    });
+  });
+
+  await page.route("**/api/customers/*/popbill/cert-status", async (route) => {
+    const request = route.request();
+    const match = new URL(request.url()).pathname.match(/\/api\/customers\/(\d+)\/popbill\/cert-status$/);
+    const customerId = Number(match?.[1] ?? "0");
+    helperRequestLog.popbillCertificateStatusRefreshRequests.push({ customerId });
+
+    if (organizationId && customerId > 0) {
+      const { error } = await supabase
+        .from("managed_customers")
+        .update({
+          popbill_cert_registered: true,
+          popbill_cert_expire_date: onboardingElectronicTaxCertificate.todate
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", customerId);
+      if (error) {
+        throw error;
+      }
+    }
+
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify({
+        ok: true,
+        customerId,
+        popbillCertRegistered: true,
+        popbillCertExpireDate: onboardingElectronicTaxCertificate.todate
+      })
+    });
+  });
+
   await page.route("**/downloads/renewal-local-helper.json", async (route) => {
     if (fakeHelperMetadataMode !== "ok") {
       await route.fulfill({
@@ -410,6 +464,8 @@ async function mockLocalHelperRoutes(page) {
     }
 
     if (request.method() === "POST" && url.pathname === "/api/popbill/certificate-registration") {
+      const body = request.postDataJSON?.() ?? {};
+      helperRequestLog.popbillCertificateRegistrationRequests.push(body);
       await route.fulfill({
         status: 200,
         headers,
@@ -419,7 +475,11 @@ async function mockLocalHelperRoutes(page) {
           result: {
             outcome: "registered",
             browserChannel: "fake",
+            certificateIndex: Number(body.certificateIndex ?? onboardingElectronicTaxCertificate.index),
             certificateCn: onboardingElectronicTaxCertificate.cn,
+            certificateKind: "electronic_tax",
+            serial: onboardingElectronicTaxCertificate.serial,
+            userDN: onboardingElectronicTaxCertificate.userDN,
             localBridgeBaseUrl: localRenewalHelperUrl,
             message: "registered by fake helper"
           }
@@ -441,23 +501,6 @@ async function createOnboardingWorkbookFile() {
   onboardingWorkbookPath = path.join(onboardingWorkbookDir, "AUTO-TAX_초기등록_양식.xlsx");
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.aoa_to_sheet([
-      ["로컬인증서번호", "인증서 종류", "인증서명(CN)", "용도표시명", "발급기관", "만료일", "인증서 비밀번호"],
-      [
-        onboardingGeneralCertificate.index,
-        "사업자범용",
-        onboardingGeneralCertificate.cn,
-        onboardingGeneralCertificate.usageToName,
-        onboardingGeneralCertificate.issuerToName,
-        onboardingGeneralCertificate.todate,
-        "general-pass"
-      ],
-      ["", "", "", "", "", "", ""]
-    ]),
-    "공동인증서"
-  );
   XLSX.utils.book_append_sheet(
     workbook,
     XLSX.utils.aoa_to_sheet([
@@ -755,7 +798,7 @@ try {
     await page.locator("#onboarding-active-step .onboarding-active-step-copy strong").filter({ hasText: "고객 초기 등록" }).waitFor();
     const onboardingPanel = page.locator(".panel-initial-onboarding");
     await onboardingPanel.waitFor();
-    await onboardingPanel.getByText("인증서 2건 기준", { exact: false }).waitFor();
+    await onboardingPanel.getByText("전자세금용 인증서 1건 기준", { exact: false }).waitFor();
     await onboardingPanel.getByRole("button", { name: "양식 다운로드", exact: true }).waitFor();
   });
 
@@ -819,23 +862,21 @@ try {
     await previewDetails.locator("summary").click();
     await previewDetails.getByText(onboardingCorpName, { exact: false }).waitFor();
     await previewDetails.getByText("발전소 1건", { exact: false }).waitFor();
-    await previewDetails.getByText("공동인증서 1건", { exact: false }).waitFor();
+    await previewDetails.getByText("전자세금용 인증서 확인됨", { exact: false }).waitFor();
     await page
-      .getByText("범용 공동인증서는 등록 후 이번 업로드 고객만 대상으로 자동 연결을 시도합니다.", { exact: false })
+      .getByText("미리보기에서 고객별 전자세금용 인증서 확인 여부", { exact: false })
       .waitFor();
   });
 
-  await recordStep("onboarding commit stores customer and auto-links the imported general certificate", async () => {
+  await recordStep("onboarding commit stores the imported electronic-tax certificate only", async () => {
     const onboardingPanel = page.locator(".panel-initial-onboarding");
     await Promise.all([
       page.waitForResponse((response) => response.url().endsWith("/api/customer-onboarding/commit") && response.status() === 202),
       onboardingPanel.getByRole("button", { name: "고객 등록 반영", exact: true }).click()
     ]);
 
-    await page
-      .getByText("범용 공동인증서 자동 연결 · 성공 1건 / 건너뜀 0건", { exact: false })
-      .waitFor();
-    await page.getByText(/가져오기 완료 · 신규 1건 \/ 갱신 0건 \/ 인증서 1건/).waitFor();
+    await page.getByText(/가져오기 완료 · 신규 1건 \/ 갱신 0건 \/ 전자세금용 인증서 1건/).waitFor();
+    await page.getByText("다음 단계에서 팝빌 전자세금용 인증서 등록을 이어서 진행하세요.", { exact: false }).waitFor();
 
     if (helperRequestLog.bridgeProbeCount + helperRequestLog.certificateListCount < 2) {
       throw new Error(
@@ -844,17 +885,18 @@ try {
     }
 
     const preflightCertificateIndices = helperRequestLog.preflightRequests.map((request) => String(request.certificateIndex ?? ""));
-    assert.deepEqual(preflightCertificateIndices.sort(), [onboardingElectronicTaxCertificate.index, onboardingGeneralCertificate.index].sort());
+    assert.deepEqual(preflightCertificateIndices.sort(), [onboardingElectronicTaxCertificate.index]);
 
     const { data: importedCustomer, error: customerError } = await supabase
       .from("managed_customers")
-      .select("id, business_number, corp_name, addr")
+      .select("id, business_number, corp_name, addr, popbill_state")
       .eq("organization_id", organizationId)
       .eq("business_number", onboardingBusinessNumber)
       .single();
     if (customerError) throw customerError;
     assert.equal(importedCustomer.corp_name, onboardingCorpName);
     assert.equal(importedCustomer.addr, onboardingAddress);
+    onboardingImportedCustomerId = importedCustomer.id;
 
     const { data: matchAddresses, error: matchAddressError } = await supabase
       .from("managed_customer_match_addresses")
@@ -865,27 +907,131 @@ try {
 
     const { data: certificates, error: certificateError } = await supabase
       .from("customer_certificates")
-      .select("certificate_kind, certificate_name, link_source, certificate_password_encrypted")
+      .select("certificate_kind, certificate_name, link_source, certificate_password_encrypted, certificate_serial, certificate_user_dn")
       .eq("organization_id", organizationId)
       .eq("managed_customer_id", importedCustomer.id);
     if (certificateError) throw certificateError;
-    assert.equal(certificates.length, 2);
+    assert.equal(certificates.length, 1);
     assert.ok(
       certificates.some(
         (certificate) =>
           certificate.certificate_kind === "electronic_tax" &&
-          certificate.certificate_name === onboardingElectronicTaxCertificate.cn
+          certificate.certificate_name === onboardingElectronicTaxCertificate.cn &&
+          certificate.link_source === "manual" &&
+          !certificate.certificate_password_encrypted &&
+          certificate.certificate_serial === onboardingElectronicTaxCertificate.serial &&
+          certificate.certificate_user_dn === onboardingElectronicTaxCertificate.userDN
       )
     );
-    assert.ok(
-      certificates.some(
-        (certificate) =>
-          certificate.certificate_kind === "general_business" &&
-          certificate.certificate_name === onboardingGeneralCertificate.cn &&
-          certificate.link_source === "auto" &&
-          Boolean(certificate.certificate_password_encrypted)
-      )
+
+    if (importedCustomer.popbill_state !== "joined") {
+      const { error: popbillStateError } = await supabase
+        .from("managed_customers")
+        .update({ popbill_state: "joined", popbill_cert_registered: false, popbill_cert_expire_date: null })
+        .eq("organization_id", organizationId)
+        .eq("id", importedCustomer.id);
+      if (popbillStateError) throw popbillStateError;
+    }
+
+    await page.reload({ waitUntil: "networkidle" });
+    if ((await page.evaluate(() => window.location.hash)) !== "#onboarding") {
+      await page.evaluate(() => {
+        window.location.hash = "#onboarding";
+      });
+      await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
+    }
+    await page.locator(".onboarding-compact-shell").waitFor({ timeout: 15000 });
+  });
+
+  await recordStep("onboarding popbill electronic-tax registration succeeds and reflects status", async () => {
+    if (!onboardingImportedCustomerId) {
+      throw new Error("missing imported customer id before popbill registration smoke");
+    }
+
+    const registrationResult = await page.evaluate(
+      async ({ customerId, certificateIndex, certificateCn, serial, userDN }) => {
+        const certUrlResponse = await fetch(`/api/customers/${customerId}/popbill/cert-url`, { method: "POST" });
+        if (!certUrlResponse.ok) {
+          throw new Error(`cert-url ${certUrlResponse.status}`);
+        }
+        const certUrlPayload = await certUrlResponse.json();
+
+        const helperResponse = await fetch("http://127.0.0.1:35119/api/popbill/certificate-registration", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            certificateRegistrationUrl: certUrlPayload.url,
+            certificateIndex,
+            certificateCn,
+            certificateKind: "electronic_tax",
+            serial,
+            userDN,
+            certificatePassword: "tax-pass"
+          })
+        });
+        if (!helperResponse.ok) {
+          throw new Error(`helper ${helperResponse.status}`);
+        }
+        const helperPayload = await helperResponse.json();
+
+        const certStatusResponse = await fetch(`/api/customers/${customerId}/popbill/cert-status`, { method: "POST" });
+        if (!certStatusResponse.ok) {
+          throw new Error(`cert-status ${certStatusResponse.status}`);
+        }
+
+        return helperPayload;
+      },
+      {
+        customerId: onboardingImportedCustomerId,
+        certificateIndex: Number(onboardingElectronicTaxCertificate.index),
+        certificateCn: onboardingElectronicTaxCertificate.cn,
+        serial: onboardingElectronicTaxCertificate.serial,
+        userDN: onboardingElectronicTaxCertificate.userDN
+      }
     );
+    assert.equal(registrationResult?.result?.outcome, "registered");
+
+    assert.equal(helperRequestLog.popbillCertificateUrlRequests.length, 1);
+    assert.equal(helperRequestLog.popbillCertificateRegistrationRequests.length, 1);
+    assert.equal(helperRequestLog.popbillCertificateStatusRefreshRequests.length, 1);
+
+    const registrationRequest = helperRequestLog.popbillCertificateRegistrationRequests[0] ?? {};
+    assert.equal(String(registrationRequest.certificateIndex ?? ""), onboardingElectronicTaxCertificate.index);
+    assert.equal(registrationRequest.certificateCn, onboardingElectronicTaxCertificate.cn);
+    assert.equal(registrationRequest.certificateKind, "electronic_tax");
+    assert.equal(registrationRequest.serial, onboardingElectronicTaxCertificate.serial);
+    assert.equal(registrationRequest.userDN, onboardingElectronicTaxCertificate.userDN);
+
+    const { error: reflectedStateError } = await supabase
+      .from("managed_customers")
+      .update({
+        popbill_state: "joined",
+        popbill_cert_registered: true,
+        popbill_cert_expire_date: onboardingElectronicTaxCertificate.todate
+      })
+      .eq("organization_id", organizationId)
+      .eq("id", onboardingImportedCustomerId);
+    if (reflectedStateError) throw reflectedStateError;
+
+    const { data: refreshedCustomer, error: refreshedCustomerError } = await supabase
+      .from("managed_customers")
+      .select("popbill_state, popbill_cert_registered, popbill_cert_expire_date")
+      .eq("organization_id", organizationId)
+      .eq("business_number", onboardingBusinessNumber)
+      .single();
+    if (refreshedCustomerError) throw refreshedCustomerError;
+    assert.equal(refreshedCustomer.popbill_state, "joined");
+    assert.equal(refreshedCustomer.popbill_cert_registered, true);
+    assert.equal(refreshedCustomer.popbill_cert_expire_date, onboardingElectronicTaxCertificate.todate);
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.evaluate(() => {
+      window.location.hash = "#customers";
+    });
+    await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
+    await page.locator(".panel-customer-list").waitFor({ timeout: 15000 });
   });
 
   await recordStep("onboarding commit unlocks the operating shell", async () => {

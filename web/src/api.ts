@@ -73,6 +73,7 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
     }),
     {
       ...init,
+      cache: "no-store",
       headers
     }
   );

@@ -147,6 +147,18 @@ function getToneBadgeClass(tone: CustomerConsoleTone) {
   ].join(" ");
 }
 
+function getIssueModeGuide(issueMode: Customer["issueMode"]): string {
+  return issueMode === "auto"
+    ? "설정된 고객만 월 자동 발행합니다. 실패 시 실패 초안이 남아 검수 후 직접 발행으로 복구할 수 있습니다."
+    : "초안 검수 뒤 로그인 사용자가 직접 발행합니다. 최소 1회 이상 정상 발행 경험 후 자동 전환을 권장합니다.";
+}
+
+function getIssueModeListHint(issueMode: Customer["issueMode"]): string {
+  return issueMode === "auto"
+    ? "설정 기반 자동 발행 · 실패 시 직접 발행 복구"
+    : "로그인 사용자가 직접 발행 · 정상 발행 후 auto 권장";
+}
+
 export function CustomersTab(props: CustomersTabProps) {
   const selectedCustomer = props.selectedCustomer;
   const selectedCustomerReadiness = props.selectedCustomerReadiness;
@@ -509,6 +521,11 @@ export function CustomersTab(props: CustomersTabProps) {
             value: props.getIssueModeLabel(selectedCustomer.issueMode)
           },
           {
+            label: "운영 안내",
+            value: getIssueModeGuide(selectedCustomer.issueMode),
+            wide: true
+          },
+          {
             label: "다음 조치",
             value: selectedCustomerNextStep || "상세 확인"
           },
@@ -705,9 +722,10 @@ export function CustomersTab(props: CustomersTabProps) {
                 }
                 disabled={props.customerForm.id === null}
               >
-                <option value="review">검수 후 발행</option>
+                <option value="review">검수 후 직접 발행</option>
                 <option value="auto">월 자동 발행</option>
               </select>
+              <span className="field-hint">{getIssueModeGuide(props.customerForm.issueMode)}</span>
             </label>
           ) : null}
           <label className="full">
@@ -856,7 +874,7 @@ export function CustomersTab(props: CustomersTabProps) {
           <td>
             <div className="customer-console-cell-stack">
               <strong>{props.getIssueModeLabel(customer.issueMode)}</strong>
-              <span>{readiness.canIssueNow ? "즉시 운영 가능" : readiness.reason}</span>
+              <span>{getIssueModeListHint(customer.issueMode)}</span>
             </div>
           </td>
           <td>

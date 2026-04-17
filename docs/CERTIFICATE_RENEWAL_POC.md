@@ -61,6 +61,14 @@ There are two local components:
 - claims queued renewal jobs
 - completes/fails diagnostic or preflight jobs
 
+### Security boundary
+
+- server must not persist or re-display Hometax ID/PW, raw certificate files, or certificate passwords
+- workspace-level `renewal_issue_password_encrypted` may remain encrypted on the server for agent-side renewal submission, but it is not returned to normal browser responses
+- `renewal_automation_jobs.submission_profile_json` strips `issuePassword` at rest and only rehydrates it when the renewal agent claims a customer-bound preflight job
+- onboarding preview/batch persistence strips workbook `certificatePassword` before writing preview/batch JSON rows
+- local helper / agent errors and logs mask password-like values and local certificate paths; helper HTTP responses are `Cache-Control: no-store`
+
 ## 4. Job Types
 
 Persisted in `renewal_automation_jobs`:
@@ -113,6 +121,11 @@ npm run renewal-agent:dev
 - `AUTO_TAX_SIGNGATE_HELPER_USER_DATA_DIR`
 - `AUTO_TAX_POPBILL_HELPER_BROWSER_CHANNEL`
 - `AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR`
+- `AUTO_TAX_POPBILL_DEBUG_ARTIFACT_DIR`
+
+Latest helper builds also expose `popbillDebugArtifactSupport`, `popbillDebugArtifactDir`, and `popbillDebugArtifactStages`
+through `npm run renewal-helper:status` / `GET /health`, so use that first to confirm the installed helper bundle
+actually contains debug-artifact support before changing Popbill selector logic.
 
 ### Renewal agent
 
@@ -131,6 +144,10 @@ npm run renewal-agent:dev
 5. confirm agent claimed the job
 6. inspect `summary`, `error`, `result_json`
 7. inspect browser-side local helper response
+8. for Popbill certificate registration ambiguity, inspect the local-helper console output first
+9. if the helper reports a Popbill debug artifact path, open the saved JSON + `*.frame.html` snapshot before changing selector logic
+10. if no artifact path is produced, run `npm run renewal-helper:status` (or `GET /health`) and confirm
+    `popbillDebugArtifactSupport=enabled` plus the resolved artifact directory/stages from the installed helper build
 
 ## 9. Known Fragility
 
@@ -138,6 +155,8 @@ npm run renewal-agent:dev
 - SignGate flow shape can vary by account/certificate state
 - `change-company` and external apply-form branches are not equivalent to standard renewal
 - certificate passwords may come from row-level input or workspace-level fallback
+- Popbill certificate chooser automation still cannot assume serial/userDN/index are present in the visible candidate row. Public/sample DOM traces for the same certificate module show table/list rows such as `tr#row0dataTable` with leaf `span[title]` text and scrollbar containers like `#MLjquiScrollAreaDownverticalScrollBardataTable`, but they do not prove that serial/userDN/index are exposed per-row in a stable attribute.
+- Current helper therefore uses a fail-closed strategy: inspect visible candidate row/list text, row/span attributes (`title`, `id`, `name`, `value`, `data-*`, `aria-*`, `onclick`), hidden/select/input values, and then a second pass that clicks each ambiguous row only to inspect selected/detail DOM evidence. It auto-clicks only when serial/userDN become a unique match, or when `certificateIndex` appears in an explicit `certificateIndex`/`certID`/`인증서번호`-style field. Generic row ids like `row0dataTable` remain diagnostic-only. Otherwise it aborts and writes JSON + frame HTML debug artifacts for the next session.
 
 ## 10. What To Update When Changing This Area
 

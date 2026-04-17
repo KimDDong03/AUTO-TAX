@@ -24,9 +24,12 @@ export type CustomerOnboardingWorkbookInput = {
     rowIndex: number;
     businessNumber: string;
     certificateKind: "electronic_tax" | "general_personal" | "general_business" | "unknown";
+    certificateIndex?: string;
     certificateName: string;
     certificateUsageName: string;
     issuerName: string;
+    serial?: string;
+    userDN?: string;
     certificatePassword: string;
     isPrimary: boolean;
   }>;
@@ -174,8 +177,8 @@ function applySheetColumnWidths(
   }));
 }
 
-function buildCertificateExpireDate(certificate: RenewalBridgeCertificateSummary) {
-  return normalizeCell(certificate.todate ?? certificate.detailValidateTo ?? "");
+function isElectronicTaxUsageName(usageName: string) {
+  return usageName.replace(/\s+/g, "").includes("전자세금");
 }
 
 export function downloadCustomerOnboardingTemplate(
@@ -183,32 +186,12 @@ export function downloadCustomerOnboardingTemplate(
   certificates: RenewalBridgeCertificateSummary[]
 ) {
   const workbook = XLSX.utils.book_new();
-  const electronicTaxCertificates = certificates.filter((certificate) => certificate.usageToName.includes("전자세금"));
-  const generalCertificates = certificates.filter((certificate) => !certificate.usageToName.includes("전자세금"));
+  const electronicTaxCertificates = certificates.filter((certificate) => isElectronicTaxUsageName(certificate.usageToName));
 
   const guideRows = [
     ["시트", "작성 방법"],
-    ["공동인증서", "이 시트에는 전자세금용을 제외한 범용 공동인증서만 들어갑니다. 연결 정보는 적지 않고 인증서 비밀번호만 입력하면 됩니다. 업로드 후 사이트가 이번 등록 고객만 대상으로 자동 연결을 시도합니다. 비밀번호가 비어 있으면 시스템 설정의 공통 비밀번호를 사용합니다."],
-    ["발전소", "이 시트가 고객 등록 기준입니다. 전자세금용 공동인증서만 자동으로 들어가며, 등록할 대상 행만 남기고 나머지는 삭제하거나 비워 두세요. 행이 남아 있으면 등록 대상으로 보고, 완전히 빈 행은 오류 없이 건너뜁니다. 주소 예외는 첫 동기화 후 도입 준비의 미매칭 메일 예외 처리 단계에서 수동 처리합니다."],
-    ["업로드 순서", "1) 로컬 헬퍼 실행 후 공동인증서 읽기 확인 2) 양식 다운로드 3) 발전소 시트에서 등록할 고객 행만 남기고 발전소명과 필요 시 인증서 비밀번호 입력 4) 공동인증서 시트에 범용 인증서 비밀번호 입력 5) 양식 업로드 후 고객 등록 및 범용 인증서 자동 연결 결과 확인 6) 전자세금용 후속 등록과 첫 메일 동기화 뒤 예외 메일만 수동 처리"]
-  ];
-  const certificateRows = [
-    ["로컬인증서번호", "인증서 종류", "인증서명(CN)", "용도표시명", "발급기관", "만료일", "인증서 비밀번호"],
-    ...generalCertificates.map((certificate) => [
-      String(certificate.index),
-      certificate.usageToName.includes("전자세금")
-        ? "전자세금용"
-        : certificate.usageToName.includes("개인") && certificate.usageToName.includes("범용")
-          ? "개인범용"
-          : certificate.usageToName.includes("사업자") && certificate.usageToName.includes("범용")
-            ? "사업자범용"
-            : "기타",
-      certificate.cn,
-      certificate.usageToName,
-      certificate.issuerToName,
-      buildCertificateExpireDate(certificate),
-      ""
-    ])
+    ["발전소", "이 시트가 초기 등록 기준입니다. 이 PC에서 읽힌 전자세금용 공동인증서만 자동으로 들어갑니다. 등록할 대상 행만 남기고 발전소명과 필요 시 인증서 비밀번호만 입력하세요. 행이 남아 있으면 등록 대상으로 보고, 완전히 빈 행은 오류 없이 건너뜁니다."],
+    ["업로드 순서", "1) 로컬 헬퍼 실행 후 전자세금용 공동인증서 읽기 확인 2) 양식 다운로드 3) 발전소 시트에서 등록할 고객 행만 남기고 발전소명과 필요 시 인증서 비밀번호 입력 4) 양식 업로드 후 전자세금용 인증서 확인 결과와 고객 생성/갱신 가능 여부 확인 5) 고객 등록 반영 6) 팝빌 전자세금용 인증서 등록 마무리"]
   ];
   const plantRows = [
     ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"],
@@ -216,15 +199,12 @@ export function downloadCustomerOnboardingTemplate(
   ];
 
   const guideSheet = XLSX.utils.aoa_to_sheet(guideRows);
-  const certificateSheet = XLSX.utils.aoa_to_sheet(certificateRows);
   const plantSheet = XLSX.utils.aoa_to_sheet(plantRows);
 
   applySheetColumnWidths(guideSheet, guideRows);
-  applySheetColumnWidths(certificateSheet, certificateRows);
   applySheetColumnWidths(plantSheet, plantRows);
 
   XLSX.utils.book_append_sheet(workbook, guideSheet, "안내");
-  XLSX.utils.book_append_sheet(workbook, certificateSheet, "공동인증서");
   XLSX.utils.book_append_sheet(workbook, plantSheet, "발전소");
   XLSX.writeFile(workbook, "AUTO-TAX_초기등록_양식.xlsx");
 }
@@ -234,6 +214,7 @@ export async function parseCustomerOnboardingWorkbook(
   file: File
 ): Promise<{
   fileName: string;
+  warnings: string[];
   workbook: CustomerOnboardingTemplateWorkbookInput;
 }> {
   const arrayBuffer = await file.arrayBuffer();
@@ -242,29 +223,25 @@ export async function parseCustomerOnboardingWorkbook(
   const certificateSheet = getSheetByName(workbook, ["공동인증서", "인증서"]);
   const plantSheet = getSheetByName(workbook, ["발전소"]);
 
-  if (!certificateSheet) {
-    throw new Error("`공동인증서` 시트를 찾지 못했습니다.");
-  }
   if (!plantSheet) {
     throw new Error("`발전소` 시트를 찾지 못했습니다.");
   }
 
-  const certificateRows = readSheetRows(XLSX, certificateSheet);
+  const warnings: string[] = [];
+  const certificateRows = certificateSheet ? readSheetRows(XLSX, certificateSheet) : [];
   const plantRows = readSheetRows(XLSX, plantSheet);
 
-  const certificateHeader = certificateRows[0];
   const plantHeader = plantRows[0];
-  if (!certificateHeader || !plantHeader) {
+  if (!plantHeader) {
     throw new Error("양식 헤더를 읽지 못했습니다.");
   }
 
-  const certificateHeaderMap = buildHeaderIndexMap(certificateHeader);
   const plantHeaderMap = buildHeaderIndexMap(plantHeader);
+  const certificateHeader = certificateRows[0];
+  const certificateHeaderMap = certificateHeader ? buildHeaderIndexMap(certificateHeader) : null;
 
-  return {
-    fileName: file.name,
-    workbook: {
-      certificates: certificateRows.slice(1).flatMap((row, index) => {
+  const parsedLegacyCertificates = certificateHeaderMap
+    ? certificateRows.slice(1).flatMap((row, index) => {
         const certificateIndex = getCell(row, certificateHeaderMap, "로컬인증서번호", "인증서번호", "인증서 index");
         const certificateKindLabel = getCell(row, certificateHeaderMap, "인증서 종류", "종류");
         const certificateName = getCell(row, certificateHeaderMap, "인증서명(CN)", "인증서명", "CN");
@@ -288,7 +265,18 @@ export async function parseCustomerOnboardingWorkbook(
             certificatePassword
           }
         ];
-      }),
+      })
+    : [];
+
+  if (parsedLegacyCertificates.length > 0) {
+    warnings.push("구형 `공동인증서` 시트 입력은 읽기 호환만 유지되고, 이번 초기 등록에서는 무시됩니다.");
+  }
+
+  return {
+    fileName: file.name,
+    warnings,
+    workbook: {
+      certificates: parsedLegacyCertificates,
       plants: plantRows.slice(1).flatMap((row, index) => {
         const certificateIndex = getCell(row, plantHeaderMap, "로컬인증서번호", "인증서번호", "인증서 index");
         const certificateName = getCell(row, plantHeaderMap, "인증서명(CN)", "인증서명", "CN");

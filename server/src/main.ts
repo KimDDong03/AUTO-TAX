@@ -316,7 +316,7 @@ function resolvePathFromRoot(rootDir: string, value: string): string {
   return path.isAbsolute(value) ? value : path.resolve(rootDir, value);
 }
 
-function toClientSettings(settings: AppSettings): ClientAppSettings {
+export function toClientSettings(settings: AppSettings): ClientAppSettings {
   const runtimeSettings = applyServerManagedSettings(settings);
   const mailPasswordConfigured = Boolean(trimOrNull(settings.imapPass) || trimOrNull(settings.smtpPass));
   const popbillSharedPasswordConfigured = Boolean(trimOrNull(settings.popbillSharedPassword));
@@ -767,6 +767,9 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
+    if (req.path.startsWith("/api/")) {
+      res.setHeader("Cache-Control", "no-store");
+    }
     res.setHeader(
       "Permissions-Policy",
       "camera=(), microphone=(), geolocation=(), payment=(), usb=()"

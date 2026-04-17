@@ -28,9 +28,12 @@ export type CustomerOnboardingCertificateRow = {
   rowIndex: number;
   businessNumber: string;
   certificateKind: CustomerCertificateKind;
+  certificateIndex?: string;
   certificateName: string;
   certificateUsageName: string;
   issuerName: string;
+  serial?: string;
+  userDN?: string;
   certificatePassword: string;
   isPrimary: boolean;
 };
@@ -79,9 +82,12 @@ export type CustomerOnboardingCommitResult = {
 export type CustomerOnboardingPreparedCertificateSnapshot = {
   rowIndex: number;
   certificateKind: CustomerCertificateKind;
+  certificateIndex?: string;
   certificateName: string;
   certificateUsageName: string;
   issuerName: string;
+  serial?: string;
+  userDN?: string;
   certificatePassword: string;
   isPrimary: boolean;
 };
@@ -243,9 +249,12 @@ function buildPreparedEntrySnapshot(entry: PreparedCustomerEntry): CustomerOnboa
     certificates: entry.certificates.map((certificate) => ({
       rowIndex: certificate.rowIndex,
       certificateKind: certificate.certificateKind,
+      certificateIndex: certificate.certificateIndex,
       certificateName: certificate.certificateName,
       certificateUsageName: certificate.certificateUsageName,
       issuerName: certificate.issuerName,
+      serial: certificate.serial,
+      userDN: certificate.userDN,
       certificatePassword: certificate.certificatePassword,
       isPrimary: certificate.isPrimary
     })),
@@ -301,9 +310,12 @@ async function prepareCustomerOnboardingWorkbook(
   const normalizedCertificates = workbook.certificates.map((row) => ({
     ...row,
     businessNumber: normalizeText(row.businessNumber),
+    certificateIndex: normalizeText(row.certificateIndex),
     certificateName: normalizeText(row.certificateName),
     certificateUsageName: normalizeText(row.certificateUsageName),
     issuerName: normalizeText(row.issuerName),
+    serial: normalizeText(row.serial),
+    userDN: normalizeText(row.userDN),
     certificatePassword: normalizeText(row.certificatePassword),
     normalizedBusinessNumber: digitsOnly(row.businessNumber)
   }));
@@ -401,7 +413,11 @@ async function prepareCustomerOnboardingWorkbook(
       continue;
     }
     if (certificate.certificateKind === "unknown") {
-      entry.errors.add(`공동인증서 시트 ${certificate.rowIndex}행: 인증서 종류를 확인할 수 없습니다.`);
+      entry.warnings.add(`공동인증서 시트 ${certificate.rowIndex}행: 인증서 종류를 확인할 수 없어 이번 초기 등록에서 무시합니다.`);
+      continue;
+    }
+    if (certificate.certificateKind !== "electronic_tax") {
+      entry.warnings.add(`공동인증서 시트 ${certificate.rowIndex}행: 전자세금용이 아닌 인증서는 이번 초기 등록에서 무시합니다.`);
       continue;
     }
 
@@ -418,6 +434,16 @@ async function prepareCustomerOnboardingWorkbook(
   for (const entry of entriesByKey.values()) {
     if (entry.plants.length === 0) {
       entry.warnings.add("발전소 정보가 없어 고객 기본 주소를 매칭 주소로 사용합니다.");
+    }
+
+    if (entry.certificates.length === 0) {
+      entry.errors.add("전자세금용 공동인증서를 확인하지 못했습니다.");
+    } else {
+      const primaryIndex = entry.certificates.findIndex((certificate) => certificate.isPrimary);
+      const effectivePrimaryIndex = primaryIndex >= 0 ? primaryIndex : 0;
+      entry.certificates.forEach((certificate, index) => {
+        certificate.isPrimary = index === effectivePrimaryIndex;
+      });
     }
 
     const effectiveMatchAddresses =
@@ -551,21 +577,23 @@ export async function commitCustomerOnboardingPreparedEntry(
     customerId ?? undefined
   );
 
+  const electronicTaxCertificates = entry.certificates.filter(
+    (certificate) => certificate.certificateKind === "electronic_tax"
+  );
   let linkedCertificateCount = 0;
-  for (const certificate of entry.certificates) {
+  for (const [index, certificate] of electronicTaxCertificates.entries()) {
     await requestStore.upsertCustomerCertificate({
       customerId: customer.id,
       certificateKind: certificate.certificateKind,
       certificateName: certificate.certificateName,
       certificateUsageName: certificate.certificateUsageName || kindUsageFallback(certificate.certificateKind),
       issuerName: certificate.issuerName,
-      serial: null,
-      userDN: null,
+      serial: certificate.serial || null,
+      userDN: certificate.userDN || null,
       oid: null,
       expireDate: null,
       certDirPath: null,
-      certificatePassword: certificate.certificatePassword,
-      isPrimary: certificate.isPrimary,
+      isPrimary: index === 0,
       linkSource: "manual"
     });
     linkedCertificateCount += 1;

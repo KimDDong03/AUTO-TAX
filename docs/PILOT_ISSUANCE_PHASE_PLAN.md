@@ -34,7 +34,7 @@
 
 AUTO-TAX는 고객 단위 `issueMode`를 유지한다.
 
-- `review`: 검수 후 발행
+- `review`: 검수 후 사용자가 직접 발행
 - `auto`: 월 자동 발행
 
 의미는 아래와 같이 고정한다.
@@ -194,11 +194,22 @@ AUTO-TAX는 고객 단위 `issueMode`를 유지한다.
 4. `issue-all`을 유지한다면, 각 건별로 사용자 실행 증거를 남긴다.
 5. UI/문구에서 `review` 모드의 의미를 “검수 후 사용자가 직접 발행”으로 통일한다.
 
+현재 구현 메모(Phase 범위 변경 아님):
+
+- Phase 2 첫 vertical slice는 새 audit 테이블 없이 `app_logs`를 재사용한다.
+- 수동 발행 `manual-issue-clicked / succeeded / failed` 로그는 `actor_user_id`, `organization_id`, `created_at`와 함께 `context_json.executionPath`, `clickedAt`, `issuedAt`를 남겨 draft 단위 복원을 돕는다.
+- 수동 발행 성공 로그는 같은 `manual-issue-succeeded` 이벤트 안에 `issuanceSnapshot`으로 공급가액/세액/합계/작성일자/거래처 식별값/수신 이메일 최소본을 함께 남긴다.
+- `review` 모드의 `draft-preview-opened`는 같은 `app_logs.context_json`에 `previewSnapshot` 정규화 JSON을 남겨, “봤던 값 vs 실제 발행값” 비교 기반을 만든다.
+- `issue-all`도 각 draft별로 동일한 수동 발행 이벤트를 남겨 사용자 명시 실행 증거를 분리 추적한다.
+- 고객 설정/홈 검수 큐 UI는 `review`를 “검수 후 직접 발행”으로 안내하고, `issue-all`도 로그인 사용자의 직접 실행으로 표시한다.
+
 완료 기준:
 
 - 특정 발행 건에 대해 “누가 클릭했는지 / 언제 클릭했는지 / 어떤 데이터였는지”를 조회할 수 있다.
 - 수동 발행과 자동 발행 로그가 구분된다.
 - 전체 발행도 사용자 명시 실행으로 추적된다.
+
+2026-04-16 구현 기준으로 위 완료 기준을 충족하므로, Phase 2는 완료 상태로 본다.
 
 주요 파일:
 
@@ -233,11 +244,21 @@ AUTO-TAX는 고객 단위 `issueMode`를 유지한다.
    - 최근 자동 발행 성공/실패
    - 최근 실패 원인
 
+현재 구현 메모(Phase 범위 변경 아님):
+
+- 고객 설정 수정 시 `issueMode`가 바뀌면 `app_logs`에 “고객 자동 발행 설정을 변경했습니다.” 로그를 남긴다.
+- 변경 로그는 새 테이블 없이 `app_logs.actor_user_id` / `organization_id`와 `context_json.customerId`, `changedAt`, `previousIssueMode`, `nextIssueMode`를 함께 남긴다.
+- `review -> auto` 전환은 서버 hard guard로만 막고, 같은 organization/customer 기준 `manual-issue-succeeded` 로그가 있거나 레거시 `invoice_drafts.status = issued` 이력이 있을 때만 허용한다.
+- 고객 UI는 `review = 검수 후 로그인 사용자가 직접 발행`, `auto = 설정 기반 월 자동 발행`을 최소 문구로 안내하고, 자동 발행 실패 시 실패 초안에서 직접 발행으로 복구 가능함을 함께 노출한다.
+- 자동 발행 실패 시 draft status는 계속 `failed`로 남고, 홈 검수 큐/직접 발행 경로가 `failed` 상태도 포함하므로 운영자는 기존 수동 발행 흐름으로 그대로 복구할 수 있다.
+
 완료 기준:
 
 - 고객이 왜 자동 발행 대상인지 설명할 수 있다.
 - 누가 자동 발행을 켰는지 남는다.
 - 자동 발행 실패 후 운영자가 수동 복구 흐름으로 자연스럽게 이어갈 수 있다.
+
+2026-04-17 구현 기준으로 위 완료 기준을 충족하므로, Phase 3은 최소 범위로 완료 상태로 본다.
 
 주요 파일:
 
@@ -279,6 +300,15 @@ AUTO-TAX는 고객 단위 `issueMode`를 유지한다.
 - 현재 Popbill 환경변수는 서버 관리 비밀로 남아 있는 구조를 유지한다.
 - 이번 phase의 핵심은 **홈택스/로컬 인증서 자격정보를 서버에 남기지 않는 경계**를 명확히 하는 것이다.
 
+현재 구현 메모(Phase 범위 변경 아님):
+
+- 서버 저장 금지 대상은 새 코드 기준으로 고정한다: 홈택스 ID/PW, 공동인증서 원본 파일, 공동인증서 비밀번호.
+- `organization_integrations.renewal_certificate_password_encrypted`, `customer_certificates.certificate_password_encrypted`, onboarding preview/batch의 `certificatePassword`는 새 쓰기 경로에서 저장하지 않거나 빈 값으로 정리한다.
+- `renewal_automation_jobs.submission_profile_json`에는 연락처만 저장하고 `issuePassword`는 at-rest로 남기지 않는다. 고객 기준 preflight job은 agent claim 시점에만 encrypted workspace 설정에서 다시 채운다.
+- `app_logs`, API 에러 응답, 로컬 헬퍼 오류 응답/콘솔은 비밀번호류와 `certDirPath` 같은 로컬 인증서 경로를 마스킹한다.
+- `/api/*`와 로컬 헬퍼 응답은 `Cache-Control: no-store`를 전제로 한다.
+- JWT 세션은 현행 Supabase 세션을 그대로 쓰고, invalid refresh token 감지 시 로컬 세션을 비우고 재로그인을 강제한다. 별도 inactivity timeout/재인증 flow는 이번 phase에서 추가하지 않는다.
+
 완료 기준:
 
 - “무엇이 서버에 남고 무엇이 남지 않는지”를 문서와 코드 양쪽에서 설명할 수 있다.
@@ -296,6 +326,8 @@ AUTO-TAX는 고객 단위 `issueMode`를 유지한다.
 - `scripts/renewal-local-helper.ts`
 - `docs/OPERATIONS.md`
 - `docs/CERTIFICATE_RENEWAL_POC.md`
+
+2026-04-17 구현 기준으로, 새 저장/응답/로그 경로에 대한 Phase 4 최소 범위는 완료 상태로 본다.
 
 ## Phase 5. 시범 운영 운영 리포트와 정착
 
@@ -316,6 +348,17 @@ AUTO-TAX는 고객 단위 `issueMode`를 유지한다.
 
 - 시범 운영 종료 시 성과/문제/확대 조건을 숫자로 정리할 수 있다.
 - 어떤 고객을 자동 발행으로 전환해도 되는지 판단 근거가 생긴다.
+
+현재 구현 메모(Phase 범위 변경 아님):
+
+- 기존 `GET /api/drafts/pilot-report`는 주간/월간 bucket, 고객별 성공률/예외율/전환 근거, 실패 유형 Top 5, 절감 시간 추정치를 함께 반환한다.
+- 같은 endpoint에 `format=csv`를 붙이면 운영자가 그대로 저장/공유 가능한 CSV export를 받을 수 있다.
+- 고객별 리포트는 현재 `issueMode`, 수동/자동 성공·실패 수, 최신 실패 유형/시점, `review -> auto` 전환 이력과 “성공 발행 이력 있음/없음” 근거를 같이 보여준다.
+- 실패 유형 Top N은 `errorCategory -> errorOperation -> errorCode -> 제한된 message bucket` 순으로 묶는다.
+- 절감 시간은 자동 발행 성공 1건당 운영자의 수동 발행 처리 10분 절감 가정으로 계산한다.
+- 운영 메모 대조는 리포트가 돌려주는 `latestFailureDraftId` / `latestFailureTimelinePath`와 `GET /api/drafts/:id/pilot-timeline` 절차를 기준으로 한다.
+
+2026-04-17 구현 기준으로 위 완료 기준을 충족하므로, Phase 5는 완료 상태로 본다.
 
 ## 6. Phase 선후관계
 

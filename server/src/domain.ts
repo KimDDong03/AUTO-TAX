@@ -264,12 +264,20 @@ export interface PilotErrorCategoryCount {
   count: number;
 }
 
-export interface PilotIssuanceReport {
-  organizationId: string;
-  generatedAt: string;
+export interface PilotTimeSavingsEstimate {
+  assumedMinutesSavedPerAutoSuccess: number;
+  autoIssueSuccessCount: number;
+  estimatedSavedMinutes: number;
+  estimatedSavedHours: number;
+  note: string;
+}
+
+export interface PilotPeriodBucket {
+  bucketType: "week" | "month";
+  label: string;
   period: {
-    from: string | null;
-    to: string | null;
+    from: string;
+    to: string;
   };
   metrics: {
     autoDraftCreationSuccessRate: PilotRateMetric;
@@ -285,11 +293,90 @@ export interface PilotIssuanceReport {
     finalIssueAttempts: number;
     exceptionCount: number;
   };
+  timeSavings: PilotTimeSavingsEstimate;
+}
+
+export interface PilotCustomerSummary {
+  customerId: number;
+  customerName: string;
+  currentIssueMode: IssueMode | null;
+  manualIssueSuccessCount: number;
+  manualIssueFailureCount: number;
+  autoIssueSuccessCount: number;
+  autoIssueFailureCount: number;
+  finalIssueAttempts: number;
+  finalIssueSuccessRate: PilotRateMetric;
+  exceptionRate: PilotRateMetric;
+  reviewToAutoTransitionCount: number;
+  autoToReviewTransitionCount: number;
+  lastIssueModeChangedAt: string | null;
+  lastIssueModeChangedTo: IssueMode | null;
+  hasSuccessfulIssuanceEvidence: boolean;
+  autoTransitionEvidenceStatus: "already-auto" | "eligible" | "needs-review";
+  autoTransitionEvidenceNote: string;
+  latestFailureAt: string | null;
+  latestFailureType: string | null;
+  latestFailureDraftId: number | null;
+  latestFailureTimelinePath: string | null;
+  estimatedSavedMinutes: number;
+}
+
+export interface PilotFailureTypeSummary {
+  rank: number;
+  key: string;
+  label: string;
+  errorCategory: PilotErrorCategory;
+  errorOperation: string | null;
+  errorCode: string | null;
+  messageBucket: string | null;
+  count: number;
+  lastSeenAt: string;
+  latestDraftId: number | null;
+  latestCustomerId: number | null;
+  latestTimelinePath: string | null;
+}
+
+export interface PilotIssuanceReport {
+  organizationId: string;
+  generatedAt: string;
+  period: {
+    from: string | null;
+    to: string | null;
+  };
+  metrics: {
+    autoDraftCreationSuccessRate: PilotRateMetric;
+    finalIssueSuccessRate: PilotRateMetric;
+    exceptionRate: PilotRateMetric;
+  };
+  eventCounts: PilotIssuanceEventCount[];
+  errorCategoryCounts: PilotErrorCategoryCount[];
+  periodBuckets: {
+    weekly: PilotPeriodBucket[];
+    monthly: PilotPeriodBucket[];
+  };
+  customerSummaries: PilotCustomerSummary[];
+  topFailureTypes: PilotFailureTypeSummary[];
+  timeSavings: PilotTimeSavingsEstimate;
+  drilldown: {
+    timelinePathTemplate: string;
+    memoComparisonProcedure: string;
+  };
+  totals: {
+    trackedDrafts: number;
+    trackedEvents: number;
+    draftCreationAttempts: number;
+    finalIssueAttempts: number;
+    exceptionCount: number;
+  };
   notes: {
     autoDraftCreationSuccessRate: string;
     finalIssueSuccessRate: string;
     exceptionRate: string;
     draftPreviewOpened: string;
+    customerSummaries: string;
+    topFailureTypes: string;
+    timeSavings: string;
+    memoComparison: string;
   };
 }
 

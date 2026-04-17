@@ -51,7 +51,11 @@ type LocalPopbillCertificateRegistrationResponse = {
   result: {
     outcome: "registered" | "already-registered";
     browserChannel: string;
+    certificateIndex: number;
     certificateCn: string;
+    certificateKind: "electronic_tax";
+    serial: string | null;
+    userDN: string | null;
     localBridgeBaseUrl: string | null;
     message: string;
   };
@@ -98,6 +102,7 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
   try {
     response = await fetch(`${LOCAL_RENEWAL_HELPER_URL}${pathname}`, {
       ...init,
+      cache: "no-store",
       headers
     });
   } catch {
@@ -250,7 +255,11 @@ export async function requestLocalRenewalOpenPayment(payload: {
 
 export async function requestLocalPopbillCertificateRegistration(payload: {
   certificateRegistrationUrl: string;
-  certificateCn: string;
+  certificateIndex: number;
+  certificateCn?: string | null;
+  certificateKind: "electronic_tax";
+  serial?: string | null;
+  userDN?: string | null;
   certificatePassword: string;
 }) {
   return await localRenewalHelperRequest<LocalPopbillCertificateRegistrationResponse>("/api/popbill/certificate-registration", {

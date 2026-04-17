@@ -90,6 +90,16 @@ test("buildCustomerOnboardingPreview classifies create and update rows and detec
         issuerName: "",
         certificatePassword: "pw-1",
         isPrimary: true
+      },
+      {
+        rowIndex: 3,
+        businessNumber: "111-22-33334",
+        certificateKind: "electronic_tax",
+        certificateName: "기존 발전소",
+        certificateUsageName: "",
+        issuerName: "",
+        certificatePassword: "pw-2",
+        isPrimary: true
       }
     ]
   };
@@ -108,9 +118,73 @@ test("buildCustomerOnboardingPreview classifies create and update rows and detec
     preview.rows.map((row) => ({ rowIndex: row.rowIndex, status: row.status, plantCount: row.plantCount, certificateCount: row.certificateCount })),
     [
       { rowIndex: 2, status: "create", plantCount: 1, certificateCount: 1 },
-      { rowIndex: 3, status: "update", plantCount: 0, certificateCount: 0 }
+      { rowIndex: 3, status: "update", plantCount: 0, certificateCount: 1 }
     ]
   );
+});
+
+test("buildCustomerOnboardingPreview ignores non-electronic certificates and blocks rows without electronic-tax input", async () => {
+  const requestStore = {
+    listCustomers: async () => []
+  } as unknown as Pick<AppStore, "listCustomers"> as AppStore;
+
+  const workbook: CustomerOnboardingWorkbookInput = {
+    customers: [
+      {
+        rowIndex: 2,
+        customerName: "새 고객",
+        businessNumber: "222-33-44445",
+        corpName: "새 발전소",
+        addr: "경기도 여주시 대신면 새길 10",
+        bizType: "전기업",
+        bizClass: "태양광",
+        renewalContactMobile: "",
+        memo: ""
+      }
+    ],
+    plants: [
+      {
+        rowIndex: 2,
+        businessNumber: "222-33-44445",
+        plantName: "새 1호기",
+        matchAddress: "경기도 여주시 대신면 새길 10"
+      }
+    ],
+    certificates: [
+      {
+        rowIndex: 2,
+        businessNumber: "222-33-44445",
+        certificateKind: "general_business",
+        certificateName: "범용 인증서",
+        certificateUsageName: "",
+        issuerName: "",
+        certificatePassword: "pw-general",
+        isPrimary: true
+      }
+    ]
+  };
+
+  const preview = await buildCustomerOnboardingPreview(requestStore, workbook, {
+    resolveAddress: resolveAddressStub
+  });
+
+  assert.equal(preview.totalCustomers, 1);
+  assert.equal(preview.createCount, 0);
+  assert.equal(preview.blockedCount, 1);
+  assert.deepEqual(preview.rows, [
+    {
+      rowIndex: 2,
+      customerName: "새 고객",
+      businessNumber: "2223344445",
+      corpName: "새 발전소",
+      plantCount: 1,
+      certificateCount: 0,
+      status: "blocked",
+      errors: ["전자세금용 공동인증서를 확인하지 못했습니다."],
+      warnings: ["공동인증서 시트 2행: 전자세금용이 아닌 인증서는 이번 초기 등록에서 무시합니다."],
+      canImport: false
+    }
+  ]);
 });
 
 test("commitCustomerOnboardingImport saves customers, links certificates, and reports warnings", async () => {
@@ -193,9 +267,12 @@ test("commitCustomerOnboardingImport saves customers, links certificates, and re
         rowIndex: 2,
         businessNumber: "2223344445",
         certificateKind: "electronic_tax",
+        certificateIndex: "101",
         certificateName: "새 발전소",
         certificateUsageName: "",
         issuerName: "",
+        serial: "SERIAL-101",
+        userDN: "USER-DN-101",
         certificatePassword: "pw-1",
         isPrimary: true
       },
@@ -221,15 +298,17 @@ test("commitCustomerOnboardingImport saves customers, links certificates, and re
   assert.equal(result.updatedCount, 0);
   assert.equal(result.successCount, 1);
   assert.equal(result.failedCount, 0);
-  assert.equal(result.linkedCertificateCount, 2);
+  assert.equal(result.linkedCertificateCount, 1);
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0]?.message ?? "", /팝빌 자동 가입 실패/);
   assert.equal(savedCustomers.length, 1);
   assert.deepEqual(savedCustomers[0]?.input.plantNames, ["새 1호기"]);
   assert.deepEqual(savedCustomers[0]?.input.matchAddresses, ["경기도 여주시 대신면 새길 10"]);
-  assert.equal(linkedCertificates.length, 2);
-  assert.equal(linkedCertificates[0]?.certificatePassword, "pw-1");
-  assert.equal(linkedCertificates[1]?.certificateUsageName, "개인범용");
+  assert.equal(linkedCertificates.length, 1);
+  assert.equal(linkedCertificates[0]?.certificatePassword, undefined);
+  assert.equal(linkedCertificates[0]?.certificateKind, "electronic_tax");
+  assert.equal(linkedCertificates[0]?.serial, "SERIAL-101");
+  assert.equal(linkedCertificates[0]?.userDN, "USER-DN-101");
   assert.equal(logs.length, 1);
   assert.equal(logs[0]?.scope, "customer-onboarding-import");
 });

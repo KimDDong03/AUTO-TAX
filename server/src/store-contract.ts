@@ -37,6 +37,7 @@ export interface AppStore {
   listCustomerCertificates(): Promise<CustomerCertificate[]>;
   getCustomerCertificatePassword(certificateId: number): Promise<string>;
   getCustomer(customerId: number): Promise<Customer | null>;
+  canEnableAutoIssueForCustomer(customerId: number): Promise<boolean>;
   findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null>;
   findCustomerByMatchAddress(matchAddress: string): Promise<Customer | null>;
   saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer>;

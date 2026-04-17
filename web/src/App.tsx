@@ -18,6 +18,26 @@ import {
   type CustomerOnboardingTemplateWorkbookInput,
   type CustomerOnboardingWorkbookInput
 } from "./features/initial-registration/customer-onboarding-workbook";
+import {
+  buildElectronicTaxOnboardingCommitNotice,
+  buildElectronicTaxOnboardingTemplateNotice,
+  buildElectronicTaxRegistrationFollowupNotice
+} from "./features/initial-registration/electronic-tax-onboarding-formatters";
+import {
+  resolveElectronicTaxOnboardingTemplateWorkbook,
+  type CustomerOnboardingResolutionResult
+} from "./features/initial-registration/electronic-tax-onboarding-resolver";
+import {
+  processElectronicTaxOnboardingCertificateRegistrations,
+  waitForElectronicTaxOnboardingCommitBatch
+} from "./features/initial-registration/electronic-tax-onboarding-orchestration";
+import {
+  emptyElectronicTaxOnboardingSessionState as emptyCustomerOnboardingSessionState,
+  runElectronicTaxOnboardingUploadFlow,
+  type ElectronicTaxOnboardingSessionState as CustomerOnboardingSessionState,
+  type ElectronicTaxOnboardingUploadFlowResult
+} from "./features/initial-registration/electronic-tax-onboarding-upload-flow";
+import { useElectronicTaxOnboarding } from "./features/initial-registration/useElectronicTaxOnboarding";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
 import { AccountPasswordPanel } from "./features/settings/AccountPasswordPanel";
 import { createSettingsActionAdapters } from "./features/settings/createSettingsActionAdapters";
@@ -44,8 +64,6 @@ import {
   isElectronicTaxCertificate,
   isRenewalPaymentReady,
   matchesRenewalCertificate,
-  normalizeCustomerRenewalAddress,
-  normalizeCustomerRenewalName,
   normalizeRenewalCertificateKey,
   parseStoredCustomerCertificateKey,
   selectCustomerRenewalCertificate
@@ -93,7 +111,6 @@ import type {
   OpsWorkspaceLimitUpdateResponse,
   OpsWorkspaceSummary,
   PartnerPointsPayload,
-  RenewalBridgePreflightProbe,
   RenewalInfoSnapshot,
   RenewalAutomationPayload
 } from "./types";
@@ -150,30 +167,6 @@ type OpsConsoleData = {
   logs: LogEntry[];
   workspaces: OpsWorkspaceSummary[];
 };
-type CustomerOnboardingResolutionResult = {
-  workbook: CustomerOnboardingWorkbookInput;
-  resolvedCertificateCount: number;
-  skippedCertificateCount: number;
-  acceptedBeforeWindowCount: number;
-  errors: string[];
-};
-
-type OnboardingPreflightImportDecision =
-  | {
-      canImport: true;
-      snapshot: RenewalInfoSnapshot;
-      acceptedBeforeWindow: boolean;
-    }
-  | {
-      canImport: false;
-      failureMessage: string;
-    };
-
-type CustomerOnboardingSessionState = {
-  templateDownloaded: boolean;
-  previewReady: boolean;
-  commitDone: boolean;
-};
 
 type InternalJobDispatchResponse = {
   ok: true;
@@ -190,12 +183,6 @@ type InternalJobRunResponse = {
   claimed: number;
   completed: number;
   failed: number;
-};
-
-const emptyCustomerOnboardingSessionState: CustomerOnboardingSessionState = {
-  templateDownloaded: false,
-  previewReady: false,
-  commitDone: false
 };
 
 function shouldLoadMailboxData(activeTab: TabId, customerDetailTab: CustomerDetailTabId): boolean {
@@ -660,7 +647,7 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
 function getDraftStatusLabel(status: string): string {
   switch (status) {
     case "review":
-      return "검수 대기";
+      return "직접 발행 대기";
     case "scheduled":
       return "자동 발행 대기";
     case "failed":
@@ -675,7 +662,7 @@ function getDraftStatusLabel(status: string): string {
 }
 
 function getIssueModeLabel(issueMode: "review" | "auto"): string {
-  return issueMode === "auto" ? "월 자동 발행" : "검수 후 발행";
+  return issueMode === "auto" ? "월 자동 발행" : "검수 후 직접 발행";
 }
 
 function getOrganizationRoleLabel(role: BootstrapPayload["auth"]["activeOrganizationRole"]): string {
@@ -1138,49 +1125,6 @@ function getRenewalSnapshotAddress(snapshot: RenewalInfoSnapshot): string {
   return [baseAddress, detailAddress].filter(Boolean).join(" ").trim();
 }
 
-function getRenewalSnapshotMatchName(
-  certificate: RenewalAgentCertificate,
-  snapshot: RenewalInfoSnapshot | null | undefined
-): string {
-  return (
-    snapshot?.companyName?.trim() ||
-    snapshot?.ceoName?.trim() ||
-    certificate.cn?.trim() ||
-    ""
-  );
-}
-
-function matchesCustomerCertificateAutoLinkFromSnapshot(
-  certificate: RenewalAgentCertificate,
-  snapshot: RenewalInfoSnapshot | null | undefined,
-  customer: Pick<Customer, "customerName" | "corpName" | "addr">
-): boolean {
-  if (!snapshot) {
-    return false;
-  }
-
-  const matchName = normalizeCustomerRenewalName(getRenewalSnapshotMatchName(certificate, snapshot));
-  const matchAddress = normalizeCustomerRenewalAddress(getRenewalSnapshotAddress(snapshot));
-  if (!matchName || !matchAddress) {
-    return false;
-  }
-
-  const kind = deriveCustomerCertificateKind(certificate);
-  const matchesCustomerName = matchName === normalizeCustomerRenewalName(customer.customerName);
-  const matchesCorpName = matchName === normalizeCustomerRenewalName(customer.corpName);
-  const matchesAddress = matchAddress === normalizeCustomerRenewalAddress(customer.addr);
-
-  if (!matchesAddress) {
-    return false;
-  }
-
-  if (kind === "general_personal") {
-    return matchesCustomerName;
-  }
-
-  return matchesCorpName || matchesCustomerName;
-}
-
 function buildCustomerDraftFromRenewalSnapshot(
   certificate: RenewalAgentCertificate,
   snapshot: RenewalInfoSnapshot
@@ -1223,249 +1167,6 @@ function buildCustomerCreatePayloadFromRenewalSnapshot(
     plantNames: [],
     matchAddresses: normalizedAddress ? [normalizedAddress] : []
   };
-}
-
-function normalizeRenewalPreflightDetail(value: string | null | undefined): string {
-  const raw = String(value ?? "");
-  if (!raw) {
-    return "";
-  }
-
-  const text = raw
-    .replace(/\\n/g, "\n")
-    .replace(/<\/p>/gi, "\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ");
-  const curlIndex = text.indexOf("curl:");
-  const relevantText = curlIndex >= 0 ? text.slice(curlIndex) : text;
-  return relevantText.replace(/\s+/g, " ").trim();
-}
-
-function normalizeRenewalCertificateExpireDate(value: string | null | undefined): string | null {
-  const text = String(value ?? "").trim();
-  if (!text) {
-    return null;
-  }
-
-  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match ? match[1] ?? null : null;
-}
-
-function getTodayDateKey(): string {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = `${today.getMonth() + 1}`.padStart(2, "0");
-  const day = `${today.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function isRenewalCertificateExpiredDate(value: string | null | undefined): boolean {
-  const normalized = normalizeRenewalCertificateExpireDate(value);
-  if (!normalized) {
-    return false;
-  }
-
-  return normalized < getTodayDateKey();
-}
-
-function buildRenewalPreflightFailureMessage(prefix: string, _detail: string, _fallback: string): string {
-  return prefix;
-}
-
-function isRenewalWindowPendingDetail(detail: string): boolean {
-  return detail.includes("갱신 가능 기간은") || detail.includes("갱신가능 기간은");
-}
-
-function isRenewalWindowEndedDetail(detail: string): boolean {
-  return detail.includes("갱신가능 기간이 종료") || detail.includes("갱신 가능 기간이 종료");
-}
-
-function isRenewalIssueInfoMissingDetail(detail: string): boolean {
-  return detail.includes("발급정보를 찾을수 없습니다") || detail.includes("발급정보를 찾을 수 없습니다");
-}
-
-function isRenewalSelectionMissingDetail(detail: string): boolean {
-  return detail.includes("선택하신 인증서가 없습니다") || detail.includes("인증서를 선택해 주십시오");
-}
-
-function isRenewalPasswordFailureDetail(detail: string): boolean {
-  return detail.includes("비밀번호");
-}
-
-function isRenewalBridgeConnectionFailureDetail(detail: string): boolean {
-  const normalized = detail.toLowerCase();
-  return (
-    normalized.includes("failed to connect to 127.0.0.1 port") ||
-    normalized.includes("could not connect to server") ||
-    normalized.includes("connection was reset") ||
-    normalized.includes("recv failure")
-  );
-}
-
-function classifyOnboardingPreflightImportDecision(
-  preflightProbe: RenewalBridgePreflightProbe | null | undefined,
-  options?: {
-    certificateExpireDate?: string | null;
-  }
-): OnboardingPreflightImportDecision {
-  const snapshot = preflightProbe?.renewInfoSnapshot ?? null;
-  const detail = normalizeRenewalPreflightDetail(preflightProbe?.error ?? preflightProbe?.message ?? "");
-
-  if (preflightProbe?.ok && snapshot) {
-    return {
-      canImport: true,
-      snapshot,
-      acceptedBeforeWindow: false
-    };
-  }
-
-  if (isRenewalWindowPendingDetail(detail) && snapshot) {
-    return {
-      canImport: true,
-      snapshot,
-      acceptedBeforeWindow: true
-    };
-  }
-
-  if (isRenewalCertificateExpiredDate(options?.certificateExpireDate) || isRenewalWindowEndedDetail(detail)) {
-    return {
-      canImport: false,
-      failureMessage: "인증서 만료"
-    };
-  }
-
-  if (isRenewalWindowEndedDetail(detail)) {
-    return {
-      canImport: false,
-      failureMessage: buildRenewalPreflightFailureMessage("기간종료", detail, "갱신가능 기간이 종료되었습니다.")
-    };
-  }
-
-  if (preflightProbe?.ok && snapshot) {
-    return {
-      canImport: true,
-      snapshot,
-      acceptedBeforeWindow: false
-    };
-  }
-
-  if (isRenewalWindowPendingDetail(detail) && snapshot) {
-    return {
-      canImport: true,
-      snapshot,
-      acceptedBeforeWindow: true
-    };
-  }
-
-  if (isRenewalIssueInfoMissingDetail(detail)) {
-    return {
-      canImport: false,
-      failureMessage: buildRenewalPreflightFailureMessage(
-        "발급정보 없음",
-        detail,
-        "SignGate에서 사업자 발급정보를 찾지 못했습니다."
-      )
-    };
-  }
-
-  if (isRenewalPasswordFailureDetail(detail)) {
-    return {
-      canImport: false,
-      failureMessage: buildRenewalPreflightFailureMessage(
-        "비밀번호 오류",
-        detail,
-        "인증서 비밀번호 확인에 실패했습니다."
-      )
-    };
-  }
-
-  if (isRenewalSelectionMissingDetail(detail)) {
-    return {
-      canImport: false,
-      failureMessage: buildRenewalPreflightFailureMessage(
-        "인증서 선택 실패",
-        detail,
-        "선택한 공동인증서를 열지 못했습니다."
-      )
-    };
-  }
-
-  if (isRenewalBridgeConnectionFailureDetail(detail)) {
-    return {
-      canImport: false,
-      failureMessage: buildRenewalPreflightFailureMessage(
-        "브리지 연결 실패",
-        detail,
-        "SignGate 로컬 포트(14315/14319)에 연결하지 못했습니다."
-      )
-    };
-  }
-
-  if (!snapshot) {
-    return {
-      canImport: false,
-      failureMessage: buildRenewalPreflightFailureMessage(
-        "사전조회 실패",
-        detail,
-        "사업자 정보를 읽지 못했습니다."
-      )
-    };
-  }
-
-  return {
-    canImport: false,
-    failureMessage: buildRenewalPreflightFailureMessage(
-      "사전조회 실패",
-      detail,
-      "등록 가능 상태를 확인하지 못했습니다."
-    )
-  };
-}
-
-function getCustomerOnboardingTemplateCertificateLabel(row: {
-  certificateIndex: string;
-  certificateName: string;
-}) {
-  return row.certificateName.trim() || (row.certificateIndex.trim() ? `인증서 #${row.certificateIndex.trim()}` : "인증서");
-}
-
-function deriveCustomerOnboardingTemplateCertificateKind(row: {
-  certificateKindLabel: string;
-  usageName: string;
-}): CustomerCertificateKind {
-  const normalized = `${row.certificateKindLabel} ${row.usageName}`.replace(/\s+/g, "");
-  if (normalized.includes("전자세금")) {
-    return "electronic_tax";
-  }
-  if (normalized.includes("개인") && normalized.includes("범용")) {
-    return "general_personal";
-  }
-  if (normalized.includes("사업자") && normalized.includes("범용")) {
-    return "general_business";
-  }
-  return "unknown";
-}
-
-function findMatchingRenewalCertificateFromList(
-  certificates: RenewalAgentCertificate[],
-  selection: {
-    certificateIndex: string;
-    certificateName: string;
-  }
-): RenewalAgentCertificate | null {
-  return (
-    certificates.find((certificate) =>
-      matchesRenewalCertificate(certificate, {
-        certificateIndex: selection.certificateIndex,
-        certificateCn: selection.certificateName
-      })
-    ) ??
-    certificates.find(
-      (certificate) =>
-        normalizeRenewalCertificateKey(certificate.cn) === normalizeRenewalCertificateKey(selection.certificateName)
-    ) ??
-    null
-  );
 }
 
 function getCustomerDraftSnapshotForCertificate(
@@ -1552,8 +1253,6 @@ export function App() {
   const [customerImportNotice, setCustomerImportNotice] = useState("");
   const [customerOnboardingFileName, setCustomerOnboardingFileName] = useState("");
   const [customerOnboardingWorkbook, setCustomerOnboardingWorkbook] = useState<CustomerOnboardingWorkbookInput | null>(null);
-  const [customerOnboardingTemplateWorkbook, setCustomerOnboardingTemplateWorkbook] =
-    useState<CustomerOnboardingTemplateWorkbookInput | null>(null);
   const [customerOnboardingPreview, setCustomerOnboardingPreview] = useState<CustomerOnboardingPreviewResponse | null>(null);
   const [customerOnboardingSessionState, setCustomerOnboardingSessionState] =
     useState<CustomerOnboardingSessionState>(emptyCustomerOnboardingSessionState);
@@ -1858,6 +1557,9 @@ export function App() {
     defaultRenewalHelperDownloadUrl,
     showAlert: showAppAlert
   });
+  const customerRenewalAssistantElectronicTaxCertificateCount = customerRenewalAssistantAllCertificates.filter(
+    (certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax"
+  ).length;
 
   const settingsScreenState = useSettingsScreenState({
     activeOrganizationId,
@@ -2686,7 +2388,7 @@ export function App() {
   };
 
   const loadCustomerOnboardingAvailableCertificates = async (options?: { forceRefresh?: boolean }) => {
-    ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
+    ensureLocalRenewalHelperActionAllowed("전자세금용 공동인증서 읽기");
     if (!options?.forceRefresh && customerOnboardingCertificatesRef.current) {
       return customerOnboardingCertificatesRef.current;
     }
@@ -2709,470 +2411,24 @@ export function App() {
         defaultRenewalHelperDownloadUrl
       })
     );
-    customerOnboardingCertificatesRef.current = certificates;
-    return certificates;
+    const electronicTaxCertificates = certificates.filter((certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax");
+    customerOnboardingCertificatesRef.current = electronicTaxCertificates;
+    return electronicTaxCertificates;
   };
+  const { resolveSingleElectronicTaxCertificate } = useElectronicTaxOnboarding({
+    loadAvailableCertificates: loadCustomerOnboardingAvailableCertificates
+  });
 
   const resolveCustomerOnboardingTemplateWorkbook = async (
     templateWorkbook: CustomerOnboardingTemplateWorkbookInput
   ): Promise<CustomerOnboardingResolutionResult> => {
     ensureLocalRenewalHelperActionAllowed("고객 초기 등록 준비");
-    const onboardingPreflightConcurrency = 6;
-    const sharedPassword = await resolveCustomerRenewalPassword({ promptIfMissing: false });
-    const availableCertificates = await loadCustomerOnboardingAvailableCertificates();
-    const errors: string[] = [];
-    let acceptedBeforeWindowCount = 0;
-    const customersByBusinessNumber = new Map<
-      string,
-      {
-        rowIndex: number;
-        customerName: string;
-        businessNumber: string;
-        corpName: string;
-        addr: string;
-        bizType: string;
-        bizClass: string;
-        renewalContactMobile: string;
-        memo: string;
-        fallbackAddress: string;
-        plantRows: Array<{
-          rowIndex: number;
-          plantName: string;
-        }>;
-        certificateRows: CustomerOnboardingWorkbookInput["certificates"];
-      }
-    >();
-    let resolvedCertificateCount = 0;
-    let skippedCertificateCount = 0;
-
-    const ensureWorkbookCustomerEntry = (
-      businessNumber: string,
-      options: {
-        rowIndex: number;
-        customerName: string;
-        corpName: string;
-        addr: string;
-        bizType: string;
-        bizClass: string;
-        renewalContactMobile: string;
-        fallbackAddress: string;
-      }
-    ) => {
-      const existingEntry = customersByBusinessNumber.get(businessNumber);
-      if (existingEntry) {
-        if (!existingEntry.renewalContactMobile && options.renewalContactMobile.trim()) {
-          existingEntry.renewalContactMobile = options.renewalContactMobile.trim();
-        }
-        return existingEntry;
-      }
-
-      const createdEntry = {
-        rowIndex: options.rowIndex,
-        customerName: options.customerName.trim(),
-        businessNumber,
-        corpName: options.corpName.trim(),
-        addr: options.addr.trim(),
-        bizType: options.bizType.trim(),
-        bizClass: options.bizClass.trim(),
-        renewalContactMobile: options.renewalContactMobile.trim(),
-        memo: "",
-        fallbackAddress: options.fallbackAddress.trim(),
-        plantRows: [],
-        certificateRows: []
-      };
-      customersByBusinessNumber.set(businessNumber, createdEntry);
-      return createdEntry;
-    };
-
-    const applyPlantRowsToEntry = (
-      plantRows: CustomerOnboardingTemplateWorkbookInput["plants"],
-      fallbackPlantName: string,
-      entry: ReturnType<typeof ensureWorkbookCustomerEntry>
-    ) => {
-      for (const plantRow of plantRows) {
-        entry.plantRows.push({
-          rowIndex: plantRow.rowIndex,
-          plantName: plantRow.plantName.trim() || fallbackPlantName.trim() || entry.corpName
-        });
-      }
-    };
-
-    const plantCertificateGroups = Array.from(
-      templateWorkbook.plants
-        .reduce(
-          (groups, plantRow) => {
-            const key =
-              normalizeRenewalCertificateKey(plantRow.certificateIndex) ||
-              `name:${normalizeRenewalCertificateKey(plantRow.certificateName)}`;
-            if (!key) {
-              errors.push(`발전소 시트 ${plantRow.rowIndex}행: 로컬인증서번호 또는 인증서명(CN)을 확인하세요.`);
-              skippedCertificateCount += 1;
-              return groups;
-            }
-
-            const existingGroup = groups.get(key);
-            if (existingGroup) {
-              existingGroup.plantRows.push(plantRow);
-              return groups;
-            }
-
-            groups.set(key, {
-              certificateIndex: plantRow.certificateIndex,
-              certificateName: plantRow.certificateName,
-              plantRows: [plantRow]
-            });
-            return groups;
-          },
-          new Map<
-            string,
-            {
-              certificateIndex: string;
-              certificateName: string;
-              plantRows: CustomerOnboardingTemplateWorkbookInput["plants"];
-            }
-          >()
-        )
-        .values()
-    );
-    const electronicTaxSelections: Array<{
-      rowIndex: number;
-      certificateIndex: string;
-      certificateName: string;
-      certificateLabel: string;
-      matchedCertificate: RenewalAgentCertificate;
-      effectivePassword: string;
-      plantRows: CustomerOnboardingTemplateWorkbookInput["plants"];
-      certificatePassword: string;
-    }> = [];
-
-    for (const plantGroup of plantCertificateGroups) {
-      const certificateLabel = getCustomerOnboardingTemplateCertificateLabel({
-        certificateIndex: plantGroup.certificateIndex,
-        certificateName: plantGroup.certificateName
-      });
-      const matchedCertificate = findMatchingRenewalCertificateFromList(availableCertificates, plantGroup);
-      if (!matchedCertificate) {
-        errors.push(`발전소 시트 (${certificateLabel}): 이 PC에서 같은 전자세금용 공동인증서를 다시 찾지 못했습니다.`);
-        skippedCertificateCount += 1;
-        continue;
-      }
-
-      if (deriveCustomerCertificateKind(matchedCertificate as RenewalAgentCertificate) !== "electronic_tax") {
-        errors.push(`발전소 시트 (${certificateLabel}): 전자세금용 공동인증서만 고객 등록에 사용할 수 있습니다.`);
-        skippedCertificateCount += 1;
-        continue;
-      }
-
-      const explicitPlantPasswords = Array.from(
-        new Set(plantGroup.plantRows.map((row) => row.certificatePassword.trim()).filter(Boolean))
-      );
-      if (explicitPlantPasswords.length > 1) {
-        errors.push(`발전소 시트 (${certificateLabel}): 같은 인증서에 서로 다른 인증서 비밀번호가 입력되어 있습니다.`);
-        skippedCertificateCount += 1;
-        continue;
-      }
-
-      const enteredPlantPassword = explicitPlantPasswords[0] ?? "";
-      const effectivePassword = enteredPlantPassword || sharedPassword;
-      if (!effectivePassword) {
-        errors.push(
-          `발전소 시트 (${certificateLabel}): 인증서 비밀번호를 입력하거나 시스템 설정의 공통 비밀번호를 먼저 저장하세요.`
-        );
-        skippedCertificateCount += 1;
-        continue;
-      }
-
-      electronicTaxSelections.push({
-        rowIndex: plantGroup.plantRows[0]?.rowIndex ?? 0,
-        certificateIndex: plantGroup.certificateIndex,
-        certificateName: plantGroup.certificateName,
-        certificateLabel,
-        matchedCertificate: matchedCertificate as RenewalAgentCertificate,
-        effectivePassword,
-        plantRows: plantGroup.plantRows,
-        certificatePassword: enteredPlantPassword
-      });
-    }
-
-    const electronicTaxResults = await mapWithConcurrency(
-      electronicTaxSelections,
-      onboardingPreflightConcurrency,
-      async (selection) => {
-        const { matchedCertificate, certificateLabel, effectivePassword } = selection;
-        const response = await requestLocalRenewalPreflight({
-          certificateIndex: Number(matchedCertificate.index),
-          certificateCn: matchedCertificate.cn || selection.certificateName || null,
-          certificatePassword: effectivePassword
-        });
-        const preflightProbe = response.result.bridge.preflightProbe;
-        const decision = classifyOnboardingPreflightImportDecision(preflightProbe, {
-          certificateExpireDate: matchedCertificate.todate ?? matchedCertificate.detailValidateTo ?? null
-        });
-        if (!decision.canImport) {
-          return {
-            ok: false as const,
-            message: `발전소 시트 (${certificateLabel}): ${decision.failureMessage}`
-          };
-        }
-        const snapshot = decision.snapshot;
-
-        const basePayload = buildCustomerCreatePayloadFromRenewalSnapshot(
-          {
-            index: String(matchedCertificate.index),
-            cn: matchedCertificate.cn || selection.certificateName || certificateLabel
-          } as RenewalAgentCertificate,
-          snapshot
-        );
-        const businessNumber = digitsOnly(basePayload.businessNumber);
-        if (!businessNumber) {
-          return {
-            ok: false as const,
-            message: `발전소 시트 (${certificateLabel}): 사업자번호를 읽지 못했습니다.`
-          };
-        }
-
-        return {
-          ok: true as const,
-          selection,
-          matchedCertificate,
-          acceptedBeforeWindow: decision.acceptedBeforeWindow,
-          businessNumber,
-          customerName: basePayload.customerName,
-          corpName: basePayload.corpName,
-          addr: basePayload.addr,
-          bizType: basePayload.bizType,
-          bizClass: basePayload.bizClass,
-          renewalContactMobile: basePayload.renewalContactMobile
-        };
-      }
-    );
-
-    for (const result of electronicTaxResults) {
-      if (!result.ok) {
-        errors.push(result.message);
-        skippedCertificateCount += 1;
-        continue;
-      }
-
-      if (result.acceptedBeforeWindow) {
-        acceptedBeforeWindowCount += 1;
-      }
-
-      const entry = ensureWorkbookCustomerEntry(result.businessNumber, {
-        rowIndex: result.selection.rowIndex,
-        customerName: result.customerName,
-        corpName: result.corpName,
-        addr: result.addr,
-        bizType: result.bizType,
-        bizClass: result.bizClass,
-        renewalContactMobile: result.renewalContactMobile,
-        fallbackAddress: result.addr
-      });
-
-      applyPlantRowsToEntry(
-        result.selection.plantRows,
-        result.matchedCertificate.cn?.trim() || result.selection.certificateLabel,
-        entry
-      );
-      entry.certificateRows.push({
-        rowIndex: result.selection.rowIndex,
-        businessNumber: result.businessNumber,
-        certificateKind: "electronic_tax",
-        certificateName: result.matchedCertificate.cn?.trim() || result.selection.certificateName.trim() || entry.corpName,
-        certificateUsageName: "전자세금용",
-        issuerName: result.matchedCertificate.issuerToName.trim(),
-        certificatePassword: result.selection.certificatePassword,
-        isPrimary: entry.certificateRows.length === 0
-      });
-      resolvedCertificateCount += 1;
-    }
-
-    const workbook: CustomerOnboardingWorkbookInput = {
-      customers: [],
-      plants: [],
-      certificates: []
-    };
-
-    for (const entry of customersByBusinessNumber.values()) {
-      const defaultMatchAddress = entry.addr.trim() || entry.fallbackAddress.trim();
-      const plantRows =
-        entry.plantRows.length > 0
-          ? entry.plantRows
-          : [
-              {
-                rowIndex: entry.rowIndex,
-                plantName: entry.corpName
-              }
-            ];
-
-      workbook.customers.push({
-        rowIndex: entry.rowIndex,
-        customerName: entry.customerName,
-        businessNumber: entry.businessNumber,
-        corpName: entry.corpName,
-        addr: entry.addr,
-        bizType: entry.bizType,
-        bizClass: entry.bizClass,
-        renewalContactMobile: entry.renewalContactMobile,
-        memo: entry.memo
-      });
-      workbook.plants.push(
-        ...plantRows.map((plantRow, index) => ({
-          rowIndex: plantRow.rowIndex || entry.rowIndex * 100 + index,
-          businessNumber: entry.businessNumber,
-          plantName: plantRow.plantName || entry.corpName,
-          matchAddress: defaultMatchAddress
-        }))
-      );
-      workbook.certificates.push(...entry.certificateRows);
-    }
-
-    return {
-      workbook,
-      resolvedCertificateCount,
-      skippedCertificateCount,
-      acceptedBeforeWindowCount,
-      errors
-    };
-  };
-
-  const autoLinkImportedOnboardingGeneralCertificates = async (
-    templateWorkbook: CustomerOnboardingTemplateWorkbookInput,
-    onboardingWorkbook: CustomerOnboardingWorkbookInput
-  ) => {
-    ensureLocalRenewalHelperActionAllowed("공동인증서 자동 연결");
-    const candidateRows = templateWorkbook.certificates.filter(
-      (row) => deriveCustomerOnboardingTemplateCertificateKind(row) !== "electronic_tax"
-    );
-    if (candidateRows.length === 0) {
-      return {
-        linkedCount: 0,
-        skippedCount: 0,
-        warnings: [] as string[]
-      };
-    }
-
-    const importedBusinessNumbers = new Set(
-      onboardingWorkbook.customers
-        .map((row) => digitsOnly(row.businessNumber))
-        .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
-    );
-    if (importedBusinessNumbers.size === 0) {
-      return {
-        linkedCount: 0,
-        skippedCount: candidateRows.length,
-        warnings: ["범용 공동인증서를 연결할 등록 고객을 찾지 못했습니다."]
-      };
-    }
-
-    const [customers, availableCertificates] = await Promise.all([
-      api<Customer[]>("/api/customers"),
-      loadCustomerOnboardingAvailableCertificates()
-    ]);
-    const importedCustomers = customers.filter((customer) => importedBusinessNumbers.has(digitsOnly(customer.businessNumber)));
-    const sharedPassword = await resolveCustomerRenewalPassword({ promptIfMissing: false });
-
-    if (availableCertificates.length === 0) {
-      return {
-        linkedCount: 0,
-        skippedCount: candidateRows.length,
-        warnings: ["이 PC에서 범용 공동인증서를 다시 찾지 못해 자동 연결을 진행하지 못했습니다."]
-      };
-    }
-
-    const results = await mapWithConcurrency(candidateRows, 6, async (certificateRow) => {
-      const certificateLabel = getCustomerOnboardingTemplateCertificateLabel(certificateRow);
-      const matchedCertificate = findMatchingRenewalCertificateFromList(availableCertificates, {
-        certificateIndex: certificateRow.certificateIndex,
-        certificateName: certificateRow.certificateName
-      });
-
-      if (!matchedCertificate) {
-        return {
-          status: "skipped" as const,
-          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 이 PC에서 같은 범용 공동인증서를 다시 찾지 못했습니다.`
-        };
-      }
-
-      const certificateKind = deriveCustomerCertificateKind(matchedCertificate);
-      if (certificateKind !== "general_personal" && certificateKind !== "general_business") {
-        return {
-          status: "skipped" as const,
-          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 범용 공동인증서가 아니라 자동 연결을 건너뜁니다.`
-        };
-      }
-
-      const effectivePassword = certificateRow.certificatePassword.trim() || sharedPassword;
-      if (!effectivePassword) {
-        return {
-          status: "skipped" as const,
-          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 인증서 비밀번호가 없어 자동 연결을 건너뜁니다.`
-        };
-      }
-
-      const response = await requestLocalRenewalPreflight({
-        certificateIndex: Number(matchedCertificate.index),
-        certificateCn: matchedCertificate.cn || certificateRow.certificateName || null,
-        certificatePassword: effectivePassword
-      });
-      const preflightProbe = response.result.bridge.preflightProbe;
-      const decision = classifyOnboardingPreflightImportDecision(preflightProbe, {
-        certificateExpireDate: matchedCertificate.todate ?? matchedCertificate.detailValidateTo ?? null
-      });
-      if (!decision.canImport) {
-        return {
-          status: "skipped" as const,
-          message: `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): ${decision.failureMessage}`
-        };
-      }
-      const snapshot = decision.snapshot;
-
-      const businessNumber = digitsOnly(snapshot.businessNumber ?? "");
-      const businessNumberMatches = businessNumber
-        ? importedCustomers.filter((customer) => digitsOnly(customer.businessNumber) === businessNumber)
-        : [];
-      const matchedCustomer =
-        businessNumberMatches.length === 1
-          ? (businessNumberMatches[0] ?? null)
-          : importedCustomers.filter((customer) =>
-              matchesCustomerCertificateAutoLinkFromSnapshot(matchedCertificate, snapshot, customer)
-            ).length === 1
-            ? importedCustomers.filter((customer) =>
-                matchesCustomerCertificateAutoLinkFromSnapshot(matchedCertificate, snapshot, customer)
-              )[0] ?? null
-            : null;
-
-      if (!matchedCustomer) {
-        const autoMatchCandidates = importedCustomers.filter((customer) =>
-          matchesCustomerCertificateAutoLinkFromSnapshot(matchedCertificate, snapshot, customer)
-        );
-        return {
-          status: "skipped" as const,
-          message:
-            autoMatchCandidates.length > 1
-              ? `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 자동 연결 후보가 여러 명이라 건너뜁니다.`
-              : `공동인증서 ${certificateRow.rowIndex}행 (${certificateLabel}): 이번 등록 고객 중 자동 연결 대상을 찾지 못했습니다.`
-        };
-      }
-
-      await linkCustomerCertificate(matchedCustomer.id, matchedCertificate, {
-        linkSource: "auto",
-        certificatePassword: effectivePassword
-      });
-      return {
-        status: "linked" as const,
-        customerName: matchedCustomer.customerName,
-        certificateLabel
-      };
+    return await resolveElectronicTaxOnboardingTemplateWorkbook({
+      templateWorkbook,
+      loadAvailableCertificates: loadCustomerOnboardingAvailableCertificates,
+      resolveSharedPassword: async () => await resolveCustomerRenewalPassword({ promptIfMissing: false }),
+      requestPreflight: requestLocalRenewalPreflight
     });
-
-    return {
-      linkedCount: results.filter((result) => result.status === "linked").length,
-      skippedCount: results.filter((result) => result.status === "skipped").length,
-      warnings: results
-        .filter((result): result is Extract<(typeof results)[number], { status: "skipped"; message: string }> => result.status === "skipped")
-        .map((result) => result.message)
-    };
   };
 
   const downloadCustomerOnboardingImportTemplate = async () => {
@@ -3182,122 +2438,51 @@ export function App() {
     ]);
 
     if (certificates.length === 0) {
-      throw new Error("이 PC에서 공동인증서를 찾지 못했습니다.");
+      throw new Error("이 PC에서 전자세금용 공동인증서를 찾지 못했습니다.");
     }
 
     downloadCustomerOnboardingTemplate(XLSX, certificates);
     setCustomerOnboardingFileName("");
     setCustomerOnboardingWorkbook(null);
-    setCustomerOnboardingTemplateWorkbook(null);
     setCustomerOnboardingPreview(null);
     setCustomerOnboardingSessionState({
       templateDownloaded: true,
       previewReady: false,
       commitDone: false
     });
-    setCustomerOnboardingNotice(
-      `공동인증서 ${certificates.length}건 기준으로 양식을 다운로드했습니다. 발전소 시트에서 등록할 대상 행만 남기고, 공동인증서 시트에는 범용 인증서 비밀번호만 입력하세요. 주소 예외는 첫 메일 동기화 후 도입 준비의 미매칭 메일 예외 처리 단계에서 나중에 처리하면 됩니다.`
-    );
+    setCustomerOnboardingNotice(buildElectronicTaxOnboardingTemplateNotice(certificates.length));
     setCustomerOnboardingError("");
   };
 
-  const handleCustomerOnboardingFileChange = async (file: File | null) => {
-    if (!file) {
-      setCustomerOnboardingFileName("");
-      setCustomerOnboardingWorkbook(null);
-      setCustomerOnboardingTemplateWorkbook(null);
-      setCustomerOnboardingPreview(null);
-      setCustomerOnboardingSessionState((prev) => ({
-        ...prev,
-        previewReady: false,
-        commitDone: false
-      }));
-      setCustomerOnboardingNotice("");
-      setCustomerOnboardingError("");
-      return;
-    }
-
-    try {
-      const XLSX = await loadXlsxModule();
-      const parsed = await parseCustomerOnboardingWorkbook(XLSX, file);
-      const resolved = await resolveCustomerOnboardingTemplateWorkbook(parsed.workbook);
-      setCustomerOnboardingFileName(parsed.fileName);
-      setCustomerOnboardingWorkbook(resolved.workbook);
-      setCustomerOnboardingTemplateWorkbook(parsed.workbook);
-      setCustomerOnboardingSessionState({
-        templateDownloaded: true,
-        previewReady: false,
-        commitDone: false
-      });
-
-      if (resolved.workbook.customers.length === 0) {
-        setCustomerOnboardingPreview(null);
-        setCustomerOnboardingNotice(`${parsed.fileName}에서 발전소 시트에 남긴 등록 대상 행을 찾지 못했습니다.`);
-        setCustomerOnboardingError(resolved.errors.join("\n"));
-        return;
-      }
-
-      const preview = await api<CustomerOnboardingPreviewResponse>("/api/customer-onboarding/preview", {
-        method: "POST",
-        body: JSON.stringify(resolved.workbook)
-      });
-      setCustomerOnboardingPreview(preview);
-      setCustomerOnboardingSessionState({
-        templateDownloaded: true,
-        previewReady: true,
-        commitDone: false
-      });
-      setCustomerOnboardingNotice(
-        `${parsed.fileName} 업로드 확인을 마쳤습니다. 발전소 시트 기준 고객 ${resolved.workbook.customers.length}건을 등록 대상으로 읽었습니다. 범용 공동인증서는 등록 후 이번 업로드 고객만 대상으로 자동 연결을 시도합니다. 전자세금용 인증서는 다음 단계에서 후속 등록을 마무리하세요.${
-          resolved.acceptedBeforeWindowCount > 0
-            ? ` 갱신 가능 기간 전이지만 사업자 정보 확인에 성공한 전자세금용 인증서 ${resolved.acceptedBeforeWindowCount}건도 등록 대상으로 포함했습니다.`
-            : ""
-        }${
-          resolved.skippedCertificateCount > 0 ? ` 건너뛴 공동인증서 ${resolved.skippedCertificateCount}건은 아래에서 확인하세요.` : ""
-        }`
-      );
-      setCustomerOnboardingError(resolved.errors.join("\n"));
-    } catch (importError) {
-      setCustomerOnboardingFileName("");
-      setCustomerOnboardingWorkbook(null);
-      setCustomerOnboardingTemplateWorkbook(null);
-      setCustomerOnboardingPreview(null);
-      setCustomerOnboardingSessionState((prev) => ({
-        ...prev,
-        previewReady: false,
-        commitDone: false
-      }));
-      setCustomerOnboardingNotice("");
-      setCustomerOnboardingError(importError instanceof Error ? importError.message : "엑셀 양식을 읽지 못했습니다.");
-    }
+  const applyElectronicTaxOnboardingUploadFlowResult = (result: ElectronicTaxOnboardingUploadFlowResult) => {
+    setCustomerOnboardingFileName(result.fileName);
+    setCustomerOnboardingWorkbook(result.workbook);
+    setCustomerOnboardingPreview(result.preview);
+    setCustomerOnboardingSessionState(result.sessionState);
+    setCustomerOnboardingNotice(result.notice);
+    setCustomerOnboardingError(result.error);
   };
 
-  const waitForCustomerOnboardingCommitBatch = async (
-    batchId: string,
-    initial?: CustomerOnboardingCommitStartResponse
-  ): Promise<CustomerOnboardingCommitResponse> => {
-    if (initial) {
-      setCustomerOnboardingNotice(`고객 반영을 시작했습니다. ${initial.completedRows}/${initial.totalRows}건 처리됨`);
-    }
-
-    while (true) {
-      const batch = await api<CustomerOnboardingCommitResponse>(`/api/customer-onboarding/batches/${batchId}`);
-
-      if (batch.status === "completed") {
-        return batch;
-      }
-
-      if (batch.status === "failed") {
-        throw new Error(batch.error ?? "고객 반영 배치가 실패했습니다.");
-      }
-
-      setCustomerOnboardingNotice(`고객 반영 진행 중... ${batch.completedRows}/${batch.totalRows}건 처리됨`);
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
-    }
+  const handleCustomerOnboardingFileChange = async (file: File | null) => {
+    const result = await runElectronicTaxOnboardingUploadFlow({
+      file,
+      previousSessionState: customerOnboardingSessionState,
+      parseWorkbook: async (selectedFile) => {
+        const XLSX = await loadXlsxModule();
+        return await parseCustomerOnboardingWorkbook(XLSX, selectedFile);
+      },
+      resolveWorkbook: resolveCustomerOnboardingTemplateWorkbook,
+      previewWorkbook: async (workbook) =>
+        await api<CustomerOnboardingPreviewResponse>("/api/customer-onboarding/preview", {
+          method: "POST",
+          body: JSON.stringify(workbook)
+        })
+    });
+    applyElectronicTaxOnboardingUploadFlowResult(result);
   };
 
   const commitCustomerOnboardingWorkbook = async () => {
-    if (!customerOnboardingWorkbook || !customerOnboardingTemplateWorkbook || !customerOnboardingPreview) {
+    if (!customerOnboardingWorkbook || !customerOnboardingPreview) {
       setCustomerOnboardingError("먼저 고객 초기 등록 양식을 업로드하세요.");
       return;
     }
@@ -3315,30 +2500,18 @@ export function App() {
         previewId: customerOnboardingPreview.previewId
       })
     });
-    const result = await waitForCustomerOnboardingCommitBatch(commitStart.batchId, commitStart);
-    const autoLinkResult = await autoLinkImportedOnboardingGeneralCertificates(
-      customerOnboardingTemplateWorkbook,
-      customerOnboardingWorkbook
-    ).catch((error) => ({
-      linkedCount: 0,
-      skippedCount: 0,
-      warnings: [error instanceof Error ? `범용 공동인증서 자동 연결 실패: ${error.message}` : "범용 공동인증서 자동 연결에 실패했습니다."]
-    }));
+    const result = await waitForElectronicTaxOnboardingCommitBatch({
+      batchId: commitStart.batchId,
+      initial: commitStart,
+      loadBatch: async (batchId) => await api<CustomerOnboardingCommitResponse>(`/api/customer-onboarding/batches/${batchId}`),
+      onProgress: setCustomerOnboardingNotice
+    });
 
-    const summary = `가져오기 완료 · 신규 ${result.createdCount}건 / 갱신 ${result.updatedCount}건 / 인증서 ${result.linkedCertificateCount}건`;
-    const autoLinkSummary =
-      autoLinkResult.linkedCount > 0 || autoLinkResult.skippedCount > 0
-        ? `\n범용 공동인증서 자동 연결 · 성공 ${autoLinkResult.linkedCount}건 / 건너뜀 ${autoLinkResult.skippedCount}건`
-        : "";
-    const warningSummary =
-      result.warnings.length > 0 || autoLinkResult.warnings.length > 0
-        ? `\n경고 ${result.warnings.length + autoLinkResult.warnings.length}건은 아래 메시지에서 확인하세요.`
-        : "";
-    setCustomerOnboardingNotice(summary + autoLinkSummary + warningSummary);
+    setCustomerOnboardingNotice(buildElectronicTaxOnboardingCommitNotice(result));
 
     const failedMessages = result.failedRows.map((row) => `${row.rowIndex}행: ${row.message}`);
     const warningMessages = result.warnings.map((warning) => `${warning.rowIndex}행: ${warning.message}`);
-    setCustomerOnboardingError([...failedMessages, ...warningMessages, ...autoLinkResult.warnings].join("\n"));
+    setCustomerOnboardingError([...failedMessages, ...warningMessages].join("\n"));
 
     await load();
     setCustomerOnboardingPreview(null);
@@ -3429,19 +2602,7 @@ export function App() {
 
   const fetchStoredCustomerCertificatePassword = async (certificateId: number) => {
     const cachedPassword = customerCertificatePasswordCacheRef.current[certificateId]?.trim();
-    if (cachedPassword) {
-      return cachedPassword;
-    }
-
-    const result = await api<{ password: string }>(`/api/customer-certificates/${certificateId}/password`);
-    const password = result.password.trim();
-    if (password) {
-      customerCertificatePasswordCacheRef.current = {
-        ...customerCertificatePasswordCacheRef.current,
-        [certificateId]: password
-      };
-    }
-    return password;
+    return cachedPassword || "";
   };
 
   const returnToLoginFromRecovery = async () => {
@@ -3720,16 +2881,6 @@ export function App() {
     );
   };
 
-  const fetchStoredRenewalCertificatePassword = async () => {
-    const result = await api<{ password: string }>("/api/settings/renewal-certificate-password");
-    return result.password.trim();
-  };
-
-  const fetchStoredRenewalIssuePassword = async () => {
-    const result = await api<{ password: string }>("/api/settings/renewal-issue-password");
-    return normalizeRenewalIssuePasswordInput(result.password.trim());
-  };
-
   const resolveCustomerRenewalPassword = async (options?: { promptIfMissing?: boolean; linkedCertificateId?: number | null }) => {
     if (options?.linkedCertificateId) {
       const storedCertificatePassword = await fetchStoredCustomerCertificatePassword(options.linkedCertificateId);
@@ -3743,14 +2894,6 @@ export function App() {
     if (formPassword) {
       customerRenewalPasswordRef.current = formPassword;
       return formPassword;
-    }
-
-    if (data?.settings.renewalCertificatePasswordConfigured) {
-      const storedPassword = await fetchStoredRenewalCertificatePassword();
-      if (storedPassword) {
-        customerRenewalPasswordRef.current = storedPassword;
-        return storedPassword;
-      }
     }
 
     const cachedPassword = customerRenewalPasswordRef.current.trim();
@@ -3775,7 +2918,7 @@ export function App() {
     return promptedPassword;
   };
 
-  const resolveCustomerRenewalIssuePassword = async () => {
+  const resolveCustomerRenewalIssuePassword = async (options?: { promptIfMissing?: boolean }) => {
     const rawFormPassword = settingsForm?.renewalIssuePassword ?? "";
     const formPassword = normalizeRenewalIssuePasswordInput(rawFormPassword.trim());
     if (formPassword.length === 6) {
@@ -3787,17 +2930,26 @@ export function App() {
       return "";
     }
 
-    if (data?.settings.renewalIssuePasswordConfigured) {
-      const storedPassword = await fetchStoredRenewalIssuePassword();
-      if (storedPassword.length === 6) {
-        customerRenewalIssuePasswordRef.current = storedPassword;
-        return storedPassword;
-      }
-    }
-
     const cachedPassword = normalizeRenewalIssuePasswordInput(customerRenewalIssuePasswordRef.current.trim());
     if (cachedPassword.length === 6) {
       return cachedPassword;
+    }
+
+    if (!options?.promptIfMissing) {
+      return "";
+    }
+
+    const promptedPassword = normalizeRenewalIssuePasswordInput(
+      window
+        .prompt(
+          "공동인증서 발급용 임시번호 6자리를 입력하세요.\n이 값은 현재 브라우저 탭 메모리에만 유지됩니다.",
+          ""
+        )
+        ?.trim() || ""
+    );
+    if (promptedPassword.length === 6) {
+      customerRenewalIssuePasswordRef.current = promptedPassword;
+      return promptedPassword;
     }
 
     return "";
@@ -4022,7 +3174,11 @@ export function App() {
             const certRegistrationUrl = await getCustomerCertificateRegistrationUrl(createdCustomer.id);
             const registrationResponse = await requestLocalPopbillCertificateRegistration({
               certificateRegistrationUrl: certRegistrationUrl,
+              certificateIndex: Number(entry.certificate.index),
               certificateCn: entry.certificate.cn || createdCustomer.customerName,
+              certificateKind: "electronic_tax",
+              serial: entry.certificate.serial || null,
+              userDN: entry.certificate.userDN || null,
               certificatePassword: sharedPassword
             });
             if (registrationResponse.result.outcome === "already-registered") {
@@ -4233,7 +3389,7 @@ export function App() {
   };
 
   const buildCustomerRenewalSubmissionProfile = async (customer: Customer) => {
-    const issuePassword = await resolveCustomerRenewalIssuePassword();
+    const issuePassword = await resolveCustomerRenewalIssuePassword({ promptIfMissing: true });
     return {
       contactName: settingsForm?.operatorContactName?.trim() ?? data?.settings.operatorContactName?.trim() ?? "",
       contactDepartment: "",
@@ -4594,24 +3750,24 @@ export function App() {
   const issueAllReviewDrafts = async () => {
     const targets = data?.drafts.filter((draft) => draft.status === "review" || draft.status === "failed") ?? [];
     if (targets.length === 0) {
-      await showAppAlert("발행할 검수 대기/실패 건이 없습니다.", {
-        title: "전체 발행"
+      await showAppAlert("직접 발행할 검수 대기/실패 건이 없습니다.", {
+        title: "검수 건 직접 발행"
       });
       return;
     }
 
-    const confirmed = await showAppConfirm(`검수 대기/실패 ${targets.length}건을 전체 발행합니다.\n계속할까요?`, {
-      title: "전체 발행 확인",
+    const confirmed = await showAppConfirm(`검수 대기/실패 ${targets.length}건을 로그인 사용자가 직접 발행합니다.\n계속할까요?`, {
+      title: "검수 건 직접 발행 확인",
       tone: "warn",
-      confirmLabel: "전체 발행"
+      confirmLabel: "직접 발행"
     });
     if (!confirmed) return;
 
     const result = await api<{ total: number; issued: number; failed: number }>("/api/drafts/issue-all", {
       method: "POST"
     });
-    await showAppAlert(`전체 발행 완료\n대상: ${result.total}건\n성공: ${result.issued}건\n실패: ${result.failed}건`, {
-      title: "전체 발행 완료",
+    await showAppAlert(`검수 건 직접 발행 완료\n대상: ${result.total}건\n성공: ${result.issued}건\n실패: ${result.failed}건`, {
+      title: "검수 건 직접 발행 완료",
       tone: "success"
     });
   };
@@ -4640,7 +3796,7 @@ export function App() {
 
   const cancelIssuedDraft = async (draftId: number) => {
     const confirmed = await showAppConfirm(
-      "이 발행 건을 취소하고 검수 대기로 되돌립니다.\n취소 후에는 같은 건을 다시 발행할 수 있습니다.\n계속할까요?",
+      "이 발행 건을 취소하고 직접 발행 대기로 되돌립니다.\n취소 후에는 같은 건을 다시 발행할 수 있습니다.\n계속할까요?",
       {
         title: "발행 취소",
         tone: "warn",
@@ -5158,18 +4314,28 @@ export function App() {
 
     if (!effectivePassword) {
       throw new Error(
-        `${customer.customerName} 고객의 전자세금용 공동인증서 비밀번호가 없습니다. 엑셀의 인증서 비밀번호를 입력하거나 시스템 설정의 공통 비밀번호를 먼저 저장하세요.`
+        `${customer.customerName} 고객의 전자세금용 공동인증서 비밀번호가 없습니다. 엑셀의 인증서 비밀번호를 입력하거나 현재 브라우저 탭에서 공통 비밀번호를 다시 입력하세요.`
       );
     }
 
+    const selectedLocalCertificate = await resolveSingleElectronicTaxCertificate(
+      customer,
+      onboardingCertificateRow,
+      linkedCertificate
+    );
     const certRegistrationUrl = await getCustomerCertificateRegistrationUrl(customer.id);
     const registrationResponse = await requestLocalPopbillCertificateRegistration({
       certificateRegistrationUrl: certRegistrationUrl,
+      certificateIndex: Number(selectedLocalCertificate.index),
       certificateCn:
+        selectedLocalCertificate?.cn.trim() ||
         onboardingCertificateRow?.certificateName.trim() ||
         linkedCertificate?.certificateName.trim() ||
         customer.corpName.trim() ||
         customer.customerName.trim(),
+      certificateKind: "electronic_tax",
+      serial: selectedLocalCertificate?.serial || onboardingCertificateRow?.serial || linkedCertificate?.serial || null,
+      userDN: selectedLocalCertificate?.userDN || onboardingCertificateRow?.userDN || linkedCertificate?.userDN || null,
       certificatePassword: effectivePassword
     });
     setCustomerRenewalAssistant((prev) =>
@@ -5226,58 +4392,21 @@ export function App() {
       throw new Error("팝빌 전자세금용 인증서 등록이 필요한 고객이 없습니다.");
     }
 
-    const completedNames: string[] = [];
-    const alreadyRegisteredNames: string[] = [];
-    const failedDetails: string[] = [];
-    const refreshWarnings: string[] = [];
-
-    for (const customer of pendingCustomers) {
-      const onboardingCertificateRow = getOnboardingElectronicTaxCertificateRow(customer);
-      if (!onboardingCertificateRow) {
-        failedDetails.push(`${customer.customerName}: 전자세금용 공동인증서 업로드 정보를 찾지 못했습니다.`);
-        continue;
-      }
-
-      try {
-        const result = await registerCustomerElectronicTaxCertificateAutomatically(customer, {
-          onboardingCertificateRow,
-          reloadAfter: false
-        });
-        if (result.outcome === "already-registered") {
-          alreadyRegisteredNames.push(customer.customerName);
-        } else {
-          completedNames.push(customer.customerName);
-        }
-        if (result.refreshErrorMessage) {
-          refreshWarnings.push(`${customer.customerName}: ${result.refreshErrorMessage}`);
-        }
-      } catch (error) {
-        failedDetails.push(`${customer.customerName}: ${error instanceof Error ? error.message : "자동 등록 실패"}`);
-      }
-    }
-
-    try {
-      await load();
-    } catch (error) {
-      refreshWarnings.push(`전체 새로고침 실패: ${error instanceof Error ? error.message : "새로고침 실패"}`);
-    }
-
-    const summaryParts = [
-      completedNames.length > 0 ? `자동 등록 ${completedNames.length}건` : null,
-      alreadyRegisteredNames.length > 0 ? `이미 등록 ${alreadyRegisteredNames.length}건` : null,
-      failedDetails.length > 0 ? `실패 ${failedDetails.length}건` : null
-    ].filter((value): value is string => Boolean(value));
+    const { completedNames, alreadyRegisteredNames, failedDetails, refreshWarnings } =
+      await processElectronicTaxOnboardingCertificateRegistrations({
+        pendingCustomers,
+        getOnboardingCertificateRow: getOnboardingElectronicTaxCertificateRow,
+        registerCustomer: registerCustomerElectronicTaxCertificateAutomatically,
+        reloadAll: load
+      });
 
     setCustomerOnboardingNotice(
-      `전자세금용 인증서 후속 등록을 마쳤습니다. ${summaryParts.join(" · ") || "처리된 대상이 없습니다."}${
-        failedDetails.length > 0
-          ? `\n\n실패 내역\n${failedDetails.slice(0, 8).join("\n")}`
-          : ""
-      }${
-        refreshWarnings.length > 0
-          ? `\n\n상태 반영 경고\n${refreshWarnings.slice(0, 5).join("\n")}`
-          : ""
-      }`
+      buildElectronicTaxRegistrationFollowupNotice({
+        completedNames,
+        alreadyRegisteredNames,
+        failedDetails,
+        refreshWarnings
+      })
     );
   };
   const refreshSingleCustomerCertificateStatus = async (customerId: number) => {
@@ -5493,7 +4622,7 @@ export function App() {
               : unmatchedMessages.length > 0
                 ? "예외 메일을 먼저 처리하세요."
                 : reviewDrafts.length > 0
-                  ? "생성된 초안을 검토하고 발행 여부를 확인하세요."
+                  ? "생성된 초안을 검토한 뒤 로그인 사용자가 직접 발행하세요."
                   : issuedDrafts.length > 0
                     ? "첫 발행 결과까지 확인했습니다."
                     : "현재 발행 대상 메일은 없습니다."}
@@ -5550,8 +4679,8 @@ export function App() {
       id: "helper",
       step: 3,
       title: "로컬 헬퍼 준비",
-      summary: helperReady ? `인증서 ${customerRenewalAssistantAllCertificates.length}건` : "확인 필요",
-      primaryActionLabel: helperReady ? "공동인증서 읽기 완료" : "공동인증서 읽기",
+      summary: helperReady ? `전자세금용 인증서 ${customerRenewalAssistantElectronicTaxCertificateCount}건` : "확인 필요",
+      primaryActionLabel: helperReady ? "전자세금용 공동인증서 읽기 완료" : "전자세금용 공동인증서 읽기",
       blockedReason: helperUpgradeRequired
         ? helperActionBlockedReason
         : customerRenewalAssistant?.agentOnline
@@ -5594,7 +4723,7 @@ export function App() {
           billingMonthSummaries={billingMonthSummaries}
           completedBillingNotice={completedBillingNotice}
           helperReady={helperReady}
-          helperCertificateCount={customerRenewalAssistantAllCertificates.length}
+          helperCertificateCount={customerRenewalAssistantElectronicTaxCertificateCount}
           registrationReady={onboardingCustomerRegistrationReady}
           registrationStage={onboardingRegistrationStage}
           registrationBlockedReason={onboardingRegistrationBlockedReason}
@@ -5681,7 +4810,7 @@ export function App() {
           billingMonthSummaries={billingMonthSummaries}
           completedBillingNotice={completedBillingNotice}
           helperReady={helperReady}
-          helperCertificateCount={customerRenewalAssistantAllCertificates.length}
+          helperCertificateCount={customerRenewalAssistantElectronicTaxCertificateCount}
           registrationTemplateDownloaded={customerOnboardingSessionState.templateDownloaded}
           registrationPreviewReady={customerOnboardingSessionState.previewReady}
           registrationCommitDone={customerOnboardingSessionState.commitDone}
@@ -5813,11 +4942,11 @@ export function App() {
   }> = [
     {
       key: "drafts",
-      title: "검토 후 발행",
+      title: "검수 후 직접 발행",
       count: reviewDrafts.length,
       description:
         reviewDrafts.length > 0
-          ? "초안을 확인하고 지금 바로 발행하거나 오류를 다시 확인합니다."
+          ? "초안을 확인하고 로그인 사용자가 직접 발행하거나 오류를 다시 확인합니다."
           : onboardingFirstSyncReady
             ? "지금 검토할 초안이 없습니다."
             : "메일 동기화를 시작하면 초안이 생성됩니다.",
@@ -6332,7 +5461,7 @@ export function App() {
                 className="panel-home-today"
                 title="오늘 할 일"
                 subtitle="바로 처리"
-                actions={reviewDrafts.length > 0 ? <button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>전체 발행</button> : undefined}
+                actions={reviewDrafts.length > 0 ? <button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>검수 건 직접 발행</button> : undefined}
               >
                 <div className="work-action-grid">
                   {workRoutineCards.map((card) => (
@@ -6391,7 +5520,7 @@ export function App() {
                               <span className="status status-pending">발행 중</span>
                             ) : (
                               <button disabled={busyKey !== null} onClick={() => void runAction(`issue-${draft.id}`, async () => void (await api(`/api/drafts/${draft.id}/issue`, { method: "POST" })))}>
-                                지금 발행
+                                지금 직접 발행
                               </button>
                             )}
                           </td>
@@ -6402,7 +5531,7 @@ export function App() {
                           <td className="queue-empty-cell" colSpan={5}>
                             {!onboardingFirstSyncReady
                               ? "아직 첫 메일 동기화를 하지 않아 초안이 없습니다."
-                              : "지금 검토 후 발행할 초안이 없습니다."}
+                              : "지금 검수 후 직접 발행할 초안이 없습니다."}
                           </td>
                         </tr>
                       ) : null}

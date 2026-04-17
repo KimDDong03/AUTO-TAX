@@ -1,0 +1,6 @@
+{
+  "active": true,
+  "current_phase": "inspect",
+  "task_description": "Finish Phase 2 pilot issuance residual items with minimal diffs; respect existing dirty tree and avoid .omx changes",
+  "started_at": "2026-04-16T13:21:44Z"
+}

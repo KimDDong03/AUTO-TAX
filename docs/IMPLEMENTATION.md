@@ -79,6 +79,8 @@ The product is multi-tenant. A logged-in session always operates against an acti
 - `server/src/routes/customer-popbill-routes.ts`
   - customer CRUD
   - Popbill member actions
+  - emits a separate customer-setting audit log when `issueMode` changes (`review <-> auto`) so auto-issuance enable/disable history remains queryable through `app_logs`
+  - blocks `review -> auto` on the server unless the customer already has same-organization successful issuance evidence (`app_logs.context_json.eventType = manual-issue-succeeded`) or a legacy `invoice_drafts.status = issued`
 - `server/src/routes/draft-routes.ts`
   - draft issue / cancel / print / view
 - `server/src/routes/mail-routes.ts`
@@ -190,7 +192,11 @@ Phase 1 pilot instrumentation lives alongside this flow:
   - writes `draft-created` with `draftSource: "mail-reprocess"` when unmatched mail is successfully reprocessed into a draft
 - `server/src/routes/draft-routes.ts`
   - writes `manual-issue-clicked`, `manual-issue-succeeded`, `manual-issue-failed`
+  - manual issue logs now reuse `app_logs.actor_user_id` + `app_logs.organization_id` + `created_at`; `context_json` carries `executionPath`, `clickedAt`, `issuedAt`, and an `issuanceSnapshot` on `manual-issue-succeeded` for the Phase 2 audit slice
   - writes `draft-preview-opened` when the web UI explicitly POSTs `/api/drafts/:id/pilot-preview-opened`
+  - review-mode preview events can carry a `previewSnapshot` with the same minimal value shape as `issuanceSnapshot`, allowing timeline/context-based comparison without response-shape changes
+  - `GET /api/drafts/:id/pilot-timeline` keeps `actorUserId` at the entry level while leaving `clickedAt`, `issuedAt`, `previewSnapshot`, and `issuanceSnapshot` inside the existing `context`
+  - `GET /api/drafts/pilot-report` now returns summary metrics plus weekly/monthly buckets, customer transition evidence, failure Top N, and time-savings estimates; `format=csv` exports the same report without a new reporting stack
   - exposes `GET /api/drafts/pilot-report` and `GET /api/drafts/:id/pilot-timeline`
 - `server/src/job-queue.ts`
   - writes `auto-issue-started`, `auto-issue-succeeded`, `auto-issue-failed`
@@ -219,6 +225,11 @@ Structured pilot log context uses `app_logs.organization_id` plus `context_json`
 - `syncStage`
 - `reprocessStage`
 - `retryReason`
+- `executionPath`
+- `clickedAt`
+- `issuedAt`
+- `previewSnapshot`
+- `issuanceSnapshot`
 
 Main files:
 
@@ -243,6 +254,14 @@ Main files:
 - `server/src/renewal-automation.ts`
 - `scripts/renewal-agent.ts`
 - `scripts/renewal-local-helper.ts`
+
+Security boundary for this flow:
+
+- server does not store or re-display Hometax ID/PW, raw certificate files, or certificate passwords
+- onboarding preview/batch persistence strips workbook `certificatePassword` before DB write
+- `renewal_automation_jobs` stores contact/comparison context, but strips `submissionProfile.issuePassword` at rest and only rehydrates it for the agent claim path
+- `app_logs`, API error bodies, and local-helper error responses mask password/secret/cert-path-like values
+- `/api/*` and local-helper responses send `Cache-Control: no-store`
 
 ## 5. Job Systems
 
@@ -303,7 +322,7 @@ If you touch renewal flows:
 
 ## 9. Pilot report calculation notes
 
-Current Phase 1 pilot report shape is returned by `GET /api/drafts/pilot-report`.
+Current Phase 5 pilot report shape is returned by `GET /api/drafts/pilot-report`.
 
 - `autoDraftCreationSuccessRate`
   - `draft-created` from `mail-sync`
@@ -314,6 +333,20 @@ Current Phase 1 pilot report shape is returned by `GET /api/drafts/pilot-report`
 - `exceptionRate`
   - `(mail-sync draft generation exceptions + final issuance failures)`
   - divided by `(draft generation attempts + final issuance attempts)`
+- `periodBuckets.weekly` / `periodBuckets.monthly`
+  - group the already-filtered log window by UTC calendar week / month
+  - reuse the same success-rate / exception-rate math per bucket
+- `customerSummaries`
+  - join current customer catalog state with pilot logs
+  - expose current `issueMode`, manual/auto success·failure counts, last failure drill-down, and whether successful issuance evidence already exists for `review -> auto`
+- `topFailureTypes`
+  - rank failures by `errorCategory -> errorOperation -> errorCode -> limited message bucket`
+  - keep the latest `draftId` / timeline path so operators can compare the aggregate row with the raw event stream
+- `timeSavings`
+  - assumes one successful auto issuance saves 10 operator minutes
+  - reports total saved minutes / hours for the selected window
+- `drilldown`
+  - `timelinePathTemplate` and memo-comparison guidance point operators from the aggregate report back to `GET /api/drafts/:id/pilot-timeline`
 
 `draft-preview-opened` is now recorded from the web UI's explicit preview button click via `POST /api/drafts/:id/pilot-preview-opened`.
 It is more precise than the earlier backend `view-url` approximation, but it still represents the user action, not a guaranteed Popbill DOM render completion signal.

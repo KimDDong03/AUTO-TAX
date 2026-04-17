@@ -32,6 +32,8 @@ import {
   normalizeAddress,
   normalizePopbillUserPrefix,
   nowIso,
+  sanitizeSensitiveData,
+  sanitizeSensitiveText,
   toRoadAddress
 } from "./utils.js";
 
@@ -133,7 +135,7 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     operatorContactTel: asString(integrationRow.operator_contact_tel),
     renewalContactDepartment: asString(integrationRow.renewal_contact_department),
     renewalContactFax: asString(integrationRow.renewal_contact_fax),
-    renewalCertificatePassword: decryptSecret(asString(integrationRow.renewal_certificate_password_encrypted)),
+    renewalCertificatePassword: "",
     renewalIssuePassword: decryptSecret(asString(integrationRow.renewal_issue_password_encrypted)),
     schedulerEnabled: asBoolean(settingsRow.scheduler_enabled, true),
     certLastCheckedAt: asNullableString(settingsRow.cert_last_checked_at),
@@ -311,7 +313,7 @@ function mapCustomerCertificate(row: Row): CustomerCertificate {
     oid: asNullableString(row.certificate_oid),
     expireDate: asNullableString(row.expire_date),
     certDirPath: asNullableString(row.cert_dir_path),
-    certificatePasswordConfigured: Boolean(asString(row.certificate_password_encrypted)),
+    certificatePasswordConfigured: false,
     isPrimary: asBoolean(row.is_primary, false),
     linkSource: asString(row.link_source, "manual") as CustomerCertificate["linkSource"],
     createdAt: asString(row.created_at, nowIso()),
@@ -378,8 +380,8 @@ function mapLog(row: Row): LogEntry {
     id: asNumber(row.legacy_id),
     level: asString(row.level, "info") as LogEntry["level"],
     scope: asString(row.scope),
-    message: asString(row.message),
-    contextJson: asJsonString(row.context_json),
+    message: sanitizeSensitiveText(asString(row.message)),
+    contextJson: asJsonString(sanitizeSensitiveData(row.context_json ?? {})),
     createdAt: asString(row.created_at, nowIso())
   };
 }
@@ -391,8 +393,8 @@ function mapPilotLogRow(row: Row) {
     createdAt: asString(row.created_at, nowIso()),
     level: asString(row.level, "info") as LogEntry["level"],
     scope: asString(row.scope),
-    message: asString(row.message),
-    contextJson: row.context_json ?? {}
+    message: sanitizeSensitiveText(asString(row.message)),
+    contextJson: sanitizeSensitiveData(row.context_json ?? {})
   };
 }
 
@@ -880,10 +882,7 @@ export class SupabaseStore implements AppStore {
       input.renewalIssuePassword !== undefined
         ? (input.renewalIssuePassword.trim() === "" ? current.renewalIssuePassword : input.renewalIssuePassword)
         : current.renewalIssuePassword;
-    const nextRenewalCertificatePassword =
-      input.renewalCertificatePassword !== undefined
-        ? (input.renewalCertificatePassword.trim() === "" ? current.renewalCertificatePassword : input.renewalCertificatePassword)
-        : current.renewalCertificatePassword;
+    const nextRenewalCertificatePassword = "";
     const nextMailConnectionVerifiedAt = input.mailConnectionVerifiedAt !== undefined ? input.mailConnectionVerifiedAt : current.mailConnectionVerifiedAt;
     const next: AppSettings = {
       ...current,
@@ -970,7 +969,7 @@ export class SupabaseStore implements AppStore {
           operator_contact_tel: next.operatorContactTel,
           renewal_contact_department: next.renewalContactDepartment,
           renewal_contact_fax: next.renewalContactFax,
-          renewal_certificate_password_encrypted: encryptSecret(next.renewalCertificatePassword),
+          renewal_certificate_password_encrypted: "",
           renewal_issue_password_encrypted: encryptSecret(next.renewalIssuePassword)
         },
         { onConflict: "organization_id" }
@@ -1048,13 +1047,51 @@ export class SupabaseStore implements AppStore {
       throw new Error("공동인증서 연결을 찾지 못했습니다.");
     }
 
-    return decryptSecret(asString(row.certificate_password_encrypted));
+    return "";
   }
 
   async getCustomer(customerId: number): Promise<Customer | null> {
     const row = await this.getManagedCustomerRowByLegacyId(customerId);
     if (!row) return null;
     return this.mapCustomerRow(row);
+  }
+
+  async canEnableAutoIssueForCustomer(customerId: number): Promise<boolean> {
+    const customerRow = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!customerRow) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const organizationId = this.requireOrganizationId();
+    const manualIssueEvidenceRows = await assertNoError(
+      "고객 수동 발행 성공 이력 조회 실패",
+      this.client
+        .from("app_logs")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .contains("context_json", {
+          eventType: "manual-issue-succeeded",
+          customerId
+        })
+        .limit(1)
+    );
+
+    if (((manualIssueEvidenceRows as Row[] | null) ?? []).length > 0) {
+      return true;
+    }
+
+    const issuedDraftRows = await assertNoError(
+      "고객 발행 초안 이력 조회 실패",
+      this.client
+        .from("invoice_drafts")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("managed_customer_id", asString(customerRow.id))
+        .eq("status", "issued")
+        .limit(1)
+    );
+
+    return ((issuedDraftRows as Row[] | null) ?? []).length > 0;
   }
 
   async findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null> {
@@ -1359,13 +1396,6 @@ export class SupabaseStore implements AppStore {
       throw error;
     }
 
-    const nextCertificatePassword =
-      input.certificatePassword !== undefined
-        ? (input.certificatePassword.trim() === ""
-            ? decryptSecret(asString(existingRow?.certificate_password_encrypted))
-            : input.certificatePassword.trim())
-        : decryptSecret(asString(existingRow?.certificate_password_encrypted));
-
     const payload = {
       organization_id: organizationId,
       managed_customer_id: managedCustomerId,
@@ -1378,7 +1408,7 @@ export class SupabaseStore implements AppStore {
       certificate_oid: asNullableString(input.oid?.trim() ?? null),
       expire_date: asNullableString(input.expireDate?.trim() ?? null),
       cert_dir_path: asNullableString(input.certDirPath?.trim() ?? null),
-      certificate_password_encrypted: encryptSecret(nextCertificatePassword),
+      certificate_password_encrypted: "",
       is_primary: input.isPrimary,
       link_source: input.linkSource,
       updated_at: nowIso()
@@ -2111,18 +2141,23 @@ export class SupabaseStore implements AppStore {
         actor_user_id: this.actorUserId,
         level,
         scope,
-        message,
-        context_json: context ?? {}
+        message: sanitizeSensitiveText(message),
+        context_json: sanitizeSensitiveData(context ?? {})
       })
     );
   }
 
   async getPilotIssuanceReport(options: { from?: string | null; to?: string | null } = {}): Promise<PilotIssuanceReport> {
-    const rows = await this.listAppLogRows(options);
+    const [rows, customers] = await Promise.all([this.listAppLogRows(options), this.listCustomers()]);
     return buildPilotIssuanceReport({
       organizationId: this.requireOrganizationId(),
       from: options.from ?? null,
       to: options.to ?? null,
+      customers: customers.map((customer) => ({
+        id: customer.id,
+        customerName: customer.customerName,
+        issueMode: customer.issueMode
+      })),
       logs: rows.map(mapPilotLogRow)
     });
   }

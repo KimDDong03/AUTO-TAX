@@ -3,8 +3,9 @@ import path from "node:path";
 import express from "express";
 import { z } from "zod";
 import { collectBridgeCertificateList, collectBridgeProbeResult, prepareRenewPaymentOpenContext } from "./renewal-agent.ts";
-import { registerPopbillCertificate } from "./popbill-cert-registration.ts";
+import { getPopbillDebugArtifactSupport, registerPopbillCertificate } from "./popbill-cert-registration.ts";
 import { openSignGateRenewPaymentWindow } from "./signgate-fee-payment.ts";
+import { sanitizeSensitiveData, sanitizeSensitiveText } from "../server/src/utils.js";
 
 const DEFAULT_PORT = 35119;
 const DEFAULT_ALLOWED_ORIGINS = ["https://auto-tax-alpha.vercel.app"];
@@ -135,7 +136,11 @@ const renewalOpenPaymentSchema = renewalPreparePaymentSchema;
 
 const popbillCertificateRegistrationSchema = z.object({
   certificateRegistrationUrl: z.string().url(),
-  certificateCn: z.string().trim().min(1),
+  certificateIndex: z.number().int().positive(),
+  certificateCn: z.string().trim().nullable().optional(),
+  certificateKind: z.literal("electronic_tax").default("electronic_tax"),
+  serial: z.string().trim().nullable().optional(),
+  userDN: z.string().trim().nullable().optional(),
   certificatePassword: z.string().trim().min(1)
 });
 
@@ -197,6 +202,10 @@ export function createRenewalLocalHelperApp() {
   const version = readHelperVersionMetadata();
 
   app.disable("x-powered-by");
+  app.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
   app.use((req, res, next) => {
     if (!applyCors(req, res)) {
       return;
@@ -221,7 +230,8 @@ export function createRenewalLocalHelperApp() {
           processDetected: probe.process.detected,
           bridgeSummary: probe.bridge.summary,
           notes: probe.notes
-        }
+        },
+        popbillDebugArtifacts: getPopbillDebugArtifactSupport()
       });
     } catch (error) {
       next(error);
@@ -306,12 +316,12 @@ export function createRenewalLocalHelperApp() {
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: error.flatten() });
+      res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: sanitizeSensitiveData(error.flatten()) });
       return;
     }
 
     res.status(500).json({
-      error: error instanceof Error ? error.message : "로컬 헬퍼 요청 처리에 실패했습니다."
+      error: sanitizeSensitiveText(error instanceof Error ? error.message : "로컬 헬퍼 요청 처리에 실패했습니다.")
     });
   });
 

@@ -4,10 +4,57 @@ import test from "node:test";
 import express from "express";
 import { registerAppShell } from "./app-shell.js";
 import type { AppSettings, Customer, CustomerCertificate, InboxMessage, InvoiceDraft, LogEntry } from "./domain.js";
+import { toClientSettings } from "./main.js";
 import { registerCoreRoutes } from "./routes/core-routes.js";
 import { registerDraftRoutes } from "./routes/draft-routes.js";
 import { registerMailRoutes } from "./routes/mail-routes.js";
 import type { AppStore } from "./store-contract.js";
+
+function createSettings(overrides: Partial<AppSettings> = {}): AppSettings {
+  return {
+    id: 1,
+    imapHost: "",
+    imapPort: 993,
+    imapSecure: true,
+    imapUser: "",
+    imapPass: "",
+    imapMailbox: "INBOX",
+    smtpHost: "",
+    smtpPort: 465,
+    smtpSecure: true,
+    smtpUser: "",
+    smtpPass: "",
+    smtpFromName: "AUTO-TAX",
+    smtpFromEmail: "",
+    mailConnectionVerifiedAt: null,
+    notificationEmails: [],
+    defaultIssueDay: 26,
+    defaultIssueHour: 9,
+    defaultIssueMinute: 0,
+    mailPollMinutes: 5,
+    mailSyncStartAt: null,
+    timezone: "Asia/Seoul",
+    popbillLinkId: "link-id",
+    popbillSecretKey: "secret-key",
+    popbillIsTest: false,
+    popbillPartnerCorpNum: "",
+    popbillUserIdPrefix: "",
+    popbillSharedPassword: "",
+    operatorContactName: "",
+    operatorContactEmail: "",
+    operatorContactTel: "",
+    renewalContactDepartment: "",
+    renewalContactFax: "",
+    renewalCertificatePassword: "",
+    renewalIssuePassword: "",
+    schedulerEnabled: false,
+    certLastCheckedAt: null,
+    certAlertLastSentAt: null,
+    createdAt: "2026-04-16T00:00:00.000Z",
+    updatedAt: "2026-04-16T00:00:00.000Z",
+    ...overrides
+  };
+}
 
 test("bootstrap stays slim and mailbox/log data remains on dedicated endpoints", async () => {
   const settings = { companyName: "AUTO-TAX" } as unknown as AppSettings;
@@ -215,6 +262,123 @@ test("bootstrap stays slim and mailbox/log data remains on dedicated endpoints",
     assert.equal(logsResponse.status, 200);
     assert.deepEqual(await logsResponse.json(), logs);
     assert.equal(calls.listLogs, 1);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
+test("bootstrap redacts stored onboarding passwords while keeping configured flags", async () => {
+  const settings = createSettings({
+    popbillUserIdPrefix: "AUTO_",
+    popbillSharedPassword: "shared-secret",
+    operatorContactName: "홍길동",
+    operatorContactEmail: "owner@example.com",
+    operatorContactTel: "010-1234-5678",
+    renewalCertificatePassword: "cert-secret",
+    renewalIssuePassword: "123456"
+  });
+  const requestStore = {
+    getBootstrapWorkspace: async () => ({
+      settings,
+      customers: [],
+      customerCertificates: [],
+      drafts: [],
+      inbox: [],
+      counts: {
+        actionableDrafts: 0,
+        customers: 0,
+        reviewDrafts: 0,
+        scheduledDrafts: 0,
+        failedDrafts: 0,
+        unmatchedMessages: 0
+      }
+    })
+  } as unknown as AppStore;
+
+  const authContext = {
+    userId: "user-1",
+    email: "owner@example.com",
+    displayName: "Owner",
+    isPlatformAdmin: true,
+    activeOrganizationId: "org-1",
+    activeOrganizationName: "AUTO-TAX",
+    activeOrganizationRole: "owner",
+    organizations: []
+  };
+
+  const app = express();
+  app.use(express.json());
+
+  registerCoreRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireAuthContext: () => authContext as never,
+    requireInternalJobAccess: () => "secret",
+    publicLoginLimiter: (_req, _res, next) => next(),
+    createSupabaseAdminClient: () => ({}) as never,
+    createSupabasePublicClient: () =>
+      ({
+        auth: {
+          signInWithPassword: async () => ({
+            data: { session: null },
+            error: null
+          })
+        }
+      }) as never,
+    findAuthUserByLoginId: async () => null,
+    isEmailLikeAccount: () => true,
+    normalizeEmail: (value) => value,
+    createEmptyBootstrapWorkspace: () => ({
+      settings,
+      customers: [],
+      customerCertificates: [],
+      drafts: [],
+      inbox: [],
+      counts: {
+        actionableDrafts: 0,
+        customers: 0,
+        reviewDrafts: 0,
+        scheduledDrafts: 0,
+        failedDrafts: 0,
+        unmatchedMessages: 0
+      }
+    }),
+    createEmptySettings: () => settings,
+    toClientSettings,
+    toClientCustomer: (customer) => customer,
+    runPlatformMaintenance: async () => ({
+      action: "skipped"
+    }),
+    dispatchRecurringJobs: async () => ({}),
+    runDueJobs: async () => ({})
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/bootstrap`);
+    assert.equal(response.status, 200);
+    const payload = (await response.json()) as { settings: Record<string, unknown> };
+
+    assert.equal(payload.settings.popbillSharedPasswordConfigured, true);
+    assert.equal(payload.settings.renewalCertificatePasswordConfigured, true);
+    assert.equal(payload.settings.renewalIssuePasswordConfigured, true);
+    assert.equal(payload.settings.operatorConfigured, true);
+    assert.equal(payload.settings.popbillSharedPassword, "");
+    assert.equal(payload.settings.renewalCertificatePassword, "");
+    assert.equal(payload.settings.renewalIssuePassword, "");
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {

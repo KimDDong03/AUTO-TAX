@@ -1,15 +1,26 @@
 {
   "version": 1,
   "active": false,
-  "current_phase": "completed",
-  "task_description": "$plan direct mode for Supabase Disk IO mitigation rollout (AUTO-TAX)",
+  "current_phase": "complete",
+  "task_description": "Solo execute: Popbill certificate chooser investigation and small electronic-tax onboarding orchestration extraction",
   "skill": "plan",
-  "scope": "Disk IO mitigation plan for hotspots 1-5",
+  "scope": "C:\\Projects\\AUTO-TAX",
   "keyword": "",
   "phase": "complete",
   "activated_at": "",
   "updated_at": "2026-04-14T03:10:33.412Z",
-  "active_skills": [],
-  "completed_at": "2026-04-14T00:40:00Z",
-  "artifact": ".omx/plans/2026-04-14-supabase-disk-io-mitigation-plan.md"
+  "active_skills": [
+    {
+      "skill": "plan",
+      "phase": "complete",
+      "active": true,
+      "updated_at": "2026-04-14T03:10:33.412Z"
+    }
+  ],
+  "completed_at": "2026-04-17T00:00:00+09:00",
+  "artifact": ".omx/plans/2026-04-14-supabase-disk-io-mitigation-plan.md",
+  "started_at": "2026-04-17T00:00:00+09:00",
+  "session_goal": "Completed requested Popbill hardening, onboarding orchestration extraction, and verification",
+  "iteration": 1,
+  "last_turn_at": "2026-04-16T23:47:13.370Z"
 }

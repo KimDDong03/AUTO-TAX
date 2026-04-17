@@ -1,8 +1,8 @@
 import type { Express } from "express";
 import { issueDraftNow } from "../automation.js";
-import type { AppSettings, DraftStatus, InvoiceDraft } from "../domain.js";
+import type { AppSettings, Customer, DraftStatus, InvoiceDraft } from "../domain.js";
 import type { ApiErrorBody } from "../http-errors.js";
-import { buildPilotLogContext } from "../pilot-issuance.js";
+import { buildPilotIssuanceReportCsv, buildPilotLogContext } from "../pilot-issuance.js";
 import { cancelTaxInvoice, getTaxInvoiceInfo, getTaxInvoicePrintURL, getTaxInvoiceViewURL } from "../popbill-client.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";
@@ -16,6 +16,7 @@ type RouteDeps = {
   getErrorMessage: (error: unknown, fallbackMessage?: string) => string;
   getErrorStatus: (error: unknown, fallbackStatus?: number) => number;
   buildApiErrorBody: (error: unknown, fallbackMessage?: string) => ApiErrorBody;
+  issueDraftNow?: typeof issueDraftNow;
   assertDraftPopbillEnvironment: (settings: AppSettings, draft: Pick<InvoiceDraft, "popbillEnvironment">) => Promise<void>;
   backfillDraftPopbillEnvironmentIfMissing: (
     requestStore: AppStore,
@@ -42,6 +43,60 @@ function parseOptionalIsoTimestamp(value: unknown): string | null {
   return parsed.toISOString();
 }
 
+function parsePilotReportFormat(value: unknown): "json" | "csv" {
+  if (typeof value !== "string") {
+    return "json";
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === "csv" ? "csv" : "json";
+}
+
+type ManualIssueExecutionPath = "single" | "bulk-manual";
+
+type DraftValueSnapshot = {
+  supplyCost: number;
+  taxTotal: number;
+  totalAmount: number;
+  writeDate: string | null;
+  invoicerBusinessNumber: string;
+  invoiceeCorpNum: string;
+  invoiceeTaxRegId: string | null;
+  recipientEmail: string;
+};
+
+function buildManualIssueAuditContext(
+  draft: Pick<InvoiceDraft, "id" | "customerId" | "issueMode" | "issueRequestedAt">,
+  executionPath: ManualIssueExecutionPath
+) {
+  return {
+    draftId: draft.id,
+    customerId: draft.customerId,
+    issueMode: draft.issueMode,
+    executionPath,
+    clickedAt: draft.issueRequestedAt ?? undefined
+  };
+}
+
+function buildDraftValueSnapshot(
+  customer: Pick<Customer, "businessNumber">,
+  draft: Pick<
+    InvoiceDraft,
+    "supplyCost" | "taxTotal" | "totalAmount" | "writeDate" | "kepcoCorpNum" | "kepcoBranchId" | "recipientEmail"
+  >
+): DraftValueSnapshot {
+  return {
+    supplyCost: draft.supplyCost,
+    taxTotal: draft.taxTotal,
+    totalAmount: draft.totalAmount,
+    writeDate: draft.writeDate ?? null,
+    invoicerBusinessNumber: customer.businessNumber,
+    invoiceeCorpNum: draft.kepcoCorpNum,
+    invoiceeTaxRegId: draft.kepcoBranchId || null,
+    recipientEmail: draft.recipientEmail
+  };
+}
+
 export function registerDraftRoutes(deps: RouteDeps) {
   const {
     app,
@@ -52,6 +107,7 @@ export function registerDraftRoutes(deps: RouteDeps) {
     getErrorMessage,
     getErrorStatus,
     buildApiErrorBody,
+    issueDraftNow: issueDraftNowImpl = issueDraftNow,
     assertDraftPopbillEnvironment,
     backfillDraftPopbillEnvironmentIfMissing
   } = deps;
@@ -67,7 +123,16 @@ export function registerDraftRoutes(deps: RouteDeps) {
     try {
       const from = parseOptionalIsoTimestamp(req.query.from);
       const to = parseOptionalIsoTimestamp(req.query.to);
-      res.json(await requestStore.getPilotIssuanceReport({ from, to }));
+      const report = await requestStore.getPilotIssuanceReport({ from, to });
+      if (parsePilotReportFormat(req.query.format) === "csv") {
+        const filenameDate = report.generatedAt.slice(0, 10);
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="pilot-report-${filenameDate}.csv"`);
+        res.send(buildPilotIssuanceReportCsv(report));
+        return;
+      }
+
+      res.json(report);
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "잘못된 조회 조건입니다." });
     }
@@ -101,12 +166,7 @@ export function registerDraftRoutes(deps: RouteDeps) {
       return;
     }
 
-    const manualIssueContext = {
-      draftId,
-      customerId: claimedDraft.customerId,
-      issueMode: claimedDraft.issueMode,
-      issuePath: "single"
-    };
+    const manualIssueContext = buildManualIssueAuditContext(claimedDraft, "single");
     await requestStore.createLog(
       "info",
       "drafts",
@@ -135,13 +195,15 @@ export function registerDraftRoutes(deps: RouteDeps) {
     }
 
     try {
-      const issued = await issueDraftNow(requestStore, await getServerManagedSettings(requestStore), customer, claimedDraft);
+      const issued = await issueDraftNowImpl(requestStore, await getServerManagedSettings(requestStore), customer, claimedDraft);
       await requestStore.createLog(
         "info",
         "drafts",
         "수동 발행을 완료했습니다.",
         buildPilotLogContext(manualIssueContext, {
-          eventType: "manual-issue-succeeded"
+          eventType: "manual-issue-succeeded",
+          issuedAt: issued.issuedAt ?? undefined,
+          issuanceSnapshot: buildDraftValueSnapshot(customer, issued)
         })
       );
       res.json(issued);
@@ -178,12 +240,7 @@ export function registerDraftRoutes(deps: RouteDeps) {
         continue;
       }
 
-      const manualIssueContext = {
-        draftId: draft.id,
-        customerId: claimedDraft.customerId,
-        issueMode: claimedDraft.issueMode,
-        issuePath: "bulk-manual"
-      };
+      const manualIssueContext = buildManualIssueAuditContext(claimedDraft, "bulk-manual");
       await requestStore.createLog(
         "info",
         "drafts",
@@ -212,13 +269,15 @@ export function registerDraftRoutes(deps: RouteDeps) {
       }
 
       try {
-        await issueDraftNow(requestStore, await getServerManagedSettings(requestStore), customer, claimedDraft);
+        const issued = await issueDraftNowImpl(requestStore, await getServerManagedSettings(requestStore), customer, claimedDraft);
         await requestStore.createLog(
           "info",
           "drafts",
           "수동 발행을 완료했습니다.",
           buildPilotLogContext(manualIssueContext, {
-            eventType: "manual-issue-succeeded"
+            eventType: "manual-issue-succeeded",
+            issuedAt: issued.issuedAt ?? undefined,
+            issuanceSnapshot: buildDraftValueSnapshot(customer, issued)
           })
         );
         results.push({ draftId: draft.id, customerId: customer.id, status: "issued" });
@@ -239,7 +298,7 @@ export function registerDraftRoutes(deps: RouteDeps) {
       }
     }
 
-    await requestStore.createLog("info", "drafts", "검수 대기/실패 건 전체 발행을 실행했습니다.", {
+    await requestStore.createLog("info", "drafts", "검수 후 직접 발행 대기/실패 건 전체 발행을 실행했습니다.", {
       total: drafts.length,
       issued: results.filter((item) => item.status === "issued").length,
       failed: results.filter((item) => item.status === "failed").length
@@ -279,7 +338,7 @@ export function registerDraftRoutes(deps: RouteDeps) {
     await assertDraftPopbillEnvironment(settings, draft);
     const response = await cancelTaxInvoice(settings, customer, draft, "AUTO-TAX 재발행 테스트 취소");
     const reopened = await requestStore.reopenIssuedDraftForReissue(draftId);
-    await requestStore.createLog("warn", "drafts", "발행 완료 건을 취소하고 검수 대기로 되돌렸습니다.", {
+    await requestStore.createLog("warn", "drafts", "발행 완료 건을 취소하고 직접 발행 대기로 되돌렸습니다.", {
       draftId,
       customerId: customer.id,
       previousMgtKey: draft.popbillMgtKey,
@@ -338,7 +397,8 @@ export function registerDraftRoutes(deps: RouteDeps) {
           previewSource: "ui-click"
         },
         {
-          eventType: "draft-preview-opened"
+          eventType: "draft-preview-opened",
+          previewSnapshot: draft.issueMode === "review" ? buildDraftValueSnapshot(customer, draft) : undefined
         }
       )
     );

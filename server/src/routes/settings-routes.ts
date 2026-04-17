@@ -126,9 +126,12 @@ const customerOnboardingCertificateRowSchema = z.object({
   rowIndex: z.number().int().min(1),
   businessNumber: z.string().default(""),
   certificateKind: z.enum(["electronic_tax", "general_personal", "general_business", "unknown"]),
+  certificateIndex: z.string().default(""),
   certificateName: z.string().default(""),
   certificateUsageName: z.string().default(""),
   issuerName: z.string().default(""),
+  serial: z.string().default(""),
+  userDN: z.string().default(""),
   certificatePassword: z.string().default(""),
   isPrimary: z.boolean().default(false)
 });
@@ -255,20 +258,18 @@ export function registerSettingsRoutes(deps: RouteDeps) {
   app.get("/api/settings/renewal-issue-password", async (_req, res) => {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
-    const settings = await requestStore.getSettings();
-    await requestStore.createLog("warn", "settings", "공동인증서 갱신 발급용 비밀번호를 조회했습니다.");
-    res.json({
-      password: settings.renewalIssuePassword
+    await requestStore.createLog("warn", "settings", "공동인증서 갱신 발급용 비밀번호 재표시 요청을 차단했습니다.");
+    res.status(410).json({
+      error: "발급용 임시번호는 보안 정책상 다시 표시하지 않습니다. 변경이 필요하면 새 값을 다시 입력하세요."
     });
   });
 
   app.get("/api/settings/renewal-certificate-password", async (_req, res) => {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
-    const settings = await requestStore.getSettings();
-    await requestStore.createLog("warn", "settings", "공동인증서 공통 비밀번호를 조회했습니다.");
-    res.json({
-      password: settings.renewalCertificatePassword
+    await requestStore.createLog("warn", "settings", "공동인증서 공통 비밀번호 재표시 요청을 차단했습니다.");
+    res.status(410).json({
+      error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 로컬 헬퍼에서 다시 입력하세요."
     });
   });
 

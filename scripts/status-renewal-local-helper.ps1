@@ -23,7 +23,7 @@ function Get-LocalRenewalHelperHealth {
   )
 
   try {
-    return Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -Method Get -TimeoutSec 2
+    return Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -Method Get -TimeoutSec 5
   } catch {
     return $null
   }
@@ -53,4 +53,11 @@ Write-Output "processIds=$(if ($owningProcessIds.Count -gt 0) { $owningProcessId
 if ($health) {
   Write-Output "version=$($health.version)"
   Write-Output "bridgeSummary=$($health.status.bridgeSummary)"
+  if ($health.popbillDebugArtifacts) {
+    Write-Output "popbillDebugArtifactSupport=$(if ($health.popbillDebugArtifacts.supported) { 'enabled' } else { 'disabled' })"
+    Write-Output "popbillDebugArtifactDir=$($health.popbillDebugArtifacts.artifactDir)"
+    if ($health.popbillDebugArtifacts.stages) {
+      Write-Output "popbillDebugArtifactStages=$($health.popbillDebugArtifacts.stages -join ',')"
+    }
+  }
 }

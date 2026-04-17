@@ -77,10 +77,13 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
   const downloadCompleted = input.templateDownloaded || uploadCompleted;
   const canCommit = input.importableCount > 0;
   const needsUploadRetry = uploadCompleted && !commitCompleted && !canCommit;
+  const hasElectronicTaxCertificates = input.helperCertificateCount > 0;
   const stage: InitialRegistrationStage = commitCompleted ? "done" : canCommit && input.previewReady ? "commit" : downloadCompleted ? "upload" : "download";
   const blockedReason =
     !input.helperReady && !downloadCompleted
-      ? "먼저 공동인증서를 읽으세요."
+      ? "먼저 전자세금용 공동인증서를 읽으세요."
+      : !downloadCompleted && input.helperReady && !hasElectronicTaxCertificates
+        ? "이 PC에서 전자세금용 공동인증서를 찾지 못했습니다."
       : needsUploadRetry
         ? `검토 ${input.blockedCount}건 수정 후 다시 업로드하세요.`
         : undefined;
@@ -104,7 +107,9 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
     ? "다음 단계로 이동"
     : stage === "download"
       ? input.helperReady
-        ? `인증서 ${input.helperCertificateCount}건 기준`
+        ? hasElectronicTaxCertificates
+          ? `전자세금용 인증서 ${input.helperCertificateCount}건 기준`
+          : "전자세금용 없음"
         : "헬퍼 필요"
       : stage === "commit"
         ? `반영 ${input.importableCount}건`
@@ -129,7 +134,9 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
       description: downloadCompleted
         ? "완료"
         : input.helperReady
-          ? "인증서 기준"
+          ? hasElectronicTaxCertificates
+            ? "전자세금 기준"
+            : "전자세금용 없음"
           : "헬퍼 필요",
       status: downloadCompleted ? "complete" : stage === "download" ? "current" : "locked",
       ...getInitialRegistrationStepMeta(downloadCompleted ? "complete" : stage === "download" ? "current" : "locked")
@@ -280,8 +287,12 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
       : registrationStage === "download"
         ? {
             label: isDownloadingOnboardingTemplate ? "다운로드 중..." : "양식 다운로드",
-            disabled: props.busyKey !== null || !props.helperReady,
-            title: props.helperReady ? undefined : "먼저 로컬 헬퍼 준비 단계에서 공동인증서 읽기 상태를 확인하세요.",
+            disabled: props.busyKey !== null || !props.helperReady || props.helperCertificateCount === 0,
+            title: !props.helperReady
+              ? "먼저 로컬 헬퍼 준비 단계에서 전자세금용 공동인증서 읽기 상태를 확인하세요."
+              : props.helperCertificateCount === 0
+                ? "이 PC에서 전자세금용 공동인증서를 먼저 확인하세요."
+                : undefined,
             onClick: () => void props.runAction("customer-onboarding-template", props.downloadCustomerOnboardingTemplate, { reload: false })
           }
         : registrationStage === "upload"
@@ -395,9 +406,15 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                     <button
                       type="button"
                       className="btn-secondary"
-                      disabled={props.busyKey !== null || !props.helperReady}
+                      disabled={props.busyKey !== null || !props.helperReady || props.helperCertificateCount === 0}
                       onClick={() => void props.runAction("customer-onboarding-template", props.downloadCustomerOnboardingTemplate, { reload: false })}
-                      title={props.helperReady ? undefined : "먼저 로컬 헬퍼 준비 단계에서 공동인증서 읽기 상태를 확인하세요."}
+                      title={
+                        !props.helperReady
+                          ? "먼저 로컬 헬퍼 준비 단계에서 전자세금용 공동인증서 읽기 상태를 확인하세요."
+                          : props.helperCertificateCount === 0
+                            ? "이 PC에서 전자세금용 공동인증서를 먼저 확인하세요."
+                            : undefined
+                      }
                     >
                       양식 다시 다운로드
                     </button>
@@ -431,7 +448,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           {props.pendingOnboardingCertificateRegistrationCount > 0 ? (
             <div className="helper-box import-helper-box">
               <strong>다음</strong>
-              <span>인증서 연결 {props.pendingOnboardingCertificateRegistrationCount}건</span>
+              <span>팝빌 전자세금용 인증서 등록 {props.pendingOnboardingCertificateRegistrationCount}건</span>
             </div>
           ) : null}
           {props.customerOnboardingError ? (
@@ -442,7 +459,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           ) : null}
           {props.customerOnboardingPreview?.fileErrors.length ? (
             <div className="helper-box import-helper-box">
-              <strong>시트 연결 오류</strong>
+              <strong>업로드 경고</strong>
               <span className="helper-multiline-text">{props.customerOnboardingPreview.fileErrors.join("\n")}</span>
             </div>
           ) : null}
@@ -456,7 +473,9 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                 {props.customerOnboardingPreview.rows.map((row) => {
                   const toneClass =
                     row.status === "blocked" ? "chip-danger" : row.status === "update" ? "chip-warn" : "chip-success";
-                  const statusLabel = row.status === "blocked" ? "검토 필요" : row.status === "update" ? "기존 고객 갱신" : "신규 등록";
+                  const statusLabel = row.status === "blocked" ? "반영 차단" : row.status === "update" ? "기존 고객 갱신 가능" : "신규 고객 등록 가능";
+                  const certificateLabel = row.certificateCount > 0 ? "전자세금용 인증서 확인됨" : "전자세금용 인증서 찾지 못함";
+                  const detailMessages = [...row.errors, ...row.warnings];
 
                   return (
                     <article key={`customer-onboarding-${row.rowIndex}-${row.businessNumber}`} className="ops-card">
@@ -468,10 +487,15 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                         <span className={`chip ${toneClass}`}>{statusLabel}</span>
                       </div>
                       <div className="ops-card-meta">
+                        <span>{certificateLabel}</span>
                         <span>발전소 {row.plantCount}건</span>
-                        <span>공동인증서 {row.certificateCount}건</span>
-                        {row.errors.length > 0 ? <span className="text-danger">{row.errors.join(" ")}</span> : null}
-                        {row.warnings.length > 0 ? <span className="text-warn">{row.warnings.join(" ")}</span> : null}
+                        {detailMessages.length > 0 ? (
+                          <span className={row.errors.length > 0 ? "text-danger" : "text-warn"}>
+                            실패 사유 · {detailMessages.join(" ")}
+                          </span>
+                        ) : (
+                          <span>실패 사유 없음</span>
+                        )}
                       </div>
                     </article>
                   );

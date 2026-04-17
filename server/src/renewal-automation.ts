@@ -10,8 +10,9 @@ import type {
   RenewalPreflightComparisonProfile,
   RenewalPreflightSubmissionProfile
 } from "./domain.js";
+import { decryptSecret } from "./secret-box.js";
 import { createSupabaseAdminClient } from "./supabase.js";
-import { nowIso } from "./utils.js";
+import { nowIso, sanitizeSensitiveData, sanitizeSensitiveText } from "./utils.js";
 
 const AGENT_STALE_AFTER_SECONDS = 90;
 const JOB_CLAIM_TIMEOUT_SECONDS = 180;
@@ -52,6 +53,13 @@ type RenewalAutomationJobRow = {
   submission_profile_json: RenewalPreflightSubmissionProfile | null;
   execute_submit: boolean | null;
 };
+
+function readNullableString(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  return String(value);
+}
 
 function defaultProcessStatus(): RenewalAgentProcessStatus {
   return {
@@ -388,6 +396,27 @@ function mapJobRow(row: RenewalAutomationJobRow): RenewalAutomationJob {
   });
 }
 
+function sanitizeSubmissionProfileForStorage(
+  profile: RenewalPreflightSubmissionProfile | null | undefined
+): RenewalPreflightSubmissionProfile | null {
+  if (!profile) {
+    return null;
+  }
+
+  return {
+    ...profile,
+    issuePassword: ""
+  };
+}
+
+function sanitizeJobForExternalRead(job: RenewalAutomationJob): RenewalAutomationJob {
+  const clonedJob = cloneJob(job);
+  clonedJob.error = clonedJob.error ? sanitizeSensitiveText(clonedJob.error) : null;
+  clonedJob.result = clonedJob.result ? (sanitizeSensitiveData(clonedJob.result) as RenewalBridgeProbeResult) : null;
+  clonedJob.submissionProfile = sanitizeSubmissionProfileForStorage(clonedJob.submissionProfile);
+  return clonedJob;
+}
+
 function summarizeBridgePorts(ports: RenewalAgentPortStatus[]): string {
   if (ports.length === 0) {
     return "포트 정보 없음";
@@ -589,7 +618,7 @@ export class RenewalAutomationManager {
 
     return {
       agent,
-      jobs: (jobsResult.data ?? []).map((row) => mapJobRow(row as RenewalAutomationJobRow))
+      jobs: (jobsResult.data ?? []).map((row) => sanitizeJobForExternalRead(mapJobRow(row as RenewalAutomationJobRow)))
     };
   }
 
@@ -705,7 +734,7 @@ export class RenewalAutomationManager {
         certificateCn
       }),
       comparison_profile_json: args.comparisonProfile ? { ...args.comparisonProfile } : null,
-      submission_profile_json: args.submissionProfile ? { ...args.submissionProfile } : null,
+      submission_profile_json: sanitizeSubmissionProfileForStorage(args.submissionProfile),
       execute_submit: args.executeSubmit === true
     };
 
@@ -735,7 +764,11 @@ export class RenewalAutomationManager {
     }
 
     const row = Array.isArray(data) ? data[0] : null;
-    return row ? mapJobRow(row as RenewalAutomationJobRow) : null;
+    if (!row) {
+      return null;
+    }
+
+    return await this.attachClaimTimeIssuePassword(sanitizeJobForExternalRead(mapJobRow(row as RenewalAutomationJobRow)));
   }
 
   async completeJob(jobId: number, agentId: string, result: RenewalBridgeProbeResult): Promise<RenewalAutomationJob> {
@@ -744,6 +777,7 @@ export class RenewalAutomationManager {
       ...job,
       result
     }).result as RenewalBridgeProbeResult;
+    const storedResult = sanitizeSensitiveData(clonedResult) as RenewalBridgeProbeResult;
     const finishedAt = nowIso();
 
     const { data, error } = await this.client
@@ -754,7 +788,7 @@ export class RenewalAutomationManager {
         claimed_at: job.claimedAt ?? finishedAt,
         finished_at: finishedAt,
         error: null,
-        result_json: clonedResult,
+        result_json: storedResult,
         summary:
           job.type === "certid-probe"
             ? summarizeSelectionProbeResult(job, result)
@@ -775,9 +809,9 @@ export class RenewalAutomationManager {
     const { error: heartbeatError } = await this.client
       .from("renewal_agent_heartbeats")
       .update({
-        process_json: clonedResult.process,
-        bridge_json: clonedResult.bridge,
-        notes_json: clonedResult.notes,
+        process_json: storedResult.process,
+        bridge_json: storedResult.bridge,
+        notes_json: storedResult.notes,
         received_at: finishedAt
       })
       .eq("agent_id", agentId);
@@ -792,6 +826,7 @@ export class RenewalAutomationManager {
   async failJob(jobId: number, agentId: string, errorMessage: string): Promise<RenewalAutomationJob> {
     const job = await this.findJob(jobId);
     const finishedAt = nowIso();
+    const sanitizedErrorMessage = sanitizeSensitiveText(errorMessage);
     const { data, error } = await this.client
       .from("renewal_automation_jobs")
       .update({
@@ -799,7 +834,7 @@ export class RenewalAutomationManager {
         claimed_by: job.claimedBy ?? agentId,
         claimed_at: job.claimedAt ?? finishedAt,
         finished_at: finishedAt,
-        error: errorMessage,
+        error: sanitizedErrorMessage,
         summary: getFailedSummary(job)
       })
       .eq("id", jobId)
@@ -813,6 +848,50 @@ export class RenewalAutomationManager {
     }
 
     return mapJobRow(data as RenewalAutomationJobRow);
+  }
+
+  private async attachClaimTimeIssuePassword(job: RenewalAutomationJob): Promise<RenewalAutomationJob> {
+    if (job.type !== "renewal-preflight" || !job.customerId || !job.submissionProfile) {
+      return job;
+    }
+
+    const { data: customerData, error: customerError } = await this.client
+      .from("managed_customers")
+      .select("organization_id")
+      .eq("legacy_id", job.customerId)
+      .maybeSingle();
+
+    if (customerError) {
+      throw new Error(`갱신 자동화 작업 고객 작업공간 조회 실패: ${customerError.message}`);
+    }
+
+    const organizationId = readNullableString(customerData?.organization_id);
+    if (!organizationId) {
+      return job;
+    }
+
+    const { data: integrationData, error: integrationError } = await this.client
+      .from("organization_integrations")
+      .select("renewal_issue_password_encrypted")
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+
+    if (integrationError) {
+      throw new Error(`갱신 자동화 작업 발급용 임시번호 조회 실패: ${integrationError.message}`);
+    }
+
+    const issuePassword = decryptSecret(readNullableString(integrationData?.renewal_issue_password_encrypted) ?? "");
+    if (!issuePassword) {
+      return job;
+    }
+
+    return {
+      ...job,
+      submissionProfile: {
+        ...job.submissionProfile,
+        issuePassword
+      }
+    };
   }
 
   private async findJob(jobId: number): Promise<RenewalAutomationJob> {

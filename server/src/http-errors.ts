@@ -1,4 +1,5 @@
 import { PopbillApiError } from "./popbill-client.js";
+import { sanitizeSensitiveText } from "./utils.js";
 
 export class HttpError extends Error {
   readonly status: number;
@@ -20,22 +21,22 @@ export type ApiErrorBody = {
 export function buildApiErrorBody(error: unknown, fallbackMessage = "요청에 실패했습니다."): ApiErrorBody {
   if (error instanceof PopbillApiError) {
     return {
-      error: error.message,
+      error: sanitizeSensitiveText(error.message),
       errorCode: error.code,
-      errorDetails: error.rawMessage,
+      errorDetails: error.rawMessage ? sanitizeSensitiveText(error.rawMessage) : undefined,
       errorOperation: error.operation
     };
   }
 
   if (error instanceof HttpError) {
     return {
-      error: error.message
+      error: sanitizeSensitiveText(error.message)
     };
   }
 
   if (error instanceof Error) {
     return {
-      error: error.message
+      error: sanitizeSensitiveText(error.message)
     };
   }
 

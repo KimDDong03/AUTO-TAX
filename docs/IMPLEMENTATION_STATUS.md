@@ -13,6 +13,7 @@ This file is the current engineering backlog reference. It should stay short and
 - import/onboarding endpoints
 - local certificate listing and customer linking
 - renewal preflight / prepare / payment-open assistance
+- pilot issuance report export and customer auto-transition evidence
 
 ## 2. Sharp Edges
 

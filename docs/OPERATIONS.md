@@ -55,6 +55,14 @@ npm run test:e2e:smoke
 npm run dev:vercel
 ```
 
+## 2.5. Security Boundary / Deployment Assumptions
+
+- production deployment assumes HTTPS end-to-end; do not serve the browser app or API over plain HTTP in real operations
+- `/api/*` responses and the Windows local helper now use `Cache-Control: no-store` to reduce accidental secret caching
+- server-managed secrets still include mail credentials, Popbill env/runtime secrets, and the optional encrypted renewal issue password; do **not** store Hometax ID/PW, raw certificate files, or certificate passwords on the server
+- browser auth follows the current Supabase JWT session lifecycle; invalid refresh-token recovery clears the local session and forces re-login
+- no separate inactivity timeout or step-up reauthentication flow has been added in this phase, so sensitive local-helper actions rely on current-session auth plus local re-entry of secrets when needed
+
 ## 3. Local Certificate Helper
 
 ### Helper commands
@@ -101,6 +109,10 @@ Useful env:
 - `AUTO_TAX_RENEWAL_AGENT_CERT_PASSWORD_FILE`
 
 See `docs/CERTIFICATE_RENEWAL_POC.md` for the renewal-specific runtime model.
+
+Operational rule:
+
+- certificate passwords stay in the current browser/local-helper context only; they must not be written to server settings, customer certificate rows, onboarding preview rows, or app logs
 
 ## 4. Database and Migrations
 
@@ -192,7 +204,32 @@ npm run test:e2e:smoke
 node scripts/public-access-portal-smoke.mjs
 ```
 
-## 8. File Hygiene
+## 8. Pilot Report / Operator Comparison Flow
+
+### JSON / CSV report
+
+- JSON summary:
+  - `GET /api/drafts/pilot-report?from=<ISO>&to=<ISO>`
+- CSV export:
+  - `GET /api/drafts/pilot-report?from=<ISO>&to=<ISO>&format=csv`
+
+Current report output includes:
+
+- overall success / exception rates
+- weekly and monthly buckets
+- customer-level success/failure + `review -> auto` evidence
+- failure Top 5
+- estimated saved time (`auto-issue-succeeded * 10분`)
+
+### Comparing operator notes with raw logs
+
+1. Export or open the pilot report for the target period.
+2. Find the customer row or Top failure row you want to inspect.
+3. Copy `latestFailureDraftId` (or use `latestFailureTimelinePath` directly).
+4. Open `GET /api/drafts/:id/pilot-timeline`.
+5. Compare the timeline's `actorUserId`, `clickedAt`, `issuedAt`, `previewSnapshot`, `issuanceSnapshot`, and failure context with the operator note/runbook entry.
+
+## 9. File Hygiene
 
 Disposable generated output:
 
@@ -212,7 +249,7 @@ Treat with caution:
 
 `data/` may contain local state worth keeping even if the current product is Supabase-first.
 
-## 9. Debugging Shortcuts
+## 10. Debugging Shortcuts
 
 When auth/session looks wrong:
 
@@ -233,6 +270,7 @@ When auto-issue / recurring jobs look wrong:
 - inspect `/api/internal/jobs/dispatch`
 - inspect `/api/internal/jobs/run`
 - inspect `job_queue`
+- inspect `GET /api/drafts/pilot-report` and `GET /api/drafts/:id/pilot-timeline`
 
 When local renewal flow looks wrong:
 

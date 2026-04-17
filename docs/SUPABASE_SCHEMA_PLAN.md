@@ -127,6 +127,8 @@ Important invariant:
 
 - server env still overrides runtime Popbill secrets
 - treat `AUTO_TAX_POPBILL_*` env as authoritative for live credentials
+- `renewal_issue_password_encrypted` may remain as an encrypted workspace renewal default for the agent path, but it is not returned to normal browser API responses
+- `renewal_certificate_password_encrypted` is now a legacy/transitional column; new code clears or ignores it and certificate passwords must not be kept on the server
 
 ## 5. Managed Customer Tables
 
@@ -206,6 +208,11 @@ Important fields:
 - `certificate_password_encrypted`
 - `is_primary`
 - `link_source`
+
+Important invariant:
+
+- `certificate_password_encrypted` is legacy/transitional only; new code does not populate, read back, or return certificate passwords from this table
+- `cert_dir_path` is local-path metadata, not a certificate file payload; logs and error surfaces should mask it
 
 ## 6. Mail and Draft Tables
 
@@ -317,13 +324,27 @@ The server now expects `context_json` to carry aggregatable fields when relevant
 - `syncStage`
 - `reprocessStage`
 - `retryReason`
+- `executionPath`
+- `clickedAt`
+- `issuedAt`
+- `previewSnapshot`
+- `issuanceSnapshot`
 
 Important invariant:
 
 - workspace/organization scoping stays authoritative in the `organization_id` column
+- Phase 2 first manual-issue audit slice still reuses `app_logs` + `actor_user_id` + `created_at`; no audit table or schema migration was added
+- review-mode `draft-preview-opened` can carry a `previewSnapshot` object with the same minimal normalized fields used by `issuanceSnapshot`
+- `manual-issue-succeeded` can carry an `issuanceSnapshot` object with draft totals, `writeDate`, counterpart identifiers, and `recipientEmail` for draft-level audit/restore evidence
+- draft timeline reconstruction reads `actor_user_id` alongside `context_json.clickedAt` / `issuedAt` / `previewSnapshot` / `issuanceSnapshot`, so “who clicked / when / which data” stays queryable without a schema change
 - draft timeline reconstruction and pilot rate calculations read `organization_id` + `context_json.*` together
+- customer `issueMode` enable/disable history can also stay on `app_logs`; the route writes `actor_user_id` / `organization_id` plus `context_json.customerId`, `changedAt`, `previousIssueMode`, and `nextIssueMode`
+- customer `review -> auto` enablement can be guarded without schema changes by reusing same-organization `app_logs.context_json.eventType = manual-issue-succeeded` / `context_json.customerId` first, then falling back to same-customer `invoice_drafts.status = issued`
 - no Phase 1 schema migration was added; the reporting layer is app-level over existing `app_logs`
 - `draft-preview-opened` is now sourced from the explicit web UI preview-click log (`POST /api/drafts/:id/pilot-preview-opened`), not the older backend `view-url` approximation
+- password/secret/cert-path-like values are masked before new `app_logs.context_json` writes and again on read surfaces
+- Phase 5 weekly/monthly pilot reports, customer auto-transition evidence, failure Top N, and CSV export still reuse this same `app_logs` + `invoice_drafts` surface; no extra metrics table or migration was added
+- report drill-down stays app-level: aggregate rows keep `latestFailureDraftId` / `latestTimelinePath`, and raw comparison continues through `GET /api/drafts/:id/pilot-timeline`
 
 ### job_queue
 
@@ -416,3 +437,4 @@ These exist for compatibility with older code paths and client-side assumptions.
 - some integration columns still exist for compatibility but are no longer the main runtime source
 - renewal automation persistence exists outside `job_queue`, so debugging requires checking two systems
 - pilot reporting currently depends on consistent `app_logs.context_json` keys rather than dedicated materialized metrics tables
+- customer-level auto-transition judgment is only as strong as the logged issuance evidence inside the selected report window plus the current customer catalog state

@@ -110,6 +110,30 @@ function buildPreviewResultFromPreparedSnapshot(
   };
 }
 
+export function sanitizeCustomerOnboardingWorkbookForStorage(
+  workbook: CustomerOnboardingWorkbookInput
+): CustomerOnboardingWorkbookInput {
+  return {
+    ...workbook,
+    certificates: workbook.certificates.map((certificate) => ({
+      ...certificate,
+      certificatePassword: ""
+    }))
+  };
+}
+
+export function sanitizeCustomerOnboardingPreparedEntriesForStorage(
+  entries: CustomerOnboardingPreparedEntrySnapshot[]
+): CustomerOnboardingPreparedEntrySnapshot[] {
+  return entries.map((entry) => ({
+    ...entry,
+    certificates: entry.certificates.map((certificate) => ({
+      ...certificate,
+      certificatePassword: ""
+    }))
+  }));
+}
+
 function mapBatchStatus(row: Row): CustomerOnboardingCommitBatchStatusResult {
   const warnings = asArray<WarningMessage>(row.warnings_json, []);
   const failedRows = asArray<FailedRowMessage>(row.failed_rows_json, []);
@@ -212,6 +236,8 @@ export async function createCustomerOnboardingPreviewSession(
 ): Promise<CustomerOnboardingPreviewSessionResult> {
   const prepared = await prepareCustomerOnboardingWorkbookSnapshot(requestStore, workbook);
   const preview = buildPreviewResultFromPreparedSnapshot(prepared);
+  const sanitizedWorkbook = sanitizeCustomerOnboardingWorkbookForStorage(workbook);
+  const sanitizedEntries = sanitizeCustomerOnboardingPreparedEntriesForStorage(prepared.entries);
   const client = createSupabaseAdminClient();
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -223,9 +249,9 @@ export async function createCustomerOnboardingPreviewSession(
       .insert({
         organization_id: options.organizationId,
         requested_by: options.requestedByUserId,
-        workbook_json: workbook,
+        workbook_json: sanitizedWorkbook,
         preview_json: preview,
-        entries_json: prepared.entries,
+        entries_json: sanitizedEntries,
         created_at: createdAt,
         updated_at: createdAt,
         expires_at: expiresAt
