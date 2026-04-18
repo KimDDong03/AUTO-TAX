@@ -22,13 +22,18 @@ type BillingMonthSummary = {
 
 type InboxMessage = BootstrapPayload["inbox"][number];
 type InitialRegistrationTabMode = "registration" | "exceptions";
-export type InitialRegistrationStage = "download" | "upload" | "commit" | "done";
+export type InitialRegistrationStage = "download" | "upload" | "commit" | "certificate" | "done";
 type InitialRegistrationStepStatus = "complete" | "current" | "locked";
 
 type InitialRegistrationFlowStateInput = {
   helperReady: boolean;
   helperCertificateCount: number;
   registrationReady: boolean;
+  certificateReady: boolean;
+  certificateAutoTargetCount: number;
+  certificatePendingJoinCount: number;
+  certificateFailedJoinCount: number;
+  certificateRetryCount: number;
   templateDownloaded: boolean;
   previewReady: boolean;
   commitDone: boolean;
@@ -75,18 +80,35 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
   const commitCompleted = input.commitDone || input.registrationReady;
   const uploadCompleted = input.previewReady || commitCompleted;
   const downloadCompleted = input.templateDownloaded || uploadCompleted;
+  const certificateCompleted = commitCompleted && input.certificateReady;
   const canCommit = input.importableCount > 0;
   const needsUploadRetry = uploadCompleted && !commitCompleted && !canCommit;
   const hasElectronicTaxCertificates = input.helperCertificateCount > 0;
-  const stage: InitialRegistrationStage = commitCompleted ? "done" : canCommit && input.previewReady ? "commit" : downloadCompleted ? "upload" : "download";
+  const certificatePendingCount =
+    input.certificateAutoTargetCount +
+    input.certificatePendingJoinCount +
+    input.certificateFailedJoinCount;
+  const stage: InitialRegistrationStage = certificateCompleted
+    ? "done"
+    : !downloadCompleted
+      ? "download"
+      : !uploadCompleted || needsUploadRetry
+        ? "upload"
+        : !commitCompleted
+          ? "commit"
+          : "certificate";
   const blockedReason =
     !input.helperReady && !downloadCompleted
       ? "먼저 전자세금용 공동인증서를 읽으세요."
       : !downloadCompleted && input.helperReady && !hasElectronicTaxCertificates
         ? "이 PC에서 전자세금용 공동인증서를 찾지 못했습니다."
-      : needsUploadRetry
-        ? `검토 ${input.blockedCount}건 수정 후 다시 업로드하세요.`
-        : undefined;
+        : needsUploadRetry
+          ? `검토 ${input.blockedCount}건 수정 후 다시 업로드하세요.`
+          : stage === "certificate" && input.certificatePendingJoinCount > 0
+            ? `팝빌 가입 ${input.certificatePendingJoinCount}건이 진행 중입니다. 가입이 끝나면 전자세금용 등록을 자동으로 이어서 처리합니다.`
+            : stage === "certificate" && input.certificateFailedJoinCount > 0
+              ? `팝빌 가입 확인이 필요한 고객 ${input.certificateFailedJoinCount}건이 있습니다.`
+              : undefined;
   const uploadStepStatus: InitialRegistrationStepStatus = needsUploadRetry
     ? "current"
     : uploadCompleted
@@ -94,16 +116,23 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
       : stage === "upload"
         ? "current"
         : "locked";
-  const headline = commitCompleted
+  const certificateStepStatus: InitialRegistrationStepStatus = certificateCompleted
+    ? "complete"
+    : stage === "certificate"
+      ? "current"
+      : "locked";
+  const headline = certificateCompleted
     ? "고객 등록 완료"
     : stage === "download"
       ? "지금 할 일 · 양식 다운로드"
-    : stage === "commit"
-        ? "지금 할 일 · 고객 반영"
-    : needsUploadRetry
+      : stage === "upload"
+        ? needsUploadRetry
           ? "지금 할 일 · 다시 업로드"
-          : "지금 할 일 · 양식 업로드";
-  const description = commitCompleted
+          : "지금 할 일 · 양식 업로드"
+        : stage === "commit"
+          ? "지금 할 일 · 고객 반영"
+          : "지금 할 일 · 팝빌 전자세금용 등록";
+  const description = certificateCompleted
     ? "다음 단계로 이동"
     : stage === "download"
       ? input.helperReady
@@ -113,20 +142,42 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
         : "헬퍼 필요"
       : stage === "commit"
         ? `반영 ${input.importableCount}건`
-        : needsUploadRetry
-          ? `검토 ${input.blockedCount}건`
-          : input.hasSelectedFile
-            ? "업로드 준비"
-            : "파일 선택";
-  const primaryActionLabel = commitCompleted
+        : stage === "certificate"
+          ? input.certificateAutoTargetCount > 0 && input.certificateRetryCount > 0
+            ? `전자세금용 등록 다시 시도 ${input.certificateRetryCount}건`
+            : input.certificateAutoTargetCount > 0
+              ? `전자세금용 자동 등록 ${input.certificateAutoTargetCount}건`
+              : input.certificatePendingJoinCount > 0
+                ? `팝빌 가입 대기 ${input.certificatePendingJoinCount}건`
+                : input.certificateFailedJoinCount > 0
+                  ? `팝빌 가입 확인 필요 ${input.certificateFailedJoinCount}건`
+                  : certificatePendingCount > 0
+                    ? `추가 확인 ${certificatePendingCount}건`
+                    : "마무리 확인"
+          : needsUploadRetry
+            ? `검토 ${input.blockedCount}건`
+            : input.hasSelectedFile
+              ? "업로드 준비"
+              : "파일 선택";
+  const primaryActionLabel = certificateCompleted
     ? "등록 완료"
     : stage === "download"
       ? "양식 다운로드"
       : stage === "commit"
         ? "고객 등록 반영"
-      : uploadCompleted || input.hasSelectedFile
-        ? "다시 업로드"
-        : "양식 업로드";
+        : stage === "certificate"
+          ? input.certificateAutoTargetCount > 0 && input.certificateRetryCount > 0
+            ? "전자세금용 등록 다시 시도"
+            : input.certificateAutoTargetCount > 0
+              ? "전자세금용 등록 마무리"
+              : input.certificatePendingJoinCount > 0
+                ? "팝빌 가입 완료 대기"
+                : input.certificateFailedJoinCount > 0
+                  ? "고객 관리에서 확인"
+                  : "다음 단계 보기"
+          : uploadCompleted || input.hasSelectedFile
+            ? "다시 업로드"
+            : "양식 업로드";
   const stepItems: InitialRegistrationStepItem[] = [
     {
       step: 1,
@@ -161,11 +212,30 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
         ? "완료"
         : canCommit
           ? `반영 ${input.importableCount}건`
-        : uploadCompleted
-            ? "재업로드 후"
+          : uploadCompleted
+            ? "업로드 후 확인"
             : "대기",
       status: commitCompleted ? "complete" : stage === "commit" ? "current" : "locked",
       ...getInitialRegistrationStepMeta(commitCompleted ? "complete" : stage === "commit" ? "current" : "locked")
+    },
+    {
+      step: 4,
+      title: "팝빌 전자세금용 등록",
+      description: certificateCompleted
+        ? "완료"
+        : input.certificateAutoTargetCount > 0 && input.certificateRetryCount > 0
+          ? `재시도 ${input.certificateRetryCount}건`
+          : input.certificateAutoTargetCount > 0
+            ? `자동 등록 ${input.certificateAutoTargetCount}건`
+            : input.certificatePendingJoinCount > 0
+              ? `팝빌 가입 대기 ${input.certificatePendingJoinCount}건`
+              : input.certificateFailedJoinCount > 0
+                ? `가입 확인 ${input.certificateFailedJoinCount}건`
+                : certificatePendingCount > 0
+                  ? `추가 확인 ${certificatePendingCount}건`
+                  : "대기",
+      status: certificateStepStatus,
+      ...getInitialRegistrationStepMeta(certificateStepStatus)
     }
   ];
 
@@ -202,6 +272,14 @@ type InitialRegistrationTabProps = {
   helperReady: boolean;
   helperCertificateCount: number;
   registrationReady?: boolean;
+  certificateReady?: boolean;
+  certificateAutoTargetCount?: number;
+  certificatePendingJoinCount?: number;
+  certificateFailedJoinCount?: number;
+  certificateRetryCount?: number;
+  certificatePrimaryActionLabel?: string;
+  certificateActionDisabled?: boolean;
+  certificateActionTitle?: string;
   registrationStage?: InitialRegistrationStage;
   registrationBlockedReason?: string;
   registrationTemplateDownloaded?: boolean;
@@ -211,6 +289,7 @@ type InitialRegistrationTabProps = {
   downloadCustomerOnboardingTemplate: () => Promise<void>;
   handleCustomerOnboardingFileChange: (file: File | null) => Promise<void>;
   commitCustomerOnboardingWorkbook: () => Promise<void>;
+  proceedOnboardingCertificateFollowUp: () => void;
   setQuickRegisterForm: React.Dispatch<React.SetStateAction<QuickRegisterFormState>>;
   selectQuickRegisterMessage: (messageId: number) => void;
   submitQuickRegister: () => Promise<void>;
@@ -233,10 +312,16 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const showBillingMonthCompletion = props.showBillingMonthCompletion ?? props.mode === "exceptions";
   const hasExceptionMessages = props.quickRegisterMessages.length > 0;
   const registrationReady = props.registrationReady ?? false;
+  const certificateReady = props.certificateReady ?? false;
   const registrationFlow = getInitialRegistrationFlowState({
     helperReady: props.helperReady,
     helperCertificateCount: props.helperCertificateCount,
     registrationReady,
+    certificateReady,
+    certificateAutoTargetCount: props.certificateAutoTargetCount ?? 0,
+    certificatePendingJoinCount: props.certificatePendingJoinCount ?? 0,
+    certificateFailedJoinCount: props.certificateFailedJoinCount ?? 0,
+    certificateRetryCount: props.certificateRetryCount ?? 0,
     templateDownloaded: props.registrationTemplateDownloaded ?? false,
     previewReady: props.registrationPreviewReady ?? Boolean(props.customerOnboardingPreview),
     commitDone: props.registrationCommitDone ?? registrationReady,
@@ -282,7 +367,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     <div className="empty">정산월이 파싱된 메일이 아직 없습니다.</div>
   );
   const registrationPrimaryAction =
-    props.mode !== "registration" || registrationFlow.commitCompleted
+    props.mode !== "registration" || registrationStage === "done"
       ? null
       : registrationStage === "download"
         ? {
@@ -293,7 +378,12 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               : props.helperCertificateCount === 0
                 ? "이 PC에서 전자세금용 공동인증서를 먼저 확인하세요."
                 : undefined,
-            onClick: () => void props.runAction("customer-onboarding-template", props.downloadCustomerOnboardingTemplate, { reload: false })
+            onClick: () =>
+              void props.runAction(
+                "customer-onboarding-template",
+                props.downloadCustomerOnboardingTemplate,
+                { reload: false }
+              )
           }
         : registrationStage === "upload"
           ? {
@@ -302,12 +392,28 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               title: undefined,
               onClick: () => onboardingFileInputRef.current?.click()
             }
-          : {
-              label: isCommittingOnboarding ? "반영 중..." : "고객 등록 반영",
-              disabled: props.busyKey !== null || !props.customerOnboardingPreview || onboardingImportableCount === 0,
-              title: undefined,
-              onClick: () => void props.runAction("customer-onboarding-commit", props.commitCustomerOnboardingWorkbook, { reload: false })
-            };
+          : registrationStage === "commit"
+            ? {
+                label: isCommittingOnboarding ? "반영 중..." : "고객 등록 반영",
+                disabled: props.busyKey !== null || !props.customerOnboardingPreview || onboardingImportableCount === 0,
+                title: undefined,
+                onClick: () =>
+                  void props.runAction(
+                    "customer-onboarding-commit",
+                    props.commitCustomerOnboardingWorkbook,
+                    { reload: false }
+                  )
+              }
+            : {
+                label:
+                  props.busyKey === "customer-onboarding-cert-registration" &&
+                  (props.certificateAutoTargetCount ?? 0) > 0
+                    ? "전자세금용 등록 마무리 중..."
+                    : props.certificatePrimaryActionLabel ?? registrationFlow.primaryActionLabel,
+                disabled: props.certificateActionDisabled ?? props.busyKey !== null,
+                title: props.certificateActionTitle,
+                onClick: () => props.proceedOnboardingCertificateFollowUp()
+              };
   const showOnboardingInlineStatus = Boolean(props.customerOnboardingFileName || props.customerOnboardingPreview);
 
   return (
@@ -445,10 +551,22 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               <span className="helper-multiline-text">{props.customerOnboardingNotice}</span>
             </div>
           ) : null}
-          {props.pendingOnboardingCertificateRegistrationCount > 0 ? (
+          {props.pendingOnboardingCertificateRegistrationCount > 0 ||
+          (props.certificatePendingJoinCount ?? 0) > 0 ? (
             <div className="helper-box import-helper-box">
               <strong>다음</strong>
-              <span>팝빌 전자세금용 인증서 등록 {props.pendingOnboardingCertificateRegistrationCount}건</span>
+              <span className="helper-multiline-text">
+                {(props.certificatePendingJoinCount ?? 0) > 0
+                  ? `팝빌 가입 대기 ${props.certificatePendingJoinCount ?? 0}건`
+                  : ""}
+                {(props.certificatePendingJoinCount ?? 0) > 0 &&
+                props.pendingOnboardingCertificateRegistrationCount > 0
+                  ? "\n"
+                  : ""}
+                {props.pendingOnboardingCertificateRegistrationCount > 0
+                  ? `팝빌 전자세금용 인증서 등록 ${props.pendingOnboardingCertificateRegistrationCount}건`
+                  : ""}
+              </span>
             </div>
           ) : null}
           {props.customerOnboardingError ? (
@@ -459,7 +577,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           ) : null}
           {props.customerOnboardingPreview?.fileErrors.length ? (
             <div className="helper-box import-helper-box">
-              <strong>업로드 경고</strong>
+              <strong>시트 연결 오류</strong>
               <span className="helper-multiline-text">{props.customerOnboardingPreview.fileErrors.join("\n")}</span>
             </div>
           ) : null}
@@ -473,9 +591,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                 {props.customerOnboardingPreview.rows.map((row) => {
                   const toneClass =
                     row.status === "blocked" ? "chip-danger" : row.status === "update" ? "chip-warn" : "chip-success";
-                  const statusLabel = row.status === "blocked" ? "반영 차단" : row.status === "update" ? "기존 고객 갱신 가능" : "신규 고객 등록 가능";
-                  const certificateLabel = row.certificateCount > 0 ? "전자세금용 인증서 확인됨" : "전자세금용 인증서 찾지 못함";
-                  const detailMessages = [...row.errors, ...row.warnings];
+                  const statusLabel = row.status === "blocked" ? "검토 필요" : row.status === "update" ? "기존 고객 갱신" : "신규 등록";
 
                   return (
                     <article key={`customer-onboarding-${row.rowIndex}-${row.businessNumber}`} className="ops-card">
@@ -487,15 +603,10 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                         <span className={`chip ${toneClass}`}>{statusLabel}</span>
                       </div>
                       <div className="ops-card-meta">
-                        <span>{certificateLabel}</span>
                         <span>발전소 {row.plantCount}건</span>
-                        {detailMessages.length > 0 ? (
-                          <span className={row.errors.length > 0 ? "text-danger" : "text-warn"}>
-                            실패 사유 · {detailMessages.join(" ")}
-                          </span>
-                        ) : (
-                          <span>실패 사유 없음</span>
-                        )}
+                        <span>공동인증서 {row.certificateCount}건</span>
+                        {row.errors.length > 0 ? <span className="text-danger">{row.errors.join(" ")}</span> : null}
+                        {row.warnings.length > 0 ? <span className="text-warn">{row.warnings.join(" ")}</span> : null}
                       </div>
                     </article>
                   );

@@ -118,6 +118,7 @@ import type {
 type TabId = "onboarding" | "home" | "customers" | "certificates" | "settings" | "ops";
 
 const ONBOARDING_NAV_STORAGE_KEY_PREFIX = "auto-tax:onboarding-nav:";
+const HELPER_SETUP_STORAGE_KEY_PREFIX = "auto-tax:helper-setup:";
 
 function getOnboardingNavStorageKey(organizationId: string): string {
   return `${ONBOARDING_NAV_STORAGE_KEY_PREFIX}${organizationId}`;
@@ -142,6 +143,103 @@ function writeOnboardingNavVisibilityPreference(organizationId: string, show: bo
   } catch {
     // ignore storage failures in unsupported/private contexts
   }
+}
+
+function getHelperSetupStorageKey(organizationId: string): string {
+  return `${HELPER_SETUP_STORAGE_KEY_PREFIX}${organizationId}`;
+}
+
+function readHelperSetupCompletedPreference(organizationId: string): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const value = window.localStorage.getItem(getHelperSetupStorageKey(organizationId));
+    return value === "done" || value === "true" || value === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeHelperSetupCompletedPreference(organizationId: string, completed: boolean) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(getHelperSetupStorageKey(organizationId), completed ? "done" : "pending");
+  } catch {
+    // ignore storage failures in unsupported/private contexts
+  }
+}
+
+type OnboardingCertificateAutoRunnerProps = {
+  active: boolean;
+  commitDone: boolean;
+  hasWorkbook: boolean;
+  certificateReady: boolean;
+  busyKey: string | null;
+  hasUnattemptedTargets: boolean;
+  pendingSignature: string;
+  pendingJoinCount: number;
+  triggerRegistration: () => void;
+  reload: () => Promise<void>;
+};
+
+function OnboardingCertificateAutoRunner({
+  active,
+  commitDone,
+  hasWorkbook,
+  certificateReady,
+  busyKey,
+  hasUnattemptedTargets,
+  pendingSignature,
+  pendingJoinCount,
+  triggerRegistration,
+  reload
+}: OnboardingCertificateAutoRunnerProps) {
+  const signatureRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!active || !commitDone || !hasWorkbook || certificateReady) {
+      signatureRef.current = null;
+      return;
+    }
+
+    if (
+      busyKey === "customer-onboarding-commit" ||
+      busyKey === "customer-onboarding-cert-registration"
+    ) {
+      return;
+    }
+
+    if (
+      hasUnattemptedTargets &&
+      pendingSignature &&
+      signatureRef.current !== pendingSignature
+    ) {
+      signatureRef.current = pendingSignature;
+      triggerRegistration();
+      return;
+    }
+
+    if (pendingJoinCount > 0) {
+      const timeout = window.setTimeout(() => {
+        void reload();
+      }, 3000);
+      return () => window.clearTimeout(timeout);
+    }
+  }, [
+    active,
+    busyKey,
+    certificateReady,
+    commitDone,
+    hasUnattemptedTargets,
+    hasWorkbook,
+    pendingJoinCount,
+    pendingSignature,
+    reload,
+    triggerRegistration
+  ]);
+
+  return null;
 }
 type CustomerDetailTabId = "info" | "history";
 type CustomerListFilter = "all" | "blocked" | "ready" | "expiring" | "unjoined";
@@ -1256,6 +1354,8 @@ export function App() {
   const [customerOnboardingPreview, setCustomerOnboardingPreview] = useState<CustomerOnboardingPreviewResponse | null>(null);
   const [customerOnboardingSessionState, setCustomerOnboardingSessionState] =
     useState<CustomerOnboardingSessionState>(emptyCustomerOnboardingSessionState);
+  const [customerOnboardingAttemptedCertificateBusinessNumbers, setCustomerOnboardingAttemptedCertificateBusinessNumbers] =
+    useState<string[]>([]);
   const [customerOnboardingNotice, setCustomerOnboardingNotice] = useState("");
   const [customerOnboardingError, setCustomerOnboardingError] = useState("");
   const [quickRegisterForm, setQuickRegisterForm] = useState<QuickRegisterFormState>(createQuickRegisterForm());
@@ -1288,6 +1388,13 @@ export function App() {
   });
   const deferredCustomerSearchQuery = useDeferredValue(customerSearchQuery);
   const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
+  const [helperSetupPreference, setHelperSetupPreference] = useState<{
+    organizationId: string | null;
+    completed: boolean;
+  }>({
+    organizationId: null,
+    completed: false
+  });
   const showCompletedOnboardingNav =
     onboardingNavPreference.organizationId === activeOrganizationId && onboardingNavPreference.showCompletedOnboardingNav;
   const customerImportHeaderOptions = customerImportFile
@@ -1560,6 +1667,9 @@ export function App() {
   const customerRenewalAssistantElectronicTaxCertificateCount = customerRenewalAssistantAllCertificates.filter(
     (certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax"
   ).length;
+  const helperSetupCompleted =
+    helperSetupPreference.organizationId === activeOrganizationId && helperSetupPreference.completed;
+  const helperOnboardingReady = (helperReady || helperSetupCompleted) && !helperUpgradeRequired;
 
   const settingsScreenState = useSettingsScreenState({
     activeOrganizationId,
@@ -1568,7 +1678,7 @@ export function App() {
     bootstrapSettings: data?.settings ?? null,
     busyKey,
     currentUserId: data?.auth.userId ?? null,
-    helperReady,
+    helperReady: helperOnboardingReady,
     helperCertificateCount: customerRenewalAssistantAllCertificates.length,
     customerRenewalAssistantOnline: customerRenewalAssistant?.agentOnline ?? false,
     customerRenewalAssistantUpgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
@@ -1632,7 +1742,7 @@ export function App() {
       setupPendingCount: settingsScreenState.setupPendingCount,
       nextSettingsSection: settingsScreenState.nextSettingsSection,
       settingsHealth,
-      helperReady,
+        helperReady: helperOnboardingReady,
       settingsAutosaveLabel: settingsScreenState.settingsAutosaveLabel,
       settingsAutosaveState: settingsScreenState.settingsAutosaveState
     },
@@ -1658,7 +1768,7 @@ export function App() {
           settingsScreenState.renewalCertificatePasswordConfigured
       },
       helper: {
-        ready: helperReady,
+        ready: helperOnboardingReady,
         online: customerRenewalAssistant?.agentOnline ?? false,
         certificateCount: customerRenewalAssistantAllCertificates.length,
         upgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
@@ -1697,7 +1807,7 @@ export function App() {
     busyKey,
     isMailTesting,
     helper: {
-      ready: helperReady,
+        ready: helperOnboardingReady,
       upgradeRequired: helperUpgradeRequired,
       upgradeAvailable: helperUpgradeAvailable,
       actionBlockedReason: helperActionBlockedReason,
@@ -1883,6 +1993,47 @@ export function App() {
       onboardingNavPreference.showCompletedOnboardingNav
     );
   }, [onboardingNavPreference]);
+
+  useEffect(() => {
+    if (!activeOrganizationId) {
+      setHelperSetupPreference({
+        organizationId: null,
+        completed: false
+      });
+      return;
+    }
+
+    setHelperSetupPreference({
+      organizationId: activeOrganizationId,
+      completed: readHelperSetupCompletedPreference(activeOrganizationId)
+    });
+  }, [activeOrganizationId]);
+
+  useEffect(() => {
+    if (!helperSetupPreference.organizationId) {
+      return;
+    }
+
+    writeHelperSetupCompletedPreference(
+      helperSetupPreference.organizationId,
+      helperSetupPreference.completed
+    );
+  }, [helperSetupPreference]);
+
+  useEffect(() => {
+    if (!activeOrganizationId || !helperReady) {
+      return;
+    }
+
+    setHelperSetupPreference((prev) =>
+      prev.organizationId === activeOrganizationId && prev.completed
+        ? prev
+        : {
+            organizationId: activeOrganizationId,
+            completed: true
+          }
+    );
+  }, [activeOrganizationId, helperReady]);
 
   useEffect(() => {
     if (!data) return;
@@ -2445,6 +2596,7 @@ export function App() {
     setCustomerOnboardingFileName("");
     setCustomerOnboardingWorkbook(null);
     setCustomerOnboardingPreview(null);
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
     setCustomerOnboardingSessionState({
       templateDownloaded: true,
       previewReady: false,
@@ -2458,6 +2610,7 @@ export function App() {
     setCustomerOnboardingFileName(result.fileName);
     setCustomerOnboardingWorkbook(result.workbook);
     setCustomerOnboardingPreview(result.preview);
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
     setCustomerOnboardingSessionState(result.sessionState);
     setCustomerOnboardingNotice(result.notice);
     setCustomerOnboardingError(result.error);
@@ -2494,6 +2647,7 @@ export function App() {
     }
 
     setCustomerOnboardingError("");
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
     const commitStart = await api<CustomerOnboardingCommitStartResponse>("/api/customer-onboarding/commit", {
       method: "POST",
       body: JSON.stringify({
@@ -2746,7 +2900,7 @@ export function App() {
   const createWorkspace = async () => {
     const managedCustomerLimit = Number(opsWorkspaceForm.managedCustomerLimit);
     if (!Number.isInteger(managedCustomerLimit) || managedCustomerLimit < 1) {
-      throw new Error("관리 고객 한도는 1 이상 숫자로 입력하세요.");
+      throw new Error("월 발행 한도는 1 이상 숫자로 입력하세요.");
     }
 
     const payload = {
@@ -2782,7 +2936,7 @@ export function App() {
     const managedCustomerLimit = Number(rawValue);
 
     if (!Number.isInteger(managedCustomerLimit) || managedCustomerLimit < 1) {
-      throw new Error("관리 고객 한도는 1 이상 숫자로 입력하세요.");
+      throw new Error("월 발행 한도는 1 이상 숫자로 입력하세요.");
     }
 
     const result = await api<OpsWorkspaceLimitUpdateResponse>(
@@ -2808,9 +2962,9 @@ export function App() {
       [workspace.organizationId]: String(result.workspace.managedCustomerLimit ?? "")
     }));
     await showAppAlert(
-      `${result.workspace.organizationName} 작업공간의 관리 고객 한도를 ${result.workspace.managedCustomerLimit ?? "-"}명으로 저장했습니다.`,
+      `${result.workspace.organizationName} 작업공간의 월 발행 한도를 ${result.workspace.managedCustomerLimit ?? "-"}건으로 저장했습니다.`,
       {
-        title: "관리 고객 한도 저장",
+        title: "월 발행 한도 저장",
         tone: "success"
       }
     );
@@ -4095,6 +4249,31 @@ export function App() {
             Boolean(customer && (customer.popbillState !== "joined" || !customer.popbillCertRegistered))
         )
     : popbillPendingCustomers;
+  const pendingOnboardingPopbillJoinCustomers = onboardingPendingCertificateCustomers.filter(
+    (customer) => customer.popbillState !== "joined"
+  );
+  const failedOnboardingPopbillJoinCustomers = onboardingPendingCertificateCustomers.filter(
+    (customer) => customer.popbillState === "failed"
+  );
+  const attemptedOnboardingCertificateBusinessNumberSet = new Set(
+    customerOnboardingAttemptedCertificateBusinessNumbers
+  );
+  const onboardingCertificateRetryCount = pendingOnboardingCertificateRegistrationTargets.filter((customer) =>
+    attemptedOnboardingCertificateBusinessNumberSet.has(digitsOnly(customer.businessNumber))
+  ).length;
+  const pendingOnboardingCertificateRegistrationSignature = pendingOnboardingCertificateRegistrationTargets
+    .map((customer) => digitsOnly(customer.businessNumber))
+    .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
+    .sort()
+    .join(",");
+  const onboardingHasUnattemptedCertificateAutoTargets =
+    pendingOnboardingCertificateRegistrationTargets.length > 0 &&
+    pendingOnboardingCertificateRegistrationTargets.some(
+      (customer) =>
+        !attemptedOnboardingCertificateBusinessNumberSet.has(
+          digitsOnly(customer.businessNumber)
+        )
+    );
   const selectedCustomer = customerForm.id ? data.customers.find((customer) => customer.id === customerForm.id) ?? null : null;
   const selectedCustomerReadiness = selectedCustomer
     ? customerReadinessMap.get(selectedCustomer.id) ?? getCustomerIssueReadiness(selectedCustomer)
@@ -4112,12 +4291,6 @@ export function App() {
   const customerRegistrationReady = hasRegisteredCustomers;
   const blockedCustomerCount = blockedIssueCustomers.length;
   const certAttentionCount = expiredCertCustomers.length + expiringSoonCustomers.length;
-  const activeOrganizationMembership =
-    data.auth.organizations.find((organization) => organization.organizationId === data.auth.activeOrganizationId) ?? null;
-  const managedCustomerLimit = activeOrganizationMembership?.managedCustomerLimit ?? null;
-  const managedCustomerCount = data.counts.customers;
-  const hasReachedManagedCustomerLimit =
-    managedCustomerLimit !== null && managedCustomerCount >= managedCustomerLimit;
   const opsAgent = opsConsole?.renewalAutomation.agent ?? null;
   const opsJobs = opsConsole?.renewalAutomation.jobs ?? [];
   const opsLogs = opsConsole?.logs ?? [];
@@ -4388,11 +4561,31 @@ export function App() {
     window.open(result, "_blank", "noopener,noreferrer");
   };
 
+  const openOnboardingPendingCustomerFollowUp = () => {
+    const firstPendingCustomer = onboardingPendingCertificateCustomers[0] ?? null;
+    setCustomerListFilter("unjoined");
+    if (firstPendingCustomer) {
+      selectCustomerForEdit(firstPendingCustomer);
+    }
+    setActiveTab("customers");
+  };
+
   const proceedOnboardingCertificateRegistration = async () => {
     const pendingCustomers = [...pendingOnboardingCertificateRegistrationTargets];
     if (pendingCustomers.length === 0) {
       throw new Error("팝빌 전자세금용 인증서 등록이 필요한 고객이 없습니다.");
     }
+
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers((prev) =>
+      Array.from(
+        new Set([
+          ...prev,
+          ...pendingCustomers
+            .map((customer) => digitsOnly(customer.businessNumber))
+            .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
+        ])
+      )
+    );
 
     const { completedNames, alreadyRegisteredNames, failedDetails, refreshWarnings } =
       await processElectronicTaxOnboardingCertificateRegistrations({
@@ -4418,7 +4611,7 @@ export function App() {
     settingsHealth.mailReady &&
     settingsHealth.popbillReady &&
     settingsHealth.operatorReady &&
-    helperReady &&
+    helperOnboardingReady &&
     onboardingCertificateReady;
   const onboardingImportableCount =
     (customerOnboardingPreview?.createCount ?? 0) + (customerOnboardingPreview?.updateCount ?? 0);
@@ -4427,6 +4620,11 @@ export function App() {
     helperReady,
     helperCertificateCount: customerRenewalAssistantAllCertificates.length,
     registrationReady: onboardingCustomerRegistrationReady,
+    certificateReady: onboardingCertificateReady,
+    certificateAutoTargetCount: pendingOnboardingCertificateRegistrationTargets.length,
+    certificatePendingJoinCount: pendingOnboardingPopbillJoinCustomers.length,
+    certificateFailedJoinCount: failedOnboardingPopbillJoinCustomers.length,
+    certificateRetryCount: onboardingCertificateRetryCount,
     templateDownloaded: customerOnboardingSessionState.templateDownloaded,
     previewReady: customerOnboardingSessionState.previewReady,
     commitDone: customerOnboardingSessionState.commitDone,
@@ -4442,15 +4640,49 @@ export function App() {
   const onboardingDefaultsContent = settingsOnboardingContent.defaultsContent;
   const onboardingHelperContent = settingsOnboardingContent.helperContent;
   const onboardingCertificateAutoTargetCount = pendingOnboardingCertificateRegistrationTargets.length;
+  const onboardingPendingPopbillJoinCount = pendingOnboardingPopbillJoinCustomers.length;
+  const onboardingFailedPopbillJoinCount = failedOnboardingPopbillJoinCustomers.length;
   const onboardingCertificateNeedsManualFollowUp =
-    onboardingCustomerRegistrationReady && onboardingCertificateAutoTargetCount === 0 && onboardingIssueSetupPendingCount > 0;
+    onboardingCustomerRegistrationReady &&
+    onboardingCertificateAutoTargetCount === 0 &&
+    onboardingIssueSetupPendingCount > 0;
   const onboardingCertificatePrimaryActionLabel = !onboardingCustomerRegistrationReady
     ? "먼저 고객 초기 등록 완료"
-    : onboardingCertificateAutoTargetCount > 0
-      ? "전자세금용 등록 마무리"
-      : onboardingIssueSetupPendingCount > 0
-        ? "인증서 관리 열기"
-        : "첫 메일 동기화 단계 보기";
+    : onboardingCertificateAutoTargetCount > 0 && onboardingCertificateRetryCount > 0
+      ? "전자세금용 등록 다시 시도"
+      : onboardingCertificateAutoTargetCount > 0
+        ? "전자세금용 등록 마무리"
+        : onboardingPendingPopbillJoinCount > 0
+          ? "팝빌 가입 완료 대기"
+          : onboardingFailedPopbillJoinCount > 0
+            ? "고객 관리에서 확인"
+            : onboardingIssueSetupPendingCount > 0
+              ? "인증서 관리로 이동"
+              : "첫 메일 동기화 단계 보기";
+  const onboardingCertificateActionDisabled =
+    busyKey !== null || !onboardingCustomerRegistrationReady || onboardingPendingPopbillJoinCount > 0;
+  const onboardingCertificateActionTitle = !onboardingCustomerRegistrationReady
+    ? "먼저 고객 초기 등록을 끝내세요."
+    : onboardingPendingPopbillJoinCount > 0
+      ? "팝빌 가입이 진행 중입니다. 가입이 끝나면 전자세금용 등록을 자동으로 이어서 처리합니다."
+      : undefined;
+  const proceedOnboardingCertificateFollowUpAction = () => {
+    if (onboardingCertificateAutoTargetCount > 0) {
+      void runAction(
+        "customer-onboarding-cert-registration",
+        proceedOnboardingCertificateRegistration,
+        { reload: false }
+      );
+      return;
+    }
+
+    if (onboardingIssueSetupPendingCount > 0) {
+      openOnboardingPendingCustomerFollowUp();
+      return;
+    }
+
+    setRequestedOnboardingStepId("first-sync");
+  };
   const onboardingCertificateCompletionContent = (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
@@ -4501,34 +4733,9 @@ export function App() {
         <div className="button-row onboarding-primary-row">
           <button
             type="button"
-            disabled={busyKey !== null || !onboardingCustomerRegistrationReady}
-            title={
-              !onboardingCustomerRegistrationReady
-                ? "먼저 고객 초기 등록을 끝내세요."
-                : undefined
-            }
-            onClick={() => {
-              if (onboardingCertificateAutoTargetCount > 0) {
-                void runAction(
-                  "customer-onboarding-cert-registration",
-                  proceedOnboardingCertificateRegistration,
-                  { reload: false }
-                );
-                return;
-              }
-
-              if (onboardingIssueSetupPendingCount > 0) {
-                const firstPendingCustomer = onboardingPendingCertificateCustomers[0] ?? null;
-                setCustomerListFilter("unjoined");
-                if (firstPendingCustomer) {
-                  selectCustomerForEdit(firstPendingCustomer);
-                }
-                setActiveTab("customers");
-                return;
-              }
-
-              setRequestedOnboardingStepId("first-sync");
-            }}
+            disabled={onboardingCertificateActionDisabled}
+            title={onboardingCertificateActionTitle}
+            onClick={proceedOnboardingCertificateFollowUpAction}
           >
             {busyKey === "customer-onboarding-cert-registration" && onboardingCertificateAutoTargetCount > 0
               ? "전자세금용 등록 마무리 중..."
@@ -4686,14 +4893,18 @@ export function App() {
       id: "helper",
       step: 3,
       title: "로컬 헬퍼 준비",
-      summary: helperReady ? `전자세금용 인증서 ${customerRenewalAssistantElectronicTaxCertificateCount}건` : "확인 필요",
-      primaryActionLabel: helperReady ? "전자세금용 공동인증서 읽기 완료" : "전자세금용 공동인증서 읽기",
+      summary: helperOnboardingReady
+        ? customerRenewalAssistantElectronicTaxCertificateCount > 0
+          ? `전자세금용 인증서 ${customerRenewalAssistantElectronicTaxCertificateCount}건`
+          : "이 PC에서 로컬 헬퍼 준비 완료"
+        : "확인 필요",
+      primaryActionLabel: helperOnboardingReady ? "전자세금용 공동인증서 읽기 완료" : "전자세금용 공동인증서 읽기",
       blockedReason: helperUpgradeRequired
         ? helperActionBlockedReason
         : customerRenewalAssistant?.agentOnline
           ? undefined
           : "헬퍼 실행 후 다시 확인하세요.",
-      done: helperReady,
+      done: helperOnboardingReady,
       content: onboardingHelperContent
     },
     {
@@ -4732,6 +4943,14 @@ export function App() {
           helperReady={helperReady}
           helperCertificateCount={customerRenewalAssistantElectronicTaxCertificateCount}
           registrationReady={onboardingCustomerRegistrationReady}
+          certificateReady={onboardingCertificateReady}
+          certificateAutoTargetCount={onboardingCertificateAutoTargetCount}
+          certificatePendingJoinCount={onboardingPendingPopbillJoinCount}
+          certificateFailedJoinCount={onboardingFailedPopbillJoinCount}
+          certificateRetryCount={onboardingCertificateRetryCount}
+          certificatePrimaryActionLabel={onboardingCertificatePrimaryActionLabel}
+          certificateActionDisabled={onboardingCertificateActionDisabled}
+          certificateActionTitle={onboardingCertificateActionTitle}
           registrationStage={onboardingRegistrationStage}
           registrationBlockedReason={onboardingRegistrationBlockedReason}
           registrationTemplateDownloaded={customerOnboardingSessionState.templateDownloaded}
@@ -4741,6 +4960,7 @@ export function App() {
           downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
           handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
           commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
+          proceedOnboardingCertificateFollowUp={proceedOnboardingCertificateFollowUpAction}
           setQuickRegisterForm={setQuickRegisterForm}
           selectQuickRegisterMessage={selectQuickRegisterMessage}
           submitQuickRegister={submitQuickRegister}
@@ -4818,6 +5038,14 @@ export function App() {
           completedBillingNotice={completedBillingNotice}
           helperReady={helperReady}
           helperCertificateCount={customerRenewalAssistantElectronicTaxCertificateCount}
+          certificateReady={onboardingCertificateReady}
+          certificateAutoTargetCount={onboardingCertificateAutoTargetCount}
+          certificatePendingJoinCount={onboardingPendingPopbillJoinCount}
+          certificateFailedJoinCount={onboardingFailedPopbillJoinCount}
+          certificateRetryCount={onboardingCertificateRetryCount}
+          certificatePrimaryActionLabel={onboardingCertificatePrimaryActionLabel}
+          certificateActionDisabled={onboardingCertificateActionDisabled}
+          certificateActionTitle={onboardingCertificateActionTitle}
           registrationTemplateDownloaded={customerOnboardingSessionState.templateDownloaded}
           registrationPreviewReady={customerOnboardingSessionState.previewReady}
           registrationCommitDone={customerOnboardingSessionState.commitDone}
@@ -4825,6 +5053,7 @@ export function App() {
           downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
           handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
           commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
+          proceedOnboardingCertificateFollowUp={proceedOnboardingCertificateFollowUpAction}
           setQuickRegisterForm={setQuickRegisterForm}
           selectQuickRegisterMessage={selectQuickRegisterMessage}
           submitQuickRegister={submitQuickRegister}
@@ -4900,7 +5129,7 @@ export function App() {
   const reopenOnboarding = () => {
     openOnboardingStep(firstPendingOnboardingStep?.id ?? onboardingCompletionSteps[0]?.id ?? null);
   };
-  const showOnboardingNavItem = hasActiveWorkspace && (!onboardingComplete || showCompletedOnboardingNav);
+  const showOnboardingNavItem = hasActiveWorkspace;
   const navItems: Array<{ id: TabId; label: string; icon: string }> = [
     ...(hasActiveWorkspace
         ? [
@@ -5362,6 +5591,19 @@ export function App() {
 
           {error ? <div className="alert error">{error}</div> : null}
 
+          <OnboardingCertificateAutoRunner
+            active={customerOnboardingSessionActive}
+            commitDone={customerOnboardingSessionState.commitDone}
+            hasWorkbook={customerOnboardingWorkbook !== null}
+            certificateReady={onboardingCertificateReady}
+            busyKey={busyKey}
+            hasUnattemptedTargets={onboardingHasUnattemptedCertificateAutoTargets}
+            pendingSignature={pendingOnboardingCertificateRegistrationSignature}
+            pendingJoinCount={onboardingPendingPopbillJoinCount}
+            triggerRegistration={proceedOnboardingCertificateFollowUpAction}
+            reload={load}
+          />
+
         {visibleActiveTab === "onboarding" ? (
           <div className="onboarding-screen">
             <div className={onboardingPendingStepCount > 0 ? "onboarding-wizard-shell" : "onboarding-wizard-shell is-muted"}>
@@ -5659,9 +5901,6 @@ export function App() {
             readyCustomerCount={readyNowCustomers.length}
             expiringSoonCustomerCount={expiringSoonCustomers.length}
             popbillPendingCustomerCount={popbillPendingCustomers.length}
-            managedCustomerCount={managedCustomerCount}
-            managedCustomerLimit={managedCustomerLimit}
-            hasReachedManagedCustomerLimit={hasReachedManagedCustomerLimit}
             busyKey={busyKey}
             isSavingCustomer={isSavingCustomer}
             customerSearchQuery={customerSearchQuery}
@@ -5831,7 +6070,7 @@ export function App() {
                       <span className="field-hint">이 작업공간을 쓰는 운영 주체의 선택 정보입니다. 관리 고객의 사업자번호와는 별개입니다.</span>
                     </label>
                     <label>
-                      관리 고객 한도
+                      월 발행 한도
                       <input
                         disabled={busyKey !== null}
                         type="number"
@@ -5841,7 +6080,7 @@ export function App() {
                         onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, managedCustomerLimit: event.target.value }))}
                         placeholder="예: 50"
                       />
-                      <span className="field-hint">이 고객사가 등록할 수 있는 최대 관리 고객 수입니다.</span>
+                      <span className="field-hint">이번 달에 발행할 수 있는 최대 세금계산서 건수입니다. 다음 달이 되면 다시 0건부터 집계됩니다.</span>
                     </label>
                     <label>
                       첫 owner 로그인 아이디
@@ -5948,11 +6187,11 @@ export function App() {
                               <span>멤버 {workspace.memberCount}명</span>
                               <span>플랜 {workspace.organizationPlanCode}</span>
                               <span>
-                                관리 고객 {workspace.managedCustomerCount}명
-                                {workspace.managedCustomerLimit !== null ? ` / 한도 ${workspace.managedCustomerLimit}명` : ""}
+                                이번 달 발행 {formatMoney(workspace.currentMonthIssuedDraftCount)}건
+                                {workspace.managedCustomerLimit !== null ? ` / 한도 ${workspace.managedCustomerLimit}건` : ""}
                               </span>
                               <span>누적 발행 {formatMoney(workspace.issuedDraftCount)}건</span>
-                              <span>이번 달 발행 {formatMoney(workspace.currentMonthIssuedDraftCount)}건</span>
+                              <span>등록 고객 {workspace.managedCustomerCount}명</span>
                               <span>
                                 누적 추정 사용 {workspaceEstimatedPointUsage !== null ? `${formatMoney(workspaceEstimatedPointUsage)}P` : "-"}
                               </span>
@@ -5972,14 +6211,14 @@ export function App() {
                               </button>
                             </div>
                             <div className="helper-box-stack">
-                              <strong>관리 고객 한도</strong>
+                              <strong>월 발행 한도</strong>
                               <div className="form-grid">
                                 <label>
-                                  현재 등록 고객
-                                  <input value={`${workspace.managedCustomerCount}명`} disabled />
+                                  이번 달 발행
+                                  <input value={`${workspace.currentMonthIssuedDraftCount}건`} disabled />
                                 </label>
                                 <label>
-                                  최대 등록 가능 수
+                                  최대 발행 가능 수
                                   <input
                                     type="number"
                                     min="1"

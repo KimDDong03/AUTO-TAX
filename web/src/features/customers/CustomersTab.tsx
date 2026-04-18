@@ -82,9 +82,6 @@ type CustomersTabProps = {
   readyCustomerCount: number;
   expiringSoonCustomerCount: number;
   popbillPendingCustomerCount: number;
-  managedCustomerCount: number;
-  managedCustomerLimit: number | null;
-  hasReachedManagedCustomerLimit: boolean;
   busyKey: string | null;
   isSavingCustomer: boolean;
   customerSearchQuery: string;
@@ -591,23 +588,11 @@ export function CustomersTab(props: CustomersTabProps) {
         label: "연결 필요",
         value: `${props.popbillPendingCustomerCount}명`,
         tone: props.popbillPendingCustomerCount > 0 ? ("warn" as CustomerConsoleTone) : ("success" as CustomerConsoleTone)
-      },
-      {
-        key: "managed",
-        label: "관리 한도",
-        value:
-          props.managedCustomerLimit !== null
-            ? `${props.managedCustomerCount} / ${props.managedCustomerLimit}`
-            : `${props.managedCustomerCount}명`,
-        tone: props.hasReachedManagedCustomerLimit ? ("warn" as CustomerConsoleTone) : ("default" as CustomerConsoleTone)
       }
     ],
     [
       props.blockedCustomerCount,
       props.customers.length,
-      props.hasReachedManagedCustomerLimit,
-      props.managedCustomerCount,
-      props.managedCustomerLimit,
       props.popbillPendingCustomerCount,
       props.readyCustomerCount
     ]
@@ -640,7 +625,6 @@ export function CustomersTab(props: CustomersTabProps) {
       onSubmit={(event) => {
         event.preventDefault();
         if (props.busyKey !== null) return;
-        if (mode === "create" && props.hasReachedManagedCustomerLimit) return;
         void props.runAction(
           props.customerForm.id === null ? "save-customer" : `save-customer-${props.customerForm.id}`,
           props.onSaveCustomer
@@ -738,14 +722,12 @@ export function CustomersTab(props: CustomersTabProps) {
       <div className="customer-form-actions">
         <span className="field-hint">
           {mode === "create"
-            ? props.hasReachedManagedCustomerLimit
-              ? "관리 고객 한도에 도달했습니다."
-              : "필수 4개부터 저장 후 나머지를 이어서 입력할 수 있습니다."
+            ? "필수 4개부터 저장 후 나머지를 이어서 입력할 수 있습니다."
             : props.isSavingCustomer
               ? "고객 정보를 저장하고 있습니다."
               : "수정 후 저장합니다."}
         </span>
-        <button type="submit" disabled={(mode === "create" && props.hasReachedManagedCustomerLimit) || props.busyKey !== null}>
+        <button type="submit" disabled={props.busyKey !== null}>
           {mode === "create"
             ? props.isSavingCustomer
               ? "고객 등록 중..."
@@ -816,7 +798,7 @@ export function CustomersTab(props: CustomersTabProps) {
               <strong>{customerListEmptyState.title}</strong>
               <p>{customerListEmptyState.body}</p>
               <div className="customer-console-empty-actions">
-                <button type="button" onClick={handleCreateCustomer} disabled={props.hasReachedManagedCustomerLimit}>
+                <button type="button" onClick={handleCreateCustomer}>
                   새 고객 등록
                 </button>
               </div>
@@ -1123,11 +1105,6 @@ export function CustomersTab(props: CustomersTabProps) {
 
       <div className="customer-console-drawer-status-strip">
         <span className={requiredCompletedCount === customerRequiredFieldChecks.length ? getToneBadgeClass("success") : getToneBadgeClass("warn")}>저장 준비 {requiredCompletedCount}/4</span>
-        <span className={getToneBadgeClass(props.hasReachedManagedCustomerLimit ? "warn" : "default")}>
-          {props.managedCustomerLimit !== null
-            ? `관리 고객 ${props.managedCustomerCount} / ${props.managedCustomerLimit}`
-            : `관리 고객 ${props.managedCustomerCount}명`}
-        </span>
       </div>
 
       <div className="customer-console-drawer-body">
@@ -1137,7 +1114,6 @@ export function CustomersTab(props: CustomersTabProps) {
               <h3>등록 가이드</h3>
               <p>대표자명, 사업자번호, 상호, 주소를 먼저 저장한 뒤 추가 정보를 보강하세요.</p>
             </div>
-            {props.hasReachedManagedCustomerLimit ? <span className={getToneBadgeClass("warn")}>한도 도달</span> : null}
           </div>
           {renderCustomerForm("create")}
         </section>
@@ -1159,7 +1135,6 @@ export function CustomersTab(props: CustomersTabProps) {
             </div>
             <div className="customer-console-header-actions">
               {props.expiredCertCustomers.length > 0 ? <span className={getToneBadgeClass("danger")}>만료 {props.expiredCertCustomers.length}명</span> : null}
-              {props.hasReachedManagedCustomerLimit ? <span className={getToneBadgeClass("warn")}>한도 도달</span> : null}
               <button
                 type="button"
                 className="btn-secondary"
@@ -1168,7 +1143,7 @@ export function CustomersTab(props: CustomersTabProps) {
               >
                 인증서 일괄 점검
               </button>
-              <button type="button" disabled={props.hasReachedManagedCustomerLimit} onClick={handleCreateCustomer}>
+              <button type="button" onClick={handleCreateCustomer}>
                 새 고객
               </button>
             </div>

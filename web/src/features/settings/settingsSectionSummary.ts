@@ -54,7 +54,9 @@ export function buildSettingsSectionSummary({
       title: "헬퍼 상태",
       done: helperReady,
       summary: helperReady
-        ? `준비됨 · ${helperCertificateCount}건 읽음`
+        ? customerRenewalAssistantOnline && helperCertificateCount > 0
+          ? `준비됨 · ${helperCertificateCount}건 읽음`
+          : "준비됨 · 이전 설정 유지"
         : customerRenewalAssistantUpgradeState === "upgrade-required"
           ? "재설치 필요"
           : customerRenewalAssistantOnline

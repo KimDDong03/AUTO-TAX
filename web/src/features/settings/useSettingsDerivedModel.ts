@@ -195,7 +195,9 @@ export function buildSettingsOnboardingModel({
     normalizeRenewalIssuePasswordInput(fields.renewalIssuePassword).length === 0 &&
     !configured.renewalIssuePasswordConfigured;
   const onboardingHelperStatusLine = helper.ready
-    ? `인증서 ${helper.certificateCount}건 읽음`
+    ? helper.online && helper.certificateCount > 0
+      ? `인증서 ${helper.certificateCount}건 읽음`
+      : "이 PC에서 로컬 헬퍼 준비를 완료했습니다."
     : helper.upgradeState === "upgrade-required"
       ? helper.actionBlockedReason
       : helper.upgradeState === "upgrade-available" && helper.upgradeMessage

@@ -246,20 +246,6 @@ export function registerOpsRoutes(deps: RouteDeps) {
     const payload = opsWorkspaceLimitUpdateSchema.parse(req.body ?? {});
     const adminClient = createSupabaseAdminClient();
 
-    const { count: managedCustomerCount, error: countError } = await adminClient
-      .from("managed_customers")
-      .select("*", { count: "exact", head: true })
-      .eq("organization_id", params.organizationId);
-
-    if (countError) {
-      throw new Error(`현재 관리 고객 수 확인에 실패했습니다: ${countError.message}`);
-    }
-
-    const currentCount = managedCustomerCount ?? 0;
-    if (payload.managedCustomerLimit < currentCount) {
-      throw new HttpError(400, `현재 등록된 관리 고객이 ${currentCount}명이라 ${payload.managedCustomerLimit}명으로 낮출 수 없습니다.`);
-    }
-
     const { error: updateError } = await adminClient
       .from("organizations")
       .update({
@@ -268,7 +254,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
       .eq("id", params.organizationId);
 
     if (updateError) {
-      throw new Error(`관리 고객 한도 저장에 실패했습니다: ${updateError.message}`);
+      throw new Error(`월 발행 한도 저장에 실패했습니다: ${updateError.message}`);
     }
 
     const workspace = await getOpsWorkspaceSummaryById(params.organizationId);

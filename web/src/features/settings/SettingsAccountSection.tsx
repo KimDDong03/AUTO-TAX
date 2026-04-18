@@ -17,7 +17,7 @@ export function SettingsAccountSection({
         title="도입 준비 메뉴"
         subtitle={
           model.onboarding.complete
-            ? "완료 후 자동 숨김 / 필요 시 다시 열기"
+            ? "완료 후에도 보조 메뉴에서 다시 열 수 있습니다"
             : `진행 중 · 남은 ${model.onboarding.pendingStepCount}단계`
         }
         actions={
@@ -32,24 +32,10 @@ export function SettingsAccountSection({
       >
         <div className="helper-box-stack">
           <strong>{model.onboarding.progressText}</strong>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={model.onboarding.showCompletedOnboardingNav}
-              onChange={(event) =>
-                model.onboarding.onShowCompletedOnboardingNavChange(
-                  event.target.checked
-                )
-              }
-            />
-            <span>완료된 도입 준비 메뉴 계속 표시</span>
-          </label>
           <span className="field-hint">
             {model.onboarding.complete
-              ? model.onboarding.showCompletedOnboardingNav
-                ? "현재는 도입 준비가 완료된 뒤에도 사이드바에 계속 표시됩니다."
-                : "현재는 도입 준비가 완료되어 사이드바에서 자동으로 숨겨집니다."
-              : "진행 중에는 메뉴가 계속 보이며, 이 토글은 완료된 뒤의 표시 여부를 기억합니다."}
+              ? "이제 도입 준비는 사이드바 보조 메뉴에 계속 남아 언제든 다시 확인할 수 있습니다."
+              : "진행 중에는 보조 메뉴에서 계속 보이며, 완료 후에도 다시 열 수 있습니다."}
           </span>
         </div>
       </Panel>

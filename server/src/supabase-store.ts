@@ -98,6 +98,30 @@ function latestTimestamp(left: string, right: string): string {
   return new Date(left).getTime() >= new Date(right).getTime() ? left : right;
 }
 
+function getCurrentSeoulYearMonth(): { year: number; month: number } {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit"
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = Number(parts.find((part) => part.type === "year")?.value ?? "0");
+  const month = Number(parts.find((part) => part.type === "month")?.value ?? "0");
+  return { year, month };
+}
+
+function buildSeoulMonthRange(): { startIso: string; endIso: string } {
+  const { year, month } = getCurrentSeoulYearMonth();
+  const nextMonthYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const pad = (value: number) => String(value).padStart(2, "0");
+
+  return {
+    startIso: `${year}-${pad(month)}-01T00:00:00+09:00`,
+    endIso: `${nextMonthYear}-${pad(nextMonth)}-01T00:00:00+09:00`
+  };
+}
+
 function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
   const settingsUpdatedAt = asString(settingsRow.updated_at, nowIso());
   const integrationUpdatedAt = asString(integrationRow.updated_at, settingsUpdatedAt);
@@ -605,6 +629,28 @@ export class SupabaseStore implements AppStore {
 
     this.managedCustomerLimitCache = asNumber(value);
     return this.managedCustomerLimitCache;
+  }
+
+  async getMonthlyIssueLimit(): Promise<number | null> {
+    return await this.getManagedCustomerLimit();
+  }
+
+  async getCurrentMonthIssuedDraftCount(): Promise<number> {
+    await this.initialize();
+    const { startIso, endIso } = buildSeoulMonthRange();
+    const { count, error } = await this.client
+      .from("invoice_drafts")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", this.requireOrganizationId())
+      .eq("status", "issued")
+      .gte("issued_at", startIso)
+      .lt("issued_at", endIso);
+
+    if (error) {
+      throw new Error(`이번 달 발행 건수 조회 실패: ${error.message}`);
+    }
+
+    return count ?? 0;
   }
 
   private async getManagedCustomerRowByLegacyId(customerId: number): Promise<Row | null> {
@@ -1303,21 +1349,6 @@ export class SupabaseStore implements AppStore {
         this.client.from("managed_customer_match_addresses").delete().eq("managed_customer_id", asString(current.id))
       );
     } else {
-      const [managedCustomerLimit, existingCustomerCountResult] = await Promise.all([
-        this.getManagedCustomerLimit(),
-        this.client
-          .from("managed_customers")
-          .select("*", { count: "exact", head: true })
-          .eq("organization_id", organizationId)
-      ]);
-      if (existingCustomerCountResult.error) {
-        throw new Error(`현재 관리 고객 수 조회 실패: ${existingCustomerCountResult.error.message}`);
-      }
-      const currentCustomerCount = existingCustomerCountResult.count ?? 0;
-      if (managedCustomerLimit !== null && currentCustomerCount >= managedCustomerLimit) {
-        throw new Error(`관리 고객 등록 한도(${managedCustomerLimit}명)를 초과했습니다. 플랫폼 관리자에게 한도 상향을 요청하세요.`);
-      }
-
       const insertPayload = {
         organization_id: organizationId,
         customer_name: input.customerName,

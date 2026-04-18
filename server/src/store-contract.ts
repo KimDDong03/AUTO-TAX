@@ -85,6 +85,8 @@ export interface AppStore {
   }): Promise<InboxMessage>;
   getDraft(draftId: number): Promise<InvoiceDraft | null>;
   listDrafts(): Promise<InvoiceDraft[]>;
+  getMonthlyIssueLimit?(): Promise<number | null>;
+  getCurrentMonthIssuedDraftCount?(): Promise<number>;
   listInbox(): Promise<InboxMessage[]>;
   listLogs(): Promise<LogEntry[]>;
   updateDraftStatus(
