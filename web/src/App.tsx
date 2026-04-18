@@ -47,7 +47,7 @@ import type {
   RenewalAutomationPayload
 } from "./types";
 
-type TabId = "onboarding" | "home" | "customers" | "settings" | "ops";
+type TabId = "onboarding" | "home" | "customers" | "certificates" | "settings" | "ops";
 type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
 type CustomerDetailTabId = "info" | "history";
 type CustomerListFilter = "all" | "blocked" | "ready" | "expiring" | "unjoined";
@@ -658,7 +658,11 @@ function getTabFromHash(hash: string): TabId | null {
     return "home";
   }
 
-  if (value === "certificates" || value === "settings") {
+  if (value === "certificates") {
+    return "certificates";
+  }
+
+  if (value === "settings") {
     return "settings";
   }
 
@@ -688,14 +692,14 @@ function resolveWorkspaceTab(
       return "home";
     }
 
-    if (requestedTab === "home" || requestedTab === "customers" || requestedTab === "settings") {
+    if (requestedTab === "home" || requestedTab === "customers" || requestedTab === "certificates" || requestedTab === "settings") {
       return requestedTab;
     }
 
     return "home";
   }
 
-  if (requestedTab === "settings") {
+  if (requestedTab === "settings" || requestedTab === "certificates") {
     return "settings";
   }
 
@@ -6408,6 +6412,8 @@ export function App() {
     customerOnboardingWorkbook !== null ||
     customerOnboardingPreview !== null ||
     customerOnboardingFileName.trim() !== "";
+  const onboardingCertificateFollowUpActive =
+    customerOnboardingSessionActive || (hasRegisteredCustomers && popbillPendingCustomers.length > 0);
   const onboardingCustomerRegistrationReady = customerOnboardingSessionActive
     ? customerOnboardingSessionState.commitDone
     : hasRegisteredCustomers;
@@ -7470,8 +7476,12 @@ export function App() {
               }
 
               if (onboardingIssueSetupPendingCount > 0) {
-                setActiveSettingsSection("helper");
-                setActiveTab("settings");
+                const firstPendingCustomer = onboardingPendingCertificateCustomers[0] ?? null;
+                setCustomerListFilter("unjoined");
+                if (firstPendingCustomer) {
+                  selectCustomerForEdit(firstPendingCustomer);
+                }
+                setActiveTab("customers");
                 return;
               }
 
@@ -7808,14 +7818,14 @@ export function App() {
     "defaults",
     "helper",
     "registration",
-    ...(customerOnboardingSessionActive ? (["certificate"] as const) : [])
+    ...(onboardingCertificateFollowUpActive ? (["certificate"] as const) : [])
   ]);
   const onboardingSetupSteps = onboardingSteps.filter((step) => onboardingSetupStepIds.has(step.id));
   const onboardingCompletionStepIds = new Set([
     "mail",
     "defaults",
     "registration",
-    ...(customerOnboardingSessionActive ? (["certificate"] as const) : [])
+    ...(onboardingCertificateFollowUpActive ? (["certificate"] as const) : [])
   ]);
   const onboardingCompletionSteps = onboardingSteps.filter((step) => onboardingCompletionStepIds.has(step.id));
   const onboardingSetupCompletedCount = onboardingCompletionSteps.filter((step) => step.done).length;
@@ -7847,6 +7857,7 @@ export function App() {
         ? [
             { id: "home" as const, label: "홈", icon: "dashboard" },
             { id: "customers" as const, label: "고객", icon: "group" },
+            { id: "certificates" as const, label: "인증서", icon: "certificate" },
             { id: "settings" as const, label: "설정", icon: "settings" }
           ]
         : [
@@ -8068,6 +8079,35 @@ export function App() {
         { label: "막힘", value: `${blockedCustomerCount}명`, tone: blockedCustomerCount > 0 ? "danger" : "success" },
         { label: "발행 가능", value: `${readyNowCustomers.length}명`, tone: readyNowCustomers.length > 0 ? "success" : "default" },
         { label: "연결 마무리", value: `${popbillPendingCustomers.length}명`, tone: popbillPendingCustomers.length > 0 ? "warn" : "success" }
+      ]
+    },
+    certificates: {
+      title: helperReady ? "공동인증서 연결 / 갱신 준비" : "공동인증서 확인 필요",
+      primaryActionLabel: helperReady ? "인증서 불러오기" : "헬퍼 확인",
+      onPrimaryAction: () => {
+        if (!helperReady) {
+          setActiveSettingsSection("helper");
+          setActiveTab("settings");
+          return;
+        }
+        void runAction("load-customer-renewal-certificates", loadCustomerRenewalCertificates, { reload: false });
+      },
+      chips: [
+        {
+          label: "로컬 인증서",
+          value: `${customerRenewalAssistantAllCertificates.length}건`,
+          tone: customerRenewalAssistantAllCertificates.length > 0 ? "success" : "warn"
+        },
+        {
+          label: "연결 대상",
+          value: `${customerCertificateItems.length}건`,
+          tone: customerCertificateItems.length > 0 ? "default" : "warn"
+        },
+        {
+          label: "헬퍼",
+          value: helperReady ? "준비됨" : "확인 필요",
+          tone: helperReady ? "success" : "warn"
+        }
       ]
     },
     settings: {
@@ -8695,6 +8735,11 @@ export function App() {
               getWorkspaceMemberRoleLabel={getWorkspaceMemberRoleLabel}
               formatDateTime={formatDateTime}
             />
+          </div>
+        ) : null}
+
+        {visibleActiveTab === "certificates" ? (
+          <div className="settings-screen">
             <CertificatesTab
               customers={data.customers}
               busyKey={busyKey}
