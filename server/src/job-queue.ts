@@ -1,16 +1,23 @@
 import { z } from "zod";
 import { issueDraftNow } from "./automation.js";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
+import { getErrorMessage } from "./http-errors.js";
 import { syncMailbox } from "./mail-sync.js";
 import { sendNotification } from "./notifier.js";
 import { getServerManagedSettings } from "./server-managed-settings.js";
 import { runCustomerOnboardingCommitBatch } from "./services/customer-onboarding-batch-service.js";
+import { autoJoinCustomerPopbill } from "./services/popbill-customer-service.js";
 import { createSupabaseAdminClient } from "./supabase.js";
 import { SupabaseStore } from "./supabase-store.js";
 import { nowIso } from "./utils.js";
 
 type Row = Record<string, unknown>;
-type QueueJobType = "mail-sync" | "auto-issue" | "certificate-check" | "customer-onboarding-commit";
+type QueueJobType =
+  | "mail-sync"
+  | "auto-issue"
+  | "certificate-check"
+  | "customer-onboarding-commit"
+  | "customer-popbill-auto-join";
 type QueueJobStatus = "queued" | "claimed" | "completed" | "failed" | "cancelled";
 
 type QueueJob = {
@@ -74,6 +81,10 @@ export type JobRunResult = {
 
 const autoIssuePayloadSchema = z.object({
   draftId: z.number().int().positive()
+});
+
+const customerPopbillAutoJoinPayloadSchema = z.object({
+  customerId: z.number().int().positive()
 });
 
 function asString(value: unknown, fallback = ""): string {
@@ -194,6 +205,8 @@ function getRetryPolicy(jobType: QueueJobType): { maxRetries: number; delayMinut
       return { maxRetries: 1, delayMinutes: 30 };
     case "customer-onboarding-commit":
       return { maxRetries: 1, delayMinutes: 1 };
+    case "customer-popbill-auto-join":
+      return { maxRetries: 2, delayMinutes: 3 };
     default:
       return { maxRetries: 0, delayMinutes: 0 };
   }
@@ -753,6 +766,14 @@ async function executeCustomerOnboardingCommitJob(job: QueueJob): Promise<Record
   }
 
   const result = await runCustomerOnboardingCommitBatch(batchId);
+  setImmediate(() => {
+    void runDueJobs({
+      limit: 25,
+      claimedBy: "customer-onboarding-followup"
+    }).catch(() => {
+      /* best-effort follow-up runner for queued customer popbill auto-join jobs */
+    });
+  });
   return {
     batchId,
     status: result.status,
@@ -760,6 +781,36 @@ async function executeCustomerOnboardingCommitJob(job: QueueJob): Promise<Record
     totalRows: result.totalRows,
     successCount: result.successCount,
     failedCount: result.failedCount
+  };
+}
+
+async function executeCustomerPopbillAutoJoinJob(job: QueueJob): Promise<Record<string, unknown>> {
+  const payload = customerPopbillAutoJoinPayloadSchema.parse(job.payload ?? {});
+  const store = new SupabaseStore({
+    organizationId: job.organizationId,
+    bootstrapOrganization: false
+  });
+  await store.initialize();
+
+  const customer = await store.getCustomer(payload.customerId);
+  if (!customer) {
+    return {
+      skipped: true,
+      reason: "customer-not-found",
+      customerId: payload.customerId
+    };
+  }
+
+  const result = await autoJoinCustomerPopbill(store, customer, getServerManagedSettings, getErrorMessage);
+  if (result.status === "failed") {
+    throw new Error(result.error ?? "팝빌 자동 가입에 실패했습니다.");
+  }
+
+  return {
+    customerId: result.customer.id,
+    status: result.status,
+    popbillState: result.customer.popbillState,
+    popbillUserId: result.customer.popbillUserId ?? null
   };
 }
 
@@ -775,6 +826,9 @@ async function executeJob(job: QueueJob): Promise<Record<string, unknown>> {
   }
   if (job.jobType === "customer-onboarding-commit") {
     return executeCustomerOnboardingCommitJob(job);
+  }
+  if (job.jobType === "customer-popbill-auto-join") {
+    return executeCustomerPopbillAutoJoinJob(job);
   }
   throw new Error(`지원하지 않는 job_type입니다: ${job.jobType}`);
 }

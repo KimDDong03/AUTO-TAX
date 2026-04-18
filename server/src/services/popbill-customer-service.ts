@@ -1,12 +1,19 @@
 import type { AppSettings, Customer } from "../domain.js";
 import { checkIsMember, joinMember, PopbillApiError } from "../popbill-client.js";
+import { createSupabaseAdminClient } from "../supabase.js";
 import type { AppStore } from "../store-contract.js";
+import { nowIso } from "../utils.js";
 import { buildPopbillUserId } from "../utils.js";
 
 export type AutoJoinCustomerResult = {
   customer: Customer;
   status: "already-joined" | "linked-existing-member" | "joined" | "linked-after-duplicate-check" | "failed";
   error?: string;
+};
+
+export type QueueAutoJoinCustomerJobResult = {
+  status: "already-joined" | "queued" | "already-queued" | "failed";
+  error?: string | null;
 };
 
 const AUTO_JOIN_POPBILL_MAX_ID_RETRIES = 5;
@@ -25,6 +32,63 @@ function isPopbillUserIdConflictError(errorMessage: string): boolean {
 function buildPopbillRetryUserId(prefix: string, customerId: number, attempt: number): string {
   const base = buildPopbillUserId(prefix, customerId);
   return attempt <= 0 ? base : `${base}_${attempt + 1}`;
+}
+
+export async function queueAutoJoinCustomerPopbillJob(options: {
+  organizationId: string;
+  requestedByUserId: string | null;
+  customer: Customer;
+}): Promise<QueueAutoJoinCustomerJobResult> {
+  if (options.customer.popbillState === "joined") {
+    return { status: "already-joined" };
+  }
+
+  const client = createSupabaseAdminClient();
+  const openJob = await client
+    .from("job_queue")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", options.organizationId)
+    .eq("job_type", "customer-popbill-auto-join")
+    .contains("payload", { customerId: options.customer.id })
+    .in("status", ["queued", "claimed"]);
+
+  if (openJob.error) {
+    return {
+      status: "failed",
+      error: `팝빌 자동 가입 대기열 확인 실패: ${openJob.error.message}`
+    };
+  }
+
+  if ((openJob.count ?? 0) > 0) {
+    return { status: "already-queued" };
+  }
+
+  const queued = await client
+    .from("job_queue")
+    .insert({
+      organization_id: options.organizationId,
+      managed_customer_id: null,
+      job_type: "customer-popbill-auto-join",
+      status: "queued",
+      run_after: nowIso(),
+      requested_by: options.requestedByUserId,
+      payload: {
+        customerId: options.customer.id,
+        customerName: options.customer.customerName,
+        businessNumber: options.customer.businessNumber
+      }
+    })
+    .select("id")
+    .single();
+
+  if (queued.error) {
+    return {
+      status: "failed",
+      error: `팝빌 자동 가입 작업 등록 실패: ${queued.error.message}`
+    };
+  }
+
+  return { status: "queued" };
 }
 
 export async function autoJoinCustomerPopbill(

@@ -4240,7 +4240,7 @@ export function App() {
       result.warnings.length > 0 || autoLinkResult.warnings.length > 0
         ? `\n경고 ${result.warnings.length + autoLinkResult.warnings.length}건은 아래 메시지에서 확인하세요.`
         : "";
-    setCustomerOnboardingNotice(summary + autoLinkSummary + warningSummary);
+    setCustomerOnboardingNotice(summary + autoLinkSummary + warningSummary + "\n팝빌 자동 가입은 백그라운드에서 이어서 처리됩니다.");
 
     const failedMessages = result.failedRows.map((row) => `${row.rowIndex}행: ${row.message}`);
     const warningMessages = result.warnings.map((warning) => `${warning.rowIndex}행: ${warning.message}`);
