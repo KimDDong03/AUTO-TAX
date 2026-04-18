@@ -37,15 +37,15 @@ function readHelperReleaseConfig() {
   const releasedAt = typeof config.releasedAt === "string" ? config.releasedAt.trim() : "";
 
   if (!latestVersion) {
-    throw new Error(`로컬 헬퍼 release metadata의 version이 비어 있습니다: ${helperReleaseSourcePath}`);
+    throw new Error(`Local helper release metadata is missing version: ${helperReleaseSourcePath}`);
   }
 
   if (!minSupportedVersion) {
-    throw new Error(`로컬 헬퍼 release metadata의 minSupportedVersion이 비어 있습니다: ${helperReleaseSourcePath}`);
+    throw new Error(`Local helper release metadata is missing minSupportedVersion: ${helperReleaseSourcePath}`);
   }
 
   if (!releasedAt) {
-    throw new Error(`로컬 헬퍼 release metadata의 releasedAt이 비어 있습니다: ${helperReleaseSourcePath}`);
+    throw new Error(`Local helper release metadata is missing releasedAt: ${helperReleaseSourcePath}`);
   }
 
   return {
@@ -70,7 +70,7 @@ function resetDir(dirPath) {
     fs.rmSync(dirPath, { recursive: true, force: true });
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "EBUSY") {
-      throw new Error(`${dirPath} 폴더가 사용 중입니다. 로컬 헬퍼가 실행 중이면 먼저 종료한 뒤 다시 패키징하세요.`);
+      throw new Error(`${dirPath} is busy. Stop the local helper first, then package it again.`);
     }
     throw error;
   }
@@ -91,12 +91,12 @@ function writePackageReadme() {
   const content = [
     "AUTO-TAX Renewal Local Helper",
     "",
-    "1. this folder 전체를 고객 PC에 복사합니다.",
-    "2. scripts\\renewal-helper-install.cmd 를 더블클릭합니다.",
-    "3. 설치 후 바탕화면의 AUTO-TAX Helper Start / Stop / Status 바로가기를 사용합니다.",
-    "4. Disable Autostart는 로그인 자동실행만 끄고 Start / Stop / Status 바로가기는 유지합니다.",
+    "1. Copy this folder to the customer PC.",
+    "2. Run scripts\\renewal-helper-install.cmd.",
+    "3. After install, use AUTO-TAX Helper Start / Stop / Status shortcuts as needed.",
+    "4. Disable Autostart only removes logon autostart. Start / Stop / Status shortcuts stay available.",
     "",
-    "직접 실행 명령:",
+    "Manual commands:",
     "  scripts\\renewal-helper-start.cmd",
     "  scripts\\renewal-helper-stop.cmd",
     "  scripts\\renewal-helper-status.cmd",
@@ -120,7 +120,9 @@ function writeZipArchive() {
   });
 
   if (result.status !== 0) {
-    throw new Error(`renewal helper zip 생성에 실패했습니다: ${result.stderr?.trim() || result.stdout?.trim() || "powershell 실패"}`);
+    throw new Error(
+      `Failed to create renewal helper zip: ${result.stderr?.trim() || result.stdout?.trim() || "PowerShell failed"}`
+    );
   }
 }
 
@@ -149,7 +151,7 @@ async function buildBundle() {
 function copyRuntime() {
   const nodeExe = process.execPath;
   if (!fs.existsSync(nodeExe)) {
-    throw new Error(`node.exe를 찾지 못했습니다: ${nodeExe}`);
+    throw new Error(`Could not find node.exe: ${nodeExe}`);
   }
 
   copyRecursive(nodeExe, path.join(runtimeDir, "node.exe"));
@@ -160,7 +162,7 @@ function copyPlaywrightRuntime() {
   const playwrightCoreDir = path.join(repoRoot, "node_modules", "playwright-core");
 
   if (!fs.existsSync(playwrightDir) || !fs.existsSync(playwrightCoreDir)) {
-    throw new Error("playwright 또는 playwright-core 모듈을 찾지 못했습니다. npm install 후 다시 시도하세요.");
+    throw new Error("Could not find playwright or playwright-core. Run npm install and try again.");
   }
 
   copyRecursive(playwrightDir, path.join(appNodeModulesDir, "playwright"));
@@ -185,25 +187,52 @@ function copyScripts() {
       "@echo off",
       "setlocal",
       "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0install-renewal-local-helper-autostart.ps1\" -StartNow",
+      "if errorlevel 1 goto :fail",
       "echo.",
       "echo AUTO-TAX renewal helper install completed.",
-      "pause"
+      "pause",
+      "exit /b 0",
+      "",
+      ":fail",
+      "set \"_exit=%errorlevel%\"",
+      "echo.",
+      "echo AUTO-TAX renewal helper install failed.",
+      "pause",
+      "exit /b %_exit%"
     ],
     "renewal-helper-start.cmd": [
       "@echo off",
       "setlocal",
       "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0start-renewal-local-helper.ps1\" -Detached",
+      "if errorlevel 1 goto :fail",
       "echo.",
       "echo AUTO-TAX renewal helper started.",
-      "pause"
+      "pause",
+      "exit /b 0",
+      "",
+      ":fail",
+      "set \"_exit=%errorlevel%\"",
+      "echo.",
+      "echo AUTO-TAX renewal helper start failed.",
+      "pause",
+      "exit /b %_exit%"
     ],
     "renewal-helper-stop.cmd": [
       "@echo off",
       "setlocal",
       "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0stop-renewal-local-helper.ps1\"",
+      "if errorlevel 1 goto :fail",
       "echo.",
       "echo AUTO-TAX renewal helper stopped.",
-      "pause"
+      "pause",
+      "exit /b 0",
+      "",
+      ":fail",
+      "set \"_exit=%errorlevel%\"",
+      "echo.",
+      "echo AUTO-TAX renewal helper stop failed.",
+      "pause",
+      "exit /b %_exit%"
     ],
     "renewal-helper-status.cmd": [
       "@echo off",
@@ -214,9 +243,18 @@ function copyScripts() {
       "@echo off",
       "setlocal",
       "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0uninstall-renewal-local-helper-autostart.ps1\"",
+      "if errorlevel 1 goto :fail",
       "echo.",
       "echo AUTO-TAX renewal helper autostart removed. Start/Stop/Status shortcuts stay available.",
-      "pause"
+      "pause",
+      "exit /b 0",
+      "",
+      ":fail",
+      "set \"_exit=%errorlevel%\"",
+      "echo.",
+      "echo AUTO-TAX renewal helper autostart removal failed.",
+      "pause",
+      "exit /b %_exit%"
     ]
   };
 

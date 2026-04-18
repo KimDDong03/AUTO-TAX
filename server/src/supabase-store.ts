@@ -445,6 +445,10 @@ export class SupabaseStore implements AppStore {
   private readonly bootstrapOrganization: boolean;
   private organizationId: string | null = null;
   private initialized = false;
+  private settingsRowsCache: { settingsRow: Row; integrationRow: Row } | null = null;
+  private managedCustomerLimitCache: number | null | undefined = undefined;
+  private managedCustomerRowCache = new Map<number, Row | null>();
+  private customerCache = new Map<number, Customer | null>();
 
   constructor(options: SupabaseStoreOptions = {}) {
     this.client = createSupabaseAdminClient();
@@ -523,7 +527,45 @@ export class SupabaseStore implements AppStore {
     return this.organizationId;
   }
 
+  private invalidateSettingsCache(): void {
+    this.settingsRowsCache = null;
+  }
+
+  private cacheManagedCustomerRow(customerId: number, row: Row | null): void {
+    this.managedCustomerRowCache.set(customerId, row);
+  }
+
+  private cacheCustomer(customer: Customer | null): void {
+    if (!customer) {
+      return;
+    }
+    this.customerCache.set(customer.id, customer);
+  }
+
+  private buildCachedCustomerFromRow(
+    row: Row,
+    options?: {
+      customerId?: number;
+      plantNames?: string[];
+      matchAddresses?: string[];
+    }
+  ): Customer {
+    const customerId = options?.customerId ?? asNumber(row.legacy_id);
+    const cachedCustomer = this.customerCache.get(customerId);
+    const customer = mapCustomer(
+      row,
+      options?.plantNames ?? cachedCustomer?.plantNames ?? [],
+      options?.matchAddresses ?? cachedCustomer?.matchAddresses ?? []
+    );
+    this.cacheManagedCustomerRow(customer.id, row);
+    this.cacheCustomer(customer);
+    return customer;
+  }
+
   private async getSettingsRows(): Promise<{ settingsRow: Row; integrationRow: Row }> {
+    if (this.settingsRowsCache) {
+      return this.settingsRowsCache;
+    }
     await this.initialize();
     const organizationId = this.requireOrganizationId();
     const settingsRow = await assertNoError(
@@ -534,13 +576,17 @@ export class SupabaseStore implements AppStore {
       "조직 연동 설정 조회 실패",
       this.client.from("organization_integrations").select("*").eq("organization_id", organizationId).single()
     );
-    return {
+    this.settingsRowsCache = {
       settingsRow: settingsRow as Row,
       integrationRow: integrationRow as Row
     };
+    return this.settingsRowsCache;
   }
 
   private async getManagedCustomerLimit(): Promise<number | null> {
+    if (this.managedCustomerLimitCache !== undefined) {
+      return this.managedCustomerLimitCache;
+    }
     await this.initialize();
     const row = await assertNoError(
       "작업공간 한도 조회 실패",
@@ -553,13 +599,18 @@ export class SupabaseStore implements AppStore {
 
     const value = (row as Row).managed_customer_limit;
     if (value === null || value === undefined) {
+      this.managedCustomerLimitCache = null;
       return null;
     }
 
-    return asNumber(value);
+    this.managedCustomerLimitCache = asNumber(value);
+    return this.managedCustomerLimitCache;
   }
 
   private async getManagedCustomerRowByLegacyId(customerId: number): Promise<Row | null> {
+    if (this.managedCustomerRowCache.has(customerId)) {
+      return this.managedCustomerRowCache.get(customerId) ?? null;
+    }
     await this.initialize();
     const data = await assertNoError(
       "고객 조회 실패",
@@ -570,7 +621,9 @@ export class SupabaseStore implements AppStore {
         .eq("legacy_id", customerId)
         .maybeSingle()
     );
-    return (data as Row | null) ?? null;
+    const row = (data as Row | null) ?? null;
+    this.cacheManagedCustomerRow(customerId, row);
+    return row;
   }
 
   private async getCustomerCertificateRowByLegacyId(certificateId: number): Promise<Row | null> {
@@ -657,7 +710,10 @@ export class SupabaseStore implements AppStore {
   private async mapCustomerRow(row: Row): Promise<Customer> {
     const relationMap = await this.loadCustomerMaps([row]);
     const relations = relationMap.get(asString(row.id)) ?? { plantNames: [], matchAddresses: [] };
-    return mapCustomer(row, relations.plantNames, relations.matchAddresses);
+    return this.buildCachedCustomerFromRow(row, {
+      plantNames: relations.plantNames,
+      matchAddresses: relations.matchAddresses
+    });
   }
 
   private async lookupLegacyId(table: "managed_customers" | "inbox_messages" | "invoice_drafts", uuid: string): Promise<number> {
@@ -976,6 +1032,7 @@ export class SupabaseStore implements AppStore {
       )
     );
 
+    this.invalidateSettingsCache();
     return this.getSettings();
   }
 
@@ -997,6 +1054,7 @@ export class SupabaseStore implements AppStore {
       "인증서 점검 메타데이터 저장 실패",
       this.client.from("organization_settings").update(update).eq("organization_id", this.requireOrganizationId())
     );
+    this.invalidateSettingsCache();
   }
 
   async listCustomers(): Promise<Customer[]> {
@@ -1013,7 +1071,10 @@ export class SupabaseStore implements AppStore {
     const relationMap = await this.loadCustomerMaps(rows as Row[]);
     return (rows as Row[]).map((row) => {
       const relations = relationMap.get(asString(row.id)) ?? { plantNames: [], matchAddresses: [] };
-      return mapCustomer(row, relations.plantNames, relations.matchAddresses);
+      return this.buildCachedCustomerFromRow(row, {
+        plantNames: relations.plantNames,
+        matchAddresses: relations.matchAddresses
+      });
     });
   }
 
@@ -1051,6 +1112,9 @@ export class SupabaseStore implements AppStore {
   }
 
   async getCustomer(customerId: number): Promise<Customer | null> {
+    if (this.customerCache.has(customerId)) {
+      return this.customerCache.get(customerId) ?? null;
+    }
     const row = await this.getManagedCustomerRowByLegacyId(customerId);
     if (!row) return null;
     return this.mapCustomerRow(row);
@@ -1327,11 +1391,11 @@ export class SupabaseStore implements AppStore {
       );
     }
 
-    const customer = await this.getCustomer(asNumber(persistedRow.legacy_id));
-    if (!customer) {
-      throw new Error("고객 저장 결과를 다시 읽지 못했습니다.");
-    }
-    return customer;
+    return this.buildCachedCustomerFromRow(persistedRow, {
+      customerId: asNumber(persistedRow.legacy_id),
+      plantNames: [],
+      matchAddresses: effectiveMatchAddresses
+    });
   }
 
   async upsertCustomerCertificate(input: CustomerCertificateInput): Promise<CustomerCertificate> {
@@ -1504,7 +1568,7 @@ export class SupabaseStore implements AppStore {
       throw new Error("고객을 찾지 못했습니다.");
     }
 
-    await assertNoError(
+    const updatedRow = await assertNoError(
       "고객 업태/업종 저장 실패",
       this.client
         .from("managed_customers")
@@ -1514,13 +1578,11 @@ export class SupabaseStore implements AppStore {
           updated_at: nowIso()
         })
         .eq("id", asString(current.id))
+        .select("*")
+        .single()
     );
 
-    const customer = await this.getCustomer(customerId);
-    if (!customer) {
-      throw new Error("고객 업태/업종 저장 결과를 다시 읽지 못했습니다.");
-    }
-    return customer;
+    return this.buildCachedCustomerFromRow(updatedRow as Row, { customerId });
   }
 
   async updateCustomerPopbillState(
@@ -1545,16 +1607,17 @@ export class SupabaseStore implements AppStore {
       payload.popbill_cert_expire_date = certExpireDate;
     }
 
-    await assertNoError(
+    const updatedRow = await assertNoError(
       "고객 팝빌 상태 저장 실패",
-      this.client.from("managed_customers").update(payload).eq("id", asString(current.id))
+      this.client
+        .from("managed_customers")
+        .update(payload)
+        .eq("id", asString(current.id))
+        .select("*")
+        .single()
     );
 
-    const customer = await this.getCustomer(customerId);
-    if (!customer) {
-      throw new Error("고객 상태 업데이트 후 다시 읽지 못했습니다.");
-    }
-    return customer;
+    return this.buildCachedCustomerFromRow(updatedRow as Row, { customerId });
   }
 
   async updateCustomerPopbillUserId(customerId: number, popbillUserId: string): Promise<Customer> {
@@ -1563,7 +1626,7 @@ export class SupabaseStore implements AppStore {
       throw new Error("고객을 찾지 못했습니다.");
     }
 
-    await assertNoError(
+    const updatedRow = await assertNoError(
       "고객 팝빌 ID 저장 실패",
       this.client
         .from("managed_customers")
@@ -1572,13 +1635,11 @@ export class SupabaseStore implements AppStore {
           updated_at: nowIso()
         })
         .eq("id", asString(current.id))
+        .select("*")
+        .single()
     );
 
-    const customer = await this.getCustomer(customerId);
-    if (!customer) {
-      throw new Error("고객 팝빌 ID 업데이트 후 다시 읽지 못했습니다.");
-    }
-    return customer;
+    return this.buildCachedCustomerFromRow(updatedRow as Row, { customerId });
   }
 
   async resetCustomerPopbill(customerId: number): Promise<Customer> {

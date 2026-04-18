@@ -4082,6 +4082,8 @@ export function App() {
         Boolean(customer && customer.popbillState === "joined" && !customer.popbillCertRegistered)
     );
   const hasRegisteredCustomers = data.customers.length > 0;
+  const onboardingCertificateFollowUpActive =
+    customerOnboardingSessionActive || (hasRegisteredCustomers && popbillPendingCustomers.length > 0);
   const onboardingCustomerRegistrationReady = customerOnboardingSessionActive
     ? customerOnboardingSessionState.commitDone
     : hasRegisteredCustomers;
@@ -4516,7 +4518,12 @@ export function App() {
               }
 
               if (onboardingIssueSetupPendingCount > 0) {
-                openCertificates();
+                const firstPendingCustomer = onboardingPendingCertificateCustomers[0] ?? null;
+                setCustomerListFilter("unjoined");
+                if (firstPendingCustomer) {
+                  selectCustomerForEdit(firstPendingCustomer);
+                }
+                setActiveTab("customers");
                 return;
               }
 
@@ -4857,14 +4864,14 @@ export function App() {
     "defaults",
     "helper",
     "registration",
-    ...(customerOnboardingSessionActive ? (["certificate"] as const) : [])
+    ...(onboardingCertificateFollowUpActive ? (["certificate"] as const) : [])
   ]);
   const onboardingSetupSteps = onboardingSteps.filter((step) => onboardingSetupStepIds.has(step.id));
   const onboardingCompletionStepIds = new Set([
     "mail",
     "defaults",
     "registration",
-    ...(customerOnboardingSessionActive ? (["certificate"] as const) : [])
+    ...(onboardingCertificateFollowUpActive ? (["certificate"] as const) : [])
   ]);
   const onboardingCompletionSteps = onboardingSteps.filter((step) => onboardingCompletionStepIds.has(step.id));
   const onboardingSetupCompletedCount = onboardingCompletionSteps.filter((step) => step.done).length;
@@ -4896,13 +4903,13 @@ export function App() {
   const showOnboardingNavItem = hasActiveWorkspace && (!onboardingComplete || showCompletedOnboardingNav);
   const navItems: Array<{ id: TabId; label: string; icon: string }> = [
     ...(hasActiveWorkspace
-      ? [
-          { id: "home" as const, label: "홈", icon: "dashboard" },
-          { id: "customers" as const, label: "고객", icon: "group" },
-          { id: "certificates" as const, label: "인증서", icon: "settings" },
-          { id: "settings" as const, label: "설정", icon: "settings" },
-          ...(showOnboardingNavItem ? [{ id: "onboarding" as const, label: "도입 준비", icon: "dashboard" }] : [])
-        ]
+        ? [
+            { id: "home" as const, label: "홈", icon: "dashboard" },
+            { id: "customers" as const, label: "고객", icon: "group" },
+            { id: "certificates" as const, label: "인증서", icon: "certificate" },
+            { id: "settings" as const, label: "설정", icon: "settings" },
+            ...(showOnboardingNavItem ? [{ id: "onboarding" as const, label: "도입 준비", icon: "dashboard" }] : [])
+          ]
       : []),
     ...(isPlatformAdmin ? [{ id: "ops" as const, label: "관리자", icon: "ops" }] : [])
   ];

@@ -17,8 +17,30 @@ function Get-HelperPort {
   return 35119
 }
 
+function CommandLineContains {
+  param(
+    [string]$CommandLine,
+    [string]$Needle
+  )
+
+  if ([string]::IsNullOrWhiteSpace($CommandLine) -or [string]::IsNullOrWhiteSpace($Needle)) {
+    return $false
+  }
+
+  return $CommandLine.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
 $helperPort = Get-HelperPort
+$taskName = "AUTO-TAX Renewal Local Helper"
 $candidateProcessIds = New-Object System.Collections.Generic.HashSet[int]
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$launcherScriptPath = (Join-Path $scriptDir "start-renewal-local-helper.ps1")
+
+try {
+  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
+} catch {
+  # The scheduled task may not currently be running.
+}
 
 try {
   @(Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $helperPort -State Listen -ErrorAction Stop |
@@ -30,10 +52,20 @@ try {
 }
 
 @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-  $_.CommandLine -and (
-    $_.CommandLine -like "*renewal-local-helper.ts*" -or
-    $_.CommandLine -like "*start-renewal-local-helper.ps1*"
-  )
+  $commandLine = $_.CommandLine
+  if ([string]::IsNullOrWhiteSpace($commandLine)) {
+    return $false
+  }
+
+  if (($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and (
+    $commandLine.IndexOf("renewal-local-helper.ts", [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+    $commandLine.IndexOf("renewal-local-helper.cjs", [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+    $commandLine.IndexOf("renewal-local-helper.mjs", [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  )) {
+    return $true
+  }
+
+  return ($_.Name -ieq "powershell.exe") -and (CommandLineContains -CommandLine $commandLine -Needle $launcherScriptPath)
 }) | ForEach-Object {
   [void]$candidateProcessIds.Add([int]$_.ProcessId)
 }
@@ -50,6 +82,15 @@ foreach ($processId in $candidateProcessIds) {
     $taskKillSucceeded = ($LASTEXITCODE -eq 0)
   } catch {
     $taskKillSucceeded = $false
+  }
+
+  if (-not $taskKillSucceeded) {
+    try {
+      Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+      $taskKillSucceeded = $true
+    } catch {
+      $taskKillSucceeded = $false
+    }
   }
 
   if ($taskKillSucceeded) {

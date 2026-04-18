@@ -101,7 +101,10 @@ export function sanitizeSensitiveText(value: string): string {
   const [inlinePattern, quotedPattern, queryPattern] = INLINE_SENSITIVE_VALUE_PATTERNS;
   return String(value ?? "")
     .replace(inlinePattern, (_match, prefix: string) => `${prefix}${REDACTED_SENSITIVE_VALUE}`)
-    .replace(quotedPattern, (_match, prefix: string, _secret: string, suffix: string) => `${prefix}${REDACTED_SENSITIVE_VALUE}${suffix}`)
+    .replace(
+      quotedPattern,
+      (_match, prefix: string, _secret: string, suffix: string) => `${prefix}${REDACTED_SENSITIVE_VALUE}${suffix}`
+    )
     .replace(queryPattern, (_match, prefix: string) => `${prefix}${REDACTED_SENSITIVE_VALUE}`);
 }
 

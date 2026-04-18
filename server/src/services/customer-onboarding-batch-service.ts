@@ -1,4 +1,3 @@
-import { getErrorMessage } from "../http-errors.js";
 import { createSupabaseAdminClient } from "../supabase.js";
 import { SupabaseStore } from "../supabase-store.js";
 import { nowIso } from "../utils.js";
@@ -11,8 +10,7 @@ import {
   type CustomerOnboardingPreviewResult,
   type CustomerOnboardingWorkbookInput
 } from "./customer-onboarding-import-service.js";
-import { autoJoinCustomerPopbill } from "./popbill-customer-service.js";
-import { getServerManagedSettings } from "../server-managed-settings.js";
+import { queueAutoJoinCustomerPopbillJob } from "./popbill-customer-service.js";
 
 type Row = Record<string, unknown>;
 
@@ -21,6 +19,9 @@ type BatchRowStatus = "pending" | "processing" | "completed" | "failed" | "block
 
 type FailedRowMessage = { rowIndex: number; message: string };
 type WarningMessage = { rowIndex: number; message: string };
+
+const CUSTOMER_ONBOARDING_COMMIT_CONCURRENCY = 3;
+const CUSTOMER_ONBOARDING_SNAPSHOT_FLUSH_EVERY = 3;
 
 export type CustomerOnboardingPreviewSessionResult = CustomerOnboardingPreviewResult & {
   previewId: string;
@@ -403,6 +404,8 @@ export async function runCustomerOnboardingCommitBatch(batchId: string): Promise
     return batch;
   }
 
+  const organizationId = asString((batchRow as Row).organization_id);
+  const requestedByUserId = asNullableString((batchRow as Row).requested_by);
   const startedAt = batch.startedAt ?? nowIso();
   await updateBatchSnapshot(batchId, {
     status: "running",
@@ -417,12 +420,6 @@ export async function runCustomerOnboardingCommitBatch(batchId: string): Promise
     startedAt,
     finishedAt: null
   });
-
-  const store = new SupabaseStore({
-    organizationId: asString((batchRow as Row).organization_id),
-    bootstrapOrganization: false
-  });
-  await store.initialize();
 
   const pendingRows = await assertNoError(
     "고객 등록 배치 행 조회 실패",
@@ -441,111 +438,182 @@ export async function runCustomerOnboardingCommitBatch(batchId: string): Promise
   let linkedCertificateCount = batch.linkedCertificateCount;
   const warnings = [...batch.warnings];
   const failedRows = [...batch.failedRows];
+  let completedSinceLastSnapshot = 0;
+  let snapshotWrite: Promise<void> = Promise.resolve();
 
-  try {
-    for (const rawRow of (pendingRows ?? []) as Row[]) {
-      const rowId = asString(rawRow.id);
-      const payload = (rawRow.payload_json ?? {}) as CustomerOnboardingPreparedEntrySnapshot;
+  const queueSnapshot = (
+    status: BatchStatus,
+    error: string | null,
+    finishedAt: string | null
+  ): Promise<void> => {
+    const warningsSnapshot = [...warnings].sort((left, right) => left.rowIndex - right.rowIndex);
+    const failedRowsSnapshot = [...failedRows].sort((left, right) => left.rowIndex - right.rowIndex);
 
-      await assertNoError(
-        "고객 등록 배치 행 처리 시작 실패",
-        client
-          .from("customer_onboarding_batch_rows")
-          .update({
-            status: "processing",
-            updated_at: nowIso()
-          })
-          .eq("id", rowId)
-      );
-
-      try {
-        const result = await commitCustomerOnboardingPreparedEntry(store, payload, {
-          autoJoinCustomer: (customer) =>
-            autoJoinCustomerPopbill(store, customer, getServerManagedSettings, getErrorMessage)
-        });
-
-        completedRows += 1;
-        linkedCertificateCount += result.linkedCertificateCount;
-        warnings.push(...result.warnings);
-        if (result.outcome === "update") {
-          updatedCount += 1;
-        } else {
-          createdCount += 1;
-        }
-
-        await assertNoError(
-          "고객 등록 배치 행 완료 처리 실패",
-          client
-            .from("customer_onboarding_batch_rows")
-            .update({
-              status: "completed",
-              customer_legacy_id: result.customer.id,
-              linked_certificate_count: result.linkedCertificateCount,
-              warning_messages_json: result.warnings,
-              error_message: null,
-              updated_at: nowIso()
-            })
-            .eq("id", rowId)
-        );
-      } catch (error) {
-        completedRows += 1;
-        failedCount += 1;
-        const message = error instanceof Error ? error.message : "고객 저장에 실패했습니다.";
-        failedRows.push({
-          rowIndex: payload.rowIndex,
-          message
-        });
-
-        await assertNoError(
-          "고객 등록 배치 행 실패 처리 실패",
-          client
-            .from("customer_onboarding_batch_rows")
-            .update({
-              status: "failed",
-              error_message: message,
-              updated_at: nowIso()
-            })
-            .eq("id", rowId)
-        );
-      }
-
-      await updateBatchSnapshot(batchId, {
-        status: "running",
+    snapshotWrite = snapshotWrite.then(() =>
+      updateBatchSnapshot(batchId, {
+        status,
         completedRows,
         createdCount,
         updatedCount,
         failedCount,
         linkedCertificateCount,
-        warnings,
-        failedRows,
-        error: null,
+        warnings: warningsSnapshot,
+        failedRows: failedRowsSnapshot,
+        error,
         startedAt,
-        finishedAt: null
+        finishedAt
+      })
+    );
+
+    return snapshotWrite;
+  };
+
+  try {
+    const pendingRowsList = (pendingRows ?? []) as Row[];
+    let nextPendingRowIndex = 0;
+    let fatalError: unknown = null;
+
+    const claimNextPendingRow = (): Row | null => {
+      if (fatalError || nextPendingRowIndex >= pendingRowsList.length) {
+        return null;
+      }
+      const row = pendingRowsList[nextPendingRowIndex] ?? null;
+      nextPendingRowIndex += 1;
+      return row;
+    };
+
+    const workerCount = Math.min(CUSTOMER_ONBOARDING_COMMIT_CONCURRENCY, pendingRowsList.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+      const workerStore = new SupabaseStore({
+        organizationId,
+        bootstrapOrganization: false
       });
+      await workerStore.initialize();
+
+      while (!fatalError) {
+        const rawRow = claimNextPendingRow();
+        if (!rawRow) {
+          return;
+        }
+
+        const rowId = asString(rawRow.id);
+        const payload = (rawRow.payload_json ?? {}) as CustomerOnboardingPreparedEntrySnapshot;
+
+        try {
+          await assertNoError(
+            "고객 등록 배치 행 처리 시작 실패",
+            client
+              .from("customer_onboarding_batch_rows")
+              .update({
+                status: "processing",
+                updated_at: nowIso()
+              })
+              .eq("id", rowId)
+          );
+
+          try {
+            const result = await commitCustomerOnboardingPreparedEntry(workerStore, payload, {
+              autoJoinCustomer: (customer) =>
+                queueAutoJoinCustomerPopbillJob({
+                  organizationId,
+                  requestedByUserId,
+                  customer
+                })
+            });
+
+            completedRows += 1;
+            linkedCertificateCount += result.linkedCertificateCount;
+            warnings.push(...result.warnings);
+            if (result.outcome === "update") {
+              updatedCount += 1;
+            } else {
+              createdCount += 1;
+            }
+
+            await assertNoError(
+              "고객 등록 배치 행 완료 처리 실패",
+              client
+                .from("customer_onboarding_batch_rows")
+                .update({
+                  status: "completed",
+                  customer_legacy_id: result.customer.id,
+                  linked_certificate_count: result.linkedCertificateCount,
+                  warning_messages_json: result.warnings,
+                  error_message: null,
+                  updated_at: nowIso()
+                })
+                .eq("id", rowId)
+            );
+
+            completedSinceLastSnapshot += 1;
+          } catch (error) {
+            completedRows += 1;
+            failedCount += 1;
+            const message = error instanceof Error ? error.message : "고객 저장에 실패했습니다.";
+            failedRows.push({
+              rowIndex: payload.rowIndex,
+              message
+            });
+
+            await assertNoError(
+              "고객 등록 배치 행 실패 처리 실패",
+              client
+                .from("customer_onboarding_batch_rows")
+                .update({
+                  status: "failed",
+                  error_message: message,
+                  updated_at: nowIso()
+                })
+                .eq("id", rowId)
+            );
+
+            completedSinceLastSnapshot += 1;
+            await queueSnapshot("running", null, null);
+            completedSinceLastSnapshot = 0;
+            continue;
+          }
+
+          if (completedSinceLastSnapshot >= CUSTOMER_ONBOARDING_SNAPSHOT_FLUSH_EVERY) {
+            await queueSnapshot("running", null, null);
+            completedSinceLastSnapshot = 0;
+          }
+        } catch (error) {
+          fatalError ??= error;
+          return;
+        }
+      }
+    });
+
+    await Promise.all(workers);
+    try {
+      await snapshotWrite;
+    } catch {
+      // A failed snapshot write is surfaced through the outer failure handling below.
+    }
+    if (fatalError) {
+      throw fatalError;
+    }
+
+    if (completedSinceLastSnapshot > 0) {
+      await queueSnapshot("running", null, null);
+      completedSinceLastSnapshot = 0;
     }
 
     const finishedAt = nowIso();
-    await updateBatchSnapshot(batchId, {
-      status: "completed",
-      completedRows,
-      createdCount,
-      updatedCount,
-      failedCount,
-      linkedCertificateCount,
-      warnings,
-      failedRows,
-      error: null,
-      startedAt,
-      finishedAt
-    });
+    await queueSnapshot("completed", null, finishedAt);
 
     return getCustomerOnboardingCommitBatchStatus({
-      organizationId: asString((batchRow as Row).organization_id),
+      organizationId,
       batchId
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "고객 등록 배치 실행에 실패했습니다.";
     const finishedAt = nowIso();
+    try {
+      await snapshotWrite;
+    } catch {
+      // Ignore a prior snapshot failure and prefer surfacing the final batch error state.
+    }
     await updateBatchSnapshot(batchId, {
       status: "failed",
       completedRows,

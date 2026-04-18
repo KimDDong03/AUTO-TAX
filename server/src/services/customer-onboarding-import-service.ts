@@ -550,11 +550,7 @@ export async function commitCustomerOnboardingPreparedEntry(
   linkedCertificateCount: number;
   warnings: Array<{ rowIndex: number; message: string }>;
 }> {
-  let customerId = entry.existingCustomerId ?? null;
-  if (!customerId && entry.businessNumber) {
-    const currentCustomer = await requestStore.findCustomerByBusinessNumber(entry.businessNumber);
-    customerId = currentCustomer?.id ?? null;
-  }
+  const customerId = entry.existingCustomerId ?? null;
 
   const customer = await requestStore.saveCustomer(
     {
