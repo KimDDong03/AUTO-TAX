@@ -8,7 +8,9 @@ import {
 const previousSessionState: ElectronicTaxOnboardingSessionState = {
   templateDownloaded: true,
   previewReady: true,
-  commitDone: true
+  commitDone: true,
+  certificateDone: true,
+  targetBusinessNumbers: ["1234567890"]
 };
 
 test("runElectronicTaxOnboardingUploadFlow clears preview state when the file is removed", async () => {
@@ -33,7 +35,9 @@ test("runElectronicTaxOnboardingUploadFlow clears preview state when the file is
     sessionState: {
       templateDownloaded: true,
       previewReady: false,
-      commitDone: false
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: []
     },
     notice: "",
     error: ""
@@ -73,7 +77,9 @@ test("runElectronicTaxOnboardingUploadFlow keeps fail-closed notice when no elec
   assert.deepEqual(result.sessionState, {
     templateDownloaded: true,
     previewReady: false,
-    commitDone: false
+    commitDone: false,
+    certificateDone: false,
+    targetBusinessNumbers: []
   });
   assert.equal(result.notice, "AUTO-TAX.xlsx에서 발전소 시트에 남긴 전자세금용 등록 대상 행을 찾지 못했습니다.");
   assert.equal(result.error, "구형 공동인증서 시트는 무시됩니다.\n발전소 시트 2행: 전자세금용 인증서를 찾지 못했습니다.");
@@ -153,7 +159,9 @@ test("runElectronicTaxOnboardingUploadFlow returns preview-ready state after pre
   assert.deepEqual(result.sessionState, {
     templateDownloaded: true,
     previewReady: true,
-    commitDone: false
+    commitDone: false,
+    certificateDone: false,
+    targetBusinessNumbers: ["1234567890"]
   });
   assert.match(result.notice, /AUTO-TAX\.xlsx 업로드 확인을 마쳤습니다\./);
   assert.match(result.notice, /전자세금용 인증서 1건으로 고객 1건을 등록 대상으로 읽었습니다\./);
@@ -182,7 +190,9 @@ test("runElectronicTaxOnboardingUploadFlow preserves template download state on 
     sessionState: {
       templateDownloaded: true,
       previewReady: false,
-      commitDone: false
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: []
     },
     notice: "",
     error: "발전소 시트를 찾지 못했습니다."

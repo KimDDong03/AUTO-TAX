@@ -10,12 +10,16 @@ export type ElectronicTaxOnboardingSessionState = {
   templateDownloaded: boolean;
   previewReady: boolean;
   commitDone: boolean;
+  certificateDone: boolean;
+  targetBusinessNumbers: string[];
 };
 
 export const emptyElectronicTaxOnboardingSessionState: ElectronicTaxOnboardingSessionState = {
   templateDownloaded: false,
   previewReady: false,
-  commitDone: false
+  commitDone: false,
+  certificateDone: false,
+  targetBusinessNumbers: []
 };
 
 type ParsedCustomerOnboardingWorkbook = {
@@ -37,6 +41,17 @@ function joinElectronicTaxOnboardingMessages(messages: string[]): string {
   return messages.filter((message) => message.trim() !== "").join("\n");
 }
 
+function getElectronicTaxOnboardingTargetBusinessNumbers(
+  workbook: CustomerOnboardingWorkbookInput
+): string[] {
+  return [...new Set(
+    workbook.certificates
+      .filter((certificate) => certificate.certificateKind === "electronic_tax")
+      .map((certificate) => String(certificate.businessNumber ?? "").replace(/\D/g, ""))
+      .filter((businessNumber) => businessNumber.length > 0)
+  )];
+}
+
 function buildElectronicTaxOnboardingUploadClearedResult(
   previousSessionState: ElectronicTaxOnboardingSessionState
 ): ElectronicTaxOnboardingUploadFlowResult {
@@ -47,7 +62,9 @@ function buildElectronicTaxOnboardingUploadClearedResult(
     sessionState: {
       ...previousSessionState,
       previewReady: false,
-      commitDone: false
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: []
     },
     notice: "",
     error: ""
@@ -65,7 +82,9 @@ function buildElectronicTaxOnboardingUploadFailureResult(
     sessionState: {
       ...previousSessionState,
       previewReady: false,
-      commitDone: false
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: []
     },
     notice: "",
     error: error instanceof Error ? error.message : "엑셀 양식을 읽지 못했습니다."
@@ -92,7 +111,9 @@ export async function runElectronicTaxOnboardingUploadFlow<TFile>(options: {
     const baseSessionState: ElectronicTaxOnboardingSessionState = {
       templateDownloaded: true,
       previewReady: false,
-      commitDone: false
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: getElectronicTaxOnboardingTargetBusinessNumbers(resolved.workbook)
     };
 
     if (resolved.workbook.customers.length === 0) {

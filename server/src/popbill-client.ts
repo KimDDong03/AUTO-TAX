@@ -150,6 +150,20 @@ export function isPopbillMemberMissingError(error: unknown): boolean {
   );
 }
 
+function isPopbillQuitUserIdMismatchError(error: unknown): boolean {
+  if (!(error instanceof PopbillApiError)) {
+    return false;
+  }
+
+  const normalizedRawMessage = error.rawMessage.toLowerCase();
+  return (
+    error.operation === "quit-member" &&
+    (error.code === "-10000038" ||
+      normalizedRawMessage.includes("회원의 아이디가 아닙니다") ||
+      normalizedRawMessage.includes("member id"))
+  );
+}
+
 function getService(settings: AppSettings): any {
   if (!settings.popbillLinkId || !settings.popbillSecretKey) {
     throw new Error("팝빌 LinkID 또는 SecretKey가 설정되지 않았습니다.");
@@ -271,20 +285,43 @@ export async function checkIsMember(settings: AppSettings, businessNumber: strin
 }
 
 export async function quitMember(settings: AppSettings, customer: Customer, quitReason: string): Promise<unknown> {
-  assertCustomerPopbillIdentity(customer);
   if (!quitReason.trim()) {
     throw new Error("팝빌 탈퇴 사유가 비어 있습니다.");
   }
   const service = getService(settings);
-  return promisify("quit-member", (done) => {
-    service.quitMember(
-      digitsOnly(customer.businessNumber),
-      quitReason,
-      customer.popbillUserId || "",
-      (response: unknown) => done({ response }),
-      (error: CallbackResult<never>["error"]) => done({ error })
-    );
-  });
+  const corpNum = digitsOnly(customer.businessNumber);
+  const popbillUserId = customer.popbillUserId?.trim() ?? "";
+  const quitByCorpNumOnly = async () =>
+    await promisify("quit-member", (done) => {
+      service.quitMember(
+        corpNum,
+        quitReason,
+        (response: unknown) => done({ response }),
+        (error: CallbackResult<never>["error"]) => done({ error })
+      );
+    });
+
+  if (!popbillUserId) {
+    return await quitByCorpNumOnly();
+  }
+
+  try {
+    return await promisify("quit-member", (done) => {
+      service.quitMember(
+        corpNum,
+        quitReason,
+        popbillUserId,
+        (response: unknown) => done({ response }),
+        (error: CallbackResult<never>["error"]) => done({ error })
+      );
+    });
+  } catch (error) {
+    if (!isPopbillQuitUserIdMismatchError(error)) {
+      throw error;
+    }
+
+    return await quitByCorpNumOnly();
+  }
 }
 
 export async function getTaxCertURL(settings: AppSettings, customer: Customer): Promise<string> {
