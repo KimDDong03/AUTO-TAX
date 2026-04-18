@@ -180,7 +180,7 @@ type OnboardingCertificateAutoRunnerProps = {
   pendingSignature: string;
   pendingJoinCount: number;
   triggerRegistration: () => void;
-  reload: () => Promise<void>;
+  pollPendingJoins: () => Promise<void>;
 };
 
 function OnboardingCertificateAutoRunner({
@@ -193,7 +193,7 @@ function OnboardingCertificateAutoRunner({
   pendingSignature,
   pendingJoinCount,
   triggerRegistration,
-  reload
+  pollPendingJoins
 }: OnboardingCertificateAutoRunnerProps) {
   const signatureRef = useRef<string | null>(null);
 
@@ -222,7 +222,7 @@ function OnboardingCertificateAutoRunner({
 
     if (pendingJoinCount > 0) {
       const timeout = window.setTimeout(() => {
-        void reload();
+        void pollPendingJoins();
       }, 3000);
       return () => window.clearTimeout(timeout);
     }
@@ -235,7 +235,7 @@ function OnboardingCertificateAutoRunner({
     hasWorkbook,
     pendingJoinCount,
     pendingSignature,
-    reload,
+    pollPendingJoins,
     triggerRegistration
   ]);
 
@@ -4570,6 +4570,23 @@ export function App() {
     setActiveTab("customers");
   };
 
+  const pollOnboardingPendingJoins = useCallback(async () => {
+    try {
+      await api("/api/customer-onboarding/follow-up/run", {
+        method: "POST",
+        body: JSON.stringify({ limit: 5 })
+      });
+    } catch {
+      // best-effort trigger while onboarding waits for async Popbill joins
+    }
+
+    try {
+      await load();
+    } catch {
+      // keep polling on the next cycle
+    }
+  }, [load]);
+
   const proceedOnboardingCertificateRegistration = async () => {
     const pendingCustomers = [...pendingOnboardingCertificateRegistrationTargets];
     if (pendingCustomers.length === 0) {
@@ -5592,8 +5609,8 @@ export function App() {
           {error ? <div className="alert error">{error}</div> : null}
 
           <OnboardingCertificateAutoRunner
-            active={customerOnboardingSessionActive}
-            commitDone={customerOnboardingSessionState.commitDone}
+            active={onboardingCertificateFollowUpActive}
+            commitDone={onboardingCustomerRegistrationReady}
             hasWorkbook={customerOnboardingWorkbook !== null}
             certificateReady={onboardingCertificateReady}
             busyKey={busyKey}
@@ -5601,7 +5618,7 @@ export function App() {
             pendingSignature={pendingOnboardingCertificateRegistrationSignature}
             pendingJoinCount={onboardingPendingPopbillJoinCount}
             triggerRegistration={proceedOnboardingCertificateFollowUpAction}
-            reload={load}
+            pollPendingJoins={pollOnboardingPendingJoins}
           />
 
         {visibleActiveTab === "onboarding" ? (

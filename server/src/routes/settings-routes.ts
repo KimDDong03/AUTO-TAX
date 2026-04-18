@@ -491,4 +491,21 @@ export function registerSettingsRoutes(deps: RouteDeps) {
       })
     );
   });
+
+  app.post("/api/customer-onboarding/follow-up/run", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const payload = z
+      .object({
+        limit: z.number().int().min(1).max(20).optional()
+      })
+      .parse(req.body ?? {});
+    const result = await runDueJobs({
+      limit: payload.limit ?? 5,
+      claimedBy: "customer-onboarding-poll"
+    });
+    res.json({
+      ok: true,
+      ...result
+    });
+  });
 }

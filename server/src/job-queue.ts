@@ -37,6 +37,14 @@ type QueueJob = {
   updatedAt: string;
 };
 
+const JOB_CLAIM_TIMEOUT_MINUTES: Record<QueueJobType, number> = {
+  "mail-sync": 15,
+  "auto-issue": 10,
+  "certificate-check": 15,
+  "customer-onboarding-commit": 20,
+  "customer-popbill-auto-join": 5
+};
+
 type DispatchDetail = {
   jobType: QueueJobType;
   organizationId: string;
@@ -256,6 +264,61 @@ async function scheduleRetry(job: QueueJob, errorMessage: string): Promise<{ sch
     scheduled: true,
     retryCount
   };
+}
+
+async function requeueStaleClaimedJobs(now: Date): Promise<number> {
+  const client = createSupabaseAdminClient();
+  const claimedRows = await assertNoError(
+    "stale claimed job 조회 실패",
+    client
+      .from("job_queue")
+      .select("*")
+      .eq("status", "claimed")
+      .not("claimed_at", "is", null)
+  );
+  let requeuedCount = 0;
+
+  for (const row of (claimedRows ?? []) as Row[]) {
+    const job = mapQueueJob(row);
+    if (!job.claimedAt) {
+      continue;
+    }
+
+    const claimStartedAt = Date.parse(job.claimedAt);
+    if (!Number.isFinite(claimStartedAt)) {
+      continue;
+    }
+
+    const timeoutMinutes = JOB_CLAIM_TIMEOUT_MINUTES[job.jobType] ?? 10;
+    const staleCutoff = now.getTime() - timeoutMinutes * 60_000;
+    if (claimStartedAt > staleCutoff) {
+      continue;
+    }
+
+    await assertNoError(
+      "stale claimed job 재큐잉 실패",
+      client
+        .from("job_queue")
+        .update({
+          status: "queued",
+          run_after: now.toISOString(),
+          claimed_at: null,
+          finished_at: null,
+          error: "이전 runner 응답이 끝나지 않아 자동으로 다시 대기열에 올렸습니다.",
+          result: {
+            ...(job.result ?? {}),
+            recoveredFromStaleClaim: true,
+            previousClaimedAt: job.claimedAt,
+            requeuedAt: nowIso()
+          }
+        })
+        .eq("id", job.id)
+        .eq("status", "claimed")
+    );
+    requeuedCount += 1;
+  }
+
+  return requeuedCount;
 }
 
 async function hasBatchSummaryLog(organizationId: string, batchKey: string): Promise<boolean> {
@@ -1048,6 +1111,7 @@ export async function runDueJobs(options: {
   const now = options.now ?? new Date();
   const limit = Math.max(1, Math.min(options.limit ?? 10, 100));
   const claimedBy = options.claimedBy ?? "job-runner";
+  await requeueStaleClaimedJobs(now);
   const details: JobRunResult["details"] = [];
   let attempted = 0;
   let claimed = 0;
