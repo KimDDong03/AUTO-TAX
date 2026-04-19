@@ -110,6 +110,12 @@ try {
   # The scheduled task may not currently be running.
 }
 
+try {
+  & schtasks.exe /End /TN $taskName 2>$null | Out-Null
+} catch {
+  # The scheduled task may already be stopped or absent.
+}
+
 $gracefulShutdownRequested = Request-LocalRenewalHelperShutdown -Port $helperPort
 if ($gracefulShutdownRequested -and (Wait-LocalRenewalHelperStop -Port $helperPort)) {
   Write-Output "status=stopped"

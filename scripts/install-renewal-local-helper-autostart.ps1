@@ -207,24 +207,29 @@ function Stop-ExistingLocalRenewalHelper {
       continue
     }
 
-    & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $stopScript | Out-Null
-    if (Wait-LocalRenewalHelperStop -Port $Port) {
+    try {
+      & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $stopScript 2>$null | Out-Null
+    } catch {
+      # Ignore stop script failures and fall back to process-based termination below.
+    }
+
+    if (Wait-LocalRenewalHelperStop -Port $Port -Attempts 8 -DelayMs 500) {
       return $true
     }
   }
 
-  for ($attempt = 0; $attempt -lt 4; $attempt += 1) {
+  for ($attempt = 0; $attempt -lt 2; $attempt += 1) {
     $processIds = @(Get-LocalRenewalHelperProcessIds -Port $Port -LauncherScriptPaths $LauncherScriptPaths)
     if ($processIds.Count -eq 0 -and -not (Test-LocalRenewalHelperRunning -Port $Port)) {
       return $true
     }
 
     Stop-LocalRenewalHelperProcessTree -ProcessIds $processIds
-    if (Wait-LocalRenewalHelperStop -Port $Port -Attempts 24 -DelayMs 500) {
+    if (Wait-LocalRenewalHelperStop -Port $Port -Attempts 8 -DelayMs 500) {
       return $true
     }
 
-    Start-Sleep -Milliseconds 500
+    Start-Sleep -Milliseconds 250
   }
 
   return -not (Test-LocalRenewalHelperRunning -Port $Port)
@@ -235,26 +240,43 @@ function Copy-InstallFilesWithRetry {
     [string]$SourceRoot,
     [string]$InstallRoot,
     [int]$Attempts = 6,
-    [int]$DelayMs = 1000
+    [int]$DelayMs = 1000,
+    [switch]$AllowLockedRuntimeNode
   )
 
-  $lastError = $null
-  for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
-    try {
-      New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
-      Copy-Item -Path (Join-Path $SourceRoot "*") -Destination $InstallRoot -Recurse -Force
-      return
-    } catch {
-      $lastError = $_
-      if ($attempt -ge ($Attempts - 1)) {
-        throw
-      }
-      Start-Sleep -Milliseconds $DelayMs
-    }
-  }
+  $sourceFiles = Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -ErrorAction Stop
+  foreach ($sourceFile in $sourceFiles) {
+    $relativePath = $sourceFile.FullName.Substring($SourceRoot.Length).TrimStart('\', '/')
+    $destinationPath = Join-Path $InstallRoot $relativePath
+    $lastError = $null
+    $copied = $false
 
-  if ($lastError) {
-    throw $lastError
+    for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
+      try {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destinationPath) -Force | Out-Null
+        Copy-Item -LiteralPath $sourceFile.FullName -Destination $destinationPath -Force
+        $copied = $true
+        break
+      } catch {
+        $lastError = $_
+        if ($attempt -lt ($Attempts - 1)) {
+          Start-Sleep -Milliseconds $DelayMs
+        }
+      }
+    }
+
+    if ($copied) {
+      continue
+    }
+
+    if ($AllowLockedRuntimeNode -and $relativePath -ieq "runtime\node.exe") {
+      Write-Warning "Skipping runtime\\node.exe replacement because the helper runtime is still in use. The new helper will fully activate after the old process exits."
+      continue
+    }
+
+    if ($lastError) {
+      throw $lastError
+    }
   }
 }
 
@@ -267,6 +289,7 @@ $installRoot = if ($isPackagedInstall) { $defaultInstallRoot } else { $sourceRoo
 $taskName = "AUTO-TAX Renewal Local Helper"
 $powershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
 $helperPort = Get-HelperPort
+$restartRequired = $false
 $stopScriptCandidates = @(
   (Join-Path $installRoot "scripts\\stop-renewal-local-helper.ps1"),
   (Join-Path $sourceRoot "scripts\\stop-renewal-local-helper.ps1")
@@ -290,13 +313,14 @@ if (Test-LocalRenewalHelperRunning -Port $helperPort) {
   }
 
   if (-not $stopped -and -not $WhatIfPreference) {
-    throw "Failed to stop the running AUTO-TAX helper automatically. Run AUTO-TAX Helper Stop and retry the install."
+    Write-Warning "Failed to stop the running AUTO-TAX helper automatically. The install will continue, but the updated helper will not take effect until the current process exits or Windows is restarted."
+    $restartRequired = $true
   }
 }
 
 if ($isPackagedInstall -and ($sourceRoot -ne $installRoot)) {
   if ($PSCmdlet.ShouldProcess($installRoot, "Copy packaged renewal helper files to stable install location")) {
-    Copy-InstallFilesWithRetry -SourceRoot $sourceRoot -InstallRoot $installRoot
+    Copy-InstallFilesWithRetry -SourceRoot $sourceRoot -InstallRoot $installRoot -AllowLockedRuntimeNode:$restartRequired
   }
 }
 
@@ -334,7 +358,7 @@ if ($PSCmdlet.ShouldProcess($taskName, "Register renewal local helper scheduled 
     -Force | Out-Null
 }
 
-if ($StartNow -and $PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Start helper immediately after install")) {
+if ($StartNow -and -not $restartRequired -and $PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Start helper immediately after install")) {
   & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $launcherScript -Detached | Out-Null
   [void](Wait-LocalRenewalHelperStart -Port $helperPort)
 }
@@ -393,3 +417,5 @@ Write-Output "installRoot=$installRoot"
 Write-Output "launcherScript=$launcherScript"
 Write-Output "currentUser=$currentUser"
 Write-Output "desktopShortcuts=$(if ($SkipDesktopShortcuts) { 'skipped' } else { 'created' })"
+Write-Output "restartRequired=$(if ($restartRequired) { 'true' } else { 'false' })"
+Write-Output "startDeferred=$(if ($restartRequired -and $StartNow) { 'true' } else { 'false' })"
