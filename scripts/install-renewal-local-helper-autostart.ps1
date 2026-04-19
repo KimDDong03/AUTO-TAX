@@ -157,10 +157,33 @@ function Get-LocalRenewalHelperProcessIds {
   return @($candidateProcessIds)
 }
 
+function Stop-LocalRenewalHelperViaWmi {
+  param(
+    [int[]]$ProcessIds
+  )
+
+  foreach ($processId in @($ProcessIds | Select-Object -Unique)) {
+    if ($processId -le 0) {
+      continue
+    }
+
+    try {
+      $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction Stop
+      if ($process) {
+        [void](Invoke-CimMethod -InputObject $process -MethodName Terminate -ErrorAction Stop)
+      }
+    } catch {
+      # Ignore individual WMI termination failures and let the caller verify shutdown.
+    }
+  }
+}
+
 function Stop-LocalRenewalHelperProcessTree {
   param(
     [int[]]$ProcessIds
   )
+
+  Stop-LocalRenewalHelperViaWmi -ProcessIds $ProcessIds
 
   foreach ($processId in @($ProcessIds | Select-Object -Unique)) {
     if ($processId -le 0) {

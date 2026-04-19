@@ -85,6 +85,27 @@ function Request-LocalRenewalHelperShutdown {
   }
 }
 
+function Stop-LocalRenewalHelperViaWmi {
+  param(
+    [int[]]$ProcessIds
+  )
+
+  foreach ($processId in @($ProcessIds | Select-Object -Unique)) {
+    if ($processId -le 0) {
+      continue
+    }
+
+    try {
+      $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction Stop
+      if ($process) {
+        [void](Invoke-CimMethod -InputObject $process -MethodName Terminate -ErrorAction Stop)
+      }
+    } catch {
+      # Ignore individual WMI termination failures and let the caller verify shutdown.
+    }
+  }
+}
+
 function CommandLineContains {
   param(
     [string]$CommandLine,
@@ -132,6 +153,17 @@ try {
     }
 } catch {
   # The helper might not currently be listening.
+}
+
+if ($candidateProcessIds.Count -gt 0) {
+  Stop-LocalRenewalHelperViaWmi -ProcessIds @($candidateProcessIds)
+  if (Wait-LocalRenewalHelperStop -Port $helperPort -Attempts 8 -DelayMs 500) {
+    Write-Output "status=stopped"
+    Write-Output "port=$helperPort"
+    Write-Output "stoppedProcessCount=$($candidateProcessIds.Count)"
+    Write-Output "stoppedProcessIds=$(@($candidateProcessIds) -join ',')"
+    exit 0
+  }
 }
 
 @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
