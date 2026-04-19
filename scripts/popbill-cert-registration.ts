@@ -1,4 +1,4 @@
-import fs from "node:fs";
+﻿import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium, type BrowserContext, type Frame, type Page } from "playwright";
@@ -128,7 +128,37 @@ async function tryGrantLocalNetworkAccessPermission(context: BrowserContext, reg
 }
 
 function detectAlreadyRegistered(pageText: string): boolean {
-  return pageText.includes("재등록") && pageText.includes("사용") && pageText.includes("삭제");
+  const normalized = pageText.replace(/\s+/g, "");
+  return normalized.includes("이미등록") && normalized.includes("사용") && normalized.includes("해제");
+}
+
+function detectExpiredToken(pageText: string): boolean {
+  const normalized = pageText.replace(/\s+/g, "");
+  return normalized.includes("만료된토큰") || normalized.includes("토큰이만료");
+}
+
+async function collectPageAndDialogSignals(
+  page: Page,
+  dialogMessages: string[],
+): Promise<string> {
+  const frameTexts = await Promise.all(
+    page.frames().map(async (frame) => {
+      try {
+        return await frame.locator("body").innerText();
+      } catch {
+        return "";
+      }
+    }),
+  );
+
+  return [...frameTexts, ...dialogMessages].join("\n");
+}
+
+async function throwIfExpiredTokenVisible(page: Page, dialogMessages: string[]) {
+  const signals = await collectPageAndDialogSignals(page, dialogMessages);
+  if (detectExpiredToken(signals)) {
+    throw new Error("팝빌 인증서 등록 URL이 만료되었습니다.");
+  }
 }
 
 function normalizeCertificateFingerprint(value: string | number | null | undefined): string {
@@ -153,37 +183,122 @@ async function resolveTargetCertificate(input: PopbillCertificateRegistrationInp
   serial: string | null;
   userDN: string | null;
 }> {
-  const { bridge } = await collectBridgeProbeResult({ includeDetailedProbe: true });
-  const { storageProbe } = bridge;
+  let { storageProbe } = await collectBridgeCertificateList({ preferCached: false });
+
+  const targetIndex = normalizeCertificateFingerprint(input.certificateIndex);
+  const targetCn = normalizeCertificateFingerprint(input.certificateCn);
+  const targetSerial = normalizeCertificateFingerprint(input.serial);
+  const targetUserDN = normalizeCertificateFingerprint(input.userDN);
+  const cachedCertificatesExposeDetailedIdentity = storageProbe.certificates.some(
+    (certificate) =>
+      normalizeCertificateFingerprint(certificate.serial) !== "" ||
+      normalizeCertificateFingerprint(certificate.userDN) !== ""
+  );
+  const requiresDetailedIdentity = targetSerial !== "" || targetUserDN !== "";
+  if (!storageProbe.ok || (requiresDetailedIdentity && !cachedCertificatesExposeDetailedIdentity)) {
+    const detailedProbe = await collectBridgeProbeResult({ includeDetailedProbe: true });
+    storageProbe = detailedProbe.bridge.storageProbe;
+  }
   if (!storageProbe.ok) {
     throw new Error(storageProbe.error ?? "로컬 브리지에서 공동인증서 목록을 읽지 못했습니다.");
   }
+  const allCertificates = storageProbe.certificates;
+  const electronicTaxCertificates = storageProbe.certificates.filter((certificate) =>
+    isElectronicTaxUsageName(certificate.usageToName)
+  );
 
-  const targetIndex = normalizeCertificateFingerprint(input.certificateIndex);
-  const resolvedCertificate =
-    storageProbe.certificates.find(
-      (certificate) => normalizeCertificateFingerprint(certificate.index) === targetIndex
-    ) ?? null;
+  let resolvedCertificate: (typeof electronicTaxCertificates)[number] | null = null;
+  let resolutionStrategy: "identity" | "index" | "cn" | null = null;
+
+  if (targetSerial !== "" || targetUserDN !== "") {
+    const identityMatches = allCertificates.filter((certificate) => {
+      const certificateSerial = normalizeCertificateFingerprint(certificate.serial);
+      const certificateUserDN = normalizeCertificateFingerprint(certificate.userDN);
+      if (targetSerial !== "") {
+        return certificateSerial === targetSerial;
+      }
+      if (targetUserDN !== "") {
+        return certificateUserDN === targetUserDN;
+      }
+      return true;
+    });
+
+    if (identityMatches.length === 1) {
+      resolvedCertificate = identityMatches[0] ?? null;
+      resolutionStrategy = "identity";
+    } else if (identityMatches.length > 1) {
+      const narrowedIdentityMatches = identityMatches.filter((certificate) => {
+        if (targetCn !== "" && normalizeCertificateFingerprint(certificate.cn) !== targetCn) {
+          return false;
+        }
+        if (targetIndex !== "" && normalizeCertificateFingerprint(certificate.index) !== targetIndex) {
+          return false;
+        }
+        return true;
+      });
+
+      if (narrowedIdentityMatches.length === 1) {
+        resolvedCertificate = narrowedIdentityMatches[0] ?? null;
+        resolutionStrategy = "identity";
+      } else {
+        throw new Error("serial/userDN과 일치하는 로컬 공동인증서가 여러 개여서 자동 등록을 중단했습니다.");
+      }
+    } else {
+      throw new Error(
+        `로컬 브리지에서 serial/userDN과 일치하는 현재 전자세금용 공동인증서를 찾지 못했습니다. (serial=${input.serial ?? "-"}, userDN=${input.userDN ?? "-"})`
+      );
+    }
+  }
+
+  if (!resolvedCertificate && targetIndex !== "") {
+    resolvedCertificate =
+      electronicTaxCertificates.find(
+        (certificate) => normalizeCertificateFingerprint(certificate.index) === targetIndex
+      ) ?? null;
+    if (resolvedCertificate) {
+      resolutionStrategy = "index";
+    }
+  }
+
+  if (!resolvedCertificate && targetCn !== "") {
+    const cnMatches = electronicTaxCertificates.filter(
+      (certificate) => normalizeCertificateFingerprint(certificate.cn) === targetCn
+    );
+    if (cnMatches.length === 1) {
+      resolvedCertificate = cnMatches[0] ?? null;
+      resolutionStrategy = "cn";
+    } else if (cnMatches.length > 1) {
+      throw new Error("같은 CN의 현재 로컬 공동인증서가 여러 개여서 자동 등록을 중단했습니다.");
+    }
+  }
+
   if (!resolvedCertificate) {
-    throw new Error(`로컬 브리지에서 index ${input.certificateIndex} 전자세금용 공동인증서를 찾지 못했습니다.`);
+    throw new Error(
+      `로컬 브리지에서 현재 팝빌 등록 대상 전자세금용 공동인증서를 찾지 못했습니다. (index=${input.certificateIndex}, serial=${input.serial ?? "-"}, userDN=${input.userDN ?? "-"})`
+    );
   }
 
-  if (!isElectronicTaxUsageName(resolvedCertificate.usageToName)) {
-    throw new Error("전자세금용이 아닌 공동인증서는 팝빌 자동 등록에 사용할 수 없습니다.");
-  }
-
-  const targetCn = normalizeCertificateFingerprint(input.certificateCn);
-  if (targetCn !== "" && normalizeCertificateFingerprint(resolvedCertificate.cn) !== targetCn) {
+  if (
+    resolutionStrategy !== "identity" &&
+    targetCn !== "" &&
+    normalizeCertificateFingerprint(resolvedCertificate.cn) !== targetCn
+  ) {
     throw new Error("선택한 공동인증서 CN이 현재 로컬 인증서와 달라 자동 등록을 중단했습니다.");
   }
 
-  const targetSerial = normalizeCertificateFingerprint(input.serial);
-  if (targetSerial !== "" && normalizeCertificateFingerprint(resolvedCertificate.serial) !== targetSerial) {
+  if (
+    resolutionStrategy !== "identity" &&
+    targetSerial !== "" &&
+    normalizeCertificateFingerprint(resolvedCertificate.serial) !== targetSerial
+  ) {
     throw new Error("선택한 공동인증서 serial이 현재 로컬 인증서와 달라 자동 등록을 중단했습니다.");
   }
 
-  const targetUserDN = normalizeCertificateFingerprint(input.userDN);
-  if (targetUserDN !== "" && normalizeCertificateFingerprint(resolvedCertificate.userDN) !== targetUserDN) {
+  if (
+    resolutionStrategy !== "identity" &&
+    targetUserDN !== "" &&
+    normalizeCertificateFingerprint(resolvedCertificate.userDN) !== targetUserDN
+  ) {
     throw new Error("선택한 공동인증서 userDN이 현재 로컬 인증서와 달라 자동 등록을 중단했습니다.");
   }
 
@@ -197,10 +312,8 @@ async function resolveTargetCertificate(input: PopbillCertificateRegistrationInp
     throw new Error("팝빌 자동 등록 대상 인증서의 로컬 index를 확인하지 못했습니다.");
   }
 
-  const duplicateCnCertificates = storageProbe.certificates.filter(
-    (certificate) =>
-      isElectronicTaxUsageName(certificate.usageToName) &&
-      normalizeCertificateFingerprint(certificate.cn) === normalizeCertificateFingerprint(certificateCn)
+  const duplicateCnCertificates = electronicTaxCertificates.filter(
+    (certificate) => normalizeCertificateFingerprint(certificate.cn) === normalizeCertificateFingerprint(certificateCn)
   );
   if (duplicateCnCertificates.length > 1 && targetSerial === "" && targetUserDN === "") {
     throw new Error(
@@ -218,11 +331,12 @@ async function resolveTargetCertificate(input: PopbillCertificateRegistrationInp
 }
 
 function extractRegistrationError(frameText: string): string | null {
-  if (frameText.includes("비밀번호를 다시 입력하세요")) {
+  const normalized = frameText.replace(/\s+/g, "");
+  if (normalized.includes("비밀번호를다시입력")) {
     return "공동인증서 비밀번호가 올바르지 않습니다.";
   }
 
-  if (frameText.includes("인증서를 선택")) {
+  if (normalized.includes("인증서를선택")) {
     return "팝빌 인증서 등록 완료를 확인하지 못했습니다.";
   }
 
@@ -301,7 +415,7 @@ function trimDebugValue(value: string, maxLength = 160): string {
     return normalized;
   }
 
-  return `${normalized.slice(0, maxLength - 1)}…`;
+  return `${normalized.slice(0, maxLength - 3)}...`;
 }
 
 export function matchPopbillCandidateIdentifiers(options: {
@@ -506,7 +620,7 @@ export function pickPopbillCertificateCandidate(options: {
 
 function describePopbillCandidateEvidence(candidates: PopbillCertificateIframeCandidate[]): string {
   if (candidates.length === 0) {
-    return "후보 DOM 증거를 수집하지 못했습니다.";
+    return "?꾨낫 DOM 利앷굅瑜??섏쭛?섏? 紐삵뻽?듬땲??";
   }
 
   return candidates
@@ -514,34 +628,34 @@ function describePopbillCandidateEvidence(candidates: PopbillCertificateIframeCa
     .map((candidate, index) => {
       const matchedSummary =
         candidate.matchedIdentifiers.length > 0
-          ? `식별자=${candidate.matchedIdentifiers.join("/")}`
-          : "식별자=없음";
+          ? `?앸퀎??${candidate.matchedIdentifiers.join("/")}`
+          : "?앸퀎???놁쓬";
       const attributeSummary =
         candidate.attributes.length > 0
-          ? `속성=${candidate.attributes.map((value) => trimDebugValue(value, 80)).join(" | ")}`
-          : "속성=없음";
+          ? `?띿꽦=${candidate.attributes.map((value) => trimDebugValue(value, 80)).join(" | ")}`
+          : "?띿꽦=?놁쓬";
       const hiddenValueSummary =
         candidate.hiddenValues.length > 0
-          ? `입력값=${candidate.hiddenValues.map((value) => trimDebugValue(value, 80)).join(" | ")}`
-          : "입력값=없음";
+          ? `?낅젰媛?${candidate.hiddenValues.map((value) => trimDebugValue(value, 80)).join(" | ")}`
+          : "?낅젰媛??놁쓬";
 
-      return `${index + 1}) ${matchedSummary}; 텍스트=${trimDebugValue(candidate.text, 120)}; ${attributeSummary}; ${hiddenValueSummary}`;
+      return `${index + 1}) ${matchedSummary}; ?띿뒪??${trimDebugValue(candidate.text, 120)}; ${attributeSummary}; ${hiddenValueSummary}`;
     })
     .join(" / ");
 }
 
 function describePopbillSelectionDetailEvidence(probes: PopbillCertificateSelectionDetailProbe[]): string {
   if (probes.length === 0) {
-    return "선택 후 상세 DOM 증거를 수집하지 못했습니다.";
+    return "?좏깮 ???곸꽭 DOM 利앷굅瑜??섏쭛?섏? 紐삵뻽?듬땲??";
   }
 
   return probes
     .slice(0, 3)
     .map((probe, index) => {
       const matchedSummary =
-        probe.matchedIdentifiers.length > 0 ? `식별자=${probe.matchedIdentifiers.join("/")}` : "식별자=없음";
+        probe.matchedIdentifiers.length > 0 ? `?앸퀎??${probe.matchedIdentifiers.join("/")}` : "?앸퀎???놁쓬";
       const evidenceSummary =
-        probe.evidence.length > 0 ? `증거=${probe.evidence.map((value) => trimDebugValue(value, 80)).join(" | ")}` : "증거=없음";
+        probe.evidence.length > 0 ? `利앷굅=${probe.evidence.map((value) => trimDebugValue(value, 80)).join(" | ")}` : "利앷굅=?놁쓬";
       return `${index + 1}) selector=${probe.selector}; ${matchedSummary}; ${evidenceSummary}`;
     })
     .join(" / ");
@@ -643,8 +757,8 @@ export async function getPopbillChooserDebugReadiness(): Promise<PopbillChooserD
         ambiguousCnReady: false,
         duplicateElectronicTaxCnCandidates: [],
         blockers: ["local-bridge-certificates-unavailable", "valid-popbill-cert-url-not-yet-verified"],
-        nextAction: "먼저 로컬 브리지/공동인증서 목록 조회를 복구한 뒤, duplicate electronic_tax CN과 실제 Popbill cert-url 발급 상태를 다시 확인하세요.",
-        message: storageProbe.error ?? "로컬 브리지에서 공동인증서 목록을 읽지 못했습니다."
+        nextAction: "癒쇱? 濡쒖뺄 釉뚮━吏/怨듬룞?몄쬆??紐⑸줉 議고쉶瑜?蹂듦뎄???? duplicate electronic_tax CN怨??ㅼ젣 Popbill cert-url 諛쒓툒 ?곹깭瑜??ㅼ떆 ?뺤씤?섏꽭??",
+        message: storageProbe.error ?? "濡쒖뺄 釉뚮━吏?먯꽌 怨듬룞?몄쬆??紐⑸줉???쎌? 紐삵뻽?듬땲??"
       };
     }
 
@@ -660,8 +774,8 @@ export async function getPopbillChooserDebugReadiness(): Promise<PopbillChooserD
       ambiguousCnReady: false,
       duplicateElectronicTaxCnCandidates: [],
       blockers: ["local-bridge-certificates-unavailable", "valid-popbill-cert-url-not-yet-verified"],
-      nextAction: "먼저 로컬 브리지/공동인증서 목록 조회를 복구한 뒤, duplicate electronic_tax CN과 실제 Popbill cert-url 발급 상태를 다시 확인하세요.",
-      message: error instanceof Error ? error.message : "로컬 브리지에서 공동인증서 목록을 읽지 못했습니다."
+      nextAction: "癒쇱? 濡쒖뺄 釉뚮━吏/怨듬룞?몄쬆??紐⑸줉 議고쉶瑜?蹂듦뎄???? duplicate electronic_tax CN怨??ㅼ젣 Popbill cert-url 諛쒓툒 ?곹깭瑜??ㅼ떆 ?뺤씤?섏꽭??",
+      message: error instanceof Error ? error.message : "濡쒖뺄 釉뚮━吏?먯꽌 怨듬룞?몄쬆??紐⑸줉???쎌? 紐삵뻽?듬땲??"
     };
   }
 }
@@ -680,6 +794,174 @@ function formatPopbillDebugArtifactSummary(artifact: { jsonPath: string; htmlPat
   return paths.length > 0 ? `디버그 아티팩트: ${paths.join(", ")}` : "디버그 아티팩트를 저장하지 못했습니다.";
 }
 
+type PopbillSelectionActivationState = {
+  passwordInputVisible: boolean;
+  passwordInputDisabled: boolean;
+  passwordInputReadOnly: boolean;
+  confirmButtonDisabled: boolean;
+  keyboardToggleVisible: boolean;
+  browserManualVisible: boolean;
+  activeElementId: string | null;
+  selectedRowIds: string[];
+};
+
+async function readPopbillSelectionActivationState(frame: Frame): Promise<PopbillSelectionActivationState> {
+  return await frame.locator("body").evaluate((body) => {
+    const passwordInput = body.querySelector("#input_cert_pw");
+    const confirmButton = body.querySelector("#btn_confirm_iframe");
+    const keyboardToggle = body.querySelector("#keyboardOn");
+    const browserManual = body.querySelector("#browser_manual1");
+    const selectedRowIds = Array.from(
+      body.querySelectorAll(
+        "[role='row'][aria-selected='true'], [role='row'].selected, [role='row'].active, [role='row'].current, [role='gridcell'][aria-selected='true'], [role='gridcell'].selected, [role='gridcell'].active, [role='gridcell'].current"
+      )
+    )
+      .map((element) => (element instanceof HTMLElement ? element.id || element.getAttribute("data-key") || "" : ""))
+      .filter(Boolean)
+      .slice(0, 8);
+    const passwordInputVisible =
+      passwordInput instanceof HTMLElement
+        ? (() => {
+            const style = window.getComputedStyle(passwordInput);
+            return style.display !== "none" && style.visibility !== "hidden" && passwordInput.getClientRects().length > 0;
+          })()
+        : false;
+    const keyboardToggleVisible =
+      keyboardToggle instanceof HTMLElement
+        ? (() => {
+            const style = window.getComputedStyle(keyboardToggle);
+            return style.display !== "none" && style.visibility !== "hidden" && keyboardToggle.getClientRects().length > 0;
+          })()
+        : false;
+    const browserManualVisible =
+      browserManual instanceof HTMLElement
+        ? (() => {
+            const style = window.getComputedStyle(browserManual);
+            return style.display !== "none" && style.visibility !== "hidden" && browserManual.getClientRects().length > 0;
+          })()
+        : false;
+
+    return {
+      passwordInputVisible,
+      passwordInputDisabled:
+        passwordInput instanceof HTMLInputElement || passwordInput instanceof HTMLTextAreaElement
+          ? passwordInput.disabled
+          : true,
+      passwordInputReadOnly:
+        passwordInput instanceof HTMLInputElement || passwordInput instanceof HTMLTextAreaElement
+          ? passwordInput.readOnly
+          : false,
+      confirmButtonDisabled:
+        confirmButton instanceof HTMLButtonElement ? confirmButton.disabled : true,
+      keyboardToggleVisible,
+      browserManualVisible,
+      activeElementId: document.activeElement instanceof HTMLElement ? document.activeElement.id || null : null,
+      selectedRowIds
+    };
+  });
+}
+
+function isPopbillSelectionReady(state: PopbillSelectionActivationState): boolean {
+  return state.passwordInputVisible && !state.passwordInputDisabled && !state.passwordInputReadOnly;
+}
+
+async function activatePopbillCertificateSelection(frame: Frame, selector: string): Promise<void> {
+  await frame.locator(selector).scrollIntoViewIfNeeded().catch(() => undefined);
+  await frame.locator(selector).click({ force: true }).catch(() => undefined);
+  await frame.evaluate((rawSelector) => {
+    const target = document.querySelector(rawSelector);
+    const targetCell = target?.closest("[role='gridcell'], td");
+    const targetRow = target?.closest("[role='row'], tr");
+    const dispatchTargets = [target, targetCell, targetRow];
+    const clicked = new WeakSet<HTMLElement>();
+    for (const dispatchTarget of dispatchTargets) {
+      if (!(dispatchTarget instanceof HTMLElement) || clicked.has(dispatchTarget)) {
+        continue;
+      }
+      clicked.add(dispatchTarget);
+      try {
+        dispatchTarget.focus();
+      } catch {
+        // Ignore focus failures for non-focusable elements.
+      }
+      for (const eventType of ["mouseover", "mousemove", "mousedown", "mouseup", "click"] as const) {
+        dispatchTarget.dispatchEvent(
+          new MouseEvent(eventType, {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            view: window
+          })
+        );
+      }
+      try {
+        dispatchTarget.click();
+      } catch {
+        // Some popbill elements may reject direct click(); the synthetic events above are enough.
+      }
+    }
+
+    const keyboardTarget =
+      targetCell instanceof HTMLElement
+        ? targetCell
+        : target instanceof HTMLElement
+          ? target
+          : targetRow instanceof HTMLElement
+            ? targetRow
+            : null;
+    if (keyboardTarget) {
+      for (const key of ["Enter", " "] as const) {
+        keyboardTarget.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true
+          })
+        );
+        keyboardTarget.dispatchEvent(
+          new KeyboardEvent("keyup", {
+            key,
+            bubbles: true,
+            cancelable: true
+          })
+        );
+      }
+    }
+
+    const browserManualClose = document.querySelector("#manual_close");
+    if (browserManualClose instanceof HTMLElement) {
+      try {
+        browserManualClose.click();
+      } catch {
+        // Ignore hint dismissal failures.
+      }
+    }
+  }, selector);
+}
+
+async function ensurePopbillCertificateSelectionReady(
+  frame: Frame,
+  selector: string,
+  timeoutMs = 8_000
+): Promise<PopbillSelectionActivationState> {
+  const startedAt = Date.now();
+  let lastState = await readPopbillSelectionActivationState(frame);
+  if (isPopbillSelectionReady(lastState)) {
+    return lastState;
+  }
+
+  while (Date.now() - startedAt < timeoutMs) {
+    await activatePopbillCertificateSelection(frame, selector);
+    await frame.waitForTimeout(250);
+    lastState = await readPopbillSelectionActivationState(frame);
+    if (isPopbillSelectionReady(lastState)) {
+      return lastState;
+    }
+  }
+
+  return lastState;
+}
+
 async function writePopbillDebugArtifact(options: {
   stage: PopbillDebugArtifactStage;
   page: Page;
@@ -695,6 +977,7 @@ async function writePopbillDebugArtifact(options: {
   selectionReason?: string | null;
   candidates?: PopbillCertificateIframeCandidate[];
   selectionDetailProbes?: PopbillCertificateSelectionDetailProbe[];
+  selectionActivationState?: PopbillSelectionActivationState | null;
   errorMessage?: string | null;
 }): Promise<{ jsonPath: string; htmlPath: string | null }> {
   const artifactDir = ensurePopbillDebugArtifactDir();
@@ -719,7 +1002,8 @@ async function writePopbillDebugArtifact(options: {
         selectionReason: options.selectionReason ?? null,
         errorMessage: options.errorMessage ?? null,
         candidates: options.candidates ?? [],
-        selectionDetailProbes: options.selectionDetailProbes ?? []
+        selectionDetailProbes: options.selectionDetailProbes ?? [],
+        selectionActivationState: options.selectionActivationState ?? null
       },
       null,
       2
@@ -1231,7 +1515,25 @@ export async function registerPopbillCertificate(
   input: PopbillCertificateRegistrationInput
 ): Promise<PopbillCertificateRegistrationResult> {
   const userDataDir = resolveUserDataDir();
-  const resolvedCertificate = await resolveTargetCertificate(input);
+  const requestedCertificateCn = input.certificateCn?.trim() ?? "";
+  const resolvedCertificatePromise =
+    requestedCertificateCn !== ""
+      ? Promise.resolve({
+          ok: true as const,
+          value: {
+            certificateIndex: input.certificateIndex,
+            certificateCn: requestedCertificateCn,
+            certificateKind: input.certificateKind,
+            serial: input.serial?.trim() || null,
+            userDN: input.userDN?.trim() || null
+          }
+        })
+      : resolveTargetCertificate(input)
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error) => ({
+            ok: false as const,
+            error: error instanceof Error ? error : new Error(String(error))
+          }));
   let context: BrowserContext | null = null;
   let localBridgeBaseUrl: string | null = null;
 
@@ -1239,6 +1541,13 @@ export async function registerPopbillCertificate(
     const launched = await launchBrowserContext(userDataDir);
     context = launched.context;
     await tryGrantLocalNetworkAccessPermission(context, input.certificateRegistrationUrl);
+    for (const existingPage of context.pages()) {
+      try {
+        await existingPage.close({ runBeforeUnload: true });
+      } catch {
+        // Ignore stale restored tabs that refuse to close cleanly.
+      }
+    }
     context.on("request", (request) => {
       try {
         const parsed = new URL(request.url());
@@ -1251,7 +1560,11 @@ export async function registerPopbillCertificate(
     });
 
     const page = await context.newPage();
-    page.on("dialog", (dialog) => void dialog.accept());
+    const dialogMessages: string[] = [];
+    page.on("dialog", (dialog) => {
+      dialogMessages.push(dialog.message());
+      void dialog.accept();
+    });
 
     await page.goto(input.certificateRegistrationUrl, {
       waitUntil: "domcontentloaded",
@@ -1259,7 +1572,15 @@ export async function registerPopbillCertificate(
     });
     await page.waitForTimeout(4_000);
 
+    await throwIfExpiredTokenVisible(page, dialogMessages);
+
     const initialText = await page.locator("body").innerText().catch(() => "");
+    const resolvedCertificateResult = await resolvedCertificatePromise;
+    if (!resolvedCertificateResult.ok) {
+      throw resolvedCertificateResult.error;
+    }
+    const resolvedCertificate = resolvedCertificateResult.value;
+
     if (detectAlreadyRegistered(initialText)) {
       return {
         outcome: "already-registered",
@@ -1270,19 +1591,22 @@ export async function registerPopbillCertificate(
         serial: resolvedCertificate.serial,
         userDN: resolvedCertificate.userDN,
         localBridgeBaseUrl,
-        message: "이미 팝빌에 공동인증서가 등록되어 있습니다."
+        message: "이미 팝빌 공동인증서가 등록되어 있습니다."
       };
     }
 
     await page.getByText("전자세금용 공동인증서", { exact: true }).click({ force: true });
     await page.waitForTimeout(5_000);
+    await throwIfExpiredTokenVisible(page, dialogMessages);
 
     const childFrame = page.frames().find((frame) => frame.url().includes("/App/ML4Web/Child.html"));
     if (!childFrame) {
-      throw new Error("팝빌 인증서 선택 화면을 열지 못했습니다.");
+      await throwIfExpiredTokenVisible(page, dialogMessages);
+      throw new Error("팝빌 인증서 선택 화면을 찾지 못했습니다.");
     }
 
     await childFrame.locator("#input_cert_pw").waitFor({ state: "visible", timeout: 20_000 });
+    await throwIfExpiredTokenVisible(page, dialogMessages);
     const frameInspection = await inspectPopbillCertificateSelectionFrame(childFrame, {
       certificateCn: resolvedCertificate.certificateCn,
       certificateIndex: resolvedCertificate.certificateIndex,
@@ -1334,8 +1658,7 @@ export async function registerPopbillCertificate(
         selectionReason: selectedCandidate.reason,
         candidates: frameInspection.candidates,
         selectionDetailProbes,
-        errorMessage:
-          "iframe DOM에서 serial/userDN/index와 일치하는 고유 항목을 확인하지 못해 자동 등록을 중단했습니다."
+        errorMessage: "iframe DOM에서 serial/userDN/index와 일치하는 고유 항목을 확인하지 못해 자동 등록을 중단했습니다."
       });
       console.warn(
         `[popbill-cert-registration] ambiguous certificate candidates: ${JSON.stringify(
@@ -1361,8 +1684,53 @@ export async function registerPopbillCertificate(
     console.info(
       `[popbill-cert-registration] selecting ${resolvedCertificate.certificateCn} using ${selectedCandidate.reason ?? frameInspection.selectionReason ?? "CN match"} (${selectedCandidate.selector})`
     );
-    await childFrame.locator(selectedCandidate.selector).click({ force: true });
-    await childFrame.locator("#input_cert_pw").fill(input.certificatePassword);
+    const selectionActivationState = await ensurePopbillCertificateSelectionReady(
+      childFrame,
+      selectedCandidate.selector
+    );
+    if (!isPopbillSelectionReady(selectionActivationState)) {
+      const artifact = await writePopbillDebugArtifact({
+        stage: "registration-confirmation-failed",
+        page,
+        frame: childFrame,
+        resolvedCertificate,
+        visibleMatchCount: frameInspection.visibleMatchCount,
+        selectionReason: selectedCandidate.reason ?? frameInspection.selectionReason,
+        candidates: frameInspection.candidates,
+        selectionDetailProbes,
+        selectionActivationState,
+        errorMessage: "팝빌 인증서 선택 후 비밀번호 입력창이 활성화되지 않았습니다."
+      });
+      throw new Error(
+        `팝빌 인증서 선택 후 비밀번호 입력창이 활성화되지 않았습니다. ${formatPopbillDebugArtifactSummary(artifact)}`
+      );
+    }
+
+    try {
+      await childFrame.locator("#input_cert_pw").fill(input.certificatePassword);
+    } catch (error) {
+      const latestSelectionActivationState = await readPopbillSelectionActivationState(childFrame).catch(
+        () => selectionActivationState
+      );
+      const artifact = await writePopbillDebugArtifact({
+        stage: "registration-confirmation-failed",
+        page,
+        frame: childFrame,
+        resolvedCertificate,
+        visibleMatchCount: frameInspection.visibleMatchCount,
+        selectionReason: selectedCandidate.reason ?? frameInspection.selectionReason,
+        candidates: frameInspection.candidates,
+        selectionDetailProbes,
+        selectionActivationState: latestSelectionActivationState,
+        errorMessage:
+          error instanceof Error
+            ? error.message
+            : "팝빌 인증서 비밀번호 입력 단계에서 알 수 없는 오류가 발생했습니다."
+      });
+      throw new Error(
+        `${error instanceof Error ? error.message : "팝빌 인증서 비밀번호 입력 단계에서 알 수 없는 오류가 발생했습니다."} ${formatPopbillDebugArtifactSummary(artifact)}`
+      );
+    }
 
     const registrationResponse = page.waitForResponse(
       (response) =>
@@ -1370,10 +1738,29 @@ export async function registerPopbillCertificate(
       { timeout: 30_000 }
     );
     await childFrame.locator("#btn_confirm_iframe").click({ force: true });
-    await registrationResponse;
+    try {
+      await registrationResponse;
+    } catch {
+      const frameText = await childFrame.locator("body").innerText().catch(() => "");
+      const resolvedError =
+        extractRegistrationError(frameText) ??
+        "팝빌 인증서 등록 요청을 확인하지 못했습니다. 확인 버튼 클릭 후 서버 요청이 전송되지 않았습니다.";
+      const artifact = await writePopbillDebugArtifact({
+        stage: "registration-confirmation-failed",
+        page,
+        frame: childFrame,
+        resolvedCertificate,
+        visibleMatchCount: frameInspection.visibleMatchCount,
+        selectionReason: selectedCandidate.reason ?? frameInspection.selectionReason,
+        candidates: frameInspection.candidates,
+        selectionDetailProbes,
+        errorMessage: resolvedError
+      });
+      throw new Error(`${resolvedError} ${formatPopbillDebugArtifactSummary(artifact)}`);
+    }
 
     try {
-      await waitForPageText(page, "인증서가 등록 되었습니다.", 30_000);
+      await waitForPageText(page, "인증서가 등록", 30_000);
     } catch {
       const frameText = await childFrame.locator("body").innerText().catch(() => "");
       const resolvedError = extractRegistrationError(frameText) ?? "팝빌 인증서 등록 완료를 확인하지 못했습니다.";

@@ -1,4 +1,5 @@
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import { X509Certificate } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
@@ -38,6 +39,20 @@ const SIGNGATE_COOKIE_HEADER_CACHE_TTL_MS = 30 * 1000;
 const PORT_TARGETS = [
   { port: 14315, protocol: "https" as const },
   { port: 14319, protocol: "http" as const },
+];
+
+const FILESYSTEM_ELECTRONIC_TAX_OID = "1.2.410.200004.5.2.1.6.257";
+const FILESYSTEM_USAGE_NAME_BY_OID: Record<string, string> = {
+  "1.2.410.200004.5.2.1.6.257": "전자세금용",
+  "1.2.410.200004.5.2.1.2": "범용(기업)",
+  "1.2.410.200005.1.1.4": "은행/보험용",
+};
+const HDD_CERTIFICATE_STORAGE_DIR_NAMES = [
+  "NPKI",
+  "CrossCert",
+  "SKCert",
+  "certstorage",
+  "VestCert",
 ];
 
 type BridgeProbeResult = {
@@ -87,6 +102,8 @@ type BridgeProbeResult = {
         validateFrom: string | null;
         detailValidateTo: string | null;
         certDirPath: string | null;
+        listSource?: "bridge-hdd" | "filesystem-hdd" | "ml4web-hdd" | "ml4web-web";
+        supportsPreflight?: boolean;
       }>;
       error: string | null;
     };
@@ -254,6 +271,11 @@ let cachedDetailedBridgeStatus: Pick<
     error: null,
   },
 };
+
+let cachedBridgeCertificateListStatus: Pick<
+  BridgeProbeResult["bridge"],
+  "licenseProbe" | "storageProbe"
+> | null = null;
 
 let cachedSelectionProbe: BridgeProbeResult["bridge"]["selectionProbe"] = {
   ok: false,
@@ -495,6 +517,17 @@ function defaultStorageProbe(): BridgeProbeResult["bridge"]["storageProbe"] {
   };
 }
 
+function cloneStorageProbe(
+  storageProbe: BridgeProbeResult["bridge"]["storageProbe"],
+): BridgeProbeResult["bridge"]["storageProbe"] {
+  return {
+    ...storageProbe,
+    certificates: storageProbe.certificates.map((certificate) => ({
+      ...certificate,
+    })),
+  };
+}
+
 function defaultSelectionProbe(): BridgeProbeResult["bridge"]["selectionProbe"] {
   return {
     ok: false,
@@ -568,12 +601,22 @@ function cloneDetailedBridgeStatus(): Pick<
     licenseProbe: {
       ...cachedDetailedBridgeStatus.licenseProbe,
     },
-    storageProbe: {
-      ...cachedDetailedBridgeStatus.storageProbe,
-      certificates: cachedDetailedBridgeStatus.storageProbe.certificates.map(
-        (certificate) => ({ ...certificate }),
-      ),
+    storageProbe: cloneStorageProbe(cachedDetailedBridgeStatus.storageProbe),
+  };
+}
+
+function cloneBridgeCertificateListStatus(): Pick<
+  BridgeProbeResult["bridge"],
+  "licenseProbe" | "storageProbe"
+> | null {
+  if (!cachedBridgeCertificateListStatus) {
+    return null;
+  }
+  return {
+    licenseProbe: {
+      ...cachedBridgeCertificateListStatus.licenseProbe,
     },
+    storageProbe: cloneStorageProbe(cachedBridgeCertificateListStatus.storageProbe),
   };
 }
 
@@ -632,6 +675,18 @@ function cacheDetailedBridgeStatusValue(
         ...certificate,
       })),
     },
+  };
+}
+
+function cacheBridgeCertificateListStatusValue(
+  licenseProbe: BridgeProbeResult["bridge"]["licenseProbe"],
+  storageProbe: BridgeProbeResult["bridge"]["storageProbe"],
+) {
+  cachedBridgeCertificateListStatus = {
+    licenseProbe: {
+      ...licenseProbe,
+    },
+    storageProbe: cloneStorageProbe(storageProbe),
   };
 }
 
@@ -1702,6 +1757,8 @@ function parseStorageCertificates(
       validateFrom: null,
       detailValidateTo: null,
       certDirPath: null,
+      listSource: "bridge-hdd",
+      supportsPreflight: true,
     });
   }
 
@@ -1751,7 +1808,305 @@ function mergeCertificateDetail(
       typeof reply.certDirPath === "string"
         ? reply.certDirPath
         : certificate.certDirPath,
+    listSource: certificate.listSource ?? "bridge-hdd",
+    supportsPreflight: true,
   };
+}
+
+function normalizeCertificateMergeKey(value: string | null | undefined): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function buildFallbackCertificateMergeKey(
+  certificate: BridgeProbeResult["bridge"]["storageProbe"]["certificates"][number],
+): string {
+  return [
+    normalizeCertificateMergeKey(certificate.cn),
+    normalizeCertificateMergeKey(certificate.issuerToName),
+    normalizeCertificateMergeKey(certificate.usageToName),
+    normalizeCertificateMergeKey(certificate.todate),
+    normalizeCertificateMergeKey(certificate.detailValidateTo),
+  ].join("|");
+}
+
+function mergeCertificateLists(options: {
+  bridgeCertificates: BridgeProbeResult["bridge"]["storageProbe"]["certificates"];
+  filesystemCertificates: BridgeProbeResult["bridge"]["storageProbe"]["certificates"];
+}): BridgeProbeResult["bridge"]["storageProbe"]["certificates"] {
+  const merged = options.bridgeCertificates.map((certificate) => ({
+    ...certificate,
+    listSource: certificate.listSource ?? "bridge-hdd",
+    supportsPreflight: certificate.supportsPreflight ?? true,
+  }));
+
+  const seenSerials = new Set(
+    merged
+      .map((certificate) => normalizeCertificateMergeKey(certificate.serial))
+      .filter(Boolean),
+  );
+  const seenUserDns = new Set(
+    merged
+      .map((certificate) => normalizeCertificateMergeKey(certificate.userDN))
+      .filter(Boolean),
+  );
+  const seenFallbackKeys = new Set(
+    merged.map((certificate) => buildFallbackCertificateMergeKey(certificate)),
+  );
+
+  for (const certificate of options.filesystemCertificates) {
+    const serial = normalizeCertificateMergeKey(certificate.serial);
+    const userDN = normalizeCertificateMergeKey(certificate.userDN);
+    const fallbackKey = buildFallbackCertificateMergeKey(certificate);
+
+    if (
+      (serial && seenSerials.has(serial)) ||
+      (userDN && seenUserDns.has(userDN)) ||
+      seenFallbackKeys.has(fallbackKey)
+    ) {
+      continue;
+    }
+
+    merged.push({
+      ...certificate,
+      listSource: certificate.listSource ?? "filesystem-hdd",
+      supportsPreflight: certificate.supportsPreflight ?? false,
+    });
+    if (serial) {
+      seenSerials.add(serial);
+    }
+    if (userDN) {
+      seenUserDns.add(userDN);
+    }
+    seenFallbackKeys.add(fallbackKey);
+  }
+
+  return merged;
+}
+
+function resolveFilesystemHddCertificateSearchRoots(): string[] {
+  const homeDir = os.homedir();
+  const explicitRoots = [
+    path.join(homeDir, "Desktop"),
+    path.join(homeDir, "Documents"),
+    path.join(homeDir, "Downloads"),
+    path.join(homeDir, "AppData", "LocalLow"),
+    path.join(homeDir, "AppData", "Roaming"),
+    process.env.ProgramFiles ?? "",
+    process.env["ProgramFiles(x86)"] ?? "",
+  ]
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const uniqueRoots = new Set<string>();
+  for (const root of explicitRoots) {
+    try {
+      const normalizedRoot = path.resolve(root);
+      if (fs.existsSync(normalizedRoot)) {
+        uniqueRoots.add(normalizedRoot);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return [...uniqueRoots];
+}
+
+function shouldSkipFilesystemDirectoryScan(fullPath: string): boolean {
+  const normalized = fullPath.replace(/\//g, "\\").toLowerCase();
+  return (
+    normalized.includes("\\node_modules\\") ||
+    normalized.includes("\\.git\\") ||
+    normalized.includes("\\appdata\\local\\temp\\") ||
+    normalized.includes("\\temp\\") ||
+    normalized.includes("\\cache\\")
+  );
+}
+
+function collectNamedCertificateDirectories(
+  baseRoot: string,
+  depth = 0,
+  maxDepth = 5,
+  results = new Set<string>(),
+): Set<string> {
+  if (depth > maxDepth || shouldSkipFilesystemDirectoryScan(baseRoot)) {
+    return results;
+  }
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(baseRoot, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const fullPath = path.join(baseRoot, entry.name);
+    if (HDD_CERTIFICATE_STORAGE_DIR_NAMES.some((name) => name.toLowerCase() === entry.name.toLowerCase())) {
+      results.add(fullPath);
+      continue;
+    }
+
+    collectNamedCertificateDirectories(fullPath, depth + 1, maxDepth, results);
+  }
+
+  return results;
+}
+
+function collectSignCertDerFiles(
+  rootDir: string,
+  depth = 0,
+  maxDepth = 8,
+  results = new Set<string>(),
+): Set<string> {
+  if (depth > maxDepth || shouldSkipFilesystemDirectoryScan(rootDir)) {
+    return results;
+  }
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(rootDir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+
+  for (const entry of entries) {
+    const fullPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      collectSignCertDerFiles(fullPath, depth + 1, maxDepth, results);
+      continue;
+    }
+    if (entry.isFile() && /^signCert\.der$/i.test(entry.name)) {
+      results.add(fullPath);
+    }
+  }
+
+  return results;
+}
+
+function extractDnAttributeValue(userDn: string, attribute: string): string | null {
+  const pattern = new RegExp(`(?:^|,)${attribute}=([^,]+)`, "i");
+  const match = userDn.match(pattern);
+  return match?.[1]?.trim() ?? null;
+}
+
+function resolveFilesystemCertificatePolicyOid(filePath: string): string | null {
+  const result = spawnSync("certutil.exe", ["-dump", filePath], {
+    encoding: "utf8",
+    timeout: 8000,
+    windowsHide: true,
+  });
+  const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  const match = text.match(/Policy Identifier=([0-9.]+)/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+function resolveUsageNameFromPolicyOid(oid: string | null): string {
+  if (!oid) {
+    return "알 수 없음";
+  }
+  return FILESYSTEM_USAGE_NAME_BY_OID[oid] ?? oid;
+}
+
+function resolveIssuerDisplayName(issuer: string): string {
+  const organization = issuer
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^O=/i.test(line))
+    ?.replace(/^O=/i, "")
+    .trim();
+  if (organization === "KICA") {
+    return "한국정보인증";
+  }
+  return organization || "알 수 없음";
+}
+
+function buildFilesystemCertificateIndex(input: string): string {
+  let hash = 2166136261;
+  for (const character of input) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  const normalized = Math.abs(hash >>> 0) % 900000000;
+  return String(-(100000000 + normalized));
+}
+
+function convertHexSerialToDecimal(serialHex: string): string | null {
+  const normalized = serialHex.replace(/[^0-9a-f]/gi, "").trim();
+  if (!normalized) {
+    return null;
+  }
+  try {
+    return BigInt(`0x${normalized}`).toString(10);
+  } catch {
+    return null;
+  }
+}
+
+function collectFilesystemElectronicTaxCertificates(): BridgeProbeResult["bridge"]["storageProbe"]["certificates"] {
+  if (process.platform !== "win32") {
+    return [];
+  }
+
+  const storageRoots = resolveFilesystemHddCertificateSearchRoots();
+  const namedDirectories = new Set<string>();
+  for (const root of storageRoots) {
+    collectNamedCertificateDirectories(root, 0, 5, namedDirectories);
+  }
+
+  const signCertPaths = new Set<string>();
+  for (const directory of namedDirectories) {
+    collectSignCertDerFiles(directory, 0, 8, signCertPaths);
+  }
+
+  const certificates: BridgeProbeResult["bridge"]["storageProbe"]["certificates"] = [];
+  for (const filePath of signCertPaths) {
+    try {
+      const raw = fs.readFileSync(filePath);
+      const certificate = new X509Certificate(raw);
+      const userDn = path.basename(path.dirname(filePath));
+      const policyOid = resolveFilesystemCertificatePolicyOid(filePath);
+      if (policyOid !== FILESYSTEM_ELECTRONIC_TAX_OID) {
+        continue;
+      }
+
+      const serial = convertHexSerialToDecimal(certificate.serialNumber);
+      const cn =
+        extractDnAttributeValue(userDn, "cn") ??
+        extractDnAttributeValue(certificate.subject.replace(/\r?\n/g, ","), "CN") ??
+        "";
+      const validTo = new Date(certificate.validTo);
+      const validFrom = new Date(certificate.validFrom);
+
+      certificates.push({
+        index: buildFilesystemCertificateIndex(`${serial ?? ""}|${filePath}`),
+        cn,
+        issuerToName: resolveIssuerDisplayName(certificate.issuer),
+        usageToName: resolveUsageNameFromPolicyOid(policyOid),
+        todate: Number.isNaN(validTo.getTime()) ? null : validTo.toISOString(),
+        oid: policyOid,
+        serial,
+        userDN: userDn || null,
+        validateFrom: Number.isNaN(validFrom.getTime())
+          ? null
+          : validFrom.toISOString(),
+        detailValidateTo: Number.isNaN(validTo.getTime())
+          ? null
+          : validTo.toISOString(),
+        certDirPath: path.dirname(filePath),
+        listSource: "filesystem-hdd",
+        supportsPreflight: false,
+      });
+    } catch {
+      continue;
+    }
+  }
+
+  return certificates;
 }
 
 function buildOrderedPortTargets(
@@ -2419,7 +2774,8 @@ export async function collectBridgeCertificateList(options?: {
 }): Promise<
   Pick<BridgeProbeResult["bridge"], "licenseProbe" | "storageProbe">
 > {
-  const cached = cloneDetailedBridgeStatus();
+  const cached =
+    cloneBridgeCertificateListStatus() ?? cloneDetailedBridgeStatus();
   if (
     options?.preferCached !== false &&
     cached.storageProbe.ok &&
@@ -2445,7 +2801,7 @@ export async function collectBridgeCertificateList(options?: {
     storageProbe = await probeStorageSummaryOnTarget(target, signGateConfig);
     if (storageProbe.ok) {
       cacheDetailedBridgeStatusValue(licenseProbe, storageProbe);
-      return { licenseProbe, storageProbe };
+      break;
     }
   }
 
@@ -2457,8 +2813,25 @@ export async function collectBridgeCertificateList(options?: {
     };
   }
 
-  cacheDetailedBridgeStatusValue(licenseProbe, storageProbe);
-  return { licenseProbe, storageProbe };
+  const filesystemCertificates = collectFilesystemElectronicTaxCertificates();
+  const mergedStorageProbe =
+    filesystemCertificates.length > 0
+      ? {
+          ok: storageProbe.ok || filesystemCertificates.length > 0,
+          sourcePort: storageProbe.sourcePort ?? licenseProbe.sourcePort,
+          mediaType: "HDD" as const,
+          certificates: mergeCertificateLists({
+            bridgeCertificates: storageProbe.certificates,
+            filesystemCertificates,
+          }),
+          certificateCount: 0,
+          error: storageProbe.ok ? null : storageProbe.error,
+        }
+      : storageProbe;
+
+  mergedStorageProbe.certificateCount = mergedStorageProbe.certificates.length;
+  cacheBridgeCertificateListStatusValue(licenseProbe, mergedStorageProbe);
+  return { licenseProbe, storageProbe: mergedStorageProbe };
 }
 
 async function collectLightweightPreflightBridgeState(

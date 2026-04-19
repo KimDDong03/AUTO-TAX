@@ -51,6 +51,13 @@ type InitialRegistrationStepItem = {
   chipClass: string;
 };
 
+type CertificatePasswordOverrideEntry = {
+  businessNumber: string;
+  customerName: string;
+  corpName: string;
+  value: string;
+};
+
 export type InitialRegistrationFlowState = {
   stage: InitialRegistrationStage;
   primaryActionLabel: string;
@@ -287,6 +294,8 @@ type InitialRegistrationTabProps = {
   registrationCommitDone?: boolean;
   customerOnboardingSharedPassword: string;
   onCustomerOnboardingSharedPasswordChange: (value: string) => void;
+  certificatePasswordOverrideEntries: CertificatePasswordOverrideEntry[];
+  onCertificatePasswordOverrideChange: (businessNumber: string, value: string) => void;
   showBillingMonthCompletion?: boolean;
   downloadCustomerOnboardingTemplate: () => Promise<void>;
   handleCustomerOnboardingFileChange: (file: File | null) => Promise<void>;
@@ -418,6 +427,9 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                 onClick: () => props.proceedOnboardingCertificateFollowUp()
               };
   const showOnboardingInlineStatus = Boolean(props.customerOnboardingFileName || props.customerOnboardingPreview);
+  const showCertificatePasswordOverrides =
+    registrationFlow.commitCompleted &&
+    props.certificatePasswordOverrideEntries.length > 0;
 
   return (
     <div className="initial-screen">
@@ -580,14 +592,14 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           {props.customerOnboardingNotice ? (
             <div className="helper-box import-helper-box">
               <strong>안내</strong>
-              <span className="helper-multiline-text">{props.customerOnboardingNotice}</span>
+              <span className="helper-multiline-text helper-multiline-scroll">{props.customerOnboardingNotice}</span>
             </div>
           ) : null}
           {props.pendingOnboardingCertificateRegistrationCount > 0 ||
           (props.certificatePendingJoinCount ?? 0) > 0 ? (
             <div className="helper-box import-helper-box">
               <strong>다음</strong>
-              <span className="helper-multiline-text">
+              <span className="helper-multiline-text helper-multiline-scroll">
                 {(props.certificatePendingJoinCount ?? 0) > 0
                   ? `팝빌 가입 대기 ${props.certificatePendingJoinCount ?? 0}건`
                   : ""}
@@ -601,16 +613,44 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               </span>
             </div>
           ) : null}
+          {showCertificatePasswordOverrides ? (
+            <div className="helper-box import-helper-box">
+              <strong>실패 고객별 공동인증서 비밀번호</strong>
+              <span className="helper-multiline-text helper-multiline-scroll">
+                공통 비밀번호로 등록되지 않는 고객만 개별 비밀번호를 입력하세요. 비워두면 공통 비밀번호를 계속 사용합니다.
+              </span>
+              <div className="form-grid">
+                {props.certificatePasswordOverrideEntries.map((entry) => (
+                  <label
+                    key={`initial-registration-cert-password-${entry.businessNumber}`}
+                    className="settings-defaults-cell settings-defaults-cell-span-2"
+                  >
+                    {entry.customerName}
+                    <span className="field-hint">{entry.corpName || entry.businessNumber}</span>
+                    <input
+                      type="password"
+                      value={entry.value}
+                      disabled={props.busyKey !== null}
+                      onChange={(event) =>
+                        props.onCertificatePasswordOverrideChange(entry.businessNumber, event.target.value)
+                      }
+                      placeholder="이 고객 인증서 비밀번호만 따로 입력"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {props.customerOnboardingError ? (
             <div className="helper-box import-helper-box">
               <strong>확인 필요</strong>
-              <span className="helper-multiline-text">{props.customerOnboardingError}</span>
+              <span className="helper-multiline-text helper-multiline-scroll">{props.customerOnboardingError}</span>
             </div>
           ) : null}
           {props.customerOnboardingPreview?.fileErrors.length ? (
             <div className="helper-box import-helper-box">
               <strong>시트 연결 오류</strong>
-              <span className="helper-multiline-text">{props.customerOnboardingPreview.fileErrors.join("\n")}</span>
+              <span className="helper-multiline-text helper-multiline-scroll">{props.customerOnboardingPreview.fileErrors.join("\n")}</span>
             </div>
           ) : null}
           {props.customerOnboardingPreview?.rows.length ? (

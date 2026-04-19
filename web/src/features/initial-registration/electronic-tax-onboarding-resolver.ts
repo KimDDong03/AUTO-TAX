@@ -489,6 +489,12 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     onboardingPreflightConcurrency,
     async (selection) => {
       const { matchedCertificate, certificateLabel, effectivePassword } = selection;
+      if (matchedCertificate.supportsPreflight === false) {
+        return {
+          ok: false as const,
+          message: `발전소 시트 (${certificateLabel}): 이 인증서는 추가 HDD 경로에서만 확인되어 현재 SignGate 사전조회 자동화를 지원하지 않습니다. 표준 HDD 공동인증서 보관 경로로 옮긴 뒤 다시 시도해 주세요.`
+        };
+      }
       const response = await args.requestPreflight({
         certificateIndex: Number(matchedCertificate.index),
         certificateCn: matchedCertificate.cn || selection.certificateName || null,

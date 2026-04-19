@@ -91,6 +91,7 @@ import {
 } from "./features/renewal/renewalDiagnosticsFormatters";
 import {
   requestLocalPopbillCertificateRegistration,
+  requestLocalRenewalCertificates,
   requestLocalRenewalBridgeProbe,
   requestLocalRenewalOpenPayment,
   requestLocalRenewalPreparePayment,
@@ -180,8 +181,16 @@ type PersistedCustomerOnboardingState = {
   preview: CustomerOnboardingPreviewResponse | null;
   sessionState: CustomerOnboardingSessionState;
   attemptedCertificateBusinessNumbers: string[];
+  certificatePasswordOverrides: Record<string, string>;
   notice: string;
   error: string;
+};
+
+type OnboardingCertificatePasswordOverrideEntry = {
+  businessNumber: string;
+  customerName: string;
+  corpName: string;
+  value: string;
 };
 
 function readPersistedCustomerOnboardingState(
@@ -225,6 +234,17 @@ function readPersistedCustomerOnboardingState(
             .map((value) => String(value ?? "").replace(/\D/g, ""))
             .filter((value) => value.length > 0)
         : [],
+      certificatePasswordOverrides:
+        parsed.certificatePasswordOverrides && typeof parsed.certificatePasswordOverrides === "object"
+          ? Object.fromEntries(
+              Object.entries(parsed.certificatePasswordOverrides)
+                .map(([businessNumber, value]) => [
+                  String(businessNumber ?? "").replace(/\D/g, ""),
+                  typeof value === "string" ? value : ""
+                ])
+                .filter(([businessNumber, value]) => businessNumber.length > 0 && value.trim() !== "")
+            )
+          : {},
       notice: typeof parsed.notice === "string" ? parsed.notice : "",
       error: typeof parsed.error === "string" ? parsed.error : ""
     };
@@ -252,6 +272,43 @@ function writePersistedCustomerOnboardingState(
   } catch {
     // ignore storage failures
   }
+}
+
+function OnboardingCertificatePasswordOverridePanel(props: {
+  entries: OnboardingCertificatePasswordOverrideEntry[];
+  disabled: boolean;
+  onChange: (businessNumber: string, value: string) => void;
+}) {
+  if (props.entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="helper-box import-helper-box">
+      <strong>실패 고객별 공동인증서 비밀번호</strong>
+      <span className="helper-multiline-text">
+        공통 비밀번호로 등록되지 않는 고객만 개별 비밀번호를 입력하세요. 비워두면 공통 비밀번호를 계속 사용합니다.
+      </span>
+      <div className="form-grid">
+        {props.entries.map((entry) => (
+          <label
+            key={`onboarding-cert-password-${entry.businessNumber}`}
+            className="settings-defaults-cell settings-defaults-cell-span-2"
+          >
+            {entry.customerName}
+            <span className="field-hint">{entry.corpName || entry.businessNumber}</span>
+            <input
+              type="password"
+              value={entry.value}
+              disabled={props.disabled}
+              onChange={(event) => props.onChange(entry.businessNumber, event.target.value)}
+              placeholder="이 고객 인증서 비밀번호만 따로 입력"
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 type OnboardingCertificateAutoRunnerProps = {
@@ -1486,6 +1543,8 @@ export function App() {
   const [customerOnboardingSessionState, setCustomerOnboardingSessionState] =
     useState<CustomerOnboardingSessionState>(emptyCustomerOnboardingSessionState);
   const [customerOnboardingSharedPassword, setCustomerOnboardingSharedPassword] = useState("");
+  const [customerOnboardingCertificatePasswordOverrides, setCustomerOnboardingCertificatePasswordOverrides] =
+    useState<Record<string, string>>({});
   const [customerOnboardingAttemptedCertificateBusinessNumbers, setCustomerOnboardingAttemptedCertificateBusinessNumbers] =
     useState<string[]>([]);
   const [customerOnboardingNotice, setCustomerOnboardingNotice] = useState("");
@@ -1537,6 +1596,9 @@ export function App() {
     setCustomerOnboardingSessionState(
       persisted?.sessionState ?? emptyCustomerOnboardingSessionState
     );
+    setCustomerOnboardingCertificatePasswordOverrides(
+      persisted?.certificatePasswordOverrides ?? {}
+    );
     setCustomerOnboardingAttemptedCertificateBusinessNumbers(
       persisted?.attemptedCertificateBusinessNumbers ?? []
     );
@@ -1561,6 +1623,7 @@ export function App() {
       customerOnboardingSessionState.previewReady ||
       customerOnboardingSessionState.commitDone ||
       customerOnboardingSessionState.certificateDone ||
+      Object.keys(customerOnboardingCertificatePasswordOverrides).length > 0 ||
       customerOnboardingSessionState.targetBusinessNumbers.length > 0 ||
       customerOnboardingAttemptedCertificateBusinessNumbers.length > 0 ||
       customerOnboardingNotice.trim() !== "" ||
@@ -1574,6 +1637,8 @@ export function App() {
             workbook: customerOnboardingWorkbook,
             preview: customerOnboardingPreview,
             sessionState: customerOnboardingSessionState,
+            certificatePasswordOverrides:
+              customerOnboardingCertificatePasswordOverrides,
             attemptedCertificateBusinessNumbers:
               customerOnboardingAttemptedCertificateBusinessNumbers,
             notice: customerOnboardingNotice,
@@ -1587,10 +1652,30 @@ export function App() {
     customerOnboardingFileName,
     customerOnboardingNotice,
     customerOnboardingPreview,
+    customerOnboardingCertificatePasswordOverrides,
     customerOnboardingSessionState,
     customerOnboardingWorkbook,
     customerOnboardingAttemptedCertificateBusinessNumbers
   ]);
+  useEffect(() => {
+    if (!activeOrganizationId || !data) {
+      return;
+    }
+
+    if (!customerOnboardingSessionState.commitDone || data.customers.length > 0) {
+      return;
+    }
+
+    setCustomerOnboardingSessionState((prev) =>
+      prev.commitDone || prev.certificateDone
+        ? {
+            ...prev,
+            commitDone: false,
+            certificateDone: false
+          }
+        : prev
+    );
+  }, [activeOrganizationId, customerOnboardingSessionState.commitDone, data]);
   const [helperSetupPreference, setHelperSetupPreference] = useState<{
     organizationId: string | null;
     completed: boolean;
@@ -1969,7 +2054,7 @@ export function App() {
               customer.popbillState !== "joined" || !customer.popbillCertRegistered
           ).length;
   const settingsDerivedCustomerRegistrationReady = customerOnboardingSessionActive
-    ? customerOnboardingSessionState.commitDone
+    ? customerOnboardingSessionState.commitDone && (data?.customers.length ?? 0) > 0
     : (data?.customers.length ?? 0) > 0;
   const settingsDerivedModel = useSettingsDerivedModel({
     actionBar: {
@@ -2778,9 +2863,8 @@ export function App() {
       return customerOnboardingCertificatesRef.current;
     }
 
-    const response = await requestLocalRenewalBridgeProbe();
-    const certificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
-    const bridgeJob = buildLocalRenewalBridgeJob(response.result, certificates.length);
+    const response = await requestLocalRenewalCertificates();
+    const certificates = response.result.storageProbe.ok ? response.result.storageProbe.certificates : [];
     setCustomerRenewalAssistant((prev) =>
       buildCustomerRenewalAssistant({
         current: prev,
@@ -2831,6 +2915,7 @@ export function App() {
     setCustomerOnboardingFileName("");
     setCustomerOnboardingWorkbook(null);
     setCustomerOnboardingPreview(null);
+    setCustomerOnboardingCertificatePasswordOverrides({});
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
     setCustomerOnboardingSessionState({
       templateDownloaded: true,
@@ -2847,6 +2932,7 @@ export function App() {
     setCustomerOnboardingFileName(result.fileName);
     setCustomerOnboardingWorkbook(result.workbook);
     setCustomerOnboardingPreview(result.preview);
+    setCustomerOnboardingCertificatePasswordOverrides({});
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
     setCustomerOnboardingSessionState(result.sessionState);
     setCustomerOnboardingNotice(result.notice);
@@ -3405,6 +3491,50 @@ export function App() {
     return result.url;
   };
 
+  const isExpiredPopbillCertificateRegistrationError = (error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : typeof error === "string" ? error : String(error ?? "");
+    const normalized = message.replace(/\s+/g, "");
+    return (
+      normalized.includes("만료된토큰") ||
+      normalized.includes("토큰이만료") ||
+      normalized.includes("팝빌인증서등록URL이만료") ||
+      normalized.includes("인증서등록URL이만료")
+    );
+  };
+
+  const requestLocalPopbillCertificateRegistrationWithRetry = async (options: {
+    customerId: number;
+    certificateIndex: number;
+    certificateCn?: string | null;
+    certificateKind: "electronic_tax";
+    serial?: string | null;
+    userDN?: string | null;
+    certificatePassword: string;
+  }) => {
+    const runOnce = async () => {
+      const certificateRegistrationUrl = await getCustomerCertificateRegistrationUrl(options.customerId);
+      return await requestLocalPopbillCertificateRegistration({
+        certificateRegistrationUrl,
+        certificateIndex: options.certificateIndex,
+        certificateCn: options.certificateCn,
+        certificateKind: options.certificateKind,
+        serial: options.serial,
+        userDN: options.userDN,
+        certificatePassword: options.certificatePassword
+      });
+    };
+
+    try {
+      return await runOnce();
+    } catch (error) {
+      if (!isExpiredPopbillCertificateRegistrationError(error)) {
+        throw error;
+      }
+      return await runOnce();
+    }
+  };
+
   const linkCustomerCertificate = async (
     customerId: number,
     certificate: RenewalAgentCertificate,
@@ -3580,9 +3710,8 @@ export function App() {
           }
 
           try {
-            const certRegistrationUrl = await getCustomerCertificateRegistrationUrl(createdCustomer.id);
-            const registrationResponse = await requestLocalPopbillCertificateRegistration({
-              certificateRegistrationUrl: certRegistrationUrl,
+            const registrationResponse = await requestLocalPopbillCertificateRegistrationWithRetry({
+              customerId: createdCustomer.id,
               certificateIndex: Number(entry.certificate.index),
               certificateCn: entry.certificate.cn || createdCustomer.customerName,
               certificateKind: "electronic_tax",
@@ -4490,11 +4619,21 @@ export function App() {
     : data.customers.filter(
         (customer) => customer.popbillState === "joined" && !customer.popbillCertRegistered
       );
+  const onboardingCertificatePasswordOverrideEntries: OnboardingCertificatePasswordOverrideEntry[] =
+    pendingOnboardingCertificateRegistrationTargets.map((customer) => {
+      const businessNumber = digitsOnly(customer.businessNumber);
+      return {
+        businessNumber,
+        customerName: customer.customerName,
+        corpName: customer.corpName,
+        value: customerOnboardingCertificatePasswordOverrides[businessNumber] ?? ""
+      };
+    });
   const hasRegisteredCustomers = data.customers.length > 0;
   const onboardingCertificateFollowUpActive =
     customerOnboardingSessionActive || (hasRegisteredCustomers && popbillPendingCustomers.length > 0);
   const onboardingCustomerRegistrationReady = customerOnboardingSessionActive
-    ? customerOnboardingSessionState.commitDone
+    ? customerOnboardingSessionState.commitDone && hasRegisteredCustomers
     : hasRegisteredCustomers;
   const onboardingPendingCertificateCustomers = customerOnboardingSessionActive
     ? getOnboardingPendingCertificateCustomers(
@@ -4725,7 +4864,37 @@ export function App() {
       return null;
     }
 
-    return matches.find((certificate) => certificate.isPrimary) ?? matches[0] ?? null;
+    const selectedCertificate = matches.find((certificate) => certificate.isPrimary) ?? matches[0] ?? null;
+    if (!selectedCertificate) {
+      return null;
+    }
+
+    const overridePassword =
+      customerOnboardingCertificatePasswordOverrides[businessNumber]?.trim() ?? "";
+    return overridePassword
+      ? {
+          ...selectedCertificate,
+          certificatePassword: overridePassword
+        }
+      : selectedCertificate;
+  };
+
+  const updateCustomerOnboardingCertificatePasswordOverride = (businessNumber: string, value: string) => {
+    const normalizedBusinessNumber = String(businessNumber ?? "").replace(/\D/g, "");
+    if (!normalizedBusinessNumber) {
+      return;
+    }
+
+    setCustomerOnboardingCertificatePasswordOverrides((prev) => {
+      const next = { ...prev };
+      const trimmedValue = value.trim();
+      if (trimmedValue) {
+        next[normalizedBusinessNumber] = value;
+      } else {
+        delete next[normalizedBusinessNumber];
+      }
+      return next;
+    });
   };
 
   const registerCustomerElectronicTaxCertificateAutomatically = async (
@@ -4756,9 +4925,8 @@ export function App() {
       onboardingCertificateRow,
       linkedCertificate
     );
-    const certRegistrationUrl = await getCustomerCertificateRegistrationUrl(customer.id);
-    const registrationResponse = await requestLocalPopbillCertificateRegistration({
-      certificateRegistrationUrl: certRegistrationUrl,
+    const registrationResponse = await requestLocalPopbillCertificateRegistrationWithRetry({
+      customerId: customer.id,
       certificateIndex: Number(selectedLocalCertificate.index),
       certificateCn:
         selectedLocalCertificate?.cn.trim() ||
@@ -4993,6 +5161,12 @@ export function App() {
           </div>
         </div>
 
+        <OnboardingCertificatePasswordOverridePanel
+          entries={onboardingCertificatePasswordOverrideEntries}
+          disabled={busyKey !== null}
+          onChange={updateCustomerOnboardingCertificatePasswordOverride}
+        />
+
         <div className="button-row onboarding-primary-row">
           <button
             type="button"
@@ -5221,6 +5395,8 @@ export function App() {
           registrationCommitDone={customerOnboardingSessionState.commitDone}
           customerOnboardingSharedPassword={customerOnboardingSharedPassword}
           onCustomerOnboardingSharedPasswordChange={setCustomerOnboardingSharedPassword}
+          certificatePasswordOverrideEntries={onboardingCertificatePasswordOverrideEntries}
+          onCertificatePasswordOverrideChange={updateCustomerOnboardingCertificatePasswordOverride}
           showBillingMonthCompletion={false}
           downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
           handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
@@ -5316,6 +5492,8 @@ export function App() {
           registrationCommitDone={customerOnboardingSessionState.commitDone}
           customerOnboardingSharedPassword={customerOnboardingSharedPassword}
           onCustomerOnboardingSharedPasswordChange={setCustomerOnboardingSharedPassword}
+          certificatePasswordOverrideEntries={onboardingCertificatePasswordOverrideEntries}
+          onCertificatePasswordOverrideChange={updateCustomerOnboardingCertificatePasswordOverride}
           showBillingMonthCompletion
           downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
           handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}

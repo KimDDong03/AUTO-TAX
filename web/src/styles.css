@@ -1505,6 +1505,15 @@ textarea {
   white-space: pre-line;
 }
 
+.helper-multiline-scroll {
+  display: block;
+  width: 100%;
+  max-height: min(20rem, 42vh);
+  overflow-y: auto;
+  padding-right: 0.3rem;
+  scrollbar-gutter: stable;
+}
+
 .ops-card {
   display: grid;
   gap: 0.58rem;
