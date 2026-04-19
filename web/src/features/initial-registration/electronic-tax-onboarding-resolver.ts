@@ -480,7 +480,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       matchedCertificate,
       effectivePassword,
       plantRows: plantGroup.plantRows,
-      certificatePassword: enteredPlantPassword
+      certificatePassword: effectivePassword
     });
   }
 

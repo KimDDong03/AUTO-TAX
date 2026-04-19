@@ -176,24 +176,19 @@ export function useSettingsScreenModel(
             operatorContactTel: settingsForm.operatorContactTel,
             operatorContactEmail: settingsForm.operatorContactEmail,
             popbillSharedPassword: settingsForm.popbillSharedPassword,
-            renewalIssuePassword: settingsForm.renewalIssuePassword,
-            renewalCertificatePassword: settingsForm.renewalCertificatePassword
+            renewalIssuePassword: settingsForm.renewalIssuePassword
           },
           configured: {
             popbillSharedPassword:
               props.settingsState.popbillSharedPasswordConfigured,
             renewalIssuePassword:
-              props.settingsState.renewalIssuePasswordConfigured,
-            renewalCertificatePassword:
-              props.settingsState.renewalCertificatePasswordConfigured
+              props.settingsState.renewalIssuePasswordConfigured
           },
           reveals: {
             popbillSharedPassword:
               props.orchestration.reveals.popbillSharedPassword,
             renewalIssuePassword:
-              props.orchestration.reveals.renewalIssuePassword,
-            renewalCertificatePassword:
-              props.orchestration.reveals.renewalCertificatePassword
+              props.orchestration.reveals.renewalIssuePassword
           },
           onPopbillUserIdPrefixChange: (value) =>
             setSettingsField("popbillUserIdPrefix", value),
@@ -207,14 +202,10 @@ export function useSettingsScreenModel(
             setSettingsField("popbillSharedPassword", value),
           onRenewalIssuePasswordChange:
             props.settingsState.handleSettingsRenewalIssuePasswordChange,
-          onRenewalCertificatePasswordChange: (value) =>
-            setSettingsField("renewalCertificatePassword", value),
           onLoadCurrentPopbillSharedPassword:
             props.settingsState.runLoadCurrentPopbillSharedPassword,
           onLoadCurrentRenewalIssuePassword:
             props.settingsState.runLoadCurrentRenewalIssuePassword,
-          onLoadCurrentRenewalCertificatePassword:
-            props.settingsState.runLoadCurrentRenewalCertificatePassword,
           helperStatus
         },
         helper: {

@@ -118,6 +118,7 @@ type TabId = "onboarding" | "home" | "customers" | "certificates" | "settings" |
 
 const ONBOARDING_NAV_STORAGE_KEY_PREFIX = "auto-tax:onboarding-nav:";
 const HELPER_SETUP_STORAGE_KEY_PREFIX = "auto-tax:helper-setup:";
+const CUSTOMER_ONBOARDING_STORAGE_KEY_PREFIX = "auto-tax:customer-onboarding:";
 
 function getOnboardingNavStorageKey(organizationId: string): string {
   return `${ONBOARDING_NAV_STORAGE_KEY_PREFIX}${organizationId}`;
@@ -166,6 +167,90 @@ function writeHelperSetupCompletedPreference(organizationId: string, completed: 
     window.localStorage.setItem(getHelperSetupStorageKey(organizationId), completed ? "done" : "pending");
   } catch {
     // ignore storage failures in unsupported/private contexts
+  }
+}
+
+function getCustomerOnboardingStorageKey(organizationId: string): string {
+  return `${CUSTOMER_ONBOARDING_STORAGE_KEY_PREFIX}${organizationId}`;
+}
+
+type PersistedCustomerOnboardingState = {
+  fileName: string;
+  workbook: CustomerOnboardingWorkbookInput | null;
+  preview: CustomerOnboardingPreviewResponse | null;
+  sessionState: CustomerOnboardingSessionState;
+  attemptedCertificateBusinessNumbers: string[];
+  notice: string;
+  error: string;
+};
+
+function readPersistedCustomerOnboardingState(
+  organizationId: string
+): PersistedCustomerOnboardingState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(getCustomerOnboardingStorageKey(organizationId));
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PersistedCustomerOnboardingState> | null;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    return {
+      fileName: typeof parsed.fileName === "string" ? parsed.fileName : "",
+      workbook: parsed.workbook ?? null,
+      preview: parsed.preview ?? null,
+      sessionState:
+        parsed.sessionState && typeof parsed.sessionState === "object"
+          ? {
+              templateDownloaded: Boolean(parsed.sessionState.templateDownloaded),
+              previewReady: Boolean(parsed.sessionState.previewReady),
+              commitDone: Boolean(parsed.sessionState.commitDone),
+              certificateDone: Boolean(parsed.sessionState.certificateDone),
+              targetBusinessNumbers: Array.isArray(parsed.sessionState.targetBusinessNumbers)
+                ? parsed.sessionState.targetBusinessNumbers
+                    .map((value) => String(value ?? "").replace(/\D/g, ""))
+                    .filter((value) => value.length > 0)
+                : []
+            }
+          : emptyCustomerOnboardingSessionState,
+      attemptedCertificateBusinessNumbers: Array.isArray(parsed.attemptedCertificateBusinessNumbers)
+        ? parsed.attemptedCertificateBusinessNumbers
+            .map((value) => String(value ?? "").replace(/\D/g, ""))
+            .filter((value) => value.length > 0)
+        : [],
+      notice: typeof parsed.notice === "string" ? parsed.notice : "",
+      error: typeof parsed.error === "string" ? parsed.error : ""
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedCustomerOnboardingState(
+  organizationId: string,
+  state: PersistedCustomerOnboardingState | null
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const key = getCustomerOnboardingStorageKey(organizationId);
+    if (!state) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+
+    window.localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // ignore storage failures
   }
 }
 
@@ -1400,6 +1485,7 @@ export function App() {
   const [customerOnboardingPreview, setCustomerOnboardingPreview] = useState<CustomerOnboardingPreviewResponse | null>(null);
   const [customerOnboardingSessionState, setCustomerOnboardingSessionState] =
     useState<CustomerOnboardingSessionState>(emptyCustomerOnboardingSessionState);
+  const [customerOnboardingSharedPassword, setCustomerOnboardingSharedPassword] = useState("");
   const [customerOnboardingAttemptedCertificateBusinessNumbers, setCustomerOnboardingAttemptedCertificateBusinessNumbers] =
     useState<string[]>([]);
   const [customerOnboardingNotice, setCustomerOnboardingNotice] = useState("");
@@ -1421,6 +1507,7 @@ export function App() {
   const customerRenewalIssuePasswordRef = useRef("");
   const customerCertificatePasswordCacheRef = useRef<Record<number, string>>({});
   const customerOnboardingCertificatesRef = useRef<RenewalAgentCertificate[] | null>(null);
+  const customerOnboardingStorageHydratedOrganizationRef = useRef<string | null>(null);
   const customerNameInputRef = useRef<HTMLInputElement | null>(null);
   const certSyncInFlightRef = useRef(false);
   const mailboxLoadInFlightRef = useRef(false);
@@ -1434,6 +1521,76 @@ export function App() {
   });
   const deferredCustomerSearchQuery = useDeferredValue(customerSearchQuery);
   const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
+  useEffect(() => {
+    setCustomerOnboardingSharedPassword("");
+  }, [activeOrganizationId]);
+  useEffect(() => {
+    if (!activeOrganizationId) {
+      customerOnboardingStorageHydratedOrganizationRef.current = null;
+      return;
+    }
+
+    const persisted = readPersistedCustomerOnboardingState(activeOrganizationId);
+    setCustomerOnboardingFileName(persisted?.fileName ?? "");
+    setCustomerOnboardingWorkbook(persisted?.workbook ?? null);
+    setCustomerOnboardingPreview(persisted?.preview ?? null);
+    setCustomerOnboardingSessionState(
+      persisted?.sessionState ?? emptyCustomerOnboardingSessionState
+    );
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers(
+      persisted?.attemptedCertificateBusinessNumbers ?? []
+    );
+    setCustomerOnboardingNotice(persisted?.notice ?? "");
+    setCustomerOnboardingError(persisted?.error ?? "");
+    customerOnboardingStorageHydratedOrganizationRef.current = activeOrganizationId;
+  }, [activeOrganizationId]);
+  useEffect(() => {
+    if (!activeOrganizationId) {
+      return;
+    }
+
+    if (customerOnboardingStorageHydratedOrganizationRef.current !== activeOrganizationId) {
+      return;
+    }
+
+    const hasPersistableState =
+      customerOnboardingFileName.trim() !== "" ||
+      customerOnboardingWorkbook !== null ||
+      customerOnboardingPreview !== null ||
+      customerOnboardingSessionState.templateDownloaded ||
+      customerOnboardingSessionState.previewReady ||
+      customerOnboardingSessionState.commitDone ||
+      customerOnboardingSessionState.certificateDone ||
+      customerOnboardingSessionState.targetBusinessNumbers.length > 0 ||
+      customerOnboardingAttemptedCertificateBusinessNumbers.length > 0 ||
+      customerOnboardingNotice.trim() !== "" ||
+      customerOnboardingError.trim() !== "";
+
+    writePersistedCustomerOnboardingState(
+      activeOrganizationId,
+      hasPersistableState
+        ? {
+            fileName: customerOnboardingFileName,
+            workbook: customerOnboardingWorkbook,
+            preview: customerOnboardingPreview,
+            sessionState: customerOnboardingSessionState,
+            attemptedCertificateBusinessNumbers:
+              customerOnboardingAttemptedCertificateBusinessNumbers,
+            notice: customerOnboardingNotice,
+            error: customerOnboardingError
+          }
+        : null
+    );
+  }, [
+    activeOrganizationId,
+    customerOnboardingError,
+    customerOnboardingFileName,
+    customerOnboardingNotice,
+    customerOnboardingPreview,
+    customerOnboardingSessionState,
+    customerOnboardingWorkbook,
+    customerOnboardingAttemptedCertificateBusinessNumbers
+  ]);
   const [helperSetupPreference, setHelperSetupPreference] = useState<{
     organizationId: string | null;
     completed: boolean;
@@ -2655,7 +2812,7 @@ export function App() {
     return await resolveElectronicTaxOnboardingTemplateWorkbook({
       templateWorkbook,
       loadAvailableCertificates: loadCustomerOnboardingAvailableCertificates,
-      resolveSharedPassword: async () => await resolveCustomerRenewalPassword({ promptIfMissing: false }),
+      resolveSharedPassword: async () => customerOnboardingSharedPassword.trim(),
       requestPreflight: requestLocalRenewalPreflight
     });
   };
@@ -4324,11 +4481,15 @@ export function App() {
   const selectedQuickRegisterMessage = quickRegisterForm.messageId
     ? quickRegisterMessages.find((message) => message.id === quickRegisterForm.messageId) ?? null
     : null;
-  const pendingOnboardingCertificateRegistrationTargets = getOnboardingCertificateRegistrationTargets(
-    customerOnboardingWorkbook,
-    data.customers,
-    customerOnboardingSessionState.targetBusinessNumbers
-  );
+  const pendingOnboardingCertificateRegistrationTargets = customerOnboardingSessionActive
+    ? getOnboardingCertificateRegistrationTargets(
+        customerOnboardingWorkbook,
+        data.customers,
+        customerOnboardingSessionState.targetBusinessNumbers
+      )
+    : data.customers.filter(
+        (customer) => customer.popbillState === "joined" && !customer.popbillCertRegistered
+      );
   const hasRegisteredCustomers = data.customers.length > 0;
   const onboardingCertificateFollowUpActive =
     customerOnboardingSessionActive || (hasRegisteredCustomers && popbillPendingCustomers.length > 0);
@@ -5058,6 +5219,8 @@ export function App() {
           registrationTemplateDownloaded={customerOnboardingSessionState.templateDownloaded}
           registrationPreviewReady={customerOnboardingSessionState.previewReady}
           registrationCommitDone={customerOnboardingSessionState.commitDone}
+          customerOnboardingSharedPassword={customerOnboardingSharedPassword}
+          onCustomerOnboardingSharedPasswordChange={setCustomerOnboardingSharedPassword}
           showBillingMonthCompletion={false}
           downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
           handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
@@ -5151,6 +5314,8 @@ export function App() {
           registrationTemplateDownloaded={customerOnboardingSessionState.templateDownloaded}
           registrationPreviewReady={customerOnboardingSessionState.previewReady}
           registrationCommitDone={customerOnboardingSessionState.commitDone}
+          customerOnboardingSharedPassword={customerOnboardingSharedPassword}
+          onCustomerOnboardingSharedPasswordChange={setCustomerOnboardingSharedPassword}
           showBillingMonthCompletion
           downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
           handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}

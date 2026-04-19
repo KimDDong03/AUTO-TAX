@@ -129,18 +129,15 @@ function createModel(
           operatorContactTel: "",
           operatorContactEmail: "",
           popbillSharedPassword: "",
-          renewalIssuePassword: "",
-          renewalCertificatePassword: ""
+          renewalIssuePassword: ""
         },
         configured: {
           popbillSharedPassword: false,
-          renewalIssuePassword: false,
-          renewalCertificatePassword: false
+          renewalIssuePassword: false
         },
         reveals: {
           popbillSharedPassword: { visible: false, toggle: () => {} },
-          renewalIssuePassword: { visible: false, toggle: () => {} },
-          renewalCertificatePassword: { visible: false, toggle: () => {} }
+          renewalIssuePassword: { visible: false, toggle: () => {} }
         },
         onPopbillUserIdPrefixChange: () => {},
         onOperatorContactNameChange: () => {},
@@ -148,10 +145,8 @@ function createModel(
         onOperatorContactEmailChange: () => {},
         onPopbillSharedPasswordChange: () => {},
         onRenewalIssuePasswordChange: () => {},
-        onRenewalCertificatePasswordChange: () => {},
         onLoadCurrentPopbillSharedPassword: async () => {},
         onLoadCurrentRenewalIssuePassword: async () => {},
-        onLoadCurrentRenewalCertificatePassword: async () => {},
         helperStatus: {
           busyKey: null,
           online: false,

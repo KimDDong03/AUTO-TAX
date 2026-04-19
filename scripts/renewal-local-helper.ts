@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { Server } from "node:http";
 import path from "node:path";
 import express from "express";
 import { z } from "zod";
@@ -15,6 +16,9 @@ const DEFAULT_PORT = 35119;
 const DEFAULT_ALLOWED_ORIGINS = ["https://auto-tax-alpha.vercel.app"];
 const PREFLIGHT_TRANSPORT_RETRY_COUNT = 1;
 const PREFLIGHT_TRANSPORT_RETRY_DELAY_MS = 250;
+
+let activeHelperServer: Server | null = null;
+let helperShutdownRequested = false;
 
 function readHelperVersionMetadata(): string {
   const entryDirectory = process.argv[1] ? path.dirname(process.argv[1]) : null;
@@ -322,6 +326,35 @@ export function createRenewalLocalHelperApp() {
     }
   });
 
+  app.post("/api/shutdown", (_req, res) => {
+    if (helperShutdownRequested) {
+      res.json({ ok: true, version, shuttingDown: true });
+      return;
+    }
+
+    helperShutdownRequested = true;
+    res.json({ ok: true, version, shuttingDown: true });
+
+    setTimeout(() => {
+      const server = activeHelperServer;
+      if (!server) {
+        process.exit(0);
+        return;
+      }
+
+      server.close((error) => {
+        if (error) {
+          console.error("[renewal-local-helper] shutdown failed", error);
+          process.exit(1);
+          return;
+        }
+
+        activeHelperServer = null;
+        process.exit(0);
+      });
+    }, 50);
+  });
+
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: sanitizeSensitiveData(error.flatten()) });
@@ -346,6 +379,8 @@ export async function startRenewalLocalHelper() {
     close: () => Promise<void>;
   }>((resolve, reject) => {
     const server = app.listen(port, "127.0.0.1", () => {
+      activeHelperServer = server;
+      helperShutdownRequested = false;
       console.log(`[renewal-local-helper] listening on http://127.0.0.1:${port}`);
       resolve({
         app,
@@ -357,6 +392,7 @@ export async function startRenewalLocalHelper() {
                 closeReject(error);
                 return;
               }
+              activeHelperServer = null;
               closeResolve();
             });
           })

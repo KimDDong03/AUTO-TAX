@@ -17,6 +17,74 @@ function Get-HelperPort {
   return 35119
 }
 
+function Test-LocalRenewalHelperRunning {
+  param(
+    [int]$Port
+  )
+
+  try {
+    $listener = Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $Port -State Listen -ErrorAction Stop |
+      Select-Object -First 1
+    if ($listener) {
+      return $true
+    }
+  } catch {
+    # Port listener not found, fall back to health probe.
+  }
+
+  try {
+    $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -Method Get -TimeoutSec 2
+    return $response.ok -eq $true
+  } catch {
+    # Health probe failed, fall back to process inspection.
+  }
+
+  try {
+    $process = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+      ($_.Name -ieq "node.exe" -or $_.Name -ieq "cmd.exe") -and
+      $_.CommandLine -and (
+        $_.CommandLine -like "*renewal-local-helper.ts*" -or
+        $_.CommandLine -like "*renewal-local-helper.cjs*" -or
+        $_.CommandLine -like "*renewal-local-helper.mjs*"
+      )
+    } | Select-Object -First 1
+    return $null -ne $process
+  } catch {
+    return $false
+  }
+}
+
+function Wait-LocalRenewalHelperStop {
+  param(
+    [int]$Port,
+    [int]$Attempts = 20,
+    [int]$DelayMs = 500
+  )
+
+  for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
+    if (-not (Test-LocalRenewalHelperRunning -Port $Port)) {
+      return $true
+    }
+
+    Start-Sleep -Milliseconds $DelayMs
+  }
+
+  return $false
+}
+
+function Request-LocalRenewalHelperShutdown {
+  param(
+    [int]$Port
+  )
+
+  try {
+    $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/shutdown" -Method Post -TimeoutSec 3
+    return $response.ok -eq $true
+  } catch {
+    return $false
+  }
+}
+
 function CommandLineContains {
   param(
     [string]$CommandLine,
@@ -40,6 +108,15 @@ try {
   Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
 } catch {
   # The scheduled task may not currently be running.
+}
+
+$gracefulShutdownRequested = Request-LocalRenewalHelperShutdown -Port $helperPort
+if ($gracefulShutdownRequested -and (Wait-LocalRenewalHelperStop -Port $helperPort)) {
+  Write-Output "status=stopped"
+  Write-Output "port=$helperPort"
+  Write-Output "stoppedProcessCount=0"
+  Write-Output "stoppedProcessIds="
+  exit 0
 }
 
 try {
@@ -98,7 +175,17 @@ foreach ($processId in $candidateProcessIds) {
   }
 }
 
-Write-Output "status=$(if ($stoppedProcessIds.Count -gt 0) { 'stopped' } else { 'not-running' })"
+$stopped = Wait-LocalRenewalHelperStop -Port $helperPort -Attempts 12 -DelayMs 500
+
+if (-not $stopped) {
+  Write-Output "status=failed"
+  Write-Output "port=$helperPort"
+  Write-Output "stoppedProcessCount=$($stoppedProcessIds.Count)"
+  Write-Output "stoppedProcessIds=$(if ($stoppedProcessIds.Count -gt 0) { $stoppedProcessIds -join ',' } else { '' })"
+  throw "Failed to stop the running AUTO-TAX helper."
+}
+
+Write-Output "status=$(if ($stoppedProcessIds.Count -gt 0 -or $gracefulShutdownRequested) { 'stopped' } else { 'not-running' })"
 Write-Output "port=$helperPort"
 Write-Output "stoppedProcessCount=$($stoppedProcessIds.Count)"
 Write-Output "stoppedProcessIds=$(if ($stoppedProcessIds.Count -gt 0) { $stoppedProcessIds -join ',' } else { '' })"

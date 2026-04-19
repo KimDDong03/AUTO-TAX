@@ -1,6 +1,6 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type React from "react";
-import { Panel } from "../../components/ui";
+import { Panel, RevealIcon } from "../../components/ui";
 import type { BootstrapPayload } from "../../types";
 import type { CustomerOnboardingPreviewResponse } from "./customer-onboarding-workbook";
 
@@ -285,6 +285,8 @@ type InitialRegistrationTabProps = {
   registrationTemplateDownloaded?: boolean;
   registrationPreviewReady?: boolean;
   registrationCommitDone?: boolean;
+  customerOnboardingSharedPassword: string;
+  onCustomerOnboardingSharedPasswordChange: (value: string) => void;
   showBillingMonthCompletion?: boolean;
   downloadCustomerOnboardingTemplate: () => Promise<void>;
   handleCustomerOnboardingFileChange: (file: File | null) => Promise<void>;
@@ -302,6 +304,7 @@ type InitialRegistrationTabProps = {
 
 export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const onboardingFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [sharedPasswordVisible, setSharedPasswordVisible] = useState(false);
   const onboardingBusyKey = props.busyKey?.startsWith("customer-onboarding-") ? props.busyKey : null;
   const isDownloadingOnboardingTemplate = onboardingBusyKey === "customer-onboarding-template";
   const isPreviewingOnboarding = onboardingBusyKey === "customer-onboarding-preview";
@@ -455,6 +458,35 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                     </button>
                   </div>
                 ) : null}
+                <label className="settings-defaults-cell settings-defaults-cell-span-2">
+                  공통 공동인증서 비밀번호 (1회성)
+                  <div className="password-field">
+                    <input
+                      type={sharedPasswordVisible ? "text" : "password"}
+                      value={props.customerOnboardingSharedPassword}
+                      disabled={props.busyKey !== null}
+                      onChange={(event) =>
+                        props.onCustomerOnboardingSharedPasswordChange(event.target.value)
+                      }
+                      placeholder="발전소 시트 비밀번호 칸이 비면 이 값을 사용"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      aria-label={
+                        sharedPasswordVisible
+                          ? "공통 공동인증서 비밀번호 숨기기"
+                          : "공통 공동인증서 비밀번호 보기"
+                      }
+                      onClick={() => setSharedPasswordVisible((prev) => !prev)}
+                    >
+                      <RevealIcon open={sharedPasswordVisible} />
+                    </button>
+                  </div>
+                  <span className="field-hint">
+                    설정에 저장하지 않습니다. 이번 업로드에서만 쓰고, 발전소 시트의 인증서 비밀번호 칸이 비어 있는 행에만 적용합니다.
+                  </span>
+                </label>
               </div>
             </div>
 

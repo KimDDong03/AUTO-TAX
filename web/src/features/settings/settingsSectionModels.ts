@@ -71,18 +71,15 @@ export type SettingsDefaultsSectionModel = {
     operatorContactEmail: string;
     popbillSharedPassword: string;
     renewalIssuePassword: string;
-    renewalCertificatePassword: string;
   };
   configured: {
     popbillSharedPassword: boolean;
     renewalIssuePassword: boolean;
-    renewalCertificatePassword: boolean;
   };
   reveals: Pick<
     SettingsFeatureRevealAdapters,
     | "popbillSharedPassword"
     | "renewalIssuePassword"
-    | "renewalCertificatePassword"
   >;
   onPopbillUserIdPrefixChange: (value: string) => void;
   onOperatorContactNameChange: (value: string) => void;
@@ -90,10 +87,8 @@ export type SettingsDefaultsSectionModel = {
   onOperatorContactEmailChange: (value: string) => void;
   onPopbillSharedPasswordChange: (value: string) => void;
   onRenewalIssuePasswordChange: (value: string) => void;
-  onRenewalCertificatePasswordChange: (value: string) => void;
   onLoadCurrentPopbillSharedPassword: () => Promise<void>;
   onLoadCurrentRenewalIssuePassword: () => Promise<void>;
-  onLoadCurrentRenewalCertificatePassword: () => Promise<void>;
   helperStatus: SettingsHelperStatusModel;
 };
 

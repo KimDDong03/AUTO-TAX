@@ -209,8 +209,7 @@ export function buildSettingsOnboardingModel({
   return {
     hasSavedDefaults:
       configured.popbillSharedPasswordConfigured ||
-      configured.renewalIssuePasswordConfigured ||
-      configured.renewalCertificatePasswordConfigured,
+      configured.renewalIssuePasswordConfigured,
     helperStatusLine: onboardingHelperStatusLine,
     firstSyncBlockedSteps: [
       !settingsHealth.mailReady ? "메일 연결" : null,

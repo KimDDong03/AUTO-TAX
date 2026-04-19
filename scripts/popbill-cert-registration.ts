@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium, type BrowserContext, type Frame, type Page } from "playwright";
-import { collectBridgeCertificateList } from "./renewal-agent.ts";
+import { collectBridgeCertificateList, collectBridgeProbeResult } from "./renewal-agent.ts";
 
 export type PopbillCertificateRegistrationInput = {
   certificateRegistrationUrl: string;
@@ -153,7 +153,8 @@ async function resolveTargetCertificate(input: PopbillCertificateRegistrationInp
   serial: string | null;
   userDN: string | null;
 }> {
-  const { storageProbe } = await collectBridgeCertificateList({ preferCached: false });
+  const { bridge } = await collectBridgeProbeResult({ includeDetailedProbe: true });
+  const { storageProbe } = bridge;
   if (!storageProbe.ok) {
     throw new Error(storageProbe.error ?? "로컬 브리지에서 공동인증서 목록을 읽지 못했습니다.");
   }
