@@ -1,6 +1,0 @@
-{
-  "last_turn_at": "2026-04-14T02:24:19.726Z",
-  "last_progress_at": "2026-04-14T02:24:19.726Z",
-  "turn_count": 10,
-  "last_agent_output": "PR A 범위 구현/검증 완료.\n\n- 검증:\n  - `npm run check` ✅\n  - `npm run test:server` ✅ (35 passed)\n\n변경 파일\n- `ser"
-}

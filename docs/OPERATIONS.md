@@ -1,10 +1,10 @@
 # AUTO-TAX Operations Runbook
 
-This file is for development and deployment work, not end-user operations.
+This file is for development, deployment, and runtime debugging work. It is not an end-user operations manual.
 
 ## 1. Required Environment
 
-### Browser/runtime
+### Browser runtime
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY`
@@ -18,14 +18,15 @@ This file is for development and deployment work, not end-user operations.
 - `AUTO_TAX_POPBILL_SECRET_KEY`
 - `AUTO_TAX_POPBILL_IS_TEST`
 
-### Internal jobs / Edge Function
+### Internal jobs and cron
 
 - `AUTO_TAX_SERVER_URL`
 - `AUTO_TAX_JOB_SECRET`
 
-### Optional / situational
+### Optional or situational
 
 - `VITE_API_BASE_URL`
+- `AUTO_TAX_ALLOWED_ORIGINS`
 - `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`
 - `SUPABASE_DB_PASSWORD`
 - `AUTO_TAX_RENEWAL_AGENT_*`
@@ -34,14 +35,14 @@ This file is for development and deployment work, not end-user operations.
 
 ## 2. Local Development
 
-### Run app
+Run the app:
 
 ```bash
 npm install
 npm run dev
 ```
 
-### Typecheck and tests
+Validate:
 
 ```bash
 npm run check
@@ -49,23 +50,91 @@ npm run test:server
 npm run test:e2e:smoke
 ```
 
-### Vercel-local path
+Local Vercel path:
 
 ```bash
 npm run dev:vercel
 ```
 
-## 2.5. Security Boundary / Deployment Assumptions
+## 3. Build And Serve Shape
 
-- production deployment assumes HTTPS end-to-end; do not serve the browser app or API over plain HTTP in real operations
-- `/api/*` responses and the Windows local helper now use `Cache-Control: no-store` to reduce accidental secret caching
-- server-managed secrets still include mail credentials, Popbill env/runtime secrets, and the optional encrypted renewal issue password; do **not** store Hometax ID/PW, raw certificate files, or certificate passwords on the server
-- browser auth follows the current Supabase JWT session lifecycle; invalid refresh-token recovery clears the local session and forces re-login
-- no separate inactivity timeout or step-up reauthentication flow has been added in this phase, so sensitive local-helper actions rely on current-session auth plus local re-entry of secrets when needed
+- Local Node server entry: `server/src/main.ts`
+- Vercel entry: `api/index.ts`
+- Static Vercel output: `public/`
 
-## 3. Local Certificate Helper
+Build commands:
 
-### Helper commands
+```bash
+npm run build
+npm run build:vercel
+```
+
+## 4. Security Boundary
+
+- Production deployment assumes HTTPS end-to-end.
+- `/api/*` responses and Windows local helper responses send `Cache-Control: no-store`.
+- Server-managed secrets include mail credentials, Popbill env values, and the optional encrypted renewal issue password default.
+- Do not store Hometax credentials, raw certificate files, or certificate passwords on the server.
+- Browser auth follows the current Supabase JWT lifecycle. Invalid refresh-token recovery clears the local session and forces re-login.
+
+## 5. Database And Migrations
+
+Push local schema changes:
+
+```bash
+npx supabase db push --workdir .
+```
+
+When reviewing schema changes:
+
+- inspect `supabase/migrations/`
+- inspect `docs/SUPABASE_SCHEMA_PLAN.md`
+- inspect `server/src/supabase-store.ts`
+
+## 6. Internal Jobs And Retention
+
+### Business queue flow
+
+1. Supabase cron hits Edge Function `job-tick`.
+2. `job-tick` calls the API using `AUTO_TAX_JOB_SECRET`.
+3. Internal endpoints run:
+   - `POST /api/internal/jobs/maintenance`
+   - `POST /api/internal/jobs/dispatch`
+   - `POST /api/internal/jobs/run`
+4. Business work persists in `job_queue`.
+
+### Retention
+
+- Maintenance is checkpointed by `platform_maintenance_runs`, so cron can call it every tick without pruning more than once per UTC day.
+- Current default retention:
+  - `app_logs`: 30 days by `created_at`
+  - `job_queue`: 21 days for terminal rows by `finished_at`
+  - `renewal_automation_jobs`: 30 days for terminal rows by `finished_at`
+- Queued or claimed rows are never prune targets.
+
+### Edge Function deployment assumptions
+
+- Function name: `job-tick`
+- Deploy with `--no-verify-jwt`
+- Validate `x-auto-tax-job-secret` inside the function
+
+Minimum remote secrets:
+
+- `AUTO_TAX_SERVER_URL`
+- `AUTO_TAX_JOB_SECRET`
+
+## 7. Local Renewal Helper And Agent
+
+There are two local Windows components:
+
+### Local helper
+
+- Browser-facing HTTP helper
+- Runs on the operator PC
+- Handles certificate listing, local checks, and payment-window/open support
+- Stable install path: `%LOCALAPPDATA%\\AUTO-TAX\\renewal-local-helper`
+
+Commands:
 
 ```bash
 npm run renewal-helper:install
@@ -76,25 +145,30 @@ npm run renewal-helper:stop
 npm run renewal-helper:uninstall
 ```
 
-- `renewal-helper:install` now stops any currently running helper before copying/re-registering the install so in-place upgrades pick up the new package cleanly.
+Packaging output:
 
-### Helper package download
+- `dist/renewal-local-helper/`
+- `dist/renewal-local-helper.zip`
+- `web/public/downloads/renewal-local-helper.zip`
 
-- `npm run renewal-helper:package` creates:
-  - `dist/renewal-local-helper/`
-  - `dist/renewal-local-helper.zip`
-- the same command also refreshes:
-  - `web/public/downloads/renewal-local-helper.zip`
-- Vercel/public site default download path:
-  - `/downloads/renewal-local-helper.zip`
-- local/self-hosted server download path:
-  - `/downloads/renewal-local-helper.zip`
-- if the zip is stored elsewhere, set:
-  - `VITE_RENEWAL_HELPER_DOWNLOAD_URL`
-- if the server should serve a non-default zip path, set:
-  - `AUTO_TAX_RENEWAL_HELPER_ZIP_PATH`
+Download path defaults:
+
+- Vercel/public: `/downloads/renewal-local-helper.zip`
+- local/self-hosted server: `/downloads/renewal-local-helper.zip`
+
+Override locations with:
+
+- `VITE_RENEWAL_HELPER_DOWNLOAD_URL`
+- `AUTO_TAX_RENEWAL_HELPER_ZIP_PATH`
 
 ### Renewal agent
+
+- Server-facing Windows worker
+- Heartbeats regularly
+- Claims queued renewal jobs
+- Completes diagnostics and preflight work
+
+Command:
 
 ```bash
 npm run renewal-agent:dev
@@ -108,79 +182,27 @@ Useful env:
 - `AUTO_TAX_RENEWAL_AGENT_CERT_PASSWORD`
 - `AUTO_TAX_RENEWAL_AGENT_CERT_PASSWORD_FILE`
 
-See `docs/CERTIFICATE_RENEWAL_POC.md` for the renewal-specific runtime model.
+Operational rules:
 
-Operational rule:
+- Certificate passwords must stay in the current browser/helper or agent context only.
+- Do not write certificate passwords to settings tables, customer certificate rows, onboarding preview rows, or app logs.
 
-- certificate passwords stay in the current browser/local-helper context only; they must not be written to server settings, customer certificate rows, onboarding preview rows, or app logs
+### Renewal debugging order
 
-## 4. Database and Migrations
+1. Confirm helper install and `renewal-helper:status`.
+2. Confirm browser-to-helper reachability.
+3. Check `GET /api/automation/renewal-agent/snapshot`.
+4. Inspect `renewal_agent_heartbeats`.
+5. Inspect `renewal_automation_jobs`.
+6. Inspect `server/src/routes/renewal-routes.ts`, `server/src/renewal-automation.ts`, and the Windows scripts.
 
-### Local/remote migration push
-
-```bash
-npx supabase db push --workdir .
-```
-
-### Schema review
-
-- inspect `supabase/migrations/`
-- inspect `docs/SUPABASE_SCHEMA_PLAN.md`
-- inspect `server/src/supabase-store.ts`
-
-## 5. Vercel Build/Serve Shape
-
-- Vercel server entry: `api/index.ts`
-- static output directory: `public/`
-- local Node server entry: `server/src/main.ts`
-
-Build commands:
-
-```bash
-npm run build
-npm run build:vercel
-```
-
-## 6. Cron / Internal Jobs
-
-### Business queue flow
-
-1. Supabase cron hits Edge Function `job-tick`
-2. Edge Function calls Vercel API using `AUTO_TAX_JOB_SECRET`
-3. Vercel endpoints:
-   - `POST /api/internal/jobs/maintenance`
-   - `POST /api/internal/jobs/dispatch`
-   - `POST /api/internal/jobs/run`
-4. Work is persisted in `job_queue`
-
-### Retention / pruning
-
-- platform-wide maintenance runs through `POST /api/internal/jobs/maintenance`
-- maintenance is checkpointed by `platform_maintenance_runs`, so cron can call it every tick without re-pruning more than once per UTC day
-- retention defaults:
-  - `app_logs`: 30 days by `created_at`
-  - `job_queue`: 21 days for terminal rows (`completed`, `failed`, `cancelled`) by `finished_at`
-  - `renewal_automation_jobs`: 30 days for terminal rows (`completed`, `failed`) by `finished_at`
-- queued / claimed rows are never prune targets
-
-### Edge Function deployment assumptions
-
-- function name: `job-tick`
-- deploy with `--no-verify-jwt`
-- validate `x-auto-tax-job-secret` inside the function
-
-### Minimum remote secrets
-
-- `AUTO_TAX_SERVER_URL`
-- `AUTO_TAX_JOB_SECRET`
-
-## 7. Health and Smoke Checks
+## 8. Health And Smoke Checks
 
 ### Basic health
 
 - `GET /api/health`
 
-Expected:
+Expected response:
 
 ```json
 { "ok": true }
@@ -188,14 +210,13 @@ Expected:
 
 ### Manual smoke checklist
 
-1. customer-only access portal renders at `/`
-2. public login shows the existing error flow on invalid credentials
-3. recovery link follow-up screen still opens
-4. bootstrap loads with active workspace
-5. customer create/edit works
-6. mail sync endpoint responds
-7. draft list loads
-8. internal jobs can dispatch/run from ops UI
+1. Customer access portal renders at `/`.
+2. Public login shows the expected error flow on invalid credentials.
+3. Bootstrap loads with the active workspace.
+4. Customer create/edit works.
+5. Mail sync responds.
+6. Draft list loads.
+7. Internal jobs can dispatch and run from the ops UI.
 
 ### Scripted smoke
 
@@ -204,32 +225,23 @@ npm run test:e2e:smoke
 node scripts/public-access-portal-smoke.mjs
 ```
 
-## 8. Pilot Report / Operator Comparison Flow
+## 9. Pilot Reporting
 
-### JSON / CSV report
+Current report endpoints:
 
-- JSON summary:
-  - `GET /api/drafts/pilot-report?from=<ISO>&to=<ISO>`
-- CSV export:
-  - `GET /api/drafts/pilot-report?from=<ISO>&to=<ISO>&format=csv`
+- `GET /api/drafts/pilot-report?from=<ISO>&to=<ISO>`
+- `GET /api/drafts/pilot-report?from=<ISO>&to=<ISO>&format=csv`
+- `GET /api/drafts/:id/pilot-timeline`
 
-Current report output includes:
+The report currently includes:
 
-- overall success / exception rates
+- overall success and exception rates
 - weekly and monthly buckets
-- customer-level success/failure + `review -> auto` evidence
-- failure Top 5
-- estimated saved time (`auto-issue-succeeded * 10분`)
+- customer-level transition evidence
+- failure Top N
+- estimated saved time
 
-### Comparing operator notes with raw logs
-
-1. Export or open the pilot report for the target period.
-2. Find the customer row or Top failure row you want to inspect.
-3. Copy `latestFailureDraftId` (or use `latestFailureTimelinePath` directly).
-4. Open `GET /api/drafts/:id/pilot-timeline`.
-5. Compare the timeline's `actorUserId`, `clickedAt`, `issuedAt`, `previewSnapshot`, `issuanceSnapshot`, and failure context with the operator note/runbook entry.
-
-## 9. File Hygiene
+## 10. File Hygiene
 
 Disposable generated output:
 
@@ -247,11 +259,11 @@ Treat with caution:
 - `data/`
 - `node_modules/`
 
-`data/` may contain local state worth keeping even if the current product is Supabase-first.
+`data/` may contain local state worth keeping.
 
-## 10. Debugging Shortcuts
+## 11. Debugging Shortcuts
 
-When auth/session looks wrong:
+When auth or workspace session looks wrong:
 
 - inspect `server/src/api-access.ts`
 - inspect `web/src/api.ts`
@@ -264,13 +276,13 @@ When mail sync looks wrong:
 - inspect `server/src/parser.ts`
 - inspect `mail_sync_checkpoints`
 
-When auto-issue / recurring jobs look wrong:
+When auto-issue or recurring jobs look wrong:
 
 - inspect `server/src/job-queue.ts`
-- inspect `/api/internal/jobs/dispatch`
-- inspect `/api/internal/jobs/run`
+- inspect `server/src/maintenance-retention.ts`
+- inspect internal job endpoints
 - inspect `job_queue`
-- inspect `GET /api/drafts/pilot-report` and `GET /api/drafts/:id/pilot-timeline`
+- inspect pilot reporting endpoints when the issue is timing or audit related
 
 When local renewal flow looks wrong:
 
@@ -278,3 +290,5 @@ When local renewal flow looks wrong:
 - inspect `server/src/renewal-automation.ts`
 - inspect `renewal_agent_heartbeats`
 - inspect `renewal_automation_jobs`
+- inspect `scripts/renewal-local-helper.ts`
+- inspect `scripts/renewal-agent.ts`

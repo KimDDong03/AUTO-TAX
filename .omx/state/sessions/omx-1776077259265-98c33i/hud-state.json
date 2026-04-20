@@ -1,6 +1,0 @@
-{
-  "last_turn_at": "2026-04-13T11:01:23.924Z",
-  "last_progress_at": "2026-04-13T11:01:23.924Z",
-  "turn_count": 1,
-  "last_agent_output": "완료.\n\n- 변경 파일\n  - `web/src/App.tsx`\n  - `web/src/components/ui.tsx`\n  - `web/src/features/onboarding/"
-}

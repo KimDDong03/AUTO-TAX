@@ -1,6 +1,0 @@
-{
-  "last_turn_at": "2026-04-16T15:03:56.568Z",
-  "last_progress_at": "2026-04-16T15:03:56.568Z",
-  "turn_count": 8,
-  "last_agent_output": "C:\\Projects\\AUTO-TAX에서 작업하라.\n\n우선 `AGENTS.md`와 아래 문서를 읽고, 그 문서를 구현 기준으로 삼아라. 다시 기획부터 하지 말고 바로 코드 작업에 "
-}

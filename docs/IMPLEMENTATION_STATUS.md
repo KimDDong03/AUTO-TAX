@@ -1,6 +1,6 @@
 # AUTO-TAX Status / Backlog
 
-This file is the current engineering backlog reference. It should stay short and bias toward what blocks correct implementation.
+This file is the current engineering backlog reference. Keep it short and biased toward what blocks correct implementation.
 
 ## 1. Stable Enough To Build On
 
@@ -9,54 +9,53 @@ This file is the current engineering backlog reference. It should stay short and
 - customer CRUD and Popbill join flow
 - address-based mail matching
 - draft generation and issuance
-- internal business job flow via `job_queue`
-- import/onboarding endpoints
+- internal business jobs through `job_queue`
+- onboarding preview and commit endpoints
 - local certificate listing and customer linking
-- renewal preflight / prepare / payment-open assistance
-- pilot issuance report export and customer auto-transition evidence
+- renewal preflight and payment-open assistance
+- pilot issuance reporting over `app_logs`
 
 ## 2. Sharp Edges
 
 ### Matching quality
 
-- real-world KEPCO mail variance still needs broader sample coverage
-- address normalization is a likely regression hotspot
+- Real-world KEPCO mail variance still needs broader sample coverage.
+- Address normalization remains a regression hotspot.
 
 ### Role model mismatch
 
-- DB role matrix is broader than current UI
-- future permission bugs are likely if `admin/viewer` starts surfacing without a deliberate UX pass
+- The DB role matrix is broader than the current UI.
+- Future permission bugs are likely if `admin` or `viewer` start surfacing without a deliberate product/access-control pass.
 
-### Renewal automation boundary
+### Renewal boundary
 
-- current flow helps operators but does not complete the whole lifecycle autonomously
-- Windows/SignGate dependencies remain fragile
+- Current renewal support helps operators but does not complete the full lifecycle autonomously.
+- Windows and SignGate dependencies remain fragile.
 
-### Large central files
+### Large orchestration files
 
 - `web/src/App.tsx`
 - `server/src/supabase-store.ts`
 
-These still carry too much orchestration knowledge.
+These still carry too much cross-feature knowledge.
 
 ## 3. Immediate Priorities
 
-1. expand parser and matching confidence with more real mail samples
-2. tighten renewal flow around real operator scenarios
-3. continue reducing orchestration mass in `App.tsx` and `supabase-store.ts`
-4. decide whether DB roles beyond `owner/operator` should remain latent or become productized
-5. keep docs aligned only around canonical development docs
-6. execute the product IA reshape in `docs/PRODUCT_RESHAPE_PLAN.md`, starting with guided onboarding and tab restructuring
+1. Expand parser and matching confidence with more real mail samples.
+2. Continue moving orchestration out of `App.tsx` and `supabase-store.ts`.
+3. Harden onboarding batch and renewal flows around real operator scenarios.
+4. Keep the product role model explicit instead of accidentally exposing latent DB roles.
+5. Keep the documentation set small and update canonical docs whenever runtime behavior changes.
 
 ## 4. Nice-To-Have, Not Immediate
 
-- full productized billing/subscription flow
-- dedicated Node worker split for business jobs
+- full productized billing or subscription flow
+- dedicated worker split for business jobs
 - fully autonomous renewal completion
-- customer portal
+- broader public site or customer portal work
 
-## 5. Cleanup Policy
+## 5. Documentation Policy
 
-- delete dead plans, proposals, mockups, and duplicated docs aggressively
-- keep docs only if they speed future implementation or debugging
-- generated output should not stay in the working tree
+- Canonical docs should stay limited to the active set referenced in `AGENTS.md`.
+- One-off plans are acceptable during implementation but should be deleted once the decision lands or becomes stale.
+- If a doc does not speed implementation, debugging, or safe operations, remove it.

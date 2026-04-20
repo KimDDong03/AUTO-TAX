@@ -1,6 +1,0 @@
-{
-  "last_turn_at": "2026-04-13T10:08:31.942Z",
-  "last_progress_at": "2026-04-13T10:08:31.942Z",
-  "turn_count": 4,
-  "last_agent_output": "커밋하고 푸시했습니다.\n\n- 브랜치: `master`\n- 커밋: `70578b1`\n- 푸시: `origin/master` 완료\n\n메모:\n- `.omx/`는 커밋에 포함하지 않았습니"
-}

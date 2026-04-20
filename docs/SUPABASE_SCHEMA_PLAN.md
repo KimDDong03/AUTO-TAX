@@ -1,12 +1,14 @@
 # AUTO-TAX Schema Reference
 
-This file is a developer reference for the current Supabase model. The migrations are authoritative; this file exists so future development can reason about the model without reading every SQL file each time.
+This file is the developer reference for the current Supabase model. The migrations are authoritative. This document exists so Codex and future developers can reason about the model without rereading every SQL file first.
 
-## 1. Source of Truth
+## 1. Source Of Truth
 
-- schema changes live in `supabase/migrations/`
-- runtime access patterns live in `server/src/supabase-store.ts`
-- RLS helpers and policies start in `20260326000000_initial_saas_schema.sql`
+- Schema changes live in `supabase/migrations/`
+- Main runtime access patterns live in `server/src/supabase-store.ts`
+- Renewal queue persistence lives in `server/src/renewal-automation.ts`
+- Retention checkpointing lives in `server/src/maintenance-retention.ts`
+- Base RLS helpers and policies begin in `20260326000000_initial_saas_schema.sql`
 
 ## 2. Model Groups
 
@@ -16,7 +18,7 @@ This file is a developer reference for the current Supabase model. The migration
 - `organization_members`
 - `auth_user_login_index`
 
-### Workspace settings
+### Workspace settings and integrations
 
 - `organization_settings`
 - `organization_integrations`
@@ -27,6 +29,13 @@ This file is a developer reference for the current Supabase model. The migration
 - `managed_customer_plants`
 - `managed_customer_match_addresses`
 - `customer_certificates`
+
+### Import and onboarding
+
+- `customer_import_profiles`
+- `customer_onboarding_previews`
+- `customer_onboarding_batches`
+- `customer_onboarding_batch_rows`
 
 ### Mail and draft domain
 
@@ -41,9 +50,9 @@ This file is a developer reference for the current Supabase model. The migration
 - `job_queue`
 - `renewal_agent_heartbeats`
 - `renewal_automation_jobs`
-- `customer_import_profiles`
+- `platform_maintenance_runs`
 
-## 3. Workspace/Auth Tables
+## 3. Workspace And Auth Tables
 
 ### organizations
 
@@ -72,12 +81,12 @@ Important fields:
 
 Important reality:
 
-- DB supports `owner/admin/operator/viewer`
-- current product UX effectively maps to `owner` vs non-owner member workflows
+- The DB supports `owner`, `admin`, `operator`, and `viewer`.
+- Current product behavior mostly behaves as owner versus member.
 
 ### auth_user_login_index
 
-Needed because non-platform users log in with login id, not user-facing email.
+Lookup table for login-id-based auth.
 
 Important fields:
 
@@ -86,11 +95,11 @@ Important fields:
 - `auth_email`
 - `display_name`
 
-## 4. Settings Tables
+## 4. Settings And Integration Tables
 
 ### organization_settings
 
-Operational defaults for a workspace.
+Workspace-level operational defaults.
 
 Important fields:
 
@@ -108,7 +117,7 @@ Important fields:
 
 ### organization_integrations
 
-Per-workspace integration settings.
+Per-workspace secret and integration settings.
 
 Important fields:
 
@@ -123,18 +132,17 @@ Important fields:
 - `renewal_issue_password_encrypted`
 - `renewal_certificate_password_encrypted`
 
-Important invariant:
+Important invariants:
 
-- server env still overrides runtime Popbill secrets
-- treat `AUTO_TAX_POPBILL_*` env as authoritative for live credentials
-- `renewal_issue_password_encrypted` may remain as an encrypted workspace renewal default for the agent path, but it is not returned to normal browser API responses
-- `renewal_certificate_password_encrypted` is now a legacy/transitional column; new code clears or ignores it and certificate passwords must not be kept on the server
+- Runtime env still overrides live Popbill secrets.
+- `renewal_issue_password_encrypted` may remain as an encrypted workspace default for the agent path, but it must not be returned to ordinary browser responses.
+- `renewal_certificate_password_encrypted` is legacy/transitional; new code should not rely on server-stored certificate passwords.
 
 ## 5. Managed Customer Tables
 
 ### managed_customers
 
-The main business entity.
+Primary business entity for customer operations and issuance settings.
 
 Important fields:
 
@@ -160,23 +168,23 @@ Important fields:
 
 Important invariant:
 
-- uniqueness is `(organization_id, business_number)`
+- Uniqueness is effectively `(organization_id, business_number)`.
 
 ### managed_customer_plants
 
 Supplemental plant-name storage.
 
-Use:
+Use it for:
 
-- display/reference
+- display and reference
 - onboarding help
-- historical compatibility
+- compatibility with historical workflows
 
-Do not treat this as the primary auto-match key.
+Do not treat it as the primary auto-match key.
 
 ### managed_customer_match_addresses
 
-Actual auto-match substrate.
+Canonical mail-to-customer matching substrate.
 
 Important fields:
 
@@ -186,7 +194,7 @@ Important fields:
 
 Important invariant:
 
-- this is the canonical mail-to-customer matching table
+- This is the real matching table for auto-match logic.
 
 ### customer_certificates
 
@@ -209,16 +217,85 @@ Important fields:
 - `is_primary`
 - `link_source`
 
+Important invariants:
+
+- `certificate_password_encrypted` is legacy/transitional only; new flows should not store or return certificate passwords from this table.
+- `cert_dir_path` is local metadata, not a certificate payload, and should be masked in logs and errors.
+
+## 6. Import And Onboarding Tables
+
+### customer_import_profiles
+
+Saved column-mapping profiles for the lightweight import flow.
+
+Important fields:
+
+- `organization_id`
+- `name`
+- `mapping_json`
+
+### customer_onboarding_previews
+
+Short-lived persisted workbook preview sessions.
+
+Important fields:
+
+- `organization_id`
+- `requested_by`
+- `workbook_json`
+- `preview_json`
+- `entries_json`
+- `expires_at`
+
 Important invariant:
 
-- `certificate_password_encrypted` is legacy/transitional only; new code does not populate, read back, or return certificate passwords from this table
-- `cert_dir_path` is local-path metadata, not a certificate file payload; logs and error surfaces should mask it
+- Workbook-derived certificate passwords must be stripped before preview rows are persisted.
 
-## 6. Mail and Draft Tables
+### customer_onboarding_batches
+
+Async onboarding commit batches.
+
+Important fields:
+
+- `organization_id`
+- `preview_id`
+- `requested_by`
+- `status`
+- `total_rows`
+- `completed_rows`
+- `created_count`
+- `updated_count`
+- `failed_count`
+- `linked_certificate_count`
+- `warnings_json`
+- `failed_rows_json`
+- `error`
+- `started_at`
+- `finished_at`
+
+### customer_onboarding_batch_rows
+
+Per-row execution state for a batch.
+
+Important fields:
+
+- `batch_id`
+- `organization_id`
+- `row_index`
+- `business_number`
+- `customer_name`
+- `status`
+- `payload_json`
+- `warning_messages_json`
+- `error_message`
+- `customer_legacy_id`
+- `linked_certificate_count`
+
+## 7. Mail And Draft Tables
 
 ### mail_sync_checkpoints
 
-Stores per-workspace per-mailbox last UID.
+Stores per-workspace mailbox checkpoint state.
 
 Important fields:
 
@@ -228,7 +305,7 @@ Important fields:
 
 ### inbox_messages
 
-Mail ingestion and parse state.
+Mail ingestion, parse, and match state.
 
 Important fields:
 
@@ -257,7 +334,7 @@ Current `parse_status` values:
 
 ### invoice_drafts
 
-Invoice draft and issuance record.
+Draft and issuance record.
 
 Important fields:
 
@@ -283,20 +360,20 @@ Important fields:
 - `popbill_environment`
 - `popbill_result_json`
 
-Important invariant:
+Important invariants:
 
-- `popbill_environment` protects against cross-environment misuse of older drafts
-- Phase 1 pilot instrumentation does not add a new draft table; it links draft lifecycle metrics through `app_logs.context_json.draftId`
+- `popbill_environment` protects against cross-environment misuse of old drafts.
+- Pilot reporting links draft lifecycle metrics through `app_logs.context_json.draftId`; there is no separate draft metrics table.
 
 ### organization_completed_billing_months
 
-Allows operators to mark a billing month complete so older mail stops surfacing in current work.
+Allows operators to mark a billing month complete so older mail stops surfacing in active worklists.
 
-## 7. Operational Tables
+## 8. Operational Tables
 
 ### app_logs
 
-Scoped app log stream.
+Scoped application log stream.
 
 Important fields:
 
@@ -307,8 +384,13 @@ Important fields:
 - `message`
 - `context_json`
 
-Phase 1 pilot issuance reporting reuses `app_logs` instead of adding a new metrics table.
-The server now expects `context_json` to carry aggregatable fields when relevant:
+Important invariants:
+
+- Organization scoping stays authoritative in `organization_id`.
+- Pilot issuance reporting reuses `app_logs` instead of adding a new reporting table.
+- Passwords, secrets, and certificate-path-like values should be masked before write and again on read surfaces.
+
+Common `context_json` keys:
 
 - `eventType`
 - `draftId`
@@ -329,22 +411,6 @@ The server now expects `context_json` to carry aggregatable fields when relevant
 - `issuedAt`
 - `previewSnapshot`
 - `issuanceSnapshot`
-
-Important invariant:
-
-- workspace/organization scoping stays authoritative in the `organization_id` column
-- Phase 2 first manual-issue audit slice still reuses `app_logs` + `actor_user_id` + `created_at`; no audit table or schema migration was added
-- review-mode `draft-preview-opened` can carry a `previewSnapshot` object with the same minimal normalized fields used by `issuanceSnapshot`
-- `manual-issue-succeeded` can carry an `issuanceSnapshot` object with draft totals, `writeDate`, counterpart identifiers, and `recipientEmail` for draft-level audit/restore evidence
-- draft timeline reconstruction reads `actor_user_id` alongside `context_json.clickedAt` / `issuedAt` / `previewSnapshot` / `issuanceSnapshot`, so “who clicked / when / which data” stays queryable without a schema change
-- draft timeline reconstruction and pilot rate calculations read `organization_id` + `context_json.*` together
-- customer `issueMode` enable/disable history can also stay on `app_logs`; the route writes `actor_user_id` / `organization_id` plus `context_json.customerId`, `changedAt`, `previousIssueMode`, and `nextIssueMode`
-- customer `review -> auto` enablement can be guarded without schema changes by reusing same-organization `app_logs.context_json.eventType = manual-issue-succeeded` / `context_json.customerId` first, then falling back to same-customer `invoice_drafts.status = issued`
-- no Phase 1 schema migration was added; the reporting layer is app-level over existing `app_logs`
-- `draft-preview-opened` is now sourced from the explicit web UI preview-click log (`POST /api/drafts/:id/pilot-preview-opened`), not the older backend `view-url` approximation
-- password/secret/cert-path-like values are masked before new `app_logs.context_json` writes and again on read surfaces
-- Phase 5 weekly/monthly pilot reports, customer auto-transition evidence, failure Top N, and CSV export still reuse this same `app_logs` + `invoice_drafts` surface; no extra metrics table or migration was added
-- report drill-down stays app-level: aggregate rows keep `latestFailureDraftId` / `latestTimelinePath`, and raw comparison continues through `GET /api/drafts/:id/pilot-timeline`
 
 ### job_queue
 
@@ -370,7 +436,7 @@ Important fields:
 
 ### renewal_agent_heartbeats
 
-Latest local renewal agent status snapshot.
+Latest local renewal agent snapshot.
 
 Important fields:
 
@@ -385,13 +451,7 @@ Important fields:
 
 ### renewal_automation_jobs
 
-Local helper / agent diagnostic queue.
-
-Current job types:
-
-- `bridge-probe`
-- `certid-probe`
-- `renewal-preflight`
+Local certificate diagnostics and renewal preflight queue.
 
 Important fields:
 
@@ -409,32 +469,39 @@ Important fields:
 - `comparison_profile_json`
 - `submission_profile_json`
 - `execute_submit`
+- `requested_at`
+- `claimed_at`
+- `finished_at`
 
-### customer_import_profiles
+Important invariants:
 
-Per-workspace saved import header mapping.
+- Valid job types are `bridge-probe`, `certid-probe`, and `renewal-preflight`.
+- This queue is separate from `job_queue`.
+- `submission_profile_json` must not persist raw issue passwords at rest.
 
-## 8. RLS Mental Model
+### platform_maintenance_runs
 
-The initial migration sets the pattern:
+Checkpoint table for retention and maintenance work.
 
-- membership check: `is_org_member`
-- role check: `has_org_role`
-- read policies generally require membership
-- write policies generally require `owner/admin/operator`
+Important fields:
 
-Do not assume every later migration copied the initial pattern perfectly. When changing policies, inspect the relevant SQL file directly.
+- `maintenance_key`
+- `last_attempted_at`
+- `last_completed_date`
+- `last_completed_at`
+- `last_summary_json`
+- `last_error`
 
-## 9. Legacy Fields
+## 9. RLS Mental Model
 
-Several tables carry `legacy_id` bigint fields.
+- Workspace-scoped tables should filter by the active organization membership.
+- Platform admin flows are explicit exceptions and should stay obvious in route code.
+- Auth resolution and workspace scoping live in `server/src/api-access.ts`; schema and app code must agree.
 
-These exist for compatibility with older code paths and client-side assumptions. Do not remove them casually unless the entire app has been migrated off numeric IDs.
+## 10. Current Schema Risks And Legacy Notes
 
-## 10. Current Schema Risks
-
-- product UX and DB role matrix are not fully aligned
-- some integration columns still exist for compatibility but are no longer the main runtime source
-- renewal automation persistence exists outside `job_queue`, so debugging requires checking two systems
-- pilot reporting currently depends on consistent `app_logs.context_json` keys rather than dedicated materialized metrics tables
-- customer-level auto-transition judgment is only as strong as the logged issuance evidence inside the selected report window plus the current customer catalog state
+- Address matching quality depends on keeping `managed_customer_match_addresses` complete and normalized.
+- DB roles are broader than the current product behavior model, which increases latent permission risk.
+- Certificate-password columns exist for compatibility but should keep shrinking in importance.
+- Reporting still depends on `app_logs` semantics; changing log shapes carelessly can break pilot metrics.
+- Business jobs and renewal jobs are intentionally separate; do not collapse them into one abstraction without a deliberate redesign.

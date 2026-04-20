@@ -1,6 +1,0 @@
-{
-  "last_turn_at": "2026-04-13T09:41:06.994Z",
-  "last_progress_at": "2026-04-13T09:41:06.994Z",
-  "turn_count": 13,
-  "last_agent_output": "C:\\Projects\\AUTO-TAX에서 이어서 작업해줘. 먼저 루트 `AGENTS.md`를 읽고 그 지시를 반드시 따르되, 아래 handoff를 최우선 기준으로 반영해라.\n\n현재"
-}
