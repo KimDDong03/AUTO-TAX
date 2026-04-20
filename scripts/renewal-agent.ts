@@ -2805,10 +2805,20 @@ export async function collectBridgeCertificateList(options?: {
     }
   }
 
-  if (!storageProbe.error) {
+  if (!storageProbe.ok || storageProbe.certificateCount === 0) {
+    const detailedBridgeResult = await collectBridgeProbeResult({
+      includeDetailedProbe: true,
+    });
+    if (detailedBridgeResult.bridge.storageProbe.ok) {
+      licenseProbe = detailedBridgeResult.bridge.licenseProbe;
+      storageProbe = detailedBridgeResult.bridge.storageProbe;
+    }
+  }
+
+  if (!storageProbe.ok) {
     storageProbe = {
       ...defaultStorageProbe(),
-      sourcePort: licenseProbe.sourcePort,
+      sourcePort: storageProbe.sourcePort ?? licenseProbe.sourcePort,
       error: licenseProbe.error ?? "HDD 인증서 목록을 읽지 못했습니다.",
     };
   }

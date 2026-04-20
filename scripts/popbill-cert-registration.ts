@@ -129,7 +129,10 @@ async function tryGrantLocalNetworkAccessPermission(context: BrowserContext, reg
 
 function detectAlreadyRegistered(pageText: string): boolean {
   const normalized = pageText.replace(/\s+/g, "");
-  return normalized.includes("이미등록") && normalized.includes("사용") && normalized.includes("해제");
+  return (
+    (normalized.includes("이미등록") && normalized.includes("사용") && normalized.includes("해제")) ||
+    (normalized.includes("공동인증서관리") && normalized.includes("사용") && normalized.includes("삭제") && normalized.includes("재등록"))
+  );
 }
 
 function detectExpiredToken(pageText: string): boolean {
@@ -159,6 +162,53 @@ async function throwIfExpiredTokenVisible(page: Page, dialogMessages: string[]) 
   if (detectExpiredToken(signals)) {
     throw new Error("팝빌 인증서 등록 URL이 만료되었습니다.");
   }
+}
+
+async function openPopbillElectronicTaxCertificateSection(
+  page: Page,
+  dialogMessages: string[],
+  timeoutMs = 30_000
+): Promise<void> {
+  const startedAt = Date.now();
+  const candidateLocators = [
+    page.getByText("전자세금용 공동인증서", { exact: true }).first(),
+    page.getByText("전자세금용 공동인증서", { exact: false }).first(),
+    page.getByRole("button", { name: /전자세금용\s*공동인증서/ }).first(),
+    page.locator("a, button, span, div").filter({ hasText: "전자세금용 공동인증서" }).first()
+  ];
+
+  while (Date.now() - startedAt < timeoutMs) {
+    await throwIfExpiredTokenVisible(page, dialogMessages);
+
+    for (const locator of candidateLocators) {
+      try {
+        if ((await locator.count()) === 0) {
+          continue;
+        }
+
+        await locator.scrollIntoViewIfNeeded().catch(() => undefined);
+        if (!(await locator.isVisible().catch(() => false))) {
+          continue;
+        }
+
+        await locator.click({ force: true, timeout: 2_000 });
+        await page.waitForTimeout(1_000);
+        return;
+      } catch {
+        // Try the next candidate or retry loop.
+      }
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  const signals = await collectPageAndDialogSignals(page, dialogMessages);
+  throw new Error(
+    `팝빌 메인 화면에서 전자세금용 공동인증서 버튼을 찾지 못했습니다. ${signals
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 500)}`
+  );
 }
 
 function normalizeCertificateFingerprint(value: string | number | null | undefined): string {
@@ -803,20 +853,71 @@ type PopbillSelectionActivationState = {
   browserManualVisible: boolean;
   activeElementId: string | null;
   selectedRowIds: string[];
+  targetSelectionConfirmed: boolean;
+  targetSelectionCommitted: boolean;
+  targetSelectionEvidence: string[];
+  targetSelectionStatusTexts: string[];
 };
 
-async function readPopbillSelectionActivationState(frame: Frame): Promise<PopbillSelectionActivationState> {
-  return await frame.locator("body").evaluate((body) => {
+async function readPopbillSelectionActivationState(
+  frame: Frame,
+  targetSelector?: string | null
+): Promise<PopbillSelectionActivationState> {
+  return await frame.locator("body").evaluate((body, rawTargetSelector) => {
     const passwordInput = body.querySelector("#input_cert_pw");
     const confirmButton = body.querySelector("#btn_confirm_iframe");
     const keyboardToggle = body.querySelector("#keyboardOn");
     const browserManual = body.querySelector("#browser_manual1");
-    const selectedRowIds = Array.from(
+    const selectedElements: HTMLElement[] = [];
+    for (const element of Array.from(
       body.querySelectorAll(
-        "[role='row'][aria-selected='true'], [role='row'].selected, [role='row'].active, [role='row'].current, [role='gridcell'][aria-selected='true'], [role='gridcell'].selected, [role='gridcell'].active, [role='gridcell'].current"
+        [
+          "[role='row'][aria-selected='true']",
+          "[role='row'].selected",
+          "[role='row'].active",
+          "[role='row'].current",
+          "[role='gridcell'][aria-selected='true']",
+          "[role='gridcell'].selected",
+          "[role='gridcell'].active",
+          "[role='gridcell'].current",
+          "[role='row'] td",
+          "[role='row'] [role='gridcell']",
+          "tr td",
+          "tr [role='gridcell']"
+        ].join(", ")
       )
-    )
-      .map((element) => (element instanceof HTMLElement ? element.id || element.getAttribute("data-key") || "" : ""))
+    )) {
+      if (!(element instanceof HTMLElement)) {
+        continue;
+      }
+
+      const rowElement = element.closest("[role='row'], tr");
+      const checkTargets = [element, rowElement].filter(
+        (candidate): candidate is HTMLElement => candidate instanceof HTMLElement
+      );
+      let hasSelectionSignal = false;
+      for (const candidate of checkTargets) {
+        const classNames = Array.from(candidate.classList.values()).map((value) => value.toLowerCase());
+        if (
+          classNames.some(
+            (className) =>
+              className.includes("selected") ||
+              className.includes("pressed") ||
+              className.includes("active") ||
+              className.includes("current")
+          )
+        ) {
+          hasSelectionSignal = true;
+          break;
+        }
+      }
+
+      if (hasSelectionSignal) {
+        selectedElements.push(element);
+      }
+    }
+    const selectedRowIds = selectedElements
+      .map((element) => element.id || element.getAttribute("data-key") || "")
       .filter(Boolean)
       .slice(0, 8);
     const passwordInputVisible =
@@ -840,6 +941,135 @@ async function readPopbillSelectionActivationState(frame: Frame): Promise<Popbil
             return style.display !== "none" && style.visibility !== "hidden" && browserManual.getClientRects().length > 0;
           })()
         : false;
+    const targetSelectionEvidence: string[] = [];
+    let targetSelectionConfirmed = false;
+    let targetSelectionCommitted = false;
+    const targetSelectionStatusTexts: string[] = [];
+
+    if (typeof rawTargetSelector === "string" && rawTargetSelector.trim() !== "") {
+      const target = body.querySelector(rawTargetSelector);
+      const targetCell = target?.closest("[role='gridcell'], td");
+      const targetRow = target?.closest("[role='row'], tr");
+      const targetNodes = [target, targetCell, targetRow].filter(
+        (element): element is HTMLElement => element instanceof HTMLElement
+      );
+
+      let targetHasSelectionSignal = false;
+      for (const node of targetNodes) {
+        const checkTargets = [node, node.closest("[role='row'], tr")].filter(
+          (candidate): candidate is HTMLElement => candidate instanceof HTMLElement
+        );
+        for (const candidate of checkTargets) {
+          const classNames = Array.from(candidate.classList.values()).map((value) => value.toLowerCase());
+          if (
+            classNames.some(
+              (className) =>
+                className.includes("selected") ||
+                className.includes("pressed") ||
+                className.includes("active") ||
+                className.includes("current")
+            )
+          ) {
+            targetHasSelectionSignal = true;
+            break;
+          }
+        }
+        if (targetHasSelectionSignal) {
+          break;
+        }
+      }
+
+      if (targetHasSelectionSignal) {
+        targetSelectionConfirmed = true;
+        targetSelectionEvidence.push(
+          ...targetNodes.slice(0, 3).map((node) => {
+            const row = node.closest("[role='row'], tr");
+            return `target-selected=${node.tagName.toLowerCase()}#${node.id || "-"} row=${row instanceof HTMLElement ? row.id || "-" : "-"}`;
+          })
+        );
+      }
+
+      for (const targetNode of targetNodes) {
+        for (const attributeName of ["title", "aria-label"] as const) {
+          const rawValue = String(targetNode.getAttribute(attributeName) ?? "")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (!rawValue) {
+            continue;
+          }
+
+          targetSelectionStatusTexts.push(`${targetNode.tagName.toLowerCase()}:${attributeName}:${rawValue}`);
+          if (/선택됨|selected/i.test(rawValue)) {
+            targetSelectionCommitted = true;
+          }
+        }
+      }
+
+      const targetRowId =
+        targetRow instanceof HTMLElement ? targetRow.id || targetRow.getAttribute("data-key") || "" : "";
+      const targetCellId =
+        targetCell instanceof HTMLElement ? targetCell.id || targetCell.getAttribute("data-key") || "" : "";
+      if (
+        !targetSelectionCommitted &&
+        targetSelectionConfirmed &&
+        ((targetRowId && selectedRowIds.includes(targetRowId)) || (targetCellId && selectedRowIds.includes(targetCellId)))
+      ) {
+        targetSelectionCommitted = true;
+      }
+
+      if (!targetSelectionConfirmed) {
+        for (const selectedElement of selectedElements) {
+          const row = selectedElement.closest("[role='row'], tr");
+          const cell = selectedElement.closest("[role='gridcell'], td");
+          const keys = [
+            selectedElement.id,
+            selectedElement.getAttribute("data-key") ?? "",
+            row instanceof HTMLElement ? row.id : "",
+            row instanceof HTMLElement ? row.getAttribute("data-key") ?? "" : "",
+            cell instanceof HTMLElement ? cell.id : "",
+            cell instanceof HTMLElement ? cell.getAttribute("data-key") ?? "" : ""
+          ]
+            .filter(Boolean)
+            .slice(0, 4);
+
+          if (
+            targetNodes.some(
+              (node) => node === selectedElement || node.contains(selectedElement) || selectedElement.contains(node)
+            )
+          ) {
+            targetSelectionConfirmed = true;
+            targetSelectionEvidence.push(
+              `selected=${selectedElement.tagName.toLowerCase()}#${selectedElement.id || "-"} keys=${keys.join("|") || "-"}`
+            );
+            break;
+          }
+        }
+      }
+
+      if (!targetSelectionConfirmed) {
+        for (const targetNode of targetNodes) {
+          const row = targetNode.closest("[role='row'], tr");
+          const cell = targetNode.closest("[role='gridcell'], td");
+          const keys = [
+            targetNode.tagName.toLowerCase(),
+            targetNode.id || "",
+            targetNode.getAttribute("data-key") ?? "",
+            row instanceof HTMLElement ? row.id : "",
+            row instanceof HTMLElement ? row.getAttribute("data-key") ?? "" : "",
+            cell instanceof HTMLElement ? cell.id : "",
+            cell instanceof HTMLElement ? cell.getAttribute("data-key") ?? "" : ""
+          ]
+            .filter(Boolean)
+            .slice(0, 6);
+          if (keys.length > 0) {
+            targetSelectionEvidence.push(`target=${keys.join("|")}`);
+          }
+        }
+      }
+    } else {
+      targetSelectionConfirmed = true;
+      targetSelectionCommitted = true;
+    }
 
     return {
       passwordInputVisible,
@@ -856,18 +1086,54 @@ async function readPopbillSelectionActivationState(frame: Frame): Promise<Popbil
       keyboardToggleVisible,
       browserManualVisible,
       activeElementId: document.activeElement instanceof HTMLElement ? document.activeElement.id || null : null,
-      selectedRowIds
+      selectedRowIds,
+      targetSelectionConfirmed,
+      targetSelectionCommitted,
+      targetSelectionEvidence: targetSelectionEvidence.slice(0, 8),
+      targetSelectionStatusTexts: targetSelectionStatusTexts.slice(0, 8)
     };
-  });
+  }, targetSelector ?? null);
 }
 
 function isPopbillSelectionReady(state: PopbillSelectionActivationState): boolean {
-  return state.passwordInputVisible && !state.passwordInputDisabled && !state.passwordInputReadOnly;
+  return (
+    state.passwordInputVisible &&
+    !state.passwordInputDisabled &&
+    !state.passwordInputReadOnly &&
+    state.targetSelectionConfirmed &&
+    state.targetSelectionCommitted
+  );
 }
 
 async function activatePopbillCertificateSelection(frame: Frame, selector: string): Promise<void> {
-  await frame.locator(selector).scrollIntoViewIfNeeded().catch(() => undefined);
-  await frame.locator(selector).click({ force: true }).catch(() => undefined);
+  const targetLocator = frame.locator(selector);
+  await targetLocator.scrollIntoViewIfNeeded().catch(() => undefined);
+  await targetLocator.click({ force: true }).catch(() => undefined);
+  const targetHandle = await targetLocator.elementHandle().catch(() => null);
+  const targetCellHandle = targetHandle
+    ? (await targetHandle.evaluateHandle((node) => node.closest("[role='gridcell'], td"))).asElement()
+    : null;
+  const targetRowHandle = targetHandle
+    ? (await targetHandle.evaluateHandle((node) => node.closest("[role='row'], tr"))).asElement()
+    : null;
+  const interactionHandles = [targetHandle, targetCellHandle, targetRowHandle].filter(
+    (handle): handle is NonNullable<typeof targetHandle> => Boolean(handle)
+  );
+
+  for (const handle of interactionHandles) {
+    await handle.scrollIntoViewIfNeeded().catch(() => undefined);
+    await handle.click({ force: true }).catch(() => undefined);
+    await handle.focus().catch(() => undefined);
+    await frame.waitForTimeout(50);
+  }
+
+  if (targetCellHandle) {
+    await targetCellHandle.press("Enter").catch(() => undefined);
+    await frame.waitForTimeout(100);
+    await targetCellHandle.press(" ").catch(() => undefined);
+    await frame.waitForTimeout(100);
+  }
+
   await frame.evaluate((rawSelector) => {
     const target = document.querySelector(rawSelector);
     const targetCell = target?.closest("[role='gridcell'], td");
@@ -945,7 +1211,7 @@ async function ensurePopbillCertificateSelectionReady(
   timeoutMs = 8_000
 ): Promise<PopbillSelectionActivationState> {
   const startedAt = Date.now();
-  let lastState = await readPopbillSelectionActivationState(frame);
+  let lastState = await readPopbillSelectionActivationState(frame, selector);
   if (isPopbillSelectionReady(lastState)) {
     return lastState;
   }
@@ -953,7 +1219,7 @@ async function ensurePopbillCertificateSelectionReady(
   while (Date.now() - startedAt < timeoutMs) {
     await activatePopbillCertificateSelection(frame, selector);
     await frame.waitForTimeout(250);
-    lastState = await readPopbillSelectionActivationState(frame);
+    lastState = await readPopbillSelectionActivationState(frame, selector);
     if (isPopbillSelectionReady(lastState)) {
       return lastState;
     }
@@ -1595,7 +1861,7 @@ export async function registerPopbillCertificate(
       };
     }
 
-    await page.getByText("전자세금용 공동인증서", { exact: true }).click({ force: true });
+    await openPopbillElectronicTaxCertificateSection(page, dialogMessages);
     await page.waitForTimeout(5_000);
     await throwIfExpiredTokenVisible(page, dialogMessages);
 
@@ -1607,12 +1873,22 @@ export async function registerPopbillCertificate(
 
     await childFrame.locator("#input_cert_pw").waitFor({ state: "visible", timeout: 20_000 });
     await throwIfExpiredTokenVisible(page, dialogMessages);
-    const frameInspection = await inspectPopbillCertificateSelectionFrame(childFrame, {
+    let frameInspection = await inspectPopbillCertificateSelectionFrame(childFrame, {
       certificateCn: resolvedCertificate.certificateCn,
       certificateIndex: resolvedCertificate.certificateIndex,
       serial: resolvedCertificate.serial,
       userDN: resolvedCertificate.userDN
     });
+    for (let attempt = 0; frameInspection.visibleMatchCount === 0 && attempt < 24; attempt += 1) {
+      await childFrame.waitForTimeout(250);
+      await throwIfExpiredTokenVisible(page, dialogMessages);
+      frameInspection = await inspectPopbillCertificateSelectionFrame(childFrame, {
+        certificateCn: resolvedCertificate.certificateCn,
+        certificateIndex: resolvedCertificate.certificateIndex,
+        serial: resolvedCertificate.serial,
+        userDN: resolvedCertificate.userDN
+      });
+    }
     if (frameInspection.visibleMatchCount === 0) {
       const artifact = await writePopbillDebugArtifact({
         stage: "no-visible-cn-match",
@@ -1712,6 +1988,10 @@ export async function registerPopbillCertificate(
       const latestSelectionActivationState = await readPopbillSelectionActivationState(childFrame).catch(
         () => selectionActivationState
       );
+      const refreshedSelectionActivationState = await readPopbillSelectionActivationState(
+        childFrame,
+        selectedCandidate.selector
+      ).catch(() => latestSelectionActivationState);
       const artifact = await writePopbillDebugArtifact({
         stage: "registration-confirmation-failed",
         page,
@@ -1721,7 +2001,7 @@ export async function registerPopbillCertificate(
         selectionReason: selectedCandidate.reason ?? frameInspection.selectionReason,
         candidates: frameInspection.candidates,
         selectionDetailProbes,
-        selectionActivationState: latestSelectionActivationState,
+        selectionActivationState: refreshedSelectionActivationState,
         errorMessage:
           error instanceof Error
             ? error.message
