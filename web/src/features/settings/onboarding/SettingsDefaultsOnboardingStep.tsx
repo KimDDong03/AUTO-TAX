@@ -342,48 +342,6 @@ export function SettingsDefaultsOnboardingStep({
           </div>
         </section>
 
-        <section className="onboarding-section onboarding-section-muted">
-          <div className="onboarding-section-head">
-            <strong>나중에 입력 가능</strong>
-            <span>필요할 때만</span>
-          </div>
-          <div className="onboarding-field-grid onboarding-field-grid-single">
-            <label>
-              인증서 공통 비밀번호 (선택)
-              <div className="password-field">
-                <input
-                  type={reveals.renewalCertificatePassword.visible ? "text" : "password"}
-                  value={renewalCertificatePassword}
-                  onChange={(event) =>
-                    onRenewalCertificatePasswordChange(event.target.value)
-                  }
-                  placeholder={
-                    renewalCertificatePasswordConfigured
-                      ? "변경할 때만 다시 입력"
-                      : "선택 입력"
-                  }
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  aria-label={
-                    reveals.renewalCertificatePassword.visible
-                      ? "공동인증서 공통 비밀번호 숨기기"
-                      : "공동인증서 공통 비밀번호 보기"
-                  }
-                  onClick={reveals.renewalCertificatePassword.toggle}
-                >
-                  <RevealIcon open={reveals.renewalCertificatePassword.visible} />
-                </button>
-              </div>
-              <span className="field-hint">
-                {renewalCertificatePasswordConfigured
-                  ? "이미 저장된 값이 있습니다. 필요하면 아래 보조 영역에서 다시 불러오세요. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."
-                  : "비밀번호가 모두 같을 때만 사용합니다. 엑셀 비밀번호 칸이 비면 이 값을 씁니다."}
-              </span>
-            </label>
-          </div>
-        </section>
       </section>
 
       {hasSavedDefaults ? (
@@ -414,16 +372,6 @@ export function SettingsDefaultsOnboardingStep({
                   onClick={() => void onLoadCurrentRenewalIssuePassword()}
                 >
                   발급용 임시번호 불러오기
-                </button>
-              ) : null}
-              {renewalCertificatePasswordConfigured ? (
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={busy}
-                  onClick={() => void onLoadCurrentRenewalCertificatePassword()}
-                >
-                  인증서 공통 비밀번호 불러오기
                 </button>
               ) : null}
             </div>

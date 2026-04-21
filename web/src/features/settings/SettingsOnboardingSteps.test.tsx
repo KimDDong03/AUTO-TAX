@@ -141,7 +141,7 @@ test("SettingsDefaultsOnboardingStep only renders saved-secret reload helpers wh
     renewalCertificatePassword: "",
     popbillSharedPasswordConfigured: true,
     renewalIssuePasswordConfigured: true,
-    renewalCertificatePasswordConfigured: false,
+    renewalCertificatePasswordConfigured: true,
     reveals: {
       popbillSharedPassword: { visible: false, toggle: noop },
       renewalIssuePassword: { visible: false, toggle: noop },
@@ -211,6 +211,7 @@ test("SettingsDefaultsOnboardingStep only renders saved-secret reload helpers wh
 
   assert.match(configuredText, /신규 고객 기본 비밀번호 불러오기/);
   assert.match(configuredText, /발급용 임시번호 불러오기/);
+  assert.doesNotMatch(configuredText, /인증서 공통 비밀번호 \(선택\)/);
   assert.doesNotMatch(configuredText, /인증서 공통 비밀번호 불러오기/);
   assert.ok(renewalIssueInput);
   assert.equal(renewalIssueInput.props.maxLength, 6);
@@ -262,10 +263,20 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and upgrade 
       element.type === "button" &&
       collectText(element).includes("공동인증서 읽기")
   );
+  const versionMismatchButton = findElement(
+    readyTree,
+    (element) =>
+      element.type === "button" &&
+      collectText(element).includes("공동인증서 읽기")
+  );
 
   assert.match(collectText(readyTree), /공동인증서 확인 완료/);
   assert.match(collectText(readyTree), /최신 버전: v\s*2\.0\.0/);
   assert.match(collectText(readyTree), /최소 지원 버전: v\s*1\.5\.0/);
+  assert.match(collectText(readyTree), /상태 다시 확인/);
+  assert.match(collectText(readyTree), /헬퍼 다운로드/);
+  assert.ok(versionMismatchButton);
+  assert.equal(versionMismatchButton.props.disabled, true);
   assert.match(collectText(offlineTree), /헬퍼를 먼저 실행하세요\./);
   assert.ok(offlineButton);
   assert.equal(offlineButton.props.disabled, true);

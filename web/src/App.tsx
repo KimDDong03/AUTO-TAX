@@ -5,7 +5,11 @@ import { ApiError, api, setActiveOrganizationId } from "./api";
 import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
 import { CertificatesScreen } from "./features/certificates/CertificatesScreen";
 import { useCertificatesScreenModel } from "./features/certificates/useCertificatesScreenModel";
+import { matchesCustomerSearchQuery } from "./features/customers/customerSearch";
 import { CustomersTab } from "./features/customers/CustomersTab";
+import { HomeTab } from "./features/home/HomeTab";
+import { IssuanceTab } from "./features/issuance/IssuanceTab";
+import { buildHomeScreenModel, type HomeActionKey } from "./features/home/homeScreenModel";
 import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
 import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
 import { PublicLanding } from "./features/public/PublicLanding";
@@ -105,6 +109,7 @@ import type {
   CustomerCertificate,
   CustomerCertificateKind,
   CustomerImportProfile,
+  InboxMessage,
   InvoiceDraft,
   LogEntry,
   OpsWorkspaceCreateResponse,
@@ -115,11 +120,181 @@ import type {
   RenewalAutomationPayload
 } from "./types";
 
-type TabId = "onboarding" | "home" | "customers" | "certificates" | "settings" | "ops";
+type TabId = "onboarding" | "home" | "issuance" | "customers" | "certificates" | "settings" | "ops";
 
 const ONBOARDING_NAV_STORAGE_KEY_PREFIX = "auto-tax:onboarding-nav:";
 const HELPER_SETUP_STORAGE_KEY_PREFIX = "auto-tax:helper-setup:";
 const CUSTOMER_ONBOARDING_STORAGE_KEY_PREFIX = "auto-tax:customer-onboarding:";
+const HOME_MOCK_REVIEW_TARGET_COUNT = 15;
+const HOME_MOCK_RECENT_INBOX_TARGET_COUNT = 10;
+const HOME_MOCK_RECENT_ISSUED_TARGET_COUNT = 10;
+const HOME_MOCK_BASE_TIME = Date.UTC(2026, 3, 21, 9, 0, 0);
+const HOME_MOCK_LABEL = "[목업]";
+const HOME_MOCK_CUSTOMER_PREFIXES = ["한서", "도원", "청해", "서광", "미래", "남도", "동해", "하람", "새론", "비전"];
+const HOME_MOCK_PLANT_PREFIXES = ["원주 신림", "충주 노은", "이천 덕평", "보령 청소", "태안 근흥", "해남 화산", "당진 송악", "영암 삼호"];
+const HOME_MOCK_REGIONS = [
+  "강원특별자치도 원주시 신림면",
+  "충청북도 충주시 노은면",
+  "경기도 이천시 덕평로",
+  "충청남도 보령시 청소면",
+  "충청남도 태안군 근흥면",
+  "전라남도 해남군 화산면",
+  "충청남도 당진시 송악읍",
+  "전라남도 영암군 삼호읍"
+];
+
+function buildHomeMockTimestamp(index: number, minuteStep: number): string {
+  return new Date(HOME_MOCK_BASE_TIME - index * minuteStep * 60_000).toISOString();
+}
+
+function buildHomeMockBillingMonth(index: number): string {
+  const year = 2026 - Math.floor(index / 6);
+  const month = 4 - (index % 6);
+  const normalizedMonth = month > 0 ? month : 12 + month;
+  const normalizedYear = month > 0 ? year : year - 1;
+  return `${normalizedYear}-${String(normalizedMonth).padStart(2, "0")}`;
+}
+
+function buildHomeMockCustomerName(index: number): string {
+  return `${HOME_MOCK_CUSTOMER_PREFIXES[index % HOME_MOCK_CUSTOMER_PREFIXES.length]} 발전소`;
+}
+
+function buildHomeMockPlantName(index: number): string {
+  return `${HOME_MOCK_PLANT_PREFIXES[index % HOME_MOCK_PLANT_PREFIXES.length]} 태양광`;
+}
+
+function buildHomeMockAddress(index: number): string {
+  const region = HOME_MOCK_REGIONS[index % HOME_MOCK_REGIONS.length];
+  return `${region} ${810 + index}`;
+}
+
+function padHomeCollection<T>(items: T[], targetCount: number, createItem: (index: number) => T): T[] {
+  if (items.length >= targetCount) {
+    return items;
+  }
+
+  return [
+    ...items,
+    ...Array.from({ length: targetCount - items.length }, (_, index) => createItem(index))
+  ];
+}
+
+function buildHomeMockReviewDraft(index: number): InvoiceDraft {
+  const billingMonth = buildHomeMockBillingMonth(index);
+  const supplyCost = 148_000 + (index % 6) * 17_000;
+  const taxTotal = Math.round(supplyCost * 0.1);
+  const statusCycle: InvoiceDraft["status"][] = ["review", "review", "failed", "review", "issuing"];
+  const status = statusCycle[index % statusCycle.length];
+  const customerName = buildHomeMockCustomerName(index);
+  const plantName = buildHomeMockPlantName(index);
+  const createdAt = buildHomeMockTimestamp(index, 95);
+  const updatedAt = buildHomeMockTimestamp(index, 70);
+
+  return {
+    id: -1100 - index,
+    customerId: -1100 - index,
+    customerName,
+    sourceMessageId: -2100 - index,
+    issueMode: "review",
+    status,
+    scheduledFor: null,
+    issueRequestedAt: status === "issuing" ? updatedAt : null,
+    issuedAt: null,
+    issueError: status === "failed" ? "목업 발행 실패: 담당자 확인 대기" : "",
+    billingMonth,
+    writeDate: `${billingMonth}-25`,
+    itemName: `${billingMonth.replace("-", "년")}월전력`,
+    plantName,
+    supplyCost,
+    taxTotal,
+    totalAmount: supplyCost + taxTotal,
+    kepcoCorpNum: `5101${String(700000 + index).padStart(6, "0")}`,
+    kepcoBranchId: `ORG3AF92FB3_${410 + index}`,
+    kepcoCorpName: `${customerName} 한국전력`,
+    kepcoCeoName: `${HOME_MOCK_CUSTOMER_PREFIXES[index % HOME_MOCK_CUSTOMER_PREFIXES.length]} 대표`,
+    kepcoAddr: buildHomeMockAddress(index),
+    kepcoBizType: "전기 생산업",
+    kepcoBizClass: "태양광 발전",
+    recipientEmail: `billing${index + 1}@demo.auto-tax.local`,
+    popbillMgtKey: `MOCK-REVIEW-${index + 1}`,
+    popbillEnvironment: "test",
+    popbillResultJson: "",
+    createdAt,
+    updatedAt
+  };
+}
+
+function buildHomeMockIssuedDraft(index: number): InvoiceDraft {
+  const billingMonth = buildHomeMockBillingMonth(index);
+  const supplyCost = 176_000 + (index % 5) * 19_000;
+  const taxTotal = Math.round(supplyCost * 0.1);
+  const customerName = buildHomeMockCustomerName(index + 20);
+  const plantName = buildHomeMockPlantName(index + 20);
+  const issuedAt = buildHomeMockTimestamp(index, 140);
+
+  return {
+    id: -3100 - index,
+    customerId: -3100 - index,
+    customerName,
+    sourceMessageId: -4100 - index,
+    issueMode: "auto",
+    status: "issued",
+    scheduledFor: null,
+    issueRequestedAt: issuedAt,
+    issuedAt,
+    issueError: "",
+    billingMonth,
+    writeDate: `${billingMonth}-25`,
+    itemName: `${billingMonth.replace("-", "년")}월전력`,
+    plantName,
+    supplyCost,
+    taxTotal,
+    totalAmount: supplyCost + taxTotal,
+    kepcoCorpNum: `6202${String(800000 + index).padStart(6, "0")}`,
+    kepcoBranchId: `ORG3AF92FB3_${510 + index}`,
+    kepcoCorpName: `${customerName} 한국전력`,
+    kepcoCeoName: `${HOME_MOCK_CUSTOMER_PREFIXES[(index + 2) % HOME_MOCK_CUSTOMER_PREFIXES.length]} 대표`,
+    kepcoAddr: buildHomeMockAddress(index + 20),
+    kepcoBizType: "전기 생산업",
+    kepcoBizClass: "신재생 발전",
+    recipientEmail: `issued${index + 1}@demo.auto-tax.local`,
+    popbillMgtKey: `MOCK-ISSUED-${index + 1}`,
+    popbillEnvironment: "test",
+    popbillResultJson: "",
+    createdAt: issuedAt,
+    updatedAt: issuedAt
+  };
+}
+
+function buildHomeMockInboxMessage(index: number): InboxMessage {
+  const billingMonth = buildHomeMockBillingMonth(index);
+  const supplyCost = 132_000 + (index % 7) * 15_000;
+  const taxTotal = Math.round(supplyCost * 0.1);
+  const parseStatusCycle: InboxMessage["parseStatus"][] = ["parsed", "parsed", "duplicate", "ignored", "parsed"];
+  const parseStatus = parseStatusCycle[index % parseStatusCycle.length];
+  const customerName = buildHomeMockCustomerName(index + 40);
+  const plantName = buildHomeMockPlantName(index + 40);
+
+  return {
+    id: -5100 - index,
+    subject: `${HOME_MOCK_LABEL} ${customerName} ${billingMonth.replace("-", "년 ")}월 전력 사용 안내`,
+    fromAddress: `alerts${index + 1}@kepco.demo.local`,
+    receivedAt: buildHomeMockTimestamp(index, 55),
+    parseStatus,
+    parseError: parseStatus === "duplicate" ? "기존 초안과 중복으로 분류됨" : "",
+    customerId: parseStatus === "parsed" ? -6100 - index : null,
+    draftId: null,
+    parsedData: {
+      plantName,
+      plantAddress: buildHomeMockAddress(index + 40),
+      billingMonth,
+      supplyCost,
+      taxTotal,
+      itemName: `${billingMonth.replace("-", "년")}월전력`,
+      kepcoBranchId: `ORG3AF92FB3_${610 + index}`
+    }
+  };
+}
 
 function getOnboardingNavStorageKey(organizationId: string): string {
   return `${ONBOARDING_NAV_STORAGE_KEY_PREFIX}${organizationId}`;
@@ -425,7 +600,7 @@ type InternalJobRunResponse = {
 };
 
 function shouldLoadMailboxData(activeTab: TabId, customerDetailTab: CustomerDetailTabId): boolean {
-  return activeTab === "home" || (activeTab === "customers" && customerDetailTab === "history");
+  return activeTab === "home" || activeTab === "issuance" || (activeTab === "customers" && customerDetailTab === "history");
 }
 
 type OpsWorkspaceFormState = {
@@ -733,6 +908,10 @@ function getTabFromHash(hash: string): TabId | null {
     return "home";
   }
 
+  if (value === "issuance") {
+    return "issuance";
+  }
+
   if (value === "certificates") {
     return "certificates";
   }
@@ -762,12 +941,16 @@ function resolveWorkspaceTab(
     return options.isPlatformAdmin ? "ops" : "onboarding";
   }
 
+  if (requestedTab === "onboarding") {
+    return "home";
+  }
+
   if (
     requestedTab === "home" ||
+    requestedTab === "issuance" ||
     requestedTab === "customers" ||
     requestedTab === "certificates" ||
-    requestedTab === "settings" ||
-    requestedTab === "onboarding"
+    requestedTab === "settings"
   ) {
     return requestedTab;
   }
@@ -1512,6 +1695,10 @@ export function App() {
     showCompletedOnboardingNav: false
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [onboardingModalOpen, setOnboardingModalOpen] = useState(() => {
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    return getTabFromHash(hash) === "onboarding";
+  });
   const [requestedOnboardingStepId, setRequestedOnboardingStepId] = useState<string | null>(null);
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
   const [creatingCustomer, setCreatingCustomer] = useState(false);
@@ -2002,7 +2189,12 @@ export function App() {
   ).length;
   const helperSetupCompleted =
     helperSetupPreference.organizationId === activeOrganizationId && helperSetupPreference.completed;
-  const helperOnboardingReady = (helperReady || helperSetupCompleted) && !helperUpgradeRequired;
+  const helperVersionMismatch = helperUpgradeRequired || helperUpgradeAvailable;
+  const helperOnboardingReady =
+    helperReady ||
+    (helperSetupCompleted &&
+      Boolean(customerRenewalAssistant?.agentOnline) &&
+      !helperVersionMismatch);
 
   const settingsScreenState = useSettingsScreenState({
     activeOrganizationId,
@@ -2251,6 +2443,10 @@ export function App() {
 
       if (nextTab) {
         const resolvedTab = resolveWorkspaceTab(nextTab, tabRoutingStateRef.current);
+        if (nextTab === "onboarding" && tabRoutingStateRef.current.hasActiveWorkspace) {
+          setRequestedOnboardingStepId(null);
+          setOnboardingModalOpen(true);
+        }
         setActiveTab(resolvedTab);
         if (resolvedTab !== nextTab) {
           window.history.replaceState(null, "", `#${resolvedTab}`);
@@ -2366,14 +2562,9 @@ export function App() {
 
   useEffect(() => {
     if (!data || activeTab !== "customers" || creatingCustomer) return;
-    const normalizedSearch = customerSearchQuery.trim().toLocaleLowerCase("ko-KR");
     const visibleCustomers = data.customers.filter((customer) => {
       const matchesFilter = matchesCustomerListFilter(customer, customerListFilter);
-      const matchesSearch =
-        normalizedSearch === "" ||
-        customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedSearch) ||
-        customer.corpName.toLocaleLowerCase("ko-KR").includes(normalizedSearch) ||
-        customer.businessNumber.toLocaleLowerCase("ko-KR").includes(normalizedSearch);
+      const matchesSearch = matchesCustomerSearchQuery(customer, customerSearchQuery);
       return matchesFilter && matchesSearch;
     }).sort(compareCustomersForList);
 
@@ -2414,13 +2605,13 @@ export function App() {
   }, [activeTab, customerDetailTab, data?.auth.activeOrganizationId]);
 
   useEffect(() => {
-    if (!data || activeTab !== "home") return;
+    if (!data) return;
 
-    const nextQuickRegisterMessages = data.inbox
-      .filter((message) => getInboxDisplayParseStatus(message) === "unmatched" && message.parsedData?.plantAddress)
+    const nextExceptionMessages = [...data.inbox]
+      .filter((message) => isInboxActionable(message))
       .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime());
 
-    if (nextQuickRegisterMessages.length === 0) {
+    if (nextExceptionMessages.length === 0) {
       if (quickRegisterForm.messageId !== null) {
         setQuickRegisterForm(createQuickRegisterForm());
       }
@@ -2428,13 +2619,13 @@ export function App() {
     }
 
     const selectedMessage = quickRegisterForm.messageId
-      ? nextQuickRegisterMessages.find((message) => message.id === quickRegisterForm.messageId) ?? null
+      ? nextExceptionMessages.find((message) => message.id === quickRegisterForm.messageId) ?? null
       : null;
 
     if (!selectedMessage) {
-      setQuickRegisterForm(createQuickRegisterForm(nextQuickRegisterMessages[0]));
+      setQuickRegisterForm(createQuickRegisterForm(nextExceptionMessages[0]));
     }
-  }, [activeTab, data, quickRegisterForm.messageId, completedBillingMonths]);
+  }, [data, quickRegisterForm.messageId, completedBillingMonths]);
 
   useEffect(() => {
     if (creatingCustomer || customerForm.id === null) {
@@ -3019,7 +3210,7 @@ export function App() {
   };
 
   const selectQuickRegisterMessage = (messageId: number) => {
-    const message = quickRegisterMessages.find((item) => item.id === messageId) ?? null;
+    const message = exceptionMessages.find((item) => item.id === messageId) ?? null;
     setQuickRegisterForm(createQuickRegisterForm(message));
     setQuickRegisterNotice("");
     setQuickRegisterError("");
@@ -4390,6 +4581,27 @@ export function App() {
     });
   };
 
+  useEffect(() => {
+    if (!activeOrganizationId) {
+      setOnboardingModalOpen(false);
+    }
+  }, [activeOrganizationId]);
+
+  useEffect(() => {
+    if (!onboardingModalOpen || !activeOrganizationId) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOnboardingModalOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeOrganizationId, onboardingModalOpen]);
+
   if (!authReady) {
     return <div className="loading-shell">{recoveryMode ? "비밀번호 재설정 링크를 확인하는 중입니다." : "로그인 상태를 확인하는 중입니다."}</div>;
   }
@@ -4509,9 +4721,22 @@ export function App() {
   const reviewDrafts: InvoiceDraft[] = [];
   const issuedDrafts: InvoiceDraft[] = [];
   const issuedDraftsByCustomerId = new Map<number, InvoiceDraft[]>();
+  let issuancePendingDraftCount = 0;
+  let issuanceScheduledDraftCount = 0;
+  let issuanceIssuingDraftCount = 0;
+  let issuanceIssuedDraftCount = 0;
   for (const draft of data.drafts) {
     if (draft.status === "review" || draft.status === "failed" || draft.status === "issuing") {
       reviewDrafts.push(draft);
+    }
+    if (draft.status === "review" || draft.status === "failed") {
+      issuancePendingDraftCount += 1;
+    } else if (draft.status === "scheduled") {
+      issuanceScheduledDraftCount += 1;
+    } else if (draft.status === "issuing") {
+      issuanceIssuingDraftCount += 1;
+    } else if (draft.status === "issued") {
+      issuanceIssuedDraftCount += 1;
     }
     if (draft.status === "issued") {
       issuedDrafts.push(draft);
@@ -4546,14 +4771,12 @@ export function App() {
       popbillPendingCustomers.push(customer);
     }
   }
-  const unmatchedMessages = data.inbox.filter((message) => {
-    const status = getInboxDisplayParseStatus(message);
-    return status === "unmatched" || status === "failed";
-  });
-  const quickRegisterMessages = data.inbox
-    .filter((message) => getInboxDisplayParseStatus(message) === "unmatched" && message.parsedData?.plantAddress)
+  const exceptionMessages = [...data.inbox]
+    .filter((message) => isInboxActionable(message))
     .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime());
-  const duplicateMessages = data.inbox.filter((message) => getInboxDisplayParseStatus(message) === "duplicate");
+  const unmatchedInboxMessages = [...data.inbox]
+    .filter((message) => getInboxDisplayParseStatus(message) === "unmatched")
+    .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime());
   const reprocessableMessages = data.inbox.filter((message) => isInboxActionable(message));
   const billingMonthSummaryMap = new Map<string, BillingMonthSummary>();
   for (const message of data.inbox) {
@@ -4587,19 +4810,14 @@ export function App() {
   const billingMonthSummaries = [...billingMonthSummaryMap.values()].sort((left, right) => right.billingMonth.localeCompare(left.billingMonth));
   const recentInboxMessages = [...data.inbox]
     .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime())
-    .slice(0, 6);
-  const recentIssuedDrafts = issuedDrafts.slice(0, 8);
-  const recentInboxPreview = recentInboxMessages.slice(0, 4);
-  const recentIssuedPreview = recentIssuedDrafts.slice(0, 4);
-  const normalizedCustomerSearch = deferredCustomerSearchQuery.trim().toLocaleLowerCase("ko-KR");
+    .slice(0, HOME_MOCK_RECENT_INBOX_TARGET_COUNT);
+  const recentIssuedDrafts = issuedDrafts.slice(0, HOME_MOCK_RECENT_ISSUED_TARGET_COUNT);
+  const homeReviewDrafts = padHomeCollection(reviewDrafts, HOME_MOCK_REVIEW_TARGET_COUNT, buildHomeMockReviewDraft);
+  const homeRecentInboxMessages = padHomeCollection(recentInboxMessages, HOME_MOCK_RECENT_INBOX_TARGET_COUNT, buildHomeMockInboxMessage);
+  const homeRecentIssuedDrafts = padHomeCollection(recentIssuedDrafts, HOME_MOCK_RECENT_ISSUED_TARGET_COUNT, buildHomeMockIssuedDraft);
   const filteredCustomers = data.customers
     .filter((customer) => matchesCustomerListFilter(customer, customerListFilter))
-    .filter((customer) =>
-      normalizedCustomerSearch === "" ||
-      customer.customerName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch) ||
-      customer.corpName.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch) ||
-      customer.businessNumber.toLocaleLowerCase("ko-KR").includes(normalizedCustomerSearch)
-    )
+    .filter((customer) => matchesCustomerSearchQuery(customer, deferredCustomerSearchQuery))
     .sort(compareCustomersForList);
   const customerImportHeaderCandidates = customerImportFile
     ? customerImportFile.rows.slice(0, Math.min(customerImportFile.rows.length, 5)).map((row, index) => ({
@@ -4608,7 +4826,7 @@ export function App() {
       }))
     : [];
   const selectedQuickRegisterMessage = quickRegisterForm.messageId
-    ? quickRegisterMessages.find((message) => message.id === quickRegisterForm.messageId) ?? null
+    ? exceptionMessages.find((message) => message.id === quickRegisterForm.messageId) ?? null
     : null;
   const pendingOnboardingCertificateRegistrationTargets = customerOnboardingSessionActive
     ? getOnboardingCertificateRegistrationTargets(
@@ -4758,10 +4976,10 @@ export function App() {
   const settingsActionBar = settingsDerivedModel.actionBar;
   const settingsOnboardingModel = settingsDerivedModel.onboarding;
   const onboardingFirstSyncReady = data.inbox.length > 0 || data.drafts.length > 0;
-  const exceptionHandlingReady = onboardingFirstSyncReady && unmatchedMessages.length === 0;
+  const exceptionHandlingReady = onboardingFirstSyncReady && exceptionMessages.length === 0;
   const firstIssueCheckReady =
     onboardingFirstSyncReady &&
-    unmatchedMessages.length === 0 &&
+    exceptionMessages.length === 0 &&
     (issuedDrafts.length > 0 || reviewDrafts.length === 0);
   const openSettingsSection = (section: SettingsSectionId = settingsActionBar.primarySection) => {
     setActiveSettingsSection(section);
@@ -4770,55 +4988,6 @@ export function App() {
   const openCertificates = () => {
     setActiveTab("certificates");
   };
-  const workPriorityCards = [
-    ...(unmatchedMessages.length > 0
-      ? [
-          {
-            key: "unmatched",
-            title: "예외 메일",
-            count: unmatchedMessages.length,
-            description: "주소 예외를 처리해야 다음 발행이 이어집니다.",
-            tone: "warn" as const,
-            actionLabel: "최근 수신 보기",
-            onAction: () => {
-              setWorkFeedTab("inbox");
-              scrollToElementById("work-recent-history");
-            }
-          }
-        ]
-      : []),
-    ...(certAttentionCount > 0
-      ? [
-          {
-            key: "cert",
-            title: "인증서 주의",
-            count: certAttentionCount,
-            description: expiredCertCustomers.length > 0 ? "만료 고객부터 먼저 확인하세요." : "만료 전 점검이 필요합니다.",
-            tone: expiredCertCustomers.length > 0 ? ("danger" as const) : ("warn" as const),
-            actionLabel: "인증서에서 확인",
-            onAction: () => {
-              openCertificates();
-            }
-          }
-        ]
-      : []),
-    ...(duplicateMessages.length > 0
-      ? [
-          {
-            key: "duplicate",
-            title: "중복 의심",
-            count: duplicateMessages.length,
-            description: "최근 수신에서 한 번 더 확인하세요.",
-            tone: "default" as const,
-            actionLabel: "최근 수신 보기",
-            onAction: () => {
-              setWorkFeedTab("inbox");
-              scrollToElementById("work-recent-history");
-            }
-          }
-        ]
-      : [])
-  ];
   const startCreatingCustomer = () => {
     setCreatingCustomer(true);
     setCustomerForm(createCustomerFormDefaults());
@@ -5270,7 +5439,7 @@ export function App() {
           <strong>
             {!onboardingFirstSyncReady
               ? "먼저 첫 메일 동기화를 실행하세요."
-              : unmatchedMessages.length > 0
+              : exceptionMessages.length > 0
                 ? "예외 메일을 먼저 처리하세요."
                 : reviewDrafts.length > 0
                   ? "생성된 초안을 검토한 뒤 로그인 사용자가 직접 발행하세요."
@@ -5292,7 +5461,7 @@ export function App() {
           </div>
           <div>
             <span>예외 메일</span>
-            <strong>{unmatchedMessages.length}건</strong>
+            <strong>{exceptionMessages.length}건</strong>
           </div>
         </div>
 
@@ -5336,7 +5505,7 @@ export function App() {
           : "이 PC에서 로컬 헬퍼 준비 완료"
         : "확인 필요",
       primaryActionLabel: helperOnboardingReady ? "전자세금용 공동인증서 읽기 완료" : "전자세금용 공동인증서 읽기",
-      blockedReason: helperUpgradeRequired
+      blockedReason: helperVersionMismatch
         ? helperActionBlockedReason
         : customerRenewalAssistant?.agentOnline
           ? undefined
@@ -5369,7 +5538,7 @@ export function App() {
           customerOnboardingNotice={customerOnboardingNotice}
           customerOnboardingError={customerOnboardingError}
           pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
-          quickRegisterMessages={quickRegisterMessages}
+          quickRegisterMessages={exceptionMessages}
           quickRegisterForm={quickRegisterForm}
           selectedQuickRegisterMessage={selectedQuickRegisterMessage}
           isQuickRegistering={isQuickRegistering}
@@ -5405,9 +5574,11 @@ export function App() {
           setQuickRegisterForm={setQuickRegisterForm}
           selectQuickRegisterMessage={selectQuickRegisterMessage}
           submitQuickRegister={submitQuickRegister}
+          onReprocessInboxMessage={reprocessInboxMessage}
           markBillingMonthCompleted={markBillingMonthCompleted}
           runAction={runAction}
           formatDateTime={formatDateTime}
+          formatMoney={formatMoney}
           getInboxDisplayParseStatus={getInboxDisplayParseStatus}
           getParseStatusLabel={getParseStatusLabel}
         />
@@ -5449,16 +5620,16 @@ export function App() {
       title: "미매칭 메일 예외 처리",
       summary: !onboardingFirstSyncReady
         ? "첫 동기화 후 확인"
-        : unmatchedMessages.length > 0
-          ? `예외 메일 ${unmatchedMessages.length}건 처리 필요`
+        : exceptionMessages.length > 0
+          ? `예외 메일 ${exceptionMessages.length}건 처리 필요`
           : "예외 메일 없음",
-      primaryActionLabel: !onboardingFirstSyncReady ? "첫 메일 동기화 후 예외 확인" : unmatchedMessages.length > 0 ? "예외 고객 등록 후 메일 연결" : "지금 처리할 예외 없음",
+      primaryActionLabel: !onboardingFirstSyncReady ? "첫 메일 동기화 후 예외 확인" : exceptionMessages.length > 0 ? "예외 메일 확인" : "지금 처리할 예외 없음",
       blockedReason: !onboardingFirstSyncReady
         ? "먼저 첫 메일 동기화를 실행하세요."
-        : unmatchedMessages.length === 0
+        : exceptionMessages.length === 0
           ? "지금 처리할 예외 메일이 없습니다."
           : undefined,
-      tone: onboardingFirstSyncReady && unmatchedMessages.length === 0 ? "muted" : "default",
+      tone: onboardingFirstSyncReady && exceptionMessages.length === 0 ? "muted" : "default",
       done: exceptionHandlingReady,
       content: (
         <InitialRegistrationTab
@@ -5469,7 +5640,7 @@ export function App() {
           customerOnboardingNotice={customerOnboardingNotice}
           customerOnboardingError={customerOnboardingError}
           pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
-          quickRegisterMessages={quickRegisterMessages}
+          quickRegisterMessages={exceptionMessages}
           quickRegisterForm={quickRegisterForm}
           selectedQuickRegisterMessage={selectedQuickRegisterMessage}
           isQuickRegistering={isQuickRegistering}
@@ -5502,9 +5673,11 @@ export function App() {
           setQuickRegisterForm={setQuickRegisterForm}
           selectQuickRegisterMessage={selectQuickRegisterMessage}
           submitQuickRegister={submitQuickRegister}
+          onReprocessInboxMessage={reprocessInboxMessage}
           markBillingMonthCompleted={markBillingMonthCompleted}
           runAction={runAction}
           formatDateTime={formatDateTime}
+          formatMoney={formatMoney}
           getInboxDisplayParseStatus={getInboxDisplayParseStatus}
           getParseStatusLabel={getParseStatusLabel}
         />
@@ -5516,7 +5689,7 @@ export function App() {
       title: "첫 발행 확인",
       summary: !onboardingFirstSyncReady
         ? "첫 동기화 후 확인"
-        : unmatchedMessages.length > 0
+        : exceptionMessages.length > 0
           ? "예외 처리 후 초안 확인"
         : reviewDrafts.length > 0
           ? `검토할 초안 ${reviewDrafts.length}건`
@@ -5526,7 +5699,7 @@ export function App() {
       primaryActionLabel: "오늘 작업 열기",
       blockedReason: !onboardingFirstSyncReady
         ? "먼저 첫 메일 동기화를 실행하세요."
-        : unmatchedMessages.length > 0
+        : exceptionMessages.length > 0
           ? "먼저 예외 메일을 처리하세요."
           : undefined,
       done: firstIssueCheckReady,
@@ -5569,7 +5742,10 @@ export function App() {
       : `${onboardingSetupCompletedCount}/${onboardingSetupSteps.length} 완료 · 남음 ${onboardingPendingStepCount}`;
   const openOnboardingStep = (stepId?: string | null) => {
     setRequestedOnboardingStepId(stepId ?? null);
-    setActiveTab("onboarding");
+    setOnboardingModalOpen(true);
+  };
+  const closeOnboardingModal = () => {
+    setOnboardingModalOpen(false);
   };
   const reopenOnboarding = () => {
     openOnboardingStep(firstPendingOnboardingStep?.id ?? onboardingCompletionSteps[0]?.id ?? null);
@@ -5579,10 +5755,11 @@ export function App() {
     ...(hasActiveWorkspace
         ? [
             { id: "home" as const, label: "홈", icon: "dashboard" },
+            { id: "issuance" as const, label: "세금계산서 발행", icon: "issue" },
             { id: "customers" as const, label: "고객", icon: "group" },
             { id: "certificates" as const, label: "인증서", icon: "certificate" },
             { id: "settings" as const, label: "설정", icon: "settings" },
-            ...(showOnboardingNavItem ? [{ id: "onboarding" as const, label: "도입 준비", icon: "dashboard" }] : [])
+            ...(showOnboardingNavItem ? [{ id: "onboarding" as const, label: "도입 준비", icon: "initial" }] : [])
           ]
       : []),
     ...(isPlatformAdmin ? [{ id: "ops" as const, label: "관리자", icon: "ops" }] : [])
@@ -5591,146 +5768,69 @@ export function App() {
   const primaryNavItems = navItems.filter((item) => !secondaryNavItemIds.has(item.id));
   const secondaryNavItems = navItems.filter((item) => secondaryNavItemIds.has(item.id));
   const handleNavSelect = (nextTab: TabId) => {
-    setActiveTab(nextTab);
     if (nextTab === "onboarding") {
-      setRequestedOnboardingStepId(null);
+      reopenOnboarding();
+      return;
     }
+
+    setActiveTab(nextTab);
     if (nextTab === "settings") {
       openSettingsSection(settingsActionBar.primarySection);
     }
   };
-
-  const workPriorityEmptyState =
-    workPriorityCards.length > 0
-      ? null
-      : !onboardingFirstSyncReady
-        ? {
-            title: "지금 막힌 항목은 없지만, 아직 메일 동기화를 시작하지 않았습니다.",
-            body: "메일을 처음 읽어오면 초안과 예외 메일이 이 화면에 바로 쌓입니다."
-          }
-        : {
-            title: "지금 멈춘 항목이 없습니다.",
-            body: "오늘은 아래의 검토할 초안과 최근 들어온 메일만 확인하면 됩니다."
-          };
-  const workRoutineCards: Array<{
-    key: string;
-    title: string;
-    count: number;
-    description: string;
-    tone: "success" | "warn" | "default";
-    actionLabel: string;
-    onAction: () => void;
-  }> = [
-    {
-      key: "drafts",
-      title: "검수 후 직접 발행",
-      count: reviewDrafts.length,
-      description:
-        reviewDrafts.length > 0
-          ? "초안을 확인하고 로그인 사용자가 직접 발행하거나 오류를 다시 확인합니다."
-          : onboardingFirstSyncReady
-            ? "지금 검토할 초안이 없습니다."
-            : "메일 동기화를 시작하면 초안이 생성됩니다.",
-      tone: reviewDrafts.length > 0 ? "warn" : onboardingFirstSyncReady ? "success" : "default",
-      actionLabel: reviewDrafts.length > 0 ? "초안 확인하기" : onboardingFirstSyncReady ? "최근 발행 보기" : "메일 동기화",
-      onAction:
-        reviewDrafts.length > 0
-          ? () => scrollToElementById("work-review-queue")
-          : onboardingFirstSyncReady
-            ? () => {
-                setWorkFeedTab("issued");
-                scrollToElementById("work-recent-history");
-              }
-            : () => {
-                void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })));
-              }
-    },
-    {
-      key: "customers",
-      title: "고객별 발행 준비",
-      count: blockedCustomerCount,
-      description:
-        blockedCustomerCount > 0
-          ? "발행이 막힌 고객부터 이유를 확인하고 바로 해결합니다."
-          : readyNowCustomers.length > 0
-            ? "지금 발행 가능한 고객이 준비되어 있습니다."
-            : customerRegistrationReady
-              ? "아직 발행 가능한 고객이 없습니다."
-              : "고객 등록을 마치면 고객별 준비 상태가 보입니다.",
-      tone: blockedCustomerCount > 0 ? "warn" : readyNowCustomers.length > 0 ? "success" : "default",
-      actionLabel:
-        blockedCustomerCount > 0
-          ? "막힌 고객 보기"
-          : readyNowCustomers.length > 0
-            ? "발행 가능한 고객 보기"
-            : customerRegistrationReady
-              ? "고객 전체 보기"
-              : "첫 고객 등록 보기",
-      onAction: () => {
-        setActiveTab("customers");
-        setCustomerListFilter(
-          blockedCustomerCount > 0 ? "blocked" : readyNowCustomers.length > 0 ? "ready" : customerRegistrationReady ? "all" : "all"
-        );
-        if (!customerRegistrationReady) {
-          startCreatingCustomer();
-        }
-      }
-    },
-    {
-      key: "sync",
-      title: onboardingFirstSyncReady ? "최근 수신 점검" : "첫 메일 동기화",
-      count: onboardingFirstSyncReady ? recentInboxPreview.length : data.inbox.length + data.drafts.length,
-      description: onboardingFirstSyncReady
-        ? recentInboxPreview.length > 0
-          ? "방금 들어온 메일과 예외 여부를 빠르게 확인합니다."
-          : "최근 들어온 메일이 없어도 첫 동기화는 끝난 상태입니다."
-        : "메일 연결 테스트와 별개로, 실제 자동 매칭은 여기서 처음 시작합니다.",
-      tone: onboardingFirstSyncReady ? (recentInboxPreview.length > 0 ? "warn" : "success") : "warn",
-      actionLabel: onboardingFirstSyncReady ? "최근 들어온 것 보기" : "동기화 단계 열기",
-      onAction: onboardingFirstSyncReady
-        ? () => {
-            setWorkFeedTab("inbox");
-            scrollToElementById("work-recent-history");
-          }
-        : () => openOnboardingStep("first-sync")
-    }
-  ];
-  const recentInboxEmptyMessage = !onboardingFirstSyncReady
-    ? "아직 메일을 처음 읽어오지 않았습니다. 상단의 메일 동기화 버튼을 누르면 최근 수신이 여기에 표시됩니다."
-    : "최근 들어온 메일이 없습니다. 문제가 없어서 비어 있는 상태입니다.";
-  const recentIssuedEmptyMessage =
-    issuedDrafts.length > 0
-      ? "최근 발행 완료 이력이 없습니다."
-      : !onboardingFirstSyncReady
-        ? "아직 발행 결과가 없습니다. 메일 동기화와 초안 확인을 마치면 여기에 쌓입니다."
-        : "아직 발행 완료 이력이 없습니다.";
   const certificateUnlinkedCount = certificatesScreenModel.metrics.unlinkedCount;
   const certificatePaymentReadyCount = certificatesScreenModel.metrics.paymentReadyCount;
   const certificateActionNeededCount = certificatesScreenModel.metrics.actionNeededCount;
-  const homePrimaryActionLabel =
-    reviewDrafts.length > 0
-      ? `초안 ${reviewDrafts.length}건 확인`
-      : unmatchedMessages.length > 0
-        ? "예외 메일 확인"
-        : onboardingFirstSyncReady
-          ? "최근 결과 보기"
-          : "메일 동기화";
-  const homePrimaryAction =
-    reviewDrafts.length > 0
-      ? () => scrollToElementById("work-review-queue")
-      : unmatchedMessages.length > 0
-        ? () => {
-            setWorkFeedTab("inbox");
-            scrollToElementById("work-recent-history");
-          }
-        : onboardingFirstSyncReady
-          ? () => {
-              setWorkFeedTab("issued");
-              scrollToElementById("work-recent-history");
-            }
-          : () => {
-              void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })));
-            };
+  const homeScreenModel = buildHomeScreenModel({
+    onboardingComplete,
+    onboardingPendingStepCount,
+    onboardingHeroProgressText,
+    firstPendingOnboardingStep: firstPendingOnboardingStep
+      ? {
+          title: firstPendingOnboardingStep.title,
+          summary: firstPendingOnboardingStep.summary
+        }
+      : null,
+    onboardingFirstSyncReady,
+    reviewDraftCount: homeReviewDrafts.length,
+    unmatchedMessageCount: exceptionMessages.length,
+    blockedCustomerCount,
+    readyNowCustomerCount: readyNowCustomers.length,
+    certAttentionCount,
+    recentInboxCount: homeRecentInboxMessages.length,
+    recentIssuedCount: homeRecentIssuedDrafts.length
+  });
+  const handleHomeAction = (actionKey: HomeActionKey) => {
+    switch (actionKey) {
+      case "sync":
+        void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })));
+        return;
+      case "exceptions":
+        openOnboardingStep("exceptions");
+        return;
+      case "recentInbox":
+        setWorkFeedTab("inbox");
+        scrollToElementById("work-recent-history");
+        return;
+      case "reviewQueue":
+        setActiveTab("issuance");
+        return;
+      case "blockedCustomers":
+        setActiveTab("customers");
+        setCustomerListFilter("blocked");
+        return;
+      case "recentIssued":
+        setWorkFeedTab("issued");
+        scrollToElementById("work-recent-history");
+        return;
+      case "onboarding":
+        reopenOnboarding();
+        return;
+      case "certificates":
+        setActiveTab("certificates");
+        return;
+    }
+  };
   const screenActionBar = {
     onboarding: {
       title: "도입 준비",
@@ -5760,21 +5860,22 @@ export function App() {
       chips: []
     },
     home: {
-      title:
-        reviewDrafts.length > 0
-          ? "초안 검토부터 시작"
-          : blockedCustomerCount > 0
-            ? "막힘 먼저 해결"
-            : onboardingFirstSyncReady
-              ? "오늘 흐름 정상"
-              : "운영 시작 준비",
-      primaryActionLabel: homePrimaryActionLabel,
-      onPrimaryAction: homePrimaryAction,
+      title: homeScreenModel.actionBarTitle,
+      primaryActionLabel: homeScreenModel.primaryActionLabel,
+      onPrimaryAction: () => handleHomeAction(homeScreenModel.primaryActionKey),
+      chips: homeScreenModel.chips
+    },
+    issuance: {
+      title: "세금계산서 발행",
+      primaryActionLabel: "검수 건 직접 발행",
+      onPrimaryAction: () => {
+        void runAction("issue-all", issueAllReviewDrafts);
+      },
       chips: [
-        { label: "오늘 할 일", value: `${reviewDrafts.length + unmatchedMessages.length}건`, tone: reviewDrafts.length + unmatchedMessages.length > 0 ? "warn" : "success" },
-        { label: "막힘", value: `${workPriorityCards.length}건`, tone: workPriorityCards.length > 0 ? "danger" : "success" },
-        { label: "고객", value: `${data.customers.length}명`, tone: data.customers.length > 0 ? "default" : "warn" },
-        { label: "최근 결과", value: `${recentIssuedPreview.length}건`, tone: recentIssuedPreview.length > 0 ? "default" : "success" }
+        { label: "검수 대기", value: `${issuancePendingDraftCount}건`, tone: issuancePendingDraftCount > 0 ? "warn" : "success" },
+        { label: "자동 대기", value: `${issuanceScheduledDraftCount}건`, tone: issuanceScheduledDraftCount > 0 ? "default" : "success" },
+        { label: "발행 중", value: `${issuanceIssuingDraftCount}건`, tone: issuanceIssuingDraftCount > 0 ? "warn" : "default" },
+        { label: "발행 완료", value: `${issuanceIssuedDraftCount}건`, tone: issuanceIssuedDraftCount > 0 ? "success" : "default" }
       ]
     },
     customers: {
@@ -5843,10 +5944,17 @@ export function App() {
   });
   const activeScreenBar = screenActionBar[visibleActiveTab];
   const activeNavLabel = navItems.find((item) => item.id === visibleActiveTab)?.label ?? "AUTO-TAX";
+  const isNavItemActive = (itemId: TabId) =>
+    itemId === "onboarding" ? hasActiveWorkspace && onboardingModalOpen : visibleActiveTab === itemId;
   const showHomeSyncButton = false;
-  const showScreenPrimaryAction = visibleActiveTab === "ops" || visibleActiveTab === "certificates";
+  const showScreenPrimaryAction = visibleActiveTab === "ops" || visibleActiveTab === "certificates" || visibleActiveTab === "issuance";
   const showActionBarActions = showHomeSyncButton || showScreenPrimaryAction;
-  const workspaceBadgeText = (activeWorkspaceName || "AUTO-TAX").replace(/\s+/g, "").slice(0, 2).toUpperCase() || "AT";
+  const showGlobalActionBar =
+    visibleActiveTab !== "home" &&
+    visibleActiveTab !== "customers" &&
+    visibleActiveTab !== "issuance" &&
+    visibleActiveTab !== "certificates" &&
+    visibleActiveTab !== "settings";
   const sidebarToggleLabel = sidebarCollapsed ? "사이드바 펼치기" : "사이드바 숨기기";
 
   return (
@@ -5855,11 +5963,7 @@ export function App() {
         <div className={sidebarCollapsed ? "sidebar-shell is-collapsed" : "sidebar-shell"}>
           <aside className={sidebarCollapsed ? "sidebar is-collapsed" : "sidebar"}>
             <div className="brand">
-              <span className="brand-mark" aria-hidden="true">
-                AT
-              </span>
               <div className="brand-copy">
-                <span className="brand-kicker">Operations</span>
                 <h1>AUTO-TAX</h1>
               </div>
             </div>
@@ -5875,7 +5979,7 @@ export function App() {
                           key={item.id}
                           aria-label={item.label}
                           title={sidebarCollapsed ? item.label : undefined}
-                          className={visibleActiveTab === item.id ? "nav-button active" : "nav-button"}
+                          className={isNavItemActive(item.id) ? "nav-button active" : "nav-button"}
                           onClick={() => handleNavSelect(item.id)}
                         >
                           <Icon name={item.icon} className="nav-icon" />
@@ -5898,7 +6002,7 @@ export function App() {
                             key={item.id}
                             aria-label={item.label}
                             title={sidebarCollapsed ? item.label : undefined}
-                            className={visibleActiveTab === item.id ? "nav-button active" : "nav-button"}
+                            className={isNavItemActive(item.id) ? "nav-button active" : "nav-button"}
                             onClick={() => handleNavSelect(item.id)}
                           >
                             <Icon name={item.icon} className="nav-icon" />
@@ -5913,34 +6017,28 @@ export function App() {
                 </div>
               </div>
               <div className="sidebar-meta">
-                <div className="sidebar-meta-head">
+                <div className="sidebar-profile">
                   <span className="sidebar-meta-badge" aria-hidden="true">
-                    {workspaceBadgeText}
+                    <Icon name="user" />
                   </span>
                   <div className="sidebar-meta-copy">
-                    <span className="sidebar-meta-label">{hasActiveWorkspace ? "작업공간" : "플랫폼"}</span>
-                    {hasActiveWorkspace && data.auth.organizations.length > 1 ? (
-                      <select
-                        className="workspace-select"
-                        value={data.auth.activeOrganizationId ?? ""}
-                        onChange={(event) => void changeOrganization(event.target.value)}
-                        disabled={busyKey !== null}
-                      >
-                        {data.auth.organizations.map((organization) => (
-                          <option key={organization.organizationId} value={organization.organizationId}>
-                            {organization.organizationName}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <strong>{activeWorkspaceName}</strong>
-                    )}
+                    <strong>{currentMembership?.displayName || data.auth.email || "로그인 사용자"}</strong>
                   </div>
                 </div>
-                <div className="sidebar-meta-details">
-                  <p>{currentMembership?.displayName || data.auth.email || "로그인 사용자"}</p>
-                  <p>{activeRoleLabel}</p>
-                </div>
+                {hasActiveWorkspace && data.auth.organizations.length > 1 ? (
+                  <select
+                    className="workspace-select"
+                    value={data.auth.activeOrganizationId ?? ""}
+                    onChange={(event) => void changeOrganization(event.target.value)}
+                    disabled={busyKey !== null}
+                  >
+                    {data.auth.organizations.map((organization) => (
+                      <option key={organization.organizationId} value={organization.organizationId}>
+                        {organization.organizationName}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
                 <button
                   className="btn-secondary sidebar-logout"
                   aria-label="로그아웃"
@@ -5976,6 +6074,8 @@ export function App() {
               ? "content content-home"
               : visibleActiveTab === "customers"
                 ? "content content-customers"
+                : visibleActiveTab === "issuance"
+                  ? "content content-issuance"
                 : visibleActiveTab === "certificates"
                   ? "content content-certificates"
                 : visibleActiveTab === "settings"
@@ -5985,54 +6085,56 @@ export function App() {
                     : "content"
           }
         >
-          <header className={visibleActiveTab === "onboarding" ? "action-bar is-onboarding" : "action-bar"}>
-            <div className={visibleActiveTab === "onboarding" ? "action-bar-main is-status-only" : "action-bar-main"}>
-              {visibleActiveTab !== "onboarding" ? (
-                <div className="action-bar-copy">
-                  <span className="action-bar-label">{activeNavLabel}</span>
-                  <strong>{activeScreenBar.title}</strong>
+          {showGlobalActionBar ? (
+            <header className={visibleActiveTab === "onboarding" ? "action-bar is-onboarding" : "action-bar"}>
+              <div className={visibleActiveTab === "onboarding" ? "action-bar-main is-status-only" : "action-bar-main"}>
+                {visibleActiveTab !== "onboarding" ? (
+                  <div className="action-bar-copy">
+                    <span className="action-bar-label">{activeNavLabel}</span>
+                    <strong>{activeScreenBar.title}</strong>
+                  </div>
+                ) : null}
+                <div className="action-bar-status">
+                  <span className="action-bar-pill action-bar-pill-workspace">{activeWorkspaceName}</span>
+                  {visibleActiveTab !== "ops" ? <span className={workspacePopbillIsTest ? "action-bar-pill tone-warn" : "action-bar-pill"}>{workspacePopbillModeLabel}</span> : null}
+                  {activeScreenBar.chips.map((metric) => (
+                    <span
+                      key={`${visibleActiveTab}-${metric.label}`}
+                      className={[
+                        "action-bar-pill",
+                        metric.tone === "success"
+                          ? "tone-success"
+                          : metric.tone === "warn"
+                            ? "tone-warn"
+                            : metric.tone === "danger"
+                              ? "tone-danger"
+                              : ""
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      {metric.label} {metric.value}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {showActionBarActions ? (
+                <div className="action-bar-actions">
+                  {showHomeSyncButton ? (
+                    <button className="btn-secondary" onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
+                      <Icon name="sync" className="button-icon" />
+                      메일 동기화
+                    </button>
+                  ) : null}
+                  {showScreenPrimaryAction ? (
+                    <button type="button" onClick={activeScreenBar.onPrimaryAction}>
+                      {activeScreenBar.primaryActionLabel}
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
-              <div className="action-bar-status">
-                <span className="action-bar-pill action-bar-pill-workspace">{activeWorkspaceName}</span>
-                {visibleActiveTab !== "ops" ? <span className={workspacePopbillIsTest ? "action-bar-pill tone-warn" : "action-bar-pill"}>{workspacePopbillModeLabel}</span> : null}
-                {activeScreenBar.chips.map((metric) => (
-                  <span
-                    key={`${visibleActiveTab}-${metric.label}`}
-                    className={[
-                      "action-bar-pill",
-                      metric.tone === "success"
-                        ? "tone-success"
-                        : metric.tone === "warn"
-                          ? "tone-warn"
-                          : metric.tone === "danger"
-                            ? "tone-danger"
-                            : ""
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    {metric.label} {metric.value}
-                  </span>
-                ))}
-              </div>
-            </div>
-            {showActionBarActions ? (
-              <div className="action-bar-actions">
-                {showHomeSyncButton ? (
-                  <button className="btn-secondary" onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))} disabled={busyKey !== null}>
-                    <Icon name="sync" className="button-icon" />
-                    메일 동기화
-                  </button>
-                ) : null}
-                {showScreenPrimaryAction ? (
-                  <button type="button" onClick={activeScreenBar.onPrimaryAction}>
-                    {activeScreenBar.primaryActionLabel}
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-          </header>
+            </header>
+          ) : null}
 
           {error ? <div className="alert error">{error}</div> : null}
 
@@ -6084,251 +6186,82 @@ export function App() {
         ) : null}
 
         {visibleActiveTab === "home" ? (
-          <div className="home-screen">
-            {mailboxDataLoading ? (
-              <div className="helper-box import-helper-box">
-                <strong>메일과 발행 대기를 읽는 중입니다.</strong>
-              </div>
-            ) : null}
-            <div className="home-layout">
-              {!onboardingComplete ? (
-                <Panel
-                  className="panel-home-setup"
-                  title="도입 준비 진행"
-                  subtitle={firstPendingOnboardingStep ? `다음 단계 · ${firstPendingOnboardingStep.title}` : "남은 단계 점검"}
-                  actions={<button type="button" onClick={reopenOnboarding}>이어하기</button>}
-                >
-                  <div className="helper-box-stack">
-                    <strong>{onboardingHeroProgressText}</strong>
-                    <span>
-                      남은 단계 {onboardingPendingStepCount}개
-                      {firstPendingOnboardingStep ? ` · ${firstPendingOnboardingStep.summary}` : ""}
-                    </span>
-                    <span className="field-hint">도입 준비는 보조 진입점으로 유지되며, 완료되면 사이드바에서 자동으로 숨겨집니다.</span>
-                  </div>
-                </Panel>
-              ) : null}
-              <Panel
-                className="panel-home-blocked"
-                title="막힌 일"
-                subtitle={workPriorityCards.length > 0 ? "우선 해결" : "정상"}
-              >
-                {workPriorityCards.length > 0 ? (
-                  <div className="work-priority-grid">
-                    {workPriorityCards.map((card) => (
-                      <article
-                        key={card.key}
-                        className={
-                          card.tone === "danger"
-                            ? "work-priority-card tone-danger"
-                            : card.tone === "warn"
-                              ? "work-priority-card tone-warn"
-                              : "work-priority-card"
-                        }
-                      >
-                        <div className="work-priority-card-head">
-                          <div>
-                            <span className="work-priority-label">{card.title}</span>
-                            <strong>{card.count}건</strong>
-                          </div>
-                          <span className={`chip ${card.tone === "danger" ? "chip-danger" : card.tone === "warn" ? "chip-warn" : ""}`}>
-                            {card.tone === "danger" ? "즉시 확인" : card.tone === "warn" ? "확인 필요" : "참고"}
-                          </span>
-                        </div>
-                        <p>{card.description}</p>
-                        <button type="button" className="btn-secondary" onClick={card.onAction}>
-                          {card.actionLabel}
-                        </button>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="work-priority-empty">
-                    <span className="chip chip-success">정상</span>
-                    <strong>{workPriorityEmptyState?.title}</strong>
-                    <p>{workPriorityEmptyState?.body}</p>
-                  </div>
-                )}
-              </Panel>
+          <HomeTab
+            mailboxDataLoading={mailboxDataLoading}
+            model={homeScreenModel}
+            screenTitle={activeScreenBar.title}
+            userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
+            workspaceLabel={activeWorkspaceName}
+            popbillModeLabel={workspacePopbillModeLabel}
+            reviewDrafts={homeReviewDrafts}
+            recentInboxMessages={homeRecentInboxMessages}
+            recentIssuedDrafts={homeRecentIssuedDrafts}
+            workFeedTab={workFeedTab}
+            reprocessableMessageCount={reprocessableMessages.length}
+            busyKey={busyKey}
+            onOpenAction={handleHomeAction}
+            onSelectFeedTab={setWorkFeedTab}
+            onIssueAllReviewDrafts={() => void runAction("issue-all", issueAllReviewDrafts)}
+            onIssueDraft={(draftId) =>
+              void runAction(`issue-${draftId}`, async () => void (await api(`/api/drafts/${draftId}/issue`, { method: "POST" })))
+            }
+            onReprocessInboxMessage={(messageId) =>
+              void runAction(`reprocess-${messageId}`, async () => void (await reprocessInboxMessage(messageId)))
+            }
+            onReprocessAllMessages={() => void runAction("reprocess-all-unmatched", reprocessAllUnmatchedMessages)}
+            onViewDraft={(draftId) =>
+              void runAction(`draft-view-${draftId}`, async () => void (await openDraftPopbillUrl(draftId, "view-url")))
+            }
+            onCancelDraft={(draftId) =>
+              void runAction(`draft-cancel-${draftId}`, async () => void (await cancelIssuedDraft(draftId)))
+            }
+            getInboxDisplayParseStatus={getInboxDisplayParseStatus}
+            getParseStatusLabel={getParseStatusLabel}
+            getDraftStatusLabel={getDraftStatusLabel}
+            isInboxActionable={isInboxActionable}
+            formatMoney={formatMoney}
+            formatDateTime={formatDateTime}
+            simplifyIssueError={simplifyIssueError}
+          />
+        ) : null}
 
-              <Panel
-                className="panel-home-today"
-                title="오늘 할 일"
-                subtitle="바로 처리"
-                actions={reviewDrafts.length > 0 ? <button onClick={() => void runAction("issue-all", issueAllReviewDrafts)}>검수 건 직접 발행</button> : undefined}
-              >
-                <div className="work-action-grid">
-                  {workRoutineCards.map((card) => (
-                    <article
-                      key={card.key}
-                      className={[
-                        "work-action-card",
-                        card.tone === "success" ? "tone-success" : card.tone === "warn" ? "tone-warn" : ""
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                    >
-                      <div className="work-action-card-head">
-                        <div>
-                          <span className="work-priority-label">{card.title}</span>
-                          <strong>{card.count}건</strong>
-                        </div>
-                        <span className={`chip ${card.tone === "success" ? "chip-success" : card.tone === "warn" ? "chip-warn" : ""}`}>
-                          {card.tone === "success" ? "바로 확인" : card.tone === "warn" ? "오늘 확인" : "안내"}
-                        </span>
-                      </div>
-                      <p>{card.description}</p>
-                      <button type="button" className="btn-secondary" onClick={card.onAction}>
-                        {card.actionLabel}
-                      </button>
-                    </article>
-                  ))}
-                </div>
-                <div className="work-section-label" id="work-review-queue">
-                  <strong>검토할 초안</strong>
-                  <span>{reviewDrafts.length}건</span>
-                </div>
-                <div className={reviewDrafts.length === 0 ? "table-wrap queue-table-shell is-empty" : "table-wrap queue-table-shell"}>
-                  <table className="responsive-table queue-table">
-                    <thead>
-                      <tr>
-                        <th>고객</th>
-                        <th>품목</th>
-                        <th>공급가액</th>
-                        <th>상태</th>
-                        <th>액션</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {reviewDrafts.map((draft) => (
-                        <tr key={draft.id}>
-                          <td data-label="고객">{draft.customerName}</td>
-                          <td data-label="품목">{draft.itemName}</td>
-                          <td data-label="공급가액">{formatMoney(draft.supplyCost)}원</td>
-                          <td data-label="상태">
-                            <span className={`status status-${draft.status}`}>{getDraftStatusLabel(draft.status)}</span>
-                            {draft.issueError ? <p className="cell-error" title={draft.issueError}>{simplifyIssueError(draft.issueError)}</p> : null}
-                          </td>
-                          <td data-label="액션">
-                            {draft.status === "issuing" ? (
-                              <span className="status status-pending">발행 중</span>
-                            ) : (
-                              <button disabled={busyKey !== null} onClick={() => void runAction(`issue-${draft.id}`, async () => void (await api(`/api/drafts/${draft.id}/issue`, { method: "POST" })))}>
-                                지금 직접 발행
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                      {reviewDrafts.length === 0 ? (
-                        <tr className="queue-empty-row">
-                          <td className="queue-empty-cell" colSpan={5}>
-                            {!onboardingFirstSyncReady
-                              ? "아직 첫 메일 동기화를 하지 않아 초안이 없습니다."
-                              : "지금 검수 후 직접 발행할 초안이 없습니다."}
-                          </td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
-              </Panel>
-
-              <Panel
-                className="panel-home-recent"
-                title="최근 처리 결과"
-                subtitle="최근 흐름"
-              >
-                <div className="compact-status-stack">
-                  <div className="history-split">
-                    <section className="history-block" id="work-recent-history">
-                      <header className="history-block-head">
-                        <div className="history-title-row">
-                          <div className="history-title-copy">
-                            <strong>최근 흐름</strong>
-                            <span className="history-caption">수신 / 발행</span>
-                          </div>
-                          <div className="history-tabs">
-                            <button
-                              type="button"
-                              className={workFeedTab === "inbox" ? "btn-secondary active-filter" : "btn-secondary"}
-                              onClick={() => setWorkFeedTab("inbox")}
-                            >
-                              최근 수신 {recentInboxPreview.length}
-                            </button>
-                            <button
-                              type="button"
-                              className={workFeedTab === "issued" ? "btn-secondary active-filter" : "btn-secondary"}
-                              onClick={() => setWorkFeedTab("issued")}
-                            >
-                              최근 발행 {recentIssuedPreview.length}
-                            </button>
-                          </div>
-                        </div>
-                        <div className="history-head-action">
-                          {workFeedTab === "inbox" && reprocessableMessages.length > 0 ? (
-                            <button className="btn-secondary" onClick={() => void runAction("reprocess-all-unmatched", reprocessAllUnmatchedMessages)}>재처리</button>
-                          ) : (
-                            <span className="history-head-spacer" />
-                          )}
-                        </div>
-                      </header>
-                      <div className="history-list">
-                        {workFeedTab === "inbox"
-                          ? recentInboxPreview.map((message) => (
-                              <div key={message.id} className="history-row">
-                                <div>
-                                  <strong>{message.parsedData?.plantName ?? "미확인 메일"}</strong>
-                                  <span>{formatDateTime(message.receivedAt)}</span>
-                                </div>
-                                <div className="history-actions">
-                                  <span className={`status status-${getInboxDisplayParseStatus(message)}`}>
-                                    {getParseStatusLabel(getInboxDisplayParseStatus(message))}
-                                  </span>
-                                  {isInboxActionable(message) ? (
-                                    <button
-                                      className="btn-secondary"
-                                      onClick={() => void runAction(`reprocess-${message.id}`, async () => void (await reprocessInboxMessage(message.id)))}
-                                    >
-                                      재처리
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </div>
-                            ))
-                          : recentIssuedPreview.map((draft) => (
-                              <div key={draft.id} className="history-row">
-                                <div>
-                                  <strong>{draft.customerName}</strong>
-                                  <span>{formatMoney(draft.totalAmount)}원 · {formatDateTime(draft.issuedAt)}</span>
-                                </div>
-                                <div className="history-actions">
-                                  <button
-                                    className="btn-secondary"
-                                    disabled={busyKey !== null}
-                                    onClick={() => void runAction(`draft-view-${draft.id}`, async () => void (await openDraftPopbillUrl(draft.id, "view-url")))}
-                                  >
-                                    보기
-                                  </button>
-                                  <button
-                                    className="btn-danger"
-                                    disabled={busyKey !== null}
-                                    onClick={() => void runAction(`draft-cancel-${draft.id}`, async () => void (await cancelIssuedDraft(draft.id)))}
-                                  >
-                                    취소
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                        {workFeedTab === "inbox" && recentInboxPreview.length === 0 ? <div className="empty">{recentInboxEmptyMessage}</div> : null}
-                        {workFeedTab === "issued" && recentIssuedPreview.length === 0 ? <div className="empty">{recentIssuedEmptyMessage}</div> : null}
-                      </div>
-                    </section>
-                  </div>
-                </div>
-              </Panel>
-            </div>
-          </div>
+        {visibleActiveTab === "issuance" ? (
+          <IssuanceTab
+            mailboxDataLoading={mailboxDataLoading}
+            screenTitle={activeScreenBar.title}
+            userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
+            workspaceLabel={activeWorkspaceName}
+            popbillModeLabel={workspacePopbillModeLabel}
+            drafts={data.drafts}
+            unmatchedInboxMessages={unmatchedInboxMessages}
+            customers={data.customers}
+            busyKey={busyKey}
+            onIssueAllReviewDrafts={() => void runAction("issue-all", issueAllReviewDrafts)}
+            onIssueDraft={(draftId) =>
+              void runAction(`issue-${draftId}`, async () => void (await api(`/api/drafts/${draftId}/issue`, { method: "POST" })))
+            }
+            onReprocessInboxMessage={(messageId) =>
+              void runAction(`reprocess-${messageId}`, async () => void (await reprocessInboxMessage(messageId)))
+            }
+            onViewDraft={(draftId) =>
+              void runAction(`draft-view-${draftId}`, async () => void (await openDraftPopbillUrl(draftId, "view-url")))
+            }
+            onPrintDraft={(draftId) =>
+              void runAction(`draft-print-${draftId}`, async () => void (await openDraftPopbillUrl(draftId, "print-url")))
+            }
+            onCancelDraft={(draftId) =>
+              void runAction(`draft-cancel-${draftId}`, async () => void (await cancelIssuedDraft(draftId)))
+            }
+            onShowDraftPopbillInfo={(draftId) =>
+              void runAction(`draft-info-${draftId}`, async () => void (await showDraftPopbillInfo(draftId)))
+            }
+            formatMoney={formatMoney}
+            formatDateTime={formatDateTime}
+            getDraftStatusLabel={getDraftStatusLabel}
+            getDraftConfirmNumber={getDraftConfirmNumber}
+            getIssueModeLabel={getIssueModeLabel}
+            simplifyIssueError={simplifyIssueError}
+          />
         ) : null}
 
         {visibleActiveTab === "customers" ? (
@@ -6360,6 +6293,9 @@ export function App() {
             customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
             customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
             customerRenewalLoadedCertificateCount={customerRenewalAssistantCertificates.length}
+            userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
+            workspaceLabel={activeWorkspaceName}
+            workspaceModeLabel={workspacePopbillModeLabel}
             renewableCustomers={customerRenewalCandidates}
             customerNameInputRef={customerNameInputRef}
             customerAddressLookupRef={customerAddressLookupRef}
@@ -6398,6 +6334,9 @@ export function App() {
 
         {visibleActiveTab === "settings" ? (
           <SettingsScreen
+            userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
+            workspaceLabel={activeWorkspaceName}
+            popbillModeLabel={workspacePopbillModeLabel}
             settingsState={settingsScreenState}
             activeSettingsSection={activeSettingsSection}
             customerRegistrationReady={customerRegistrationReady}
@@ -6445,6 +6384,9 @@ export function App() {
             customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
             renewalHelperDownloadUrl={renewalHelperDownloadUrl}
             customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
+            userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
+            workspaceLabel={activeWorkspaceName}
+            popbillModeLabel={workspacePopbillModeLabel}
             certificatesModel={certificatesScreenModel}
             onLinkCustomerCertificate={linkLocalCertificateToCustomer}
             onUnlinkCustomerCertificate={unlinkCustomerCertificate}
@@ -7019,6 +6961,38 @@ export function App() {
         ) : null}
         </main>
       </div>
+      {hasActiveWorkspace && onboardingModalOpen ? (
+        <div className="onboarding-modal-backdrop" role="presentation" onClick={closeOnboardingModal}>
+          <section
+            className="onboarding-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="onboarding-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="onboarding-modal-head">
+              <div className="onboarding-modal-copy">
+                <div className="onboarding-modal-progress">
+                  <span className={onboardingPendingStepCount === 0 ? "chip chip-success" : "chip chip-warn"}>
+                    {onboardingPendingStepCount === 0 ? "완료" : "진행"}
+                  </span>
+                  <span>{onboardingHeroProgressText}</span>
+                </div>
+                <div>
+                  <strong id="onboarding-modal-title">도입 준비</strong>
+                  <p>{onboardingHeroTaskLine}</p>
+                </div>
+              </div>
+              <button type="button" className="btn-secondary onboarding-modal-close" onClick={closeOnboardingModal}>
+                닫기
+              </button>
+            </header>
+            <div className="onboarding-modal-body">
+              <OnboardingTab steps={onboardingSetupSteps} requestedStepId={requestedOnboardingStepId} />
+            </div>
+          </section>
+        </div>
+      ) : null}
       {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
     </>
   );

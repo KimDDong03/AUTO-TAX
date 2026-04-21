@@ -38,6 +38,13 @@ export function SettingsHelperOnboardingStep({
   onDownloadHelper,
   formatDateTime
 }: SettingsHelperOnboardingStepProps) {
+  const helperVersionMismatch = helperUpgradeRequired || helperUpgradeAvailable;
+  const readBlockedReason = helperVersionMismatch
+    ? helperActionBlockedReason
+    : helperOnline
+      ? undefined
+      : "먼저 로컬 헬퍼를 실행한 뒤 상태를 다시 확인하세요.";
+
   return (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
@@ -71,17 +78,26 @@ export function SettingsHelperOnboardingStep({
           </div>
         </div>
 
-        <div className="button-row onboarding-primary-row">
+        <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
           <button
             type="button"
-            disabled={busy || !helperOnline || helperUpgradeRequired}
-            title={
-              helperUpgradeRequired
-                ? helperActionBlockedReason
-                : helperOnline
-                  ? undefined
-                  : "먼저 헬퍼를 설치하고 실행한 뒤 아래 보조 영역에서 상태를 다시 확인하세요."
-            }
+            className="btn-secondary"
+            disabled={busy}
+            onClick={() => void onRefreshHelper()}
+          >
+            상태 다시 확인
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={onDownloadHelper}
+          >
+            헬퍼 다운로드
+          </button>
+          <button
+            type="button"
+            disabled={busy || !helperOnline || helperVersionMismatch}
+            title={readBlockedReason}
             onClick={() => void onReadCertificates()}
           >
             {isReadingCertificates ? "공동인증서 읽는 중..." : "공동인증서 읽기"}
@@ -102,26 +118,9 @@ export function SettingsHelperOnboardingStep({
       </section>
 
       <details className="settings-advanced-panel">
-        <summary>상태 다시 확인 / 설치 안내 / 다운로드는 필요할 때만 보기</summary>
+        <summary>설치 안내는 필요할 때만 보기</summary>
         <div className="helper-box-stack settings-install-guide">
-          <strong>문제 해결과 보조 작업</strong>
-          <div className="button-row">
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={busy}
-              onClick={() => void onRefreshHelper()}
-            >
-              상태 다시 확인
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={onDownloadHelper}
-            >
-              헬퍼 다운로드
-            </button>
-          </div>
+          <strong>설치 안내</strong>
           <span>
             고객 PC에서는 <code>renewal-local-helper</code> 압축을 푼 뒤{" "}
             <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.

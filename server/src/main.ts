@@ -142,8 +142,10 @@ type RateLimiterOptions = {
 const rateLimitEntries = new Map<string, RateLimitEntry>();
 const DEFAULT_ALLOWED_WEB_ORIGINS = [
   "http://localhost:5173",
-  "http://127.0.0.1:5173"
+  "http://127.0.0.1:5173",
+  "http://[::1]:5173"
 ] as const;
+const LOOPBACK_WEB_ORIGIN_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 function isUniqueViolation(error: { code?: unknown; message?: unknown } | null | undefined, constraintName?: string) {
   if (!error) {
@@ -205,18 +207,37 @@ function collectAllowedOrigins(): Set<string> {
   return allowed;
 }
 
+function isLoopbackWebOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      LOOPBACK_WEB_ORIGIN_HOSTS.has(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isAllowedCorsOrigin(origin: string | null | undefined, allowedOrigins = collectAllowedOrigins()): boolean {
+  if (!origin) {
+    return true;
+  }
+
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) {
+    return false;
+  }
+
+  return allowedOrigins.has(normalized) || isLoopbackWebOrigin(normalized);
+}
+
 function createCorsOptions(): CorsOptions {
   const allowedOrigins = collectAllowedOrigins();
 
   return {
     origin(origin, callback) {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-
-      const normalized = normalizeOrigin(origin);
-      callback(null, Boolean(normalized && allowedOrigins.has(normalized)));
+      callback(null, isAllowedCorsOrigin(origin, allowedOrigins));
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: [

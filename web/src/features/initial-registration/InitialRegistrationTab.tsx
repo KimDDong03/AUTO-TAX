@@ -304,9 +304,11 @@ type InitialRegistrationTabProps = {
   setQuickRegisterForm: React.Dispatch<React.SetStateAction<QuickRegisterFormState>>;
   selectQuickRegisterMessage: (messageId: number) => void;
   submitQuickRegister: () => Promise<void>;
+  onReprocessInboxMessage: (messageId: number) => Promise<void>;
   markBillingMonthCompleted: (summary: BillingMonthSummary) => Promise<void>;
   runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
   formatDateTime: (value: string | null) => string;
+  formatMoney: (value: number) => string;
   getInboxDisplayParseStatus: (message: InboxMessage) => string;
   getParseStatusLabel: (status: string) => string;
 };
@@ -430,6 +432,32 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const showCertificatePasswordOverrides =
     registrationFlow.commitCompleted &&
     props.certificatePasswordOverrideEntries.length > 0;
+  const selectedExceptionStatus = props.selectedQuickRegisterMessage
+    ? props.getInboxDisplayParseStatus(props.selectedQuickRegisterMessage)
+    : null;
+  const canQuickRegisterSelectedMessage =
+    selectedExceptionStatus === "unmatched" && props.selectedQuickRegisterMessage !== null;
+  const exceptionStatusCounts = props.quickRegisterMessages.reduce(
+    (acc, message) => {
+      const status = props.getInboxDisplayParseStatus(message);
+      if (status === "unmatched") {
+        acc.unmatched += 1;
+      } else if (status === "failed") {
+        acc.failed += 1;
+      } else if (status === "duplicate") {
+        acc.duplicate += 1;
+      }
+      return acc;
+    },
+    { unmatched: 0, failed: 0, duplicate: 0 }
+  );
+  const exceptionStatusSummary = [
+    exceptionStatusCounts.unmatched > 0 ? `고객 미매칭 ${exceptionStatusCounts.unmatched}건` : null,
+    exceptionStatusCounts.failed > 0 ? `파싱 실패 ${exceptionStatusCounts.failed}건` : null,
+    exceptionStatusCounts.duplicate > 0 ? `중복 의심 ${exceptionStatusCounts.duplicate}건` : null
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="initial-screen">
@@ -700,6 +728,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               첫 메일 동기화 뒤 자동 매칭에서 남은 주소 예외나 특수 케이스만 여기서 처리합니다.
               메인 onboarding은 고객 등록과 인증서 준비를 먼저 끝낸 뒤 진행하는 것이 좋습니다.
             </span>
+            {exceptionStatusSummary ? <span>{exceptionStatusSummary}</span> : null}
           </div>
 
           <div className="import-layout">
@@ -720,7 +749,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                     >
                       <div className="customer-summary-head">
                         <div>
-                          <strong>{message.parsedData?.plantAddress || "주소 없음"}</strong>
+                          <strong>{message.parsedData?.plantAddress || message.parsedData?.plantName || "주소/발전소 정보 없음"}</strong>
                           <p>{message.subject}</p>
                         </div>
                         <span className={`status status-${props.getInboxDisplayParseStatus(message)}`}>
@@ -730,6 +759,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                       <div className="customer-summary-meta">
                         <span>{message.parsedData?.billingMonth || "-"}</span>
                         <span>{props.formatDateTime(message.receivedAt)}</span>
+                        {message.parseError ? <span className="text-danger">{message.parseError}</span> : null}
                       </div>
                     </button>
                   );
@@ -739,68 +769,122 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
 
             <Panel
               className="panel-initial-quick-register"
-              title="선택 메일 예외 처리"
-              subtitle="필수 정보 4개만 보완해 고객과 메일을 바로 연결합니다."
+              title="선택 메일 처리"
+              subtitle="상태에 따라 고객 등록 보완 또는 재처리를 진행합니다."
             >
               {props.selectedQuickRegisterMessage ? (
                 <>
                   <div className="quick-register-selected">
                     <strong>{props.selectedQuickRegisterMessage.subject}</strong>
                     <div className="quick-register-meta">
+                      <span>{props.getParseStatusLabel(selectedExceptionStatus ?? props.selectedQuickRegisterMessage.parseStatus)}</span>
                       <span>{props.selectedQuickRegisterMessage.parsedData?.billingMonth || "정산월 없음"}</span>
                       <span>{props.selectedQuickRegisterMessage.parsedData?.plantName || "발전소명 없음"}</span>
                       <span>{props.formatDateTime(props.selectedQuickRegisterMessage.receivedAt)}</span>
                     </div>
                   </div>
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (props.busyKey !== null) return;
-                      void props.runAction("quick-register-unmatched", props.submitQuickRegister);
-                    }}
-                  >
-                    <div className="customer-form-lead quick-register-lead">
-                      <strong>자동 매칭에서 빠진 값만 확인하면 됩니다.</strong>
-                      <span>대표자명, 주소, 사업자번호, 세금계산서 상호만 맞으면 예외 메일도 바로 등록할 수 있습니다.</span>
+                  <div className="helper-box import-helper-box">
+                    <strong>메일에서 읽은 값</strong>
+                    <span className="helper-multiline-text helper-multiline-scroll">
+                      {`보낸 주소: ${props.selectedQuickRegisterMessage.fromAddress || "-"}\n`}
+                      {`정산월: ${props.selectedQuickRegisterMessage.parsedData?.billingMonth || "-"}\n`}
+                      {`발전소명: ${props.selectedQuickRegisterMessage.parsedData?.plantName || "-"}\n`}
+                      {`발전소 주소: ${props.selectedQuickRegisterMessage.parsedData?.plantAddress || "-"}\n`}
+                      {`품목: ${props.selectedQuickRegisterMessage.parsedData?.itemName || "-"}\n`}
+                      {`공급가액: ${
+                        typeof props.selectedQuickRegisterMessage.parsedData?.supplyCost === "number"
+                          ? `${props.formatMoney(props.selectedQuickRegisterMessage.parsedData.supplyCost)}원`
+                          : "-"
+                      }\n`}
+                      {`세액: ${
+                        typeof props.selectedQuickRegisterMessage.parsedData?.taxTotal === "number"
+                          ? `${props.formatMoney(props.selectedQuickRegisterMessage.parsedData.taxTotal)}원`
+                          : "-"
+                      }`}
+                    </span>
+                  </div>
+                  {canQuickRegisterSelectedMessage ? (
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (props.busyKey !== null) return;
+                        void props.runAction("quick-register-unmatched", props.submitQuickRegister);
+                      }}
+                    >
+                      <div className="customer-form-lead quick-register-lead">
+                        <strong>자동 매칭에서 빠진 값만 확인하면 됩니다.</strong>
+                        <span>대표자명, 주소, 사업자번호, 세금계산서 상호만 맞으면 예외 메일도 바로 등록할 수 있습니다.</span>
+                      </div>
+                      <div className="form-grid quick-register-grid">
+                        <label>
+                          대표자명
+                          <input
+                            value={props.quickRegisterForm.customerName}
+                            onChange={(event) => props.setQuickRegisterForm((prev) => ({ ...prev, customerName: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          주소
+                          <input
+                            value={props.quickRegisterForm.addr}
+                            onChange={(event) => props.setQuickRegisterForm((prev) => ({ ...prev, addr: event.target.value }))}
+                          />
+                          <span className="field-hint">메일에서 읽은 주소가 먼저 들어가 있으며 비어 있으면 직접 입력하면 됩니다.</span>
+                        </label>
+                        <label>
+                          사업자번호
+                          <input
+                            value={props.quickRegisterForm.businessNumber}
+                            onChange={(event) => props.setQuickRegisterForm((prev) => ({ ...prev, businessNumber: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          세금계산서 상호
+                          <input
+                            value={props.quickRegisterForm.corpName}
+                            onChange={(event) => props.setQuickRegisterForm((prev) => ({ ...prev, corpName: event.target.value }))}
+                          />
+                        </label>
+                      </div>
+                      <div className="button-row quick-register-actions">
+                        <button type="submit" disabled={props.busyKey !== null}>
+                          {props.isQuickRegistering ? "처리 중..." : "예외 고객 등록 후 메일 연결"}
+                        </button>
+                        {props.isQuickRegistering ? <span className="field-hint">고객 등록, 팝빌 가입, 메일 연결을 처리하고 있습니다.</span> : null}
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="helper-box import-helper-box">
+                      <strong>
+                        {selectedExceptionStatus === "duplicate" ? "중복 의심 메일입니다." : "재처리로 먼저 확인하세요."}
+                      </strong>
+                      <span className="helper-multiline-text helper-multiline-scroll">
+                        {props.selectedQuickRegisterMessage.parseError
+                          ? `오류: ${props.selectedQuickRegisterMessage.parseError}\n`
+                          : ""}
+                        {selectedExceptionStatus === "failed"
+                          ? "파싱에 실패한 메일입니다. 파서 보정이나 원본 메일 확인 뒤 다시 처리하는 흐름에 가깝습니다."
+                          : selectedExceptionStatus === "duplicate"
+                            ? "이미 처리된 메일인지, 완료 처리된 정산월인지, 중복 수신인지 먼저 확인하세요."
+                            : "자동 매칭만으로 고객을 찾지 못했습니다. 고객 정보 보완이 어렵다면 재처리로 최신 상태를 다시 확인하세요."}
+                      </span>
+                      <div className="button-row quick-register-actions">
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={props.busyKey !== null}
+                          onClick={() =>
+                            void props.runAction(
+                              `reprocess-exception-${props.selectedQuickRegisterMessage?.id ?? "unknown"}`,
+                              () => props.onReprocessInboxMessage(props.selectedQuickRegisterMessage!.id)
+                            )
+                          }
+                        >
+                          다시 처리
+                        </button>
+                      </div>
                     </div>
-                    <div className="form-grid quick-register-grid">
-                      <label>
-                        대표자명
-                        <input
-                          value={props.quickRegisterForm.customerName}
-                          onChange={(event) => props.setQuickRegisterForm((prev) => ({ ...prev, customerName: event.target.value }))}
-                        />
-                      </label>
-                      <label>
-                        주소
-                        <input
-                          value={props.quickRegisterForm.addr}
-                          onChange={(event) => props.setQuickRegisterForm((prev) => ({ ...prev, addr: event.target.value }))}
-                        />
-                        <span className="field-hint">메일에서 읽은 주소가 먼저 들어가 있습니다.</span>
-                      </label>
-                      <label>
-                        사업자번호
-                        <input
-                          value={props.quickRegisterForm.businessNumber}
-                          onChange={(event) => props.setQuickRegisterForm((prev) => ({ ...prev, businessNumber: event.target.value }))}
-                        />
-                      </label>
-                      <label>
-                        세금계산서 상호
-                        <input
-                          value={props.quickRegisterForm.corpName}
-                          onChange={(event) => props.setQuickRegisterForm((prev) => ({ ...prev, corpName: event.target.value }))}
-                        />
-                      </label>
-                    </div>
-                    <div className="button-row quick-register-actions">
-                      <button type="submit" disabled={props.busyKey !== null}>
-                        {props.isQuickRegistering ? "처리 중..." : "예외 고객 등록 후 메일 연결"}
-                      </button>
-                      {props.isQuickRegistering ? <span className="field-hint">고객 등록, 팝빌 가입, 메일 연결을 처리하고 있습니다.</span> : null}
-                    </div>
-                  </form>
+                  )}
                 </>
               ) : (
                 <div className="empty">왼쪽에서 예외 메일을 선택하세요.</div>

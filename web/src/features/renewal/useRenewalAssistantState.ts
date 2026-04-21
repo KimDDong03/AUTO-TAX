@@ -252,7 +252,16 @@ export function useRenewalAssistantState({
 
   const ensureLocalRenewalHelperActionAllowed = useCallback(
     (actionLabel: string) => {
-      if (customerRenewalAssistant?.upgradeState !== "upgrade-required") {
+      if (!customerRenewalAssistant?.agentOnline) {
+        throw new Error(
+          `${actionLabel} 전에 로컬 헬퍼를 먼저 실행하세요. 헬퍼를 실행한 뒤 상태를 다시 확인하세요.`
+        );
+      }
+
+      if (
+        customerRenewalAssistant.upgradeState !== "upgrade-required" &&
+        customerRenewalAssistant.upgradeState !== "upgrade-available"
+      ) {
         return;
       }
 
@@ -436,13 +445,14 @@ export function useRenewalAssistantState({
 
   const helperUpgradeRequired = customerRenewalAssistant?.upgradeState === "upgrade-required";
   const helperUpgradeAvailable = customerRenewalAssistant?.upgradeState === "upgrade-available";
+  const helperVersionMismatch = helperUpgradeRequired || helperUpgradeAvailable;
   const helperActionBlockedReason = customerRenewalAssistant?.upgradeMessage
     ? `${customerRenewalAssistant.upgradeMessage} 압축을 다시 받아 scripts\\renewal-helper-install.cmd 를 실행한 뒤 상태를 다시 확인하세요.`
     : "지원되지 않는 로컬 헬퍼 버전입니다. 새 버전을 다시 설치한 뒤 상태를 다시 확인하세요.";
   const helperReady =
     Boolean(customerRenewalAssistant?.agentOnline) &&
     customerRenewalAssistantAllCertificates.length > 0 &&
-    !helperUpgradeRequired;
+    !helperVersionMismatch;
   const renewalHelperDownloadUrl =
     customerRenewalAssistant?.releaseDownloadUrl || defaultRenewalHelperDownloadUrl;
 

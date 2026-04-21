@@ -39,6 +39,7 @@ export function OnboardingTab(props: OnboardingTabProps) {
   );
   const [activeStepId, setActiveStepId] = useState(recommendedStepId);
   const previousRecommendedStepIdRef = useRef(recommendedStepId);
+  const previousRequestedStepIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setActiveStepId((current) => {
@@ -59,10 +60,20 @@ export function OnboardingTab(props: OnboardingTabProps) {
   }, [activeStepId, recommendedStepId]);
 
   useEffect(() => {
-    if (!props.requestedStepId || !props.steps.some((step) => step.id === props.requestedStepId)) {
+    if (!props.requestedStepId) {
+      previousRequestedStepIdRef.current = null;
       return;
     }
 
+    if (previousRequestedStepIdRef.current === props.requestedStepId) {
+      return;
+    }
+
+    if (!props.steps.some((step) => step.id === props.requestedStepId)) {
+      return;
+    }
+
+    previousRequestedStepIdRef.current = props.requestedStepId;
     setActiveStepId(props.requestedStepId);
     window.requestAnimationFrame(() => {
       document.getElementById("onboarding-active-step")?.scrollIntoView({

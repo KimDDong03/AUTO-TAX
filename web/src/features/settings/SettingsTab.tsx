@@ -33,25 +33,55 @@ function SettingsTabDetail({ model }: SettingsTabProps) {
 
 export function SettingsTab({ model }: SettingsTabProps) {
   const sidebar = model.sidebar;
+  const activeSection = sidebar.settingsSections.find(
+    (section) => section.id === sidebar.activeSettingsSection
+  );
 
   return (
     <div className="settings-layout">
       <aside className="settings-sidebar-stack">
         <section className="panel settings-sidebar-panel">
           <header className="panel-header settings-sidebar-header">
-            <div>
-              <h2>준비 상태</h2>
+            <div className="settings-sidebar-header-copy">
+              <div className="settings-sidebar-header-top">
+                <span
+                  className={`chip ${
+                    sidebar.setupPendingCount === 0 ? "chip-success" : "chip-warn"
+                  }`}
+                >
+                  {sidebar.setupPendingCount === 0
+                    ? "설정 완료"
+                    : `${sidebar.setupPendingCount}개 남음`}
+                </span>
+                <span
+                  className={`chip ${
+                    sidebar.settingsAutosaveState === "error"
+                      ? "chip-danger"
+                      : sidebar.settingsAutosaveState === "saving"
+                        ? "chip-warn"
+                        : "chip-success"
+                  }`}
+                >
+                  {sidebar.settingsAutosaveLabel}
+                </span>
+              </div>
+              <h2>설정 항목</h2>
+              <p className="settings-sidebar-purpose">
+                {activeSection
+                  ? `현재 ${activeSection.title}을(를) 점검 중입니다.`
+                  : "필요한 항목부터 차례대로 점검합니다."}
+              </p>
             </div>
-            <span
-              className={`chip ${
-                sidebar.setupPendingCount === 0 ? "chip-success" : "chip-warn"
-              }`}
-            >
-              {sidebar.setupPendingCount === 0
-                ? "준비 완료"
-                : `${sidebar.setupPendingCount}개 남음`}
-            </span>
           </header>
+
+          <div className="settings-sidebar-current">
+            <strong>{activeSection?.title ?? "설정"}</strong>
+            <span>
+              {activeSection?.summary ??
+                "메일, 발행 기본값, 헬퍼, 계정을 순서대로 점검합니다."}
+            </span>
+          </div>
+
           <div className="settings-step-list">
             {sidebar.settingsSections.map((section) => (
               <button
@@ -71,28 +101,14 @@ export function SettingsTab({ model }: SettingsTabProps) {
                   </div>
                 </div>
                 <span
-                  className={`chip ${section.done ? "chip-success" : "chip-danger"}`}
+                  className={`chip ${section.done ? "chip-success" : "chip-warn"}`}
                 >
                   {section.done ? "완료" : "입력 필요"}
                 </span>
               </button>
             ))}
           </div>
-          {sidebar.activeSettingsSection !== "account" ? (
-            <div className="settings-sidebar-actions settings-sidebar-actions-passive">
-              <span
-                className={
-                  sidebar.settingsAutosaveState === "error"
-                    ? "chip chip-danger"
-                    : sidebar.settingsAutosaveState === "saving"
-                      ? "chip chip-warn"
-                      : "chip chip-success"
-                }
-              >
-                {sidebar.settingsAutosaveLabel}
-              </span>
-            </div>
-          ) : null}
+
           <div className="settings-inline-note">
             <div className="settings-inline-copy">
               <strong>

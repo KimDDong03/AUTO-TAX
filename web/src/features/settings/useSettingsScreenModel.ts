@@ -6,6 +6,9 @@ import type { SettingsFormState, SettingsScreenState, SettingsSectionId } from "
 import { getSettingsSectionLabel } from "./useSettingsDerivedModel";
 
 export type SettingsScreenProps = {
+  userLabel: string;
+  workspaceLabel: string;
+  popbillModeLabel: string;
   settingsState: SettingsScreenState;
   activeSettingsSection: SettingsSectionId;
   setActiveSettingsSection: React.Dispatch<React.SetStateAction<SettingsSectionId>>;

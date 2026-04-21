@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { Icon } from "../../components/ui";
 import type { Customer, InvoiceDraft } from "../../types";
 
 type CustomerFormState = {
@@ -96,6 +97,9 @@ type CustomersTabProps = {
   customerRenewalAssistantHelperVersion: string | null;
   customerRenewalAssistantHelperMessage: string;
   customerRenewalLoadedCertificateCount: number;
+  userLabel: string;
+  workspaceLabel: string;
+  workspaceModeLabel: string;
   renewableCustomers: CustomerRenewalCandidateView[];
   customerNameInputRef: React.RefObject<HTMLInputElement | null>;
   customerAddressLookupRef: React.MutableRefObject<string>;
@@ -161,6 +165,10 @@ export function CustomersTab(props: CustomersTabProps) {
   const selectedCustomerReadiness = props.selectedCustomerReadiness;
   const visibleCustomerIssues = props.selectedCustomerIssues.filter((issue) => issue.tone !== "success" || Boolean(issue.actionLabel));
   const [customerDrawerOpen, setCustomerDrawerOpen] = useState(false);
+  const [customerTableViewportHeight, setCustomerTableViewportHeight] = useState<number | null>(null);
+  const customerMainColumnRef = useRef<HTMLDivElement | null>(null);
+  const customerTableWrapRef = useRef<HTMLDivElement | null>(null);
+  const customerTableFooterRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (props.creatingCustomer) {
@@ -174,6 +182,45 @@ export function CustomersTab(props: CustomersTabProps) {
       setCustomerDrawerOpen(false);
     }
   }, [props.creatingCustomer, selectedCustomer]);
+
+  useEffect(() => {
+    const updateCustomerTableViewportHeight = () => {
+      const mainColumnEl = customerMainColumnRef.current;
+      const tableWrapEl = customerTableWrapRef.current;
+      const tableFooterEl = customerTableFooterRef.current;
+      if (!mainColumnEl || !tableWrapEl || !tableFooterEl) {
+        return;
+      }
+
+      const tableWrapTop = tableWrapEl.getBoundingClientRect().top;
+      const footerHeight = tableFooterEl.getBoundingClientRect().height;
+      const mainColumnStyles = window.getComputedStyle(mainColumnEl);
+      const reservedBottomSpace = (parseFloat(mainColumnStyles.paddingBottom) || 0) + 24;
+      const availableTableHeight = Math.max(280, Math.floor(window.innerHeight - tableWrapTop - footerHeight - reservedBottomSpace));
+      setCustomerTableViewportHeight((prev) => (prev === availableTableHeight ? prev : availableTableHeight));
+    };
+
+    const animationFrameId = window.requestAnimationFrame(updateCustomerTableViewportHeight);
+    window.addEventListener("resize", updateCustomerTableViewportHeight);
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => updateCustomerTableViewportHeight());
+    if (customerTableWrapRef.current) {
+      resizeObserver?.observe(customerTableWrapRef.current);
+    }
+    if (customerTableFooterRef.current) {
+      resizeObserver?.observe(customerTableFooterRef.current);
+    }
+    if (customerMainColumnRef.current) {
+      resizeObserver?.observe(customerMainColumnRef.current);
+    }
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      window.removeEventListener("resize", updateCustomerTableViewportHeight);
+      resizeObserver?.disconnect();
+    };
+  }, [props.filteredCustomers.length]);
 
   useEffect(() => {
     if (!customerDrawerOpen) {
@@ -315,6 +362,7 @@ export function CustomersTab(props: CustomersTabProps) {
     { label: "고객 연락처", done: props.customerForm.renewalContactMobile.trim() !== "" },
     { label: "메모", done: props.customerForm.memo.trim() !== "" }
   ];
+  const missingRequiredFieldLabels = customerRequiredFieldChecks.filter((field) => !field.done).map((field) => field.label);
   const requiredCompletedCount = customerRequiredFieldChecks.filter((field) => field.done).length;
   const optionalCompletedCount = customerOptionalFieldChecks.filter((field) => field.done).length;
   const getCustomerIssueHelpText = (issue: CustomerIssueChecklistItem) => {
@@ -382,6 +430,10 @@ export function CustomersTab(props: CustomersTabProps) {
     action: CustomerPrimaryAction
   ) => {
     event.stopPropagation();
+    runCustomerPrimaryAction(customer, action);
+  };
+
+  const runCustomerPrimaryAction = (customer: Customer, action: CustomerPrimaryAction) => {
     focusCustomer(customer);
 
     switch (action.kind) {
@@ -502,29 +554,42 @@ export function CustomersTab(props: CustomersTabProps) {
   const selectedCustomerPopbillStatus = selectedCustomer ? getCustomerPopbillStatus(selectedCustomer) : null;
   const selectedCustomerCertificateStatus = selectedCustomer ? getCustomerCertificateStatus(selectedCustomer) : null;
 
-  const selectedInspectorFacts: CustomerInspectorFact[] =
+  const selectedInspectorHeroMetrics =
     selectedCustomer && selectedCustomerReadiness && selectedCustomerPopbillStatus && selectedCustomerCertificateStatus
       ? [
           {
             label: "팝빌 상태",
-            value: `${selectedCustomerPopbillStatus.label} · ${props.getCustomerPopbillSummary(selectedCustomer)}`
+            value: selectedCustomerPopbillStatus.label,
+            detail: props.getCustomerPopbillSummary(selectedCustomer),
+            tone: selectedCustomerPopbillStatus.tone
           },
           {
             label: "인증서 상태",
-            value: `${selectedCustomerCertificateStatus.label} · ${props.getCustomerCertificateSummary(selectedCustomer)}`
+            value: selectedCustomerCertificateStatus.label,
+            detail: props.getCustomerCertificateSummary(selectedCustomer),
+            tone: selectedCustomerCertificateStatus.tone
           },
           {
             label: "발행 방식",
-            value: props.getIssueModeLabel(selectedCustomer.issueMode)
+            value: props.getIssueModeLabel(selectedCustomer.issueMode),
+            detail: getIssueModeListHint(selectedCustomer.issueMode),
+            tone: "default" as CustomerConsoleTone
           },
+          {
+            label: "다음 조치",
+            value: selectedCustomerNextStep || "상세 확인",
+            detail: selectedCustomerReadiness.reason,
+            tone: selectedCustomerReadiness.tone
+          }
+        ]
+      : [];
+  const selectedInspectorContextFacts: CustomerInspectorFact[] =
+    selectedCustomer
+      ? [
           {
             label: "운영 안내",
             value: getIssueModeGuide(selectedCustomer.issueMode),
             wide: true
-          },
-          {
-            label: "다음 조치",
-            value: selectedCustomerNextStep || "상세 확인"
           },
           {
             label: "주소",
@@ -563,30 +628,34 @@ export function CustomersTab(props: CustomersTabProps) {
     }
   };
 
-  const customerConsoleMetrics = useMemo(
+  const customerSummaryCards = useMemo(
     () => [
       {
         key: "total",
         label: "전체 고객",
         value: `${props.customers.length}명`,
+        note: "누적",
         tone: "default" as CustomerConsoleTone
       },
       {
         key: "blocked",
         label: "조치 필요",
-        value: `${props.blockedCustomerCount}명`,
+        value: `${props.blockedCustomerCount}건`,
+        note: props.blockedCustomerCount > 0 ? "Critical" : "정상",
         tone: props.blockedCustomerCount > 0 ? ("danger" as CustomerConsoleTone) : ("success" as CustomerConsoleTone)
       },
       {
         key: "ready",
         label: "발행 가능",
         value: `${props.readyCustomerCount}명`,
+        note: props.readyCustomerCount > 0 ? "정상" : "대기",
         tone: props.readyCustomerCount > 0 ? ("success" as CustomerConsoleTone) : ("default" as CustomerConsoleTone)
       },
       {
         key: "pending",
         label: "연결 필요",
-        value: `${props.popbillPendingCustomerCount}명`,
+        value: `${props.popbillPendingCustomerCount}건`,
+        note: props.popbillPendingCustomerCount > 0 ? "대기중" : "완료",
         tone: props.popbillPendingCustomerCount > 0 ? ("warn" as CustomerConsoleTone) : ("success" as CustomerConsoleTone)
       }
     ],
@@ -601,7 +670,9 @@ export function CustomersTab(props: CustomersTabProps) {
   const drawerOpen = customerDrawerOpen && (props.creatingCustomer || Boolean(selectedCustomer));
   const selectedRecentIssuedDraft = props.selectedCustomerIssuedDrafts[0] ?? null;
   const historyPreviewDrafts = props.selectedCustomerIssuedDrafts.slice(0, 3);
-  const filteredSummary = `${activeFilterCopy[props.customerListFilter].title} · ${props.filteredCustomers.length}명 표시`;
+  const primaryCustomerFilterOptions = customerFilterOptions.filter((filter) =>
+    filter.key === "all" || filter.key === "blocked" || filter.key === "ready" || filter.key === "unjoined"
+  );
 
   useEffect(() => {
     if (!drawerOpen) {
@@ -631,19 +702,6 @@ export function CustomersTab(props: CustomersTabProps) {
         );
       }}
     >
-      {mode === "create" ? (
-        <div className="customer-form-inline-status" aria-label="필수 입력 진행 상태">
-          <span className={requiredCompletedCount === customerRequiredFieldChecks.length ? getToneBadgeClass("success") : getToneBadgeClass("warn")}>
-            필수 {requiredCompletedCount}/{customerRequiredFieldChecks.length}
-          </span>
-          <span>
-            {requiredCompletedCount === customerRequiredFieldChecks.length
-              ? "저장 준비 완료"
-              : `남은 항목: ${customerRequiredFieldChecks.filter((field) => !field.done).map((field) => field.label).join(", ")}`}
-          </span>
-        </div>
-      ) : null}
-
       <div className="form-grid customer-form-grid">
         <label>
           대표자명
@@ -793,7 +851,7 @@ export function CustomersTab(props: CustomersTabProps) {
     if (props.filteredCustomers.length === 0) {
       return (
         <tr className="customer-console-empty-row">
-          <td colSpan={8}>
+          <td colSpan={6}>
             <div className="context-empty-state customer-table-empty">
               <strong>{customerListEmptyState.title}</strong>
               <p>{customerListEmptyState.body}</p>
@@ -832,13 +890,8 @@ export function CustomersTab(props: CustomersTabProps) {
           <td className="customer-console-col-name">
             <div className="customer-console-primary-cell">
               <strong>{summaryTitle}</strong>
-              <span>{secondaryLine}</span>
-            </div>
-          </td>
-          <td>
-            <div className="customer-console-cell-stack">
               <strong>{customer.businessNumber}</strong>
-              <span>{customer.popbillUserId || "팝빌 사용자 ID 미설정"}</span>
+              <span>{secondaryLine}</span>
             </div>
           </td>
           <td>
@@ -861,13 +914,9 @@ export function CustomersTab(props: CustomersTabProps) {
           </td>
           <td>
             <div className="customer-console-cell-stack">
-              <strong>{getCustomerNextStep(customer)}</strong>
-              <span>{primaryAction.kind === "open-detail" ? "상세 점검" : `빠른 조치: ${primaryAction.label}`}</span>
-            </div>
-          </td>
-          <td>
-            <div className="customer-console-cell-stack">
-              <span className={getToneBadgeClass(readiness.tone)}>{readiness.label}</span>
+              <strong className={`customer-console-next-step ${readiness.tone === "danger" ? "tone-danger" : readiness.tone === "warn" ? "tone-warn" : readiness.tone === "success" ? "tone-success" : ""}`}>
+                {getCustomerNextStep(customer)}
+              </strong>
               <span>{readiness.reason}</span>
             </div>
           </td>
@@ -949,17 +998,36 @@ export function CustomersTab(props: CustomersTabProps) {
               <div className="customer-history-table">{renderHistoryRows(props.selectedCustomerIssuedDrafts)}</div>
             </section>
           ) : (
-            <div className="customer-drawer-section-stack">
-              <section className="customer-drawer-section customer-drawer-summary-section">
-                <div className="customer-drawer-section-head">
+            <div className="customer-drawer-section-stack customer-drawer-detail-stack">
+              <section className="customer-drawer-section customer-drawer-hero-card">
+                <div className="customer-drawer-hero-head">
                   <div>
-                    <h3>상태 요약</h3>
+                    <span className="customer-console-kicker">상태 요약</span>
+                    <h3>{selectedCustomerReadiness.reason}</h3>
                     <p>{selectedInspectorSummary}</p>
                   </div>
-                  <span className={getToneBadgeClass(selectedCustomerReadiness.tone)}>{selectedCustomerReadiness.reason}</span>
+                  <span className={getToneBadgeClass(selectedCustomerReadiness.tone)}>{selectedCustomerReadiness.label}</span>
                 </div>
-                <dl className="customer-inspector-facts customer-drawer-facts-grid">
-                  {selectedInspectorFacts.map((item) => (
+                <div className="customer-drawer-hero-grid">
+                  {selectedInspectorHeroMetrics.map((item) => (
+                    <article key={item.label} className={`customer-drawer-hero-item tone-${item.tone}`}>
+                      <span>{item.label}</span>
+                      <strong>{item.value}</strong>
+                      <p>{item.detail}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section className="customer-drawer-section customer-drawer-context-section">
+                <div className="customer-drawer-section-head">
+                  <div>
+                    <h3>운영 메모</h3>
+                    <p>현재 고객 운영에 필요한 안내와 기본 정보를 함께 정리했습니다.</p>
+                  </div>
+                </div>
+                <dl className="customer-drawer-context-grid">
+                  {selectedInspectorContextFacts.map((item) => (
                     <div key={item.label} className={item.wide ? "wide" : undefined}>
                       <dt>{item.label}</dt>
                       <dd>{item.value}</dd>
@@ -968,17 +1036,20 @@ export function CustomersTab(props: CustomersTabProps) {
                 </dl>
               </section>
 
-              <details className="customer-drawer-section customer-drawer-disclosure" open>
-                <summary>
-                  해결 필요 항목
-                  <span>
+              <section className="customer-drawer-section customer-drawer-issues-section">
+                <div className="customer-drawer-section-head">
+                  <div>
+                    <h3>해결 필요 항목</h3>
+                    <p>지금 바로 처리할 항목과 보조 메모를 같이 보여줍니다.</p>
+                  </div>
+                  <span className={getToneBadgeClass(selectedCustomerPrimaryIssue ? selectedCustomerPrimaryIssue.tone : "success")}>
                     {detailPanelIssues.length > 0
-                      ? `${detailPanelIssues.length}개`
+                      ? `${detailPanelIssues.length + (selectedCustomerPrimaryIssue ? 1 : 0)}개`
                       : hiddenResolvedIssueCount > 0
                         ? `완료 ${hiddenResolvedIssueCount}개`
-                        : "확인"}
+                        : "이상 없음"}
                   </span>
-                </summary>
+                </div>
                 <div className="customer-inspector-issue-list">
                   {selectedCustomerPrimaryIssue ? (
                     <article className="customer-inspector-issue-row highlighted">
@@ -1013,7 +1084,7 @@ export function CustomersTab(props: CustomersTabProps) {
                   {hiddenResolvedIssueCount > 0 ? <div className="customer-inspector-note">완료 항목 {hiddenResolvedIssueCount}개는 기본 목록에서 숨김 처리했습니다.</div> : null}
                   {props.customerCertNotice ? <div className="customer-inspector-note">{props.customerCertNotice}</div> : null}
                 </div>
-              </details>
+              </section>
 
               <details className="customer-drawer-section customer-drawer-disclosure" open>
                 <summary>
@@ -1103,12 +1174,31 @@ export function CustomersTab(props: CustomersTabProps) {
         </div>
       </header>
 
-      <div className="customer-console-drawer-status-strip">
-        <span className={requiredCompletedCount === customerRequiredFieldChecks.length ? getToneBadgeClass("success") : getToneBadgeClass("warn")}>저장 준비 {requiredCompletedCount}/4</span>
-      </div>
+      <div className="customer-console-drawer-body customer-console-create-body">
+        <section className="customer-drawer-section customer-create-progress-card">
+          <div className="customer-create-progress-head">
+            <div>
+              <h3>등록 준비 상태</h3>
+              <p>
+                {requiredCompletedCount === customerRequiredFieldChecks.length
+                  ? "필수 항목 입력이 끝났습니다. 지금 저장하고 나머지 추가 정보를 이어서 입력할 수 있습니다."
+                  : `남은 항목: ${missingRequiredFieldLabels.join(", ")}`}
+              </p>
+            </div>
+            <span className={requiredCompletedCount === customerRequiredFieldChecks.length ? getToneBadgeClass("success") : getToneBadgeClass("warn")}>
+              필수 {requiredCompletedCount}/{customerRequiredFieldChecks.length}
+            </span>
+          </div>
+          <div className="customer-create-progress-list" aria-label="필수 입력 상태">
+            {customerRequiredFieldChecks.map((field) => (
+              <span key={field.label} className={field.done ? "customer-create-progress-chip is-complete" : "customer-create-progress-chip"}>
+                {field.label}
+              </span>
+            ))}
+          </div>
+        </section>
 
-      <div className="customer-console-drawer-body">
-        <section className="customer-drawer-section customer-drawer-summary-section">
+        <section className="customer-drawer-section customer-drawer-summary-section customer-create-form-section">
           <div className="customer-drawer-section-head">
             <div>
               <h3>등록 가이드</h3>
@@ -1124,96 +1214,133 @@ export function CustomersTab(props: CustomersTabProps) {
   return (
     <div className="customers-screen customer-console-screen">
       <div className="customer-console-shell">
-        <section className="panel panel-customer-list customer-console-panel">
-          <header className="customer-console-header">
-            <div className="customer-console-header-copy">
-              <span className="customer-console-kicker">운영 / 고객 데이터 콘솔</span>
-              <div className="customer-console-title-row">
-                <strong>고객 관리</strong>
-                <span>{filteredSummary}</span>
-              </div>
-            </div>
-            <div className="customer-console-header-actions">
-              {props.expiredCertCustomers.length > 0 ? <span className={getToneBadgeClass("danger")}>만료 {props.expiredCertCustomers.length}명</span> : null}
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={props.busyKey !== null}
-                onClick={() => void props.runAction("customers-cert-refresh-all", props.onRefreshAllCertificateStatuses)}
-              >
-                인증서 일괄 점검
-              </button>
-              <button type="button" onClick={handleCreateCustomer}>
-                새 고객
-              </button>
-            </div>
-          </header>
-
-          <div className="customer-console-metrics" aria-label="고객 운영 요약">
-            {customerConsoleMetrics.map((metric) => (
-              <div
-                key={metric.key}
-                className={`customer-console-metric ${metric.tone === "danger" ? "tone-danger" : metric.tone === "warn" ? "tone-warn" : metric.tone === "success" ? "tone-success" : ""}`}
-              >
-                <span>{metric.label}</span>
-                <strong>{metric.value}</strong>
-              </div>
-            ))}
-          </div>
-
-          <div className="customer-console-controls">
-            <div className="customer-console-search">
+        <div ref={customerMainColumnRef} className="customer-console-main-column">
+          <header className="customer-console-page-header">
+            <label className="customer-console-page-search" aria-label="고객 검색">
+              <Icon name="search" className="customer-console-page-search-icon" />
               <input
-                placeholder="고객명, 상호, 사업자번호 검색"
+                placeholder="고객사명 또는 사업자번호 검색..."
                 value={props.customerSearchQuery}
                 onChange={(event) => props.setCustomerSearchQuery(event.target.value)}
               />
+            </label>
+            <div className="customer-console-page-header-side">
+              <div className="customer-console-page-account">
+                <div className="customer-console-page-account-copy">
+                  <strong>{props.userLabel}</strong>
+                  <span>
+                    {props.workspaceLabel} · {props.workspaceModeLabel}
+                  </span>
+                </div>
+                <span className="customer-console-page-account-avatar" aria-hidden="true">
+                  <Icon name="user" className="customer-console-page-account-avatar-icon" />
+                </span>
+              </div>
             </div>
-            <div className="customer-console-filter-strip" role="tablist" aria-label="고객 보기 필터">
-              {customerFilterOptions.map((filter) => (
-                <button
-                  key={filter.key}
-                  type="button"
-                  className={props.customerListFilter === filter.key ? "btn-secondary active-filter" : "btn-secondary"}
-                  onClick={() => props.setCustomerListFilter(filter.key)}
-                >
-                  <span>{filter.label}</span>
-                  <strong>{filter.count}</strong>
-                </button>
-              ))}
-            </div>
-            {hasActiveFilter ? (
-              <button
-                type="button"
-                className="btn-secondary customer-console-reset"
-                onClick={() => {
-                  props.setCustomerListFilter("all");
-                  props.setCustomerSearchQuery("");
-                }}
-              >
-                필터 초기화
-              </button>
-            ) : null}
-          </div>
+          </header>
 
-          <div className="table-wrap customer-console-table-wrap">
-            <table className="responsive-table customer-console-table">
-              <thead>
-                <tr>
-                  <th>고객명 / 상호</th>
-                  <th>사업자번호</th>
-                  <th>팝빌 상태</th>
-                  <th>인증서 상태</th>
-                  <th>발행 방식</th>
-                  <th>다음 조치</th>
-                  <th>종합 상태</th>
-                  <th aria-label="작업" />
-                </tr>
-              </thead>
-              <tbody>{renderCustomerTableRows()}</tbody>
-            </table>
-          </div>
-        </section>
+          <section className="customer-console-hero">
+            <div className="customer-console-hero-row">
+              <div className="customer-console-hero-copy">
+                <h2>고객 데이터 콘솔</h2>
+              </div>
+              <button type="button" className="customer-console-primary-cta" onClick={handleCreateCustomer}>
+                + 새 고객 추가
+              </button>
+            </div>
+          </section>
+
+          <section className="customer-summary-grid" aria-label="고객 운영 요약">
+            {customerSummaryCards.map((card) => (
+              <article
+                key={card.key}
+                className={[
+                  "customer-summary-card",
+                  card.tone === "danger"
+                    ? "tone-danger"
+                    : card.tone === "warn"
+                      ? "tone-warn"
+                      : card.tone === "success"
+                        ? "tone-success"
+                        : ""
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <span>{card.label}</span>
+                <div className="customer-summary-card-row">
+                  <strong>{card.value}</strong>
+                  <em>{card.note}</em>
+                </div>
+              </article>
+            ))}
+          </section>
+
+          <section className="panel panel-customer-list customer-console-panel">
+            <div className="customer-console-table-topbar">
+              <div className="customer-console-filter-strip" role="tablist" aria-label="고객 보기 필터">
+                {primaryCustomerFilterOptions.map((filter) => (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    className={props.customerListFilter === filter.key ? "btn-secondary active-filter" : "btn-secondary"}
+                    onClick={() => props.setCustomerListFilter(filter.key)}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+              <div className="customer-console-table-actions">
+                {hasActiveFilter ? (
+                  <button
+                    type="button"
+                    className="btn-secondary customer-console-reset"
+                    onClick={() => {
+                      props.setCustomerListFilter("all");
+                      props.setCustomerSearchQuery("");
+                    }}
+                  >
+                    상세 필터 초기화
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={props.busyKey !== null}
+                  onClick={() => void props.runAction("customers-cert-refresh-all", props.onRefreshAllCertificateStatuses)}
+                >
+                  인증서 일괄 점검
+                </button>
+              </div>
+            </div>
+
+            <div
+              ref={customerTableWrapRef}
+              className="table-wrap customer-console-table-wrap"
+              style={customerTableViewportHeight !== null ? { maxHeight: `${customerTableViewportHeight}px` } : undefined}
+            >
+              <table className="responsive-table customer-console-table">
+                <thead>
+                  <tr>
+                    <th>고객사</th>
+                    <th>팝빌 상태</th>
+                    <th>인증서 상태</th>
+                    <th>발행 방식</th>
+                    <th>다음 조치</th>
+                    <th>관리</th>
+                  </tr>
+                </thead>
+                <tbody>{renderCustomerTableRows()}</tbody>
+              </table>
+            </div>
+
+            <div ref={customerTableFooterRef} className="customer-console-table-footer">
+              <span>{hasActiveFilter ? `전체 ${props.customers.length}명 중 ${props.filteredCustomers.length}명 표시` : `총 ${props.filteredCustomers.length}명의 고객 표시`}</span>
+              <span className="customer-console-table-footnote">목록은 내부 스크롤로 이어집니다.</span>
+            </div>
+          </section>
+
+        </div>
 
         {drawerOpen ? (
           <>
