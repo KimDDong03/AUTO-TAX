@@ -8913,14 +8913,18 @@ body {
 }
 
 .brand {
+  display: flex;
+  justify-content: center;
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
-  padding: 4px 4px 20px;
+  padding: 4px 14px 20px 0;
 }
 
 .brand-copy {
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 100%;
 }
 
 .brand-kicker {
@@ -8932,6 +8936,7 @@ body {
   font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 1;
+  text-align: center;
 }
 
 .sidebar-nav-caption {
@@ -10191,6 +10196,176 @@ button.issuance-list-item {
   line-height: 1.6;
 }
 
+.issuance-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(18, 24, 36, 0.42);
+  backdrop-filter: blur(6px);
+}
+
+.issuance-picker-modal {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 16px;
+  width: min(920px, calc(100vw - 48px));
+  max-height: min(760px, calc(100vh - 48px));
+  padding: 22px;
+  border: 1px solid #dde4ee;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(16, 24, 36, 0.18);
+}
+
+.issuance-picker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.issuance-picker-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.issuance-picker-copy strong {
+  color: #111419;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.issuance-picker-copy p,
+.issuance-picker-result-head span {
+  margin: 0;
+  color: #6c7583;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.issuance-picker-search {
+  display: grid;
+  gap: 8px;
+}
+
+.issuance-picker-search input {
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid #dbe2ec;
+  border-radius: 14px;
+  background: #f8fafd;
+}
+
+.issuance-picker-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.issuance-picker-result-list {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.issuance-picker-result-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e4e9f1;
+  border-radius: 18px;
+  background: #fbfcff;
+}
+
+.issuance-picker-result-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.issuance-picker-result-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.issuance-picker-result-copy strong {
+  color: #111419;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.issuance-picker-result-copy span {
+  color: #67707f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.issuance-picker-result-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.issuance-picker-result-meta > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.issuance-picker-result-meta dt {
+  color: #7b8493;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.issuance-picker-result-meta dd {
+  margin: 0;
+  color: #12161c;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.issuance-picker-empty {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  justify-items: start;
+  min-height: 180px;
+  padding: 18px;
+  border: 1px dashed #d9dfe9;
+  border-radius: 18px;
+  background: #f9fbfe;
+}
+
+.issuance-picker-empty strong {
+  color: #111419;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.issuance-picker-empty p {
+  margin: 0;
+  color: #6c7583;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 @media (max-width: 1380px) {
   .issuance-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -10240,6 +10415,25 @@ button.issuance-list-item {
 
   .issuance-detail-actions {
     justify-content: flex-start;
+  }
+
+  .issuance-picker-backdrop {
+    padding: 16px;
+  }
+
+  .issuance-picker-modal {
+    width: min(100%, calc(100vw - 32px));
+    max-height: min(100%, calc(100vh - 32px));
+    padding: 18px;
+  }
+
+  .issuance-picker-head,
+  .issuance-picker-result-top {
+    flex-direction: column;
+  }
+
+  .issuance-picker-result-meta {
+    grid-template-columns: 1fr;
   }
 }
 

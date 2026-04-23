@@ -221,6 +221,7 @@ Important invariants:
 
 - `certificate_password_encrypted` is legacy/transitional only; new flows should not store or return certificate passwords from this table.
 - `cert_dir_path` is local metadata, not a certificate payload, and should be masked in logs and errors.
+- RLS is read-scoped to workspace members and write-scoped to workspace editors.
 
 ## 6. Import And Onboarding Tables
 
@@ -233,6 +234,10 @@ Important fields:
 - `organization_id`
 - `name`
 - `mapping_json`
+
+Important invariant:
+
+- RLS is editor-scoped because the profile is part of the import workflow, not a viewer-facing read model.
 
 ### customer_onboarding_previews
 
@@ -250,6 +255,7 @@ Important fields:
 Important invariant:
 
 - Workbook-derived certificate passwords must be stripped before preview rows are persisted.
+- RLS is editor-scoped. `viewer` members must not read or mutate persisted preview payloads.
 
 ### customer_onboarding_batches
 
@@ -273,6 +279,11 @@ Important fields:
 - `started_at`
 - `finished_at`
 
+Important invariants:
+
+- RLS is editor-scoped.
+- `preview_id` must always point at a preview row from the same `organization_id`.
+
 ### customer_onboarding_batch_rows
 
 Per-row execution state for a batch.
@@ -290,6 +301,11 @@ Important fields:
 - `error_message`
 - `customer_legacy_id`
 - `linked_certificate_count`
+
+Important invariants:
+
+- RLS is editor-scoped through the parent batch.
+- `organization_id` must stay aligned with the parent batch organization.
 
 ## 7. Mail And Draft Tables
 
@@ -368,6 +384,10 @@ Important invariants:
 ### organization_completed_billing_months
 
 Allows operators to mark a billing month complete so older mail stops surfacing in active worklists.
+
+Important invariant:
+
+- RLS is editor-scoped because completion state directly changes active operational queues.
 
 ## 8. Operational Tables
 

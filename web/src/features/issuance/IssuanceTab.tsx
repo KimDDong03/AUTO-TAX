@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../components/ui";
+import { matchesCustomerSearchQuery } from "../customers/customerSearch";
 import type { Customer, InboxMessage, InvoiceDraft } from "../../types";
 
 type IssuanceFilter = "pending" | "scheduled" | "issuing" | "issued" | "unmatched" | "all";
@@ -24,6 +25,8 @@ type IssuanceTabProps = {
   userLabel: string;
   workspaceLabel: string;
   popbillModeLabel: string;
+  requestedFilter?: IssuanceFilter | null;
+  onConsumeRequestedFilter?: () => void;
   drafts: InvoiceDraft[];
   unmatchedInboxMessages: InboxMessage[];
   customers: Customer[];
@@ -122,6 +125,63 @@ function compareIssuanceListEntries(left: IssuanceListEntry, right: IssuanceList
   return right.sortTime - left.sortTime;
 }
 
+function normalizeCustomerFinderValue(value: string): string {
+  return value.trim().toLocaleLowerCase("ko-KR").replace(/\s+/g, "");
+}
+
+function normalizedValueIncludes(source: string, target: string): boolean {
+  const normalizedSource = normalizeCustomerFinderValue(source);
+  const normalizedTarget = normalizeCustomerFinderValue(target);
+  if (normalizedSource === "" || normalizedTarget === "") {
+    return false;
+  }
+  return normalizedSource.includes(normalizedTarget) || normalizedTarget.includes(normalizedSource);
+}
+
+function matchesCustomerFinderQuery(customer: Customer, query: string): boolean {
+  const normalizedQuery = normalizeCustomerFinderValue(query);
+  if (normalizedQuery === "") {
+    return true;
+  }
+
+  if (matchesCustomerSearchQuery(customer, query)) {
+    return true;
+  }
+
+  return [customer.addr, ...customer.plantNames, ...customer.matchAddresses].some((value) => normalizedValueIncludes(value, query));
+}
+
+function scoreCustomerForUnmatchedMessage(customer: Customer, message: InboxMessage): number {
+  let score = 0;
+  const plantName = message.parsedData?.plantName ?? "";
+  const plantAddress = message.parsedData?.plantAddress ?? "";
+  const subject = message.subject ?? "";
+
+  if (plantAddress !== "") {
+    if (normalizedValueIncludes(customer.addr, plantAddress)) {
+      score += 120;
+    }
+    if (customer.matchAddresses.some((value) => normalizedValueIncludes(value, plantAddress))) {
+      score += 120;
+    }
+  }
+
+  if (plantName !== "") {
+    if (customer.plantNames.some((value) => normalizedValueIncludes(value, plantName))) {
+      score += 90;
+    }
+    if ([customer.customerName, customer.corpName].some((value) => normalizedValueIncludes(value, plantName))) {
+      score += 50;
+    }
+  }
+
+  if (subject !== "" && [customer.customerName, customer.corpName, customer.businessNumber].some((value) => normalizedValueIncludes(subject, value))) {
+    score += 18;
+  }
+
+  return score;
+}
+
 export function IssuanceTab(props: IssuanceTabProps) {
   const pendingManualCount = useMemo(
     () => props.drafts.filter((draft) => draft.status === "review" || draft.status === "failed").length,
@@ -154,6 +214,25 @@ export function IssuanceTab(props: IssuanceTabProps) {
             : "all";
   const [activeFilter, setActiveFilter] = useState<IssuanceFilter>(defaultFilter);
   const [selectedEntryKey, setSelectedEntryKey] = useState<string | null>(null);
+  const [customerFinderOpen, setCustomerFinderOpen] = useState(false);
+  const [customerFinderQuery, setCustomerFinderQuery] = useState("");
+  const previousRequestedFilterRef = useRef<IssuanceFilter | null>(null);
+
+  useEffect(() => {
+    if (!props.requestedFilter) {
+      previousRequestedFilterRef.current = null;
+      return;
+    }
+
+    if (previousRequestedFilterRef.current === props.requestedFilter) {
+      return;
+    }
+
+    previousRequestedFilterRef.current = props.requestedFilter;
+    setActiveFilter(props.requestedFilter);
+    setSelectedEntryKey(null);
+    props.onConsumeRequestedFilter?.();
+  }, [props.onConsumeRequestedFilter, props.requestedFilter, previousRequestedFilterRef]);
 
   const sortedDrafts = useMemo(
     () =>
@@ -228,6 +307,43 @@ export function IssuanceTab(props: IssuanceTabProps) {
     selectedUnmatchedMessage?.parsedData !== null && selectedUnmatchedMessage?.parsedData !== undefined
       ? selectedUnmatchedMessage.parsedData.supplyCost + selectedUnmatchedMessage.parsedData.taxTotal
       : null;
+  const customerFinderResults = useMemo(() => {
+    if (!selectedUnmatchedMessage) {
+      return [];
+    }
+
+    return [...props.customers]
+      .filter((customer) => matchesCustomerFinderQuery(customer, customerFinderQuery))
+      .map((customer) => ({
+        customer,
+        score: scoreCustomerForUnmatchedMessage(customer, selectedUnmatchedMessage)
+      }))
+      .sort((left, right) => {
+        const scoreDiff = right.score - left.score;
+        if (scoreDiff !== 0) return scoreDiff;
+        return left.customer.corpName.localeCompare(right.customer.corpName, "ko-KR");
+      });
+  }, [customerFinderQuery, props.customers, selectedUnmatchedMessage]);
+
+  useEffect(() => {
+    setCustomerFinderOpen(false);
+    setCustomerFinderQuery("");
+  }, [selectedUnmatchedMessage?.id]);
+
+  useEffect(() => {
+    if (!customerFinderOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setCustomerFinderOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [customerFinderOpen]);
 
   return (
     <div className="issuance-screen">
@@ -561,10 +677,9 @@ export function IssuanceTab(props: IssuanceTabProps) {
                     <button
                       type="button"
                       className="btn-secondary"
-                      onClick={() => props.onReprocessInboxMessage(selectedUnmatchedMessage.id)}
-                      disabled={props.busyKey !== null}
+                      onClick={() => setCustomerFinderOpen(true)}
                     >
-                      재처리
+                      고객 목록 보기
                     </button>
                   </div>
                 </div>
@@ -669,6 +784,86 @@ export function IssuanceTab(props: IssuanceTabProps) {
           </section>
         </div>
       </div>
+      {customerFinderOpen && selectedUnmatchedMessage ? (
+        <div className="issuance-picker-backdrop" role="presentation" onClick={() => setCustomerFinderOpen(false)}>
+          <section
+            className="issuance-picker-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="issuance-picker-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="issuance-picker-head">
+              <div className="issuance-picker-copy">
+                <strong id="issuance-picker-title">매칭할 고객 찾기</strong>
+                <p>
+                  {selectedUnmatchedMessage.parsedData?.plantName || "미매칭 메일"} ·{" "}
+                  {selectedUnmatchedMessage.parsedData?.plantAddress || "주소 없음"}
+                </p>
+              </div>
+              <button type="button" className="btn-secondary" onClick={() => setCustomerFinderOpen(false)}>
+                닫기
+              </button>
+            </header>
+
+            <div className="issuance-picker-search">
+              <label className="field-label" htmlFor="issuance-customer-finder-search">
+                고객 검색
+              </label>
+              <input
+                id="issuance-customer-finder-search"
+                type="search"
+                value={customerFinderQuery}
+                autoFocus
+                placeholder="고객명, 상호, 사업자번호, 주소 검색"
+                onChange={(event) => setCustomerFinderQuery(event.target.value)}
+              />
+            </div>
+
+            <div className="issuance-picker-result-head">
+              <span>검색 결과 {customerFinderResults.length}명</span>
+              <span>주소와 발전소명이 비슷한 고객이 위에 정렬됩니다.</span>
+            </div>
+
+            <div className="issuance-picker-result-list">
+              {customerFinderResults.length > 0 ? (
+                customerFinderResults.map(({ customer, score }) => (
+                  <article key={`issuance-customer-finder-${customer.id}`} className="issuance-picker-result-card">
+                    <div className="issuance-picker-result-top">
+                      <div className="issuance-picker-result-copy">
+                        <strong>{customer.corpName}</strong>
+                        <span>
+                          {customer.customerName} · {customer.businessNumber}
+                        </span>
+                      </div>
+                      {score > 0 ? <span className="status status-review">추천 후보</span> : null}
+                    </div>
+                    <div className="issuance-picker-result-meta">
+                      <div>
+                        <dt>주소</dt>
+                        <dd>{customer.addr || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>발전소명</dt>
+                        <dd>{customer.plantNames.length > 0 ? customer.plantNames.join(", ") : "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>자동 매칭 주소</dt>
+                        <dd>{customer.matchAddresses.length > 0 ? customer.matchAddresses.join(", ") : "-"}</dd>
+                      </div>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="issuance-picker-empty">
+                  <strong>조건에 맞는 고객이 없습니다.</strong>
+                  <p>고객명, 상호, 사업자번호, 주소를 바꿔서 다시 검색해 보세요.</p>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

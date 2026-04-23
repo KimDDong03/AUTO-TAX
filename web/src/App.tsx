@@ -1700,6 +1700,7 @@ export function App() {
     return getTabFromHash(hash) === "onboarding";
   });
   const [requestedOnboardingStepId, setRequestedOnboardingStepId] = useState<string | null>(null);
+  const [requestedIssuanceFilter, setRequestedIssuanceFilter] = useState<"unmatched" | null>(null);
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
   const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [customerListFilter, setCustomerListFilter] = useState<CustomerListFilter>("all");
@@ -5806,7 +5807,8 @@ export function App() {
         void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })));
         return;
       case "exceptions":
-        openOnboardingStep("exceptions");
+        setRequestedIssuanceFilter("unmatched");
+        setActiveTab("issuance");
         return;
       case "recentInbox":
         setWorkFeedTab("inbox");
@@ -6232,6 +6234,8 @@ export function App() {
             userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
             workspaceLabel={activeWorkspaceName}
             popbillModeLabel={workspacePopbillModeLabel}
+            requestedFilter={requestedIssuanceFilter}
+            onConsumeRequestedFilter={() => setRequestedIssuanceFilter(null)}
             drafts={data.drafts}
             unmatchedInboxMessages={unmatchedInboxMessages}
             customers={data.customers}
