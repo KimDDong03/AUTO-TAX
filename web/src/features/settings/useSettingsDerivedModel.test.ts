@@ -101,8 +101,8 @@ test("buildSettingsOnboardingModel keeps mail/default validation and blocked ste
     hasError: true
   });
   assert.deepEqual(onboarding.firstSyncBlockedSteps, [
-    "메일 연결",
-    "발행 기본값 입력",
+    "운영팀 메일 설정",
+    "담당자 정보 입력",
     "로컬 헬퍼 준비",
     "고객 초기 등록",
     "인증서 연결 마무리"
@@ -143,7 +143,7 @@ test("buildSettingsOnboardingModel preserves helper upgrade summary and saved de
     }
   });
 
-  assert.equal(onboarding.defaults.headline, "필수값 입력 완료");
+  assert.equal(onboarding.defaults.headline, "담당자 정보 입력 완료");
   assert.equal(onboarding.helperStatusLine, "업데이트 후 다시 확인해 두세요.");
   assert.equal(onboarding.hasSavedDefaults, true);
   assert.deepEqual(onboarding.firstSyncBlockedSteps, ["로컬 헬퍼 준비"]);

@@ -32,6 +32,7 @@ export type SettingsSidebarModel = {
     React.SetStateAction<SettingsSectionId>
   >;
   openCertificates: () => void;
+  openOnboarding: () => void;
 };
 
 export type SettingsMailSectionModel = {
@@ -89,7 +90,6 @@ export type SettingsDefaultsSectionModel = {
   onRenewalIssuePasswordChange: (value: string) => void;
   onLoadCurrentPopbillSharedPassword: () => Promise<void>;
   onLoadCurrentRenewalIssuePassword: () => Promise<void>;
-  helperStatus: SettingsHelperStatusModel;
 };
 
 export type SettingsHelperUpgradeNotice = {
@@ -123,8 +123,6 @@ export type SettingsAccountSectionModel = {
     complete: boolean;
     progressText: string;
     pendingStepCount: number;
-    showCompletedOnboardingNav: boolean;
-    onShowCompletedOnboardingNavChange: (nextValue: boolean) => void;
     openOnboarding: () => void;
   };
   account: SettingsAccountState;

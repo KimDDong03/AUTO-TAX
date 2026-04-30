@@ -53,7 +53,7 @@ function createSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   };
 }
 
-test("renewal password reveal endpoints are blocked and never return plaintext", async () => {
+test("stored server-managed password reveal endpoints are blocked and never return plaintext", async () => {
   const logs: Array<{ message: string; context?: unknown }> = [];
   const requestStore = {
     createLog: async (_level: string, _scope: string, message: string, context?: unknown) => {
@@ -111,6 +111,12 @@ test("renewal password reveal endpoints are blocked and never return plaintext",
   try {
     const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
+    const popbillResponse = await fetch(`${baseUrl}/api/settings/popbill-shared-password`);
+    assert.equal(popbillResponse.status, 410);
+    assert.deepEqual(await popbillResponse.json(), {
+      error: "발행 연동 공통 비밀번호는 서버 운영값으로만 관리합니다. 변경이 필요하면 서버 환경 변수를 수정하세요."
+    });
+
     const issueResponse = await fetch(`${baseUrl}/api/settings/renewal-issue-password`);
     assert.equal(issueResponse.status, 410);
     assert.deepEqual(await issueResponse.json(), {
@@ -126,6 +132,7 @@ test("renewal password reveal endpoints are blocked and never return plaintext",
     assert.deepEqual(
       logs.map((entry) => entry.message),
       [
+        "발행 연동 공통 비밀번호 재표시 요청을 차단했습니다.",
         "공동인증서 갱신 발급용 비밀번호 재표시 요청을 차단했습니다.",
         "공동인증서 공통 비밀번호 재표시 요청을 차단했습니다."
       ]
@@ -143,10 +150,15 @@ test("renewal password reveal endpoints are blocked and never return plaintext",
   }
 });
 
-test("settings route keeps configured flags true while redacting stored onboarding passwords", async () => {
+test("settings route uses server env for issuing readiness while redacting hidden values", async () => {
+  const previousPrefix = process.env.AUTO_TAX_POPBILL_USER_ID_PREFIX;
+  const previousPassword = process.env.AUTO_TAX_POPBILL_SHARED_PASSWORD;
+  process.env.AUTO_TAX_POPBILL_USER_ID_PREFIX = "AUTO_";
+  process.env.AUTO_TAX_POPBILL_SHARED_PASSWORD = "shared-secret";
+
   const settings = createSettings({
-    popbillUserIdPrefix: "AUTO_",
-    popbillSharedPassword: "shared-secret",
+    popbillUserIdPrefix: "",
+    popbillSharedPassword: "",
     operatorContactName: "홍길동",
     operatorContactEmail: "owner@example.com",
     operatorContactTel: "010-1234-5678",
@@ -214,6 +226,7 @@ test("settings route keeps configured flags true while redacting stored onboardi
     assert.equal(payload.renewalCertificatePasswordConfigured, true);
     assert.equal(payload.renewalIssuePasswordConfigured, true);
     assert.equal(payload.operatorConfigured, true);
+    assert.equal(payload.popbillUserIdPrefix, "");
     assert.equal(payload.popbillSharedPassword, "");
     assert.equal(payload.renewalCertificatePassword, "");
     assert.equal(payload.renewalIssuePassword, "");
@@ -227,5 +240,15 @@ test("settings route keeps configured flags true while redacting stored onboardi
         resolve();
       });
     });
+    if (previousPrefix === undefined) {
+      delete process.env.AUTO_TAX_POPBILL_USER_ID_PREFIX;
+    } else {
+      process.env.AUTO_TAX_POPBILL_USER_ID_PREFIX = previousPrefix;
+    }
+    if (previousPassword === undefined) {
+      delete process.env.AUTO_TAX_POPBILL_SHARED_PASSWORD;
+    } else {
+      process.env.AUTO_TAX_POPBILL_SHARED_PASSWORD = previousPassword;
+    }
   }
 });

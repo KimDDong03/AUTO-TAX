@@ -1,4 +1,4 @@
-import { ImapFlow } from "imapflow";
+import { ImapFlow, type SearchObject } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { AppSettings, InvoiceDraft } from "./domain.js";
 import { sendNotification } from "./notifier.js";
@@ -13,6 +13,7 @@ export interface MailSyncResult {
   scheduledDrafts: number;
   unmatched: number;
   failures: number;
+  receivedMonth: string;
 }
 
 export type MailSyncMode = "manual" | "scheduled";
@@ -20,15 +21,83 @@ export type MailSyncMode = "manual" | "scheduled";
 export interface MailSyncOptions {
   mode?: MailSyncMode;
   now?: Date;
+  receivedMonth?: string | null;
 }
 
+const RELEVANT_SUBJECT = "신재생에너지 요금안내";
+
 function isRelevantSubject(subject: string): boolean {
-  return subject.includes("신재생에너지 요금안내");
+  return subject.includes(RELEVANT_SUBJECT);
 }
 
 function toIso(value: Date | string | undefined): string {
   if (!value) return new Date().toISOString();
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function getSeoulYearMonth(now: Date): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit"
+  });
+  const parts = formatter.formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  return `${year}-${month}`;
+}
+
+export function resolveMailSyncReceivedMonth(
+  receivedMonth: string | null | undefined,
+  now: Date = new Date()
+): string {
+  const normalized = receivedMonth?.trim();
+  if (!normalized) {
+    return getSeoulYearMonth(now);
+  }
+
+  if (!/^\d{4}-\d{2}$/.test(normalized)) {
+    throw new Error("수신월은 YYYY-MM 형식이어야 합니다.");
+  }
+
+  const month = Number(normalized.slice(5, 7));
+  if (month < 1 || month > 12) {
+    throw new Error("수신월은 YYYY-MM 형식이어야 합니다.");
+  }
+
+  return normalized;
+}
+
+export function buildMailSyncMonthRange(receivedMonth: string): { since: Date; before: Date } {
+  const [yearText, monthText] = receivedMonth.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+
+  return {
+    since: new Date(Date.UTC(year, month - 1, 1)),
+    before: new Date(Date.UTC(nextYear, nextMonth - 1, 1))
+  };
+}
+
+export function buildMailSyncSearchQuery(options: {
+  receivedMonth: string;
+  lastSyncedUid: number | null;
+  useCheckpoint: boolean;
+}): SearchObject {
+  const range = buildMailSyncMonthRange(options.receivedMonth);
+  const query: SearchObject = {
+    since: range.since,
+    before: range.before,
+    subject: RELEVANT_SUBJECT
+  };
+
+  if (options.useCheckpoint && options.lastSyncedUid !== null && options.lastSyncedUid > 0) {
+    query.uid = `${options.lastSyncedUid + 1}:*`;
+  }
+
+  return query;
 }
 
 export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}): Promise<MailSyncResult> {
@@ -38,7 +107,11 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
   }
 
   const mode = options.mode ?? "manual";
-  const scheduledAt = toIso(options.now);
+  const now = options.now ?? new Date();
+  const scheduledAt = toIso(now);
+  const receivedMonth = resolveMailSyncReceivedMonth(options.receivedMonth, now);
+  const currentReceivedMonth = getSeoulYearMonth(now);
+  const useCheckpoint = receivedMonth === currentReceivedMonth && !options.receivedMonth;
   const completedBillingMonthSet = new Set((await store.listCompletedBillingMonths()).map((item) => item.billingMonth));
   const result: MailSyncResult = {
     scanned: 0,
@@ -46,7 +119,8 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
     createdDrafts: 0,
     scheduledDrafts: 0,
     unmatched: 0,
-    failures: 0
+    failures: 0,
+    receivedMonth
   };
 
   const client = new ImapFlow({
@@ -67,12 +141,13 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
     connected = true;
     const syncMailboxName = settings.imapMailbox || "INBOX";
     syncStage = "mailbox-open";
-    const mailbox = await client.mailboxOpen(syncMailboxName);
+    await client.mailboxOpen(syncMailboxName);
     const lastSyncedUid = await store.getMailSyncCheckpoint(syncMailboxName);
-    const useUidCheckpoint = lastSyncedUid !== null && lastSyncedUid > 0;
-    const fromSeq = Math.max(1, mailbox.exists - 999);
-    const fetchRange = useUidCheckpoint ? `${lastSyncedUid + 1}:*` : `${fromSeq}:*`;
-    const fetchOptions = useUidCheckpoint ? { uid: true } : undefined;
+    const fetchRange = buildMailSyncSearchQuery({
+      receivedMonth,
+      lastSyncedUid,
+      useCheckpoint
+    });
     let maxSeenUid = lastSyncedUid ?? 0;
 
     syncStage = "fetch-loop";
@@ -81,7 +156,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
       envelope: true,
       source: true,
       internalDate: true
-    }, fetchOptions)) {
+    }, { uid: true })) {
       maxSeenUid = Math.max(maxSeenUid, message.uid ?? 0);
       result.scanned += 1;
       const subject = message.envelope?.subject ?? "";
@@ -302,7 +377,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
     }
 
     syncStage = "checkpoint";
-    if (maxSeenUid > (lastSyncedUid ?? 0)) {
+    if (useCheckpoint && maxSeenUid > (lastSyncedUid ?? 0)) {
       await store.updateMailSyncCheckpoint(syncMailboxName, maxSeenUid);
     }
   } catch (error) {
@@ -314,6 +389,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
       buildPilotLogContext(
         {
           mode,
+          receivedMonth,
           error: messageText
         },
         {
@@ -332,7 +408,8 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
 
   await store.createLog("info", "mail-sync", "메일 동기화를 완료했습니다.", {
     ...result,
-    mode
+    mode,
+    receivedMonth
   });
   return result;
 }

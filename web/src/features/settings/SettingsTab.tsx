@@ -1,14 +1,19 @@
 import React from "react";
+import { RevealIcon } from "../../components/ui";
 import { SettingsAccountSection } from "./SettingsAccountSection";
 import { SettingsDefaultsSection } from "./SettingsDefaultsSection";
 import { SettingsHelperSection } from "./SettingsHelperSection";
-import { SettingsMailSection } from "./SettingsMailSection";
 import type {
   SettingsSidebarModel,
   SettingsTabSectionsModel
 } from "./settingsSectionModels";
 
 export type SettingsTabModel = {
+  context: {
+    userLabel: string;
+    workspaceLabel: string;
+    popbillModeLabel: string;
+  };
   sidebar: SettingsSidebarModel;
   sections: SettingsTabSectionsModel;
 };
@@ -17,10 +22,363 @@ type SettingsTabProps = {
   model: SettingsTabModel;
 };
 
+function parseProgressText(progressText: string) {
+  const match = progressText.match(/(\d+)\s*\/\s*(\d+)/);
+  if (!match) return null;
+
+  const completed = Number(match[1]);
+  const total = Number(match[2]);
+  if (!Number.isFinite(completed) || !Number.isFinite(total) || total <= 0) {
+    return null;
+  }
+
+  return {
+    completed: Math.min(Math.max(completed, 0), total),
+    total
+  };
+}
+
+function getImapServer(mailAddress: string, providerLabel: string) {
+  const normalizedProvider = providerLabel.toLowerCase();
+  const domain = mailAddress.split("@")[1]?.trim().toLowerCase() ?? "";
+
+  if (normalizedProvider.includes("gmail") || domain === "gmail.com") {
+    return "imap.gmail.com";
+  }
+  if (normalizedProvider.includes("naver") || domain === "naver.com") {
+    return "imap.naver.com";
+  }
+  if (
+    normalizedProvider.includes("daum") ||
+    normalizedProvider.includes("kakao") ||
+    domain === "daum.net" ||
+    domain === "kakao.com"
+  ) {
+    return "imap.daum.net";
+  }
+
+  return domain ? `imap.${domain}` : "";
+}
+
+function getAutosaveChipClassName(state: SettingsSidebarModel["settingsAutosaveState"]) {
+  return state === "error"
+    ? "chip chip-danger"
+    : state === "saving" || state === "pending"
+      ? "chip chip-warn"
+      : "chip chip-success";
+}
+
+function SettingsReadinessSummary({ model }: SettingsTabProps) {
+  const sidebar = model.sidebar;
+  const onboarding = model.sections.account.onboarding;
+  const parsedProgress = parseProgressText(onboarding.progressText);
+  const fallbackTotal = sidebar.settingsSections.length;
+  const completed =
+    parsedProgress?.completed ??
+    sidebar.settingsSections.filter((section) => section.done).length;
+  const total = parsedProgress?.total ?? fallbackTotal;
+  const incomplete = Math.max(total - completed, 0);
+  const reviewCount = sidebar.settingsSections.filter((section) => !section.done).length;
+  const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const helperCheckedAt = model.sections.helper.helperStatus.checkedAt;
+  const lastUpdate = helperCheckedAt
+    ? model.sections.helper.helperStatus.formatDateTime(helperCheckedAt)
+    : sidebar.settingsAutosaveLabel;
+
+  return (
+    <section className="settings-option1-card settings-option1-status-card">
+      <div className="settings-option1-status-title">
+        <strong>설정 준비 상태</strong>
+        <span className={getAutosaveChipClassName(sidebar.settingsAutosaveState)}>
+          {sidebar.settingsAutosaveLabel}
+        </span>
+      </div>
+      <div className="settings-option1-progress-row">
+        <div className="settings-option1-progress-copy">
+          <span>전체 진행률</span>
+          <strong>
+            {completed} / {total} 완료
+          </strong>
+          <div className="settings-option1-progress-track" aria-hidden="true">
+            <span style={{ width: `${progressPercent}%` }} />
+          </div>
+        </div>
+        <div className="settings-option1-status-metrics">
+          <div>
+            <span>필수 완료</span>
+            <strong>{completed}</strong>
+          </div>
+          <div>
+            <span>확인 필요</span>
+            <strong>{reviewCount}</strong>
+          </div>
+          <div>
+            <span>미완료</span>
+            <strong>{incomplete}</strong>
+          </div>
+          <div>
+            <span>마지막 업데이트</span>
+            <strong>{lastUpdate}</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SettingsOnboardingCard({ model }: SettingsTabProps) {
+  const onboarding = model.sections.account.onboarding;
+
+  return (
+    <section className="settings-option1-card settings-option1-reopen-card">
+      <strong>도입 준비 다시 열기</strong>
+      <span>도입 준비를 다시 시작하거나 진행 상태를 확인할 수 있습니다.</span>
+      <button type="button" onClick={onboarding.openOnboarding}>
+        도입 준비 다시 열기
+      </button>
+    </section>
+  );
+}
+
+function SettingsOption1MailDetail({ model }: SettingsTabProps) {
+  const mail = model.sections.mail;
+  const sidebar = model.sidebar;
+  const notificationEnabled = mail.fields.notificationEmailsText.trim().length > 0;
+  const imapServer = getImapServer(
+    mail.fields.mailAddress,
+    mail.detectedMailProviderLabel
+  );
+
+  return (
+    <div className="settings-option1-detail-grid">
+      <section className="settings-option1-card settings-option1-mail-card panel-settings-mail">
+        <div className="settings-option1-card-head">
+          <div>
+            <strong>메일 연결 설정</strong>
+            <span>메일 계정과 읽기 기준을 확인합니다.</span>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={mail.busyKey !== null}
+            onClick={() => void mail.onRunMailSettingsTest()}
+          >
+            {mail.isMailTesting ? "테스트 중" : "연결 테스트"}
+          </button>
+        </div>
+
+        {mail.isMailTesting ? (
+          <div className="settings-action-feedback">
+            <span className="chip chip-warn">테스트 중</span>
+            <span>IMAP/SMTP 연결을 확인하고 있습니다.</span>
+          </div>
+        ) : null}
+
+        <div className="settings-option1-form-grid">
+          <label className="settings-option1-field">
+            메일 계정
+            <input
+              placeholder="billing@company.co.kr"
+              value={mail.fields.mailAddress}
+              onChange={(event) => mail.onMailAddressChange(event.target.value)}
+            />
+          </label>
+          <label className="settings-option1-field">
+            앱 비밀번호
+            <div className="password-field">
+              <input
+                type={mail.mailPasswordReveal.visible ? "text" : "password"}
+                value={mail.fields.mailPassword}
+                onChange={(event) => mail.onMailPasswordChange(event.target.value)}
+                placeholder={
+                  mail.mailPasswordConfigured
+                    ? "변경할 때만 다시 입력"
+                    : "앱 비밀번호 입력"
+                }
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                aria-label={
+                  mail.mailPasswordReveal.visible
+                    ? "앱 비밀번호 숨기기"
+                    : "앱 비밀번호 보기"
+                }
+                onClick={mail.mailPasswordReveal.toggle}
+              >
+                <RevealIcon open={mail.mailPasswordReveal.visible} />
+              </button>
+            </div>
+          </label>
+          <label className="settings-option1-field settings-option1-field-wide">
+            IMAP 서버
+            <input
+              readOnly
+              value={imapServer}
+              placeholder="메일 주소 입력 후 자동 판별"
+            />
+          </label>
+          <label className="settings-option1-field">
+            포트
+            <input readOnly value="993" />
+          </label>
+          <label className="settings-option1-field">
+            보안
+            <select value="SSL/TLS" disabled>
+              <option>SSL/TLS</option>
+            </select>
+          </label>
+          <label className="settings-option1-field settings-option1-field-wide">
+            읽을 폴더
+            <div className="settings-option1-inline-control">
+              <input readOnly value="INVOICE" />
+              <button type="button" className="btn-secondary" disabled>
+                폴더 선택
+              </button>
+            </div>
+          </label>
+          <label className="settings-option1-checkbox">
+            <input
+              type="checkbox"
+              checked={notificationEnabled}
+              onChange={(event) => {
+                if (event.target.checked) {
+                  mail.onNotificationEmailsTextChange(
+                    mail.fields.notificationEmailsText.trim() ||
+                      mail.fields.mailAddress
+                  );
+                } else {
+                  mail.onNotificationEmailsTextChange("");
+                }
+              }}
+            />
+            미매칭 메일 알림 받기
+          </label>
+          {notificationEnabled ? (
+            <label className="settings-option1-field settings-option1-field-wide">
+              알림 수신 메일
+              <textarea
+                rows={3}
+                value={mail.fields.notificationEmailsText}
+                onChange={(event) =>
+                  mail.onNotificationEmailsTextChange(event.target.value)
+                }
+              />
+            </label>
+          ) : null}
+        </div>
+
+        <div className="settings-option1-save-row">
+          <span className="settings-option1-save-indicator">저장</span>
+          <span>{sidebar.settingsAutosaveLabel}. 변경사항은 즉시 적용됩니다.</span>
+        </div>
+      </section>
+
+      <SettingsOption1AccountPanel model={model} />
+    </div>
+  );
+}
+
+function SettingsOption1AccountPanel({ model }: SettingsTabProps) {
+  const accountSection = model.sections.account;
+  const account = accountSection.account;
+  const currentMember = account.organizationMemberItems.find(
+    (item) => item.isCurrentUser
+  );
+  const ownerMember =
+    account.organizationMemberItems.find((item) => item.isOwner)?.member ?? null;
+  const memberRows = account.organizationMemberItems.slice(0, 3);
+  const roleLabel =
+    currentMember?.roleLabel ??
+    (account.canManageOrganizationMembers ? "owner" : "member");
+  const ownerLabel =
+    ownerMember?.displayName || ownerMember?.loginId || model.context.userLabel;
+  const memberCount = Math.max(
+    account.organizationMembers.length,
+    account.canManageOrganizationMembers ? 1 : 0
+  );
+
+  return (
+    <section className="settings-option1-card settings-option1-account-card">
+      <div className="settings-option1-card-head">
+        <div>
+          <strong>계정 / 작업공간</strong>
+          <span>현재 작업공간과 멤버 상태입니다.</span>
+        </div>
+      </div>
+
+      <dl className="settings-option1-account-facts">
+        <div>
+          <dt>작업공간명</dt>
+          <dd>{model.context.workspaceLabel}</dd>
+        </div>
+        <div>
+          <dt>역할</dt>
+          <dd>{roleLabel}</dd>
+        </div>
+        <div>
+          <dt>소유자</dt>
+          <dd>{ownerLabel}</dd>
+        </div>
+        <div>
+          <dt>내 역할</dt>
+          <dd>{currentMember?.member.displayName || model.context.userLabel}</dd>
+        </div>
+      </dl>
+
+      <div className="settings-option1-member-head">
+        <strong>멤버 ({memberCount})</strong>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => model.sidebar.setActiveSettingsSection("account")}
+        >
+          멤버 관리
+        </button>
+      </div>
+      <div className="settings-option1-member-table-wrap">
+        <table className="settings-option1-member-table">
+          <thead>
+            <tr>
+              <th>이름</th>
+              <th>이메일</th>
+              <th>역할</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody>
+            {memberRows.length > 0 ? (
+              memberRows.map((item) => (
+                <tr key={item.member.membershipId}>
+                  <td>{item.member.displayName || "이름 없음"}</td>
+                  <td>{item.member.loginId || "-"}</td>
+                  <td>{item.roleLabel}</td>
+                  <td>활성</td>
+                </tr>
+              ))
+            ) : account.canManageOrganizationMembers ? (
+              <tr>
+                <td>{model.context.userLabel}</td>
+                <td>-</td>
+                <td>{roleLabel}</td>
+                <td>활성</td>
+              </tr>
+            ) : (
+              <tr>
+                <td colSpan={4}>등록된 작업공간 사용자가 없습니다.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function SettingsTabDetail({ model }: SettingsTabProps) {
   switch (model.sidebar.activeSettingsSection) {
     case "gmail":
-      return <SettingsMailSection model={model.sections.mail} />;
+      return <SettingsOption1MailDetail model={model} />;
     case "popbill":
       return <SettingsDefaultsSection model={model.sections.defaults} />;
     case "helper":
@@ -38,50 +396,9 @@ export function SettingsTab({ model }: SettingsTabProps) {
   );
 
   return (
-    <div className="settings-layout">
+    <div className="settings-layout settings-option1-layout">
       <aside className="settings-sidebar-stack">
         <section className="panel settings-sidebar-panel">
-          <header className="panel-header settings-sidebar-header">
-            <div className="settings-sidebar-header-copy">
-              <div className="settings-sidebar-header-top">
-                <span
-                  className={`chip ${
-                    sidebar.setupPendingCount === 0 ? "chip-success" : "chip-warn"
-                  }`}
-                >
-                  {sidebar.setupPendingCount === 0
-                    ? "설정 완료"
-                    : `${sidebar.setupPendingCount}개 남음`}
-                </span>
-                <span
-                  className={`chip ${
-                    sidebar.settingsAutosaveState === "error"
-                      ? "chip-danger"
-                      : sidebar.settingsAutosaveState === "saving"
-                        ? "chip-warn"
-                        : "chip-success"
-                  }`}
-                >
-                  {sidebar.settingsAutosaveLabel}
-                </span>
-              </div>
-              <h2>설정 항목</h2>
-              <p className="settings-sidebar-purpose">
-                {activeSection
-                  ? `현재 ${activeSection.title}을(를) 점검 중입니다.`
-                  : "필요한 항목부터 차례대로 점검합니다."}
-              </p>
-            </div>
-          </header>
-
-          <div className="settings-sidebar-current">
-            <strong>{activeSection?.title ?? "설정"}</strong>
-            <span>
-              {activeSection?.summary ??
-                "메일, 발행 기본값, 헬퍼, 계정을 순서대로 점검합니다."}
-            </span>
-          </div>
-
           <div className="settings-step-list">
             {sidebar.settingsSections.map((section) => (
               <button
@@ -92,18 +409,13 @@ export function SettingsTab({ model }: SettingsTabProps) {
                     : "settings-step-card"
                 }
                 onClick={() => sidebar.setActiveSettingsSection(section.id)}
+                aria-current={
+                  sidebar.activeSettingsSection === section.id ? "page" : undefined
+                }
               >
-                <div className="settings-step-head">
-                  <span className="setup-order">{section.step}</span>
-                  <div className="settings-step-copy">
-                    <strong>{section.title}</strong>
-                    <span>{section.summary}</span>
-                  </div>
-                </div>
-                <span
-                  className={`chip ${section.done ? "chip-success" : "chip-warn"}`}
-                >
-                  {section.done ? "완료" : "입력 필요"}
+                <span className="settings-option1-nav-label">{section.title}</span>
+                <span className="settings-option1-nav-state">
+                  {section.done ? "완료" : "확인 필요"}
                 </span>
               </button>
             ))}
@@ -125,27 +437,25 @@ export function SettingsTab({ model }: SettingsTabProps) {
             <div className="button-row settings-inline-actions">
               <button
                 type="button"
-                onClick={() =>
-                  sidebar.setActiveSettingsSection(sidebar.nextSettingsSection)
-                }
-              >
-                {sidebar.nextSettingsSectionLabel} 열기
-              </button>
-              <button
-                type="button"
                 className="btn-secondary"
-                onClick={sidebar.openCertificates}
+                onClick={sidebar.openOnboarding}
               >
-                인증서 화면 열기
+                도입 준비 다시 열기
               </button>
             </div>
           </div>
         </section>
       </aside>
 
-      <div className="settings-detail">
-        <SettingsTabDetail model={model} />
-      </div>
+      <main className="settings-option1-main">
+        <div className="settings-option1-top-row">
+          <SettingsReadinessSummary model={model} />
+          <SettingsOnboardingCard model={model} />
+        </div>
+        <div className="settings-detail" aria-label={activeSection?.title ?? "설정"}>
+          <SettingsTabDetail model={model} />
+        </div>
+      </main>
     </div>
   );
 }

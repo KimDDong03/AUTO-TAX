@@ -4,6 +4,7 @@ import type { AppSettings, Customer } from "../domain.js";
 import type { AppStore } from "../store-contract.js";
 import type { AuthenticatedAppSession } from "../supabase.js";
 import type { AuthUserSummary } from "../admin-types.js";
+import { createPublicConsultationRequest } from "../consultation-requests.js";
 import type {
   AppRateLimiter,
   CreateEmptyBootstrapWorkspace,
@@ -19,6 +20,16 @@ const publicLoginSchema = z.object({
   password: z.string().min(1).max(256)
 });
 
+const publicConsultationRequestSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  phone: z
+    .string()
+    .trim()
+    .min(7)
+    .max(32)
+    .regex(/^[0-9+\-()\s.]+$/, "전화번호 형식이 올바르지 않습니다.")
+});
+
 type RouteDeps = {
   app: Express;
   store: AppStore | null;
@@ -26,6 +37,7 @@ type RouteDeps = {
   requireAuthContext: RequireAuthContext;
   requireInternalJobAccess: RequireInternalJobAccess;
   publicLoginLimiter: AppRateLimiter;
+  publicConsultationLimiter: AppRateLimiter;
   createSupabaseAdminClient: () => ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>;
   createSupabasePublicClient: () => ReturnType<typeof import("../supabase.js").createSupabasePublicClient>;
   findAuthUserByLoginId: (
@@ -51,6 +63,7 @@ export function registerCoreRoutes(deps: RouteDeps) {
     requireAuthContext,
     requireInternalJobAccess,
     publicLoginLimiter,
+    publicConsultationLimiter,
     createSupabaseAdminClient,
     createSupabasePublicClient,
     findAuthUserByLoginId,
@@ -95,6 +108,16 @@ export function registerCoreRoutes(deps: RouteDeps) {
     res.json({
       session: signInResult.session
     });
+  });
+
+  app.post("/api/public/consultation-requests", publicConsultationLimiter, async (req, res) => {
+    const payload = publicConsultationRequestSchema.parse(req.body ?? {});
+    const request = await createPublicConsultationRequest(createSupabaseAdminClient(), {
+      name: payload.name,
+      phone: payload.phone
+    });
+
+    res.status(201).json({ request });
   });
 
   app.get("/api/bootstrap", async (_req, res) => {

@@ -3,7 +3,16 @@ import type { AddressInfo } from "node:net";
 import test from "node:test";
 import express from "express";
 import { z } from "zod";
-import type { AppSettings, Customer, CustomerInput } from "./domain.js";
+import type {
+  AppSettings,
+  Customer,
+  CustomerContractRenewalCompletion,
+  CustomerContractRenewalDueItem,
+  CustomerInput,
+  CustomerReportDetail,
+  CustomerReportDetailInput
+} from "./domain.js";
+import { CustomerContractRenewalConflictError } from "./customer-contract-renewals.js";
 import { PopbillApiError } from "./popbill-client.js";
 import { registerCustomerPopbillRoutes } from "./routes/customer-popbill-routes.js";
 import type { AppStore } from "./store-contract.js";
@@ -87,10 +96,18 @@ async function withCustomerRoutes(
     customer: Customer;
     settings: AppSettings;
     quitCustomerPopbillMember?: (settings: AppSettings, customer: Customer, reason: string) => Promise<unknown>;
+    getCustomer?: (customerId: number) => Promise<Customer | null> | Customer | null;
     afterDelete?: () => Promise<void> | void;
     afterReset?: () => Promise<Customer> | Customer;
     canEnableAutoIssueForCustomer?: (customerId: number) => Promise<boolean> | boolean;
     saveCustomer?: (input: CustomerInput, customerId?: number) => Promise<Customer> | Customer;
+    getCustomerReportDetail?: (customerId: number, reportYear: number) => Promise<CustomerReportDetail> | CustomerReportDetail;
+    saveCustomerReportDetail?: (customerId: number, input: CustomerReportDetailInput) => Promise<CustomerReportDetail> | CustomerReportDetail;
+    listCustomerContractRenewalsDue?: (currentYearMonth: string) => Promise<CustomerContractRenewalDueItem[]> | CustomerContractRenewalDueItem[];
+    completeCustomerContractRenewal?: (
+      customerId: number,
+      expectedContractEndMonth: string
+    ) => Promise<CustomerContractRenewalCompletion> | CustomerContractRenewalCompletion;
     customerSchema?: z.ZodTypeAny;
     normalizeCustomerInput?: (input: unknown) => CustomerInput;
   },
@@ -103,6 +120,9 @@ async function withCustomerRoutes(
 
   const requestStore = {
     getCustomer: async (customerId: number) => {
+      if (options.getCustomer) {
+        return await options.getCustomer(customerId);
+      }
       assert.equal(customerId, options.customer.id);
       return options.customer;
     },
@@ -131,6 +151,42 @@ async function withCustomerRoutes(
         (await options.saveCustomer?.(input, customerId)) ??
         (() => {
           throw new Error("saveCustomer should not be used in this test");
+        })()
+      );
+    },
+    getCustomerReportDetail: async (customerId: number, reportYear: number) => {
+      calls.events.push("get-report-detail");
+      return (
+        (await options.getCustomerReportDetail?.(customerId, reportYear)) ??
+        (() => {
+          throw new Error("getCustomerReportDetail should not be used in this test");
+        })()
+      );
+    },
+    saveCustomerReportDetail: async (customerId: number, input: CustomerReportDetailInput) => {
+      calls.events.push("save-report-detail");
+      return (
+        (await options.saveCustomerReportDetail?.(customerId, input)) ??
+        (() => {
+          throw new Error("saveCustomerReportDetail should not be used in this test");
+        })()
+      );
+    },
+    listCustomerContractRenewalsDue: async (currentYearMonth: string) => {
+      calls.events.push("list-contract-renewals");
+      return (
+        (await options.listCustomerContractRenewalsDue?.(currentYearMonth)) ??
+        (() => {
+          throw new Error("listCustomerContractRenewalsDue should not be used in this test");
+        })()
+      );
+    },
+    completeCustomerContractRenewal: async (customerId: number, expectedContractEndMonth: string) => {
+      calls.events.push("complete-contract-renewal");
+      return (
+        (await options.completeCustomerContractRenewal?.(customerId, expectedContractEndMonth)) ??
+        (() => {
+          throw new Error("completeCustomerContractRenewal should not be used in this test");
         })()
       );
     },
@@ -214,6 +270,39 @@ function buildCustomerInput(customer: Customer, overrides: Partial<CustomerInput
   };
 }
 
+function buildCustomerReportDetail(overrides: Partial<CustomerReportDetail> = {}): CustomerReportDetail {
+  const customerId = overrides.customerId ?? 1;
+  const reportYear = overrides.reportYear ?? 2026;
+  return {
+    customerId,
+    reportYear,
+    profile: {
+      customerId,
+      certificateRenewalDate: "2026-12-31",
+      hasPersonalGeneralCertificate: true,
+      hasTaxInvoiceBusinessCertificate: false,
+      solarCapacityKw: 123.45,
+      contractStartMonth: "2026-01",
+      contractEndMonth: "2027-01",
+      otherNote: "memo",
+      createdAt: "2026-04-14T00:00:00.000Z",
+      updatedAt: "2026-04-14T00:00:00.000Z"
+    },
+    months: Array.from({ length: 12 }, (_, index) => ({
+      reportYear,
+      reportMonth: index + 1,
+      issueYear: null,
+      issueDate: null,
+      supplyAmount: 0,
+      vatAmount: 0,
+      totalAmount: 0,
+      createdAt: null,
+      updatedAt: null
+    })),
+    ...overrides
+  };
+}
+
 test("customer certificate password endpoint is retired and never returns plaintext", async () => {
   const customer = buildCustomer();
 
@@ -232,6 +321,217 @@ test("customer certificate password endpoint is retired and never returns plaint
         calls.logs.some((entry) => entry.message.includes("공동인증서 비밀번호 재표시 요청을 차단했습니다.")),
         true
       );
+    }
+  );
+});
+
+test("GET customer report detail returns selected year payload", async () => {
+  const customer = buildCustomer();
+  const detail = buildCustomerReportDetail({ customerId: customer.id, reportYear: 2027 });
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      getCustomerReportDetail: (customerId, reportYear) => {
+        assert.equal(customerId, customer.id);
+        assert.equal(reportYear, 2027);
+        return detail;
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/${customer.id}/report-detail?year=2027`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), detail);
+      assert.deepEqual(calls.events, ["get-report-detail"]);
+    }
+  );
+});
+
+test("PUT customer report detail validates and saves report payload", async () => {
+  const customer = buildCustomer();
+  const detail = buildCustomerReportDetail({ customerId: customer.id, reportYear: 2026 });
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      saveCustomerReportDetail: (customerId, input) => {
+        assert.equal(customerId, customer.id);
+        assert.equal(input.reportYear, 2026);
+        assert.equal(input.months.length, 1);
+        assert.equal(input.months[0].reportMonth, 1);
+        assert.equal(input.months[0].supplyAmount, 1000);
+        assert.equal(input.months[0].vatAmount, 100);
+        assert.equal(input.profile.certificateRenewalDate, "2026-12-31");
+        return detail;
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/${customer.id}/report-detail`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reportYear: 2026,
+          profile: {
+            certificateRenewalDate: "2026-12-31",
+            hasPersonalGeneralCertificate: true,
+            hasTaxInvoiceBusinessCertificate: false,
+            solarCapacityKw: 123.45,
+            contractStartMonth: "2026-01",
+            contractEndMonth: "2027-01",
+            otherNote: "memo"
+          },
+          months: [
+            {
+              reportMonth: 1,
+              issueYear: 2026,
+              issueDate: "2026-02-10",
+              supplyAmount: 1000,
+              vatAmount: 100
+            }
+          ]
+        })
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), detail);
+      assert.deepEqual(calls.events, ["save-report-detail"]);
+      assert.equal(calls.logs.some((entry) => entry.message.includes("고객 신고 상세 정보를 저장했습니다.")), true);
+    }
+  );
+});
+
+test("customer report detail endpoints return not found outside workspace scope", async () => {
+  const customer = buildCustomer();
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      getCustomer: async () => null,
+      getCustomerReportDetail: () => {
+        throw new Error("getCustomerReportDetail should not be called");
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/${customer.id}/report-detail?year=2026`);
+      assert.equal(response.status, 404);
+      assert.deepEqual(await response.json(), { error: "고객을 찾지 못했습니다." });
+      assert.deepEqual(calls.events, []);
+    }
+  );
+});
+
+test("GET customer contract renewals returns due list", async () => {
+  const customer = buildCustomer();
+  const dueItems: CustomerContractRenewalDueItem[] = [
+    {
+      customerId: customer.id,
+      customerName: customer.customerName,
+      corpName: customer.corpName,
+      businessNumber: customer.businessNumber,
+      renewalContactMobile: customer.renewalContactMobile,
+      contractStartMonth: "2026-04",
+      contractEndMonth: "2027-04",
+      nextContractStartMonth: "2027-05",
+      nextContractEndMonth: "2028-05",
+      status: "due_this_month"
+    }
+  ];
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      listCustomerContractRenewalsDue: (currentYearMonth) => {
+        assert.match(currentYearMonth, /^\d{4}-\d{2}$/);
+        return dueItems;
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/contract-renewals/due`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), dueItems);
+      assert.deepEqual(calls.events, ["list-contract-renewals"]);
+    }
+  );
+});
+
+test("POST customer contract renewal complete records new period and audit log", async () => {
+  const customer = buildCustomer();
+  const completion: CustomerContractRenewalCompletion = {
+    completed: true,
+    profile: buildCustomerReportDetail({
+      customerId: customer.id,
+      profile: {
+        ...buildCustomerReportDetail({ customerId: customer.id }).profile,
+        contractStartMonth: "2027-06",
+        contractEndMonth: "2028-06"
+      }
+    }).profile,
+    oldContractStartMonth: "2026-05",
+    oldContractEndMonth: "2027-05",
+    newContractStartMonth: "2027-06",
+    newContractEndMonth: "2028-06"
+  };
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      completeCustomerContractRenewal: (customerId, expectedContractEndMonth) => {
+        assert.equal(customerId, customer.id);
+        assert.equal(expectedContractEndMonth, "2027-05");
+        return completion;
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/${customer.id}/contract-renewal/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedContractEndMonth: "2027-05" })
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), completion);
+      assert.deepEqual(calls.events, ["complete-contract-renewal"]);
+      const log = calls.logs.find((entry) => entry.message.includes("고객 계약 갱신 완료"));
+      assert.deepEqual(log?.context, {
+        eventType: "customer-contract-renewal-completed",
+        actorUserId: "user-1",
+        organizationId: "org-1",
+        customerId: customer.id,
+        oldContractStartMonth: "2026-05",
+        oldContractEndMonth: "2027-05",
+        newContractStartMonth: "2027-06",
+        newContractEndMonth: "2028-06"
+      });
+    }
+  );
+});
+
+test("POST customer contract renewal complete returns 409 for stale expected month", async () => {
+  const customer = buildCustomer();
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      completeCustomerContractRenewal: () => {
+        throw new CustomerContractRenewalConflictError();
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/${customer.id}/contract-renewal/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedContractEndMonth: "2027-05" })
+      });
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), {
+        error: "계약 종료월이 변경되었습니다. 새로고침 후 다시 처리하세요."
+      });
+      assert.deepEqual(calls.events, ["complete-contract-renewal"]);
+      assert.equal(calls.logs.length, 0);
     }
   );
 });
@@ -297,7 +597,7 @@ test("delete customer continues when Popbill member is already missing", async (
         customerId: customer.id,
         customerName: customer.customerName,
         environment: "production",
-        error: "팝빌 연동회원이 없습니다. 고객 팝빌 가입을 다시 진행하세요. [POPBILL -99003008]"
+        error: "발행 연동 계정이 없습니다. 고객 발행 연동을 다시 진행하세요. [POPBILL -99003008]"
       });
     }
   );

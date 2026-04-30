@@ -48,8 +48,6 @@ const settingsSchema = z.object({
   mailPollMinutes: z.number().int().min(1).max(1440),
   mailSyncStartAt: z.string().nullable(),
   timezone: z.string(),
-  popbillUserIdPrefix: z.string(),
-  popbillSharedPassword: z.string(),
   operatorContactName: z.string(),
   operatorContactEmail: z.string(),
   operatorContactTel: z.string(),
@@ -248,10 +246,9 @@ export function registerSettingsRoutes(deps: RouteDeps) {
   app.get("/api/settings/popbill-shared-password", async (_req, res) => {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
-    const settings = await requestStore.getSettings();
-    await requestStore.createLog("warn", "settings", "팝빌 기본 비밀번호를 조회했습니다.");
-    res.json({
-      password: settings.popbillSharedPassword
+    await requestStore.createLog("warn", "settings", "발행 연동 공통 비밀번호 재표시 요청을 차단했습니다.");
+    res.status(410).json({
+      error: "발행 연동 공통 비밀번호는 서버 운영값으로만 관리합니다. 변경이 필요하면 서버 환경 변수를 수정하세요."
     });
   });
 

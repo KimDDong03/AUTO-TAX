@@ -17,6 +17,8 @@ This file is for development, deployment, and runtime debugging work. It is not 
 - `AUTO_TAX_POPBILL_LINK_ID`
 - `AUTO_TAX_POPBILL_SECRET_KEY`
 - `AUTO_TAX_POPBILL_IS_TEST`
+- `AUTO_TAX_POPBILL_USER_ID_PREFIX`
+- `AUTO_TAX_POPBILL_SHARED_PASSWORD`
 
 ### Internal jobs and cron
 
@@ -76,7 +78,8 @@ npm run build:vercel
 
 - Production deployment assumes HTTPS end-to-end.
 - `/api/*` responses and Windows local helper responses send `Cache-Control: no-store`.
-- Server-managed secrets include mail credentials, Popbill env values, and the optional encrypted renewal issue password default.
+- Server-managed secrets include mail credentials, Popbill env values, the customer user-id prefix/shared password defaults, and the optional encrypted renewal issue password default.
+- The public consultation form accepts only name and phone. Do not collect mail app passwords, Hometax credentials, or account passwords on the public page.
 - Do not store Hometax credentials, raw certificate files, or certificate passwords on the server.
 - Browser auth follows the current Supabase JWT lifecycle. Invalid refresh-token recovery clears the local session and forces re-login.
 
@@ -106,6 +109,8 @@ When reviewing schema changes:
    - `POST /api/internal/jobs/run`
 4. Business work persists in `job_queue`.
 
+`mail-sync` is dispatched at most once per workspace/month after the workspace's monthly schedule is reached. The default day is the 20th; there is no five-minute mail collection loop.
+
 ### Retention
 
 - Maintenance is checkpointed by `platform_maintenance_runs`, so cron can call it every tick without pruning more than once per UTC day.
@@ -134,7 +139,7 @@ There are two local Windows components:
 
 - Browser-facing HTTP helper
 - Runs on the operator PC
-- Handles certificate listing, local checks, and payment-window/open support
+- Handles certificate listing, browser-selected NPKI upload-session metadata extraction, local checks, and payment-window/open support
 - Stable install path: `%LOCALAPPDATA%\\AUTO-TAX\\renewal-local-helper`
 
 Commands:
@@ -189,6 +194,7 @@ Operational rules:
 
 - Certificate passwords must stay in the current browser/helper or agent context only.
 - Do not write certificate passwords to settings tables, customer certificate rows, onboarding preview rows, or app logs.
+- Raw NPKI files selected during manual customer add must stay inside the browser-to-`127.0.0.1` helper request; persist only extracted certificate metadata and customer fields.
 
 ### Renewal debugging order
 
@@ -213,13 +219,14 @@ Expected response:
 
 ### Manual smoke checklist
 
-1. Customer access portal renders at `/`.
-2. Public login shows the expected error flow on invalid credentials.
-3. Bootstrap loads with the active workspace.
-4. Customer create/edit works.
-5. Mail sync responds.
-6. Draft list loads.
-7. Internal jobs can dispatch and run from the ops UI.
+1. Public portal renders at `/` with 상담 신청 first and existing-customer login second.
+2. Public consultation request accepts name/phone and appears in the ops 상담 신청 list.
+3. Public login shows the expected error flow on invalid credentials.
+4. Bootstrap loads with the active workspace.
+5. Customer create/edit works.
+6. Manual mail sync responds. `POST /api/mail/sync` may include `{ "receivedMonth": "YYYY-MM" }`; if omitted, the server uses the current KST month.
+7. Draft list loads.
+8. Internal jobs can dispatch and run from the ops UI.
 
 ### Scripted smoke
 

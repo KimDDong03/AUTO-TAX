@@ -226,41 +226,96 @@ export type AppDialogState = {
   tone: AppDialogTone;
 };
 
+function parseDialogMessageLine(line: string): { label: string; value: string } | null {
+  const separatorIndex = line.indexOf(":");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const label = line.slice(0, separatorIndex).trim();
+  const value = line.slice(separatorIndex + 1).trim();
+  return label ? { label, value: value || "-" } : null;
+}
+
+function AppDialogMessage(props: { message: string }) {
+  const lines = props.message
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const parsedLines = lines.map((line, index) => ({
+    line,
+    index,
+    detail: parseDialogMessageLine(line)
+  }));
+  const hasDetailRows = parsedLines.some((item) => item.detail);
+
+  if (!hasDetailRows) {
+    return (
+      <p id="app-dialog-message" className="app-dialog-message">
+        {props.message}
+      </p>
+    );
+  }
+
+  return (
+    <div id="app-dialog-message" className="app-dialog-message app-dialog-message-structured">
+      {parsedLines.some((item) => !item.detail) ? (
+        <div className="app-dialog-message-leads">
+          {parsedLines
+            .filter((item) => !item.detail)
+            .map((item) => (
+              <p key={`lead-${item.index}`}>{item.line}</p>
+            ))}
+        </div>
+      ) : null}
+      <dl className="app-dialog-detail-list">
+        {parsedLines
+          .filter(
+            (item): item is { line: string; index: number; detail: { label: string; value: string } } =>
+              item.detail !== null
+          )
+          .map((item) => (
+            <div className="app-dialog-detail-row" key={`detail-${item.index}`}>
+              <dt>{item.detail.label}</dt>
+              <dd>{item.detail.value}</dd>
+            </div>
+          ))}
+      </dl>
+    </div>
+  );
+}
+
 export function AppDialog(props: {
   dialog: AppDialogState;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const toneClassName = props.dialog.tone === "default" ? "" : ` app-dialog-${props.dialog.tone}`;
+  const kicker =
+    props.dialog.kind === "confirm"
+      ? "확인 필요"
+      : props.dialog.tone === "danger"
+        ? "오류"
+        : props.dialog.tone === "warn"
+          ? "확인"
+          : props.dialog.tone === "success"
+            ? "완료"
+            : "안내";
+
   return (
     <div className="app-dialog-backdrop" role="presentation">
       <section
-        className={props.dialog.tone === "danger" ? "app-dialog app-dialog-danger" : "app-dialog"}
+        className={`app-dialog${toneClassName}`}
         role={props.dialog.kind === "confirm" ? "alertdialog" : "dialog"}
         aria-modal="true"
         aria-labelledby="app-dialog-title"
         aria-describedby="app-dialog-message"
       >
-        <div className="app-dialog-head">
-          <span
-            className={
-              props.dialog.tone === "danger"
-                ? "chip chip-danger"
-                : props.dialog.tone === "warn"
-                  ? "chip chip-warn"
-                  : props.dialog.tone === "success"
-                    ? "chip chip-success"
-                    : "chip"
-            }
-          >
-            {props.dialog.kind === "confirm" ? "확인 필요" : "안내"}
-          </span>
-          <div>
-            <h2 id="app-dialog-title">{props.dialog.title}</h2>
-            <p id="app-dialog-message" className="app-dialog-message">
-              {props.dialog.message}
-            </p>
-          </div>
-        </div>
+        <header className="app-dialog-head">
+          <span className="app-dialog-kicker">{kicker}</span>
+          <h2 id="app-dialog-title">{props.dialog.title}</h2>
+        </header>
+        <AppDialogMessage message={props.dialog.message} />
         <div className="app-dialog-actions">
           {props.dialog.kind === "confirm" ? (
             <button type="button" className="btn-secondary" onClick={props.onCancel}>

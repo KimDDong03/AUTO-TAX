@@ -51,23 +51,6 @@ export const MAIL_PROVIDER_CONFIG: Record<
   }
 };
 
-function shouldShowPopbillPrefixPlaceholder(settings: AppSettings): boolean {
-  const normalizedPrefix = settings.popbillUserIdPrefix.trim().toUpperCase();
-  const isDefaultExample =
-    normalizedPrefix === "" ||
-    normalizedPrefix === "TEST_" ||
-    normalizedPrefix === "HAE_";
-  const hasWorkspacePopbillValues =
-    settings.popbillSharedPasswordConfigured ||
-    Boolean(
-      settings.operatorContactName.trim() ||
-        settings.operatorContactEmail.trim() ||
-        settings.operatorContactTel.trim()
-    );
-
-  return isDefaultExample && !hasWorkspacePopbillValues;
-}
-
 function inferMailProvider(
   settings: Pick<AppSettings, "imapHost" | "smtpHost">
 ): MailProvider {
@@ -142,9 +125,7 @@ export function settingsToForm(settings: AppSettings): SettingsFormState {
     mailPollMinutes: String(settings.mailPollMinutes),
     mailSyncStartAt: "",
     timezone: settings.timezone,
-    popbillUserIdPrefix: shouldShowPopbillPrefixPlaceholder(settings)
-      ? ""
-      : settings.popbillUserIdPrefix,
+    popbillUserIdPrefix: "",
     popbillSharedPassword: "",
     operatorContactName: settings.operatorContactName,
     operatorContactEmail: settings.operatorContactEmail,
@@ -190,8 +171,6 @@ export function buildSettingsPayload(form: SettingsFormState) {
       mailPollMinutes: Number(normalized.mailPollMinutes || 0),
       mailSyncStartAt: normalized.mailSyncStartAt.trim() || null,
       timezone: normalized.timezone.trim(),
-      popbillUserIdPrefix: normalized.popbillUserIdPrefix.trim(),
-      popbillSharedPassword: normalized.popbillSharedPassword.trim(),
       operatorContactName: normalized.operatorContactName.trim(),
       operatorContactEmail: normalized.operatorContactEmail.trim(),
       operatorContactTel: normalized.operatorContactTel.trim(),
@@ -219,8 +198,6 @@ export function buildMailSettingsSavePayload(
       ...payload,
       smtpFromName: savedSettings.smtpFromName,
       mailSyncStartAt: savedSettings.mailSyncStartAt,
-      popbillUserIdPrefix: savedSettings.popbillUserIdPrefix,
-      popbillSharedPassword: "",
       operatorContactName: savedSettings.operatorContactName,
       operatorContactEmail: savedSettings.operatorContactEmail,
       operatorContactTel: savedSettings.operatorContactTel,

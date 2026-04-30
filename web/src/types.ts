@@ -5,6 +5,7 @@ export type OrganizationMemberRole = "owner" | "admin" | "operator" | "viewer";
 export type OrganizationStatus = "trial" | "active" | "suspended" | "churned";
 export type CustomerCertificateKind = "electronic_tax" | "general_personal" | "general_business" | "unknown";
 export type CustomerCertificateLinkSource = "auto" | "manual";
+export type PublicConsultationRequestStatus = "new" | "contacted" | "workspace_opened" | "closed";
 
 export interface AppSettings {
   id: number;
@@ -50,6 +51,17 @@ export interface AppSettings {
   certAlertLastSentAt: string | null;
 }
 
+export interface PublicConsultationRequest {
+  id: string;
+  name: string;
+  phone: string;
+  status: PublicConsultationRequestStatus;
+  note: string;
+  handledBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Customer {
   id: number;
   customerName: string;
@@ -72,6 +84,8 @@ export interface Customer {
   memo: string;
   plantNames: string[];
   matchAddresses: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface CustomerCertificate {
@@ -91,6 +105,86 @@ export interface CustomerCertificate {
   linkSource: CustomerCertificateLinkSource;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CustomerReportProfile {
+  customerId: number;
+  certificateRenewalDate: string | null;
+  hasPersonalGeneralCertificate: boolean;
+  hasTaxInvoiceBusinessCertificate: boolean;
+  solarCapacityKw: number | null;
+  contractStartMonth: string | null;
+  contractEndMonth: string | null;
+  otherNote: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface CustomerReportMonth {
+  reportYear: number;
+  reportMonth: number;
+  issueYear: number | null;
+  issueDate: string | null;
+  supplyAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface CustomerReportDetail {
+  customerId: number;
+  reportYear: number;
+  profile: CustomerReportProfile;
+  months: CustomerReportMonth[];
+}
+
+export type CustomerContractRenewalStatus = "due_this_month" | "overdue";
+
+export interface CustomerContractRenewalDueItem {
+  customerId: number;
+  customerName: string;
+  corpName: string;
+  businessNumber: string;
+  renewalContactMobile: string;
+  contractStartMonth: string;
+  contractEndMonth: string;
+  nextContractStartMonth: string;
+  nextContractEndMonth: string;
+  status: CustomerContractRenewalStatus;
+}
+
+export interface CustomerContractRenewalCompletion {
+  completed: true;
+  profile: CustomerReportProfile;
+  oldContractStartMonth: string;
+  oldContractEndMonth: string;
+  newContractStartMonth: string;
+  newContractEndMonth: string;
+}
+
+export interface CustomerReportProfileInput {
+  certificateRenewalDate: string | null;
+  hasPersonalGeneralCertificate: boolean;
+  hasTaxInvoiceBusinessCertificate: boolean;
+  solarCapacityKw: number | null;
+  contractStartMonth: string | null;
+  contractEndMonth: string | null;
+  otherNote: string;
+}
+
+export interface CustomerReportMonthInput {
+  reportMonth: number;
+  issueYear: number | null;
+  issueDate: string | null;
+  supplyAmount: number;
+  vatAmount: number;
+}
+
+export interface CustomerReportDetailInput {
+  reportYear: number;
+  profile: CustomerReportProfileInput;
+  months: CustomerReportMonthInput[];
 }
 
 export interface CustomerImportProfile {
@@ -159,6 +253,15 @@ export interface InvoiceDraft {
   updatedAt: string;
 }
 
+export interface MailPreviewImageResponse {
+  imageDataUrl: string;
+  width: number;
+  height: number;
+  sourceMessageId: number;
+  generatedFrom: "raw-source-html" | "raw-source-text" | "stored-text-body";
+  cropKind: "kepco-amount-section" | "keyword-window" | "text-keyword-window" | "body-fallback";
+}
+
 export interface LogEntry {
   id: number;
   level: "info" | "warn" | "error";
@@ -224,7 +327,7 @@ export interface RenewalBridgeCertificateSummary {
   validateFrom: string | null;
   detailValidateTo: string | null;
   certDirPath: string | null;
-  listSource?: "bridge-hdd" | "filesystem-hdd" | "ml4web-hdd" | "ml4web-web";
+  listSource?: "bridge-hdd" | "filesystem-hdd" | "ml4web-hdd" | "ml4web-web" | "upload-session";
   supportsPreflight?: boolean;
 }
 

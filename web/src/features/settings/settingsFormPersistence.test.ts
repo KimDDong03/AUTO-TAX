@@ -64,27 +64,29 @@ test("inferMailProviderFromAddress keeps domain-specific overrides", () => {
   assert.equal(inferMailProviderFromAddress("not-an-email", "daum"), "daum");
 });
 
-test("settingsToForm hides default popbill prefix placeholder until workspace values exist", () => {
-  const blankPrefix = settingsToForm(createSettings());
-  const configuredPrefix = settingsToForm(
+test("settingsToForm keeps server-managed issuing values out of the form", () => {
+  const form = settingsToForm(
     createSettings({
+      popbillUserIdPrefix: "TEST_",
       popbillSharedPasswordConfigured: true,
       operatorContactName: "담당자"
     })
   );
 
-  assert.equal(blankPrefix.popbillUserIdPrefix, "");
-  assert.equal(configuredPrefix.popbillUserIdPrefix, "TEST_");
-  assert.equal(blankPrefix.mailProvider, "gmail");
+  assert.equal(form.popbillUserIdPrefix, "");
+  assert.equal(form.popbillSharedPassword, "");
+  assert.equal(form.mailProvider, "gmail");
 });
 
-test("buildSettingsPayload normalizes provider fields and numeric secret input", () => {
+test("buildSettingsPayload omits server-managed issuing prefix and password", () => {
   const { normalized, payload } = buildSettingsPayload({
     ...settingsToForm(createSettings()),
     mailProvider: "gmail",
     mailAddress: "staff@naver.com",
     imapHost: "custom",
     smtpHost: "custom",
+    popbillUserIdPrefix: "OVERRIDE",
+    popbillSharedPassword: "new-secret",
     notificationEmailsText: "a@example.com\n\n b@example.com ",
     renewalIssuePassword: "12a3-45"
   });
@@ -96,6 +98,8 @@ test("buildSettingsPayload normalizes provider fields and numeric secret input",
   assert.equal(payload.mailSyncStartAt, null);
   assert.deepEqual(payload.notificationEmails, ["a@example.com", "b@example.com"]);
   assert.equal(payload.renewalIssuePassword, "12345");
+  assert.equal("popbillUserIdPrefix" in payload, false);
+  assert.equal("popbillSharedPassword" in payload, false);
 });
 
 test("buildMailSettingsSavePayload preserves saved defaults during connection test", () => {
@@ -122,10 +126,10 @@ test("buildMailSettingsSavePayload preserves saved defaults during connection te
 
   const { payload } = buildMailSettingsSavePayload(form, savedSettings);
 
-  assert.equal(payload.popbillUserIdPrefix, "HAE_");
   assert.equal(payload.smtpFromName, "세금계산서봇");
   assert.equal(payload.mailSyncStartAt, "2026-04-16T00:00:00.000Z");
-  assert.equal(payload.popbillSharedPassword, "");
+  assert.equal("popbillUserIdPrefix" in payload, false);
+  assert.equal("popbillSharedPassword" in payload, false);
   assert.equal(payload.operatorContactName, "홍길동");
   assert.equal(payload.operatorContactEmail, "owner@example.com");
   assert.equal(payload.renewalCertificatePassword, "");

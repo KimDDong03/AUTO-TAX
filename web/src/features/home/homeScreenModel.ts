@@ -172,7 +172,7 @@ function buildPriorityCards(input: BuildHomeScreenModelInput): HomePriorityCard[
       key: "blocked-customers",
       title: "발행 준비 막힘",
       value: `${input.blockedCustomerCount}명`,
-      description: "팝빌 가입, 인증서 등록, 만료 상태가 막힌 고객부터 해결합니다.",
+      description: "인증서 등록과 만료 상태가 막힌 고객부터 해결합니다.",
       tone: "danger",
       actionLabel: "막힌 고객 보기",
       actionKey: "blockedCustomers"

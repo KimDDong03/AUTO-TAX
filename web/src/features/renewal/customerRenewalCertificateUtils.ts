@@ -37,6 +37,48 @@ export function deriveCustomerCertificateKind(
   return "unknown";
 }
 
+export function normalizeCustomerCertificateExpireDateKey(value: string | null | undefined): string | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+
+  const compactMatch = text.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (compactMatch) {
+    return `${compactMatch[1]}-${compactMatch[2]}-${compactMatch[3]}`;
+  }
+
+  const separatedMatch = text.match(/^(\d{4})[-./년\s]+(\d{1,2})[-./월\s]+(\d{1,2})/);
+  if (separatedMatch) {
+    const month = separatedMatch[2]?.padStart(2, "0") ?? "01";
+    const day = separatedMatch[3]?.padStart(2, "0") ?? "01";
+    return `${separatedMatch[1]}-${month}-${day}`;
+  }
+
+  const timestamp = new Date(text).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+
+  const parsedDate = new Date(timestamp);
+  const year = parsedDate.getFullYear();
+  const month = `${parsedDate.getMonth() + 1}`.padStart(2, "0");
+  const day = `${parsedDate.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function getCustomerCertificateTodayDateKey(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = `${today.getMonth() + 1}`.padStart(2, "0");
+  const day = `${today.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function isCustomerCertificateExpired(
+  value: string | null | undefined,
+  todayDateKey = getCustomerCertificateTodayDateKey()
+): boolean {
+  const expireDateKey = normalizeCustomerCertificateExpireDateKey(value);
+  return expireDateKey !== null && expireDateKey < todayDateKey;
+}
+
 function normalizeCustomerCertificateFingerprint(value: string | null | undefined): string {
   return String(value ?? "").trim().toLowerCase();
 }

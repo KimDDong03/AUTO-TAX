@@ -27,6 +27,7 @@ test("core internal job routes expose maintenance separately without changing di
       }) as never,
     requireInternalJobAccess: () => "secret",
     publicLoginLimiter: (_req, _res, next) => next(),
+    publicConsultationLimiter: (_req, _res, next) => next(),
     createSupabaseAdminClient: () => ({}) as never,
     createSupabasePublicClient: () =>
       ({

@@ -39,14 +39,21 @@ export function buildElectronicTaxOnboardingCommitNotice(
   const summary = `가져오기 완료 · 신규 ${result.createdCount}건 / 갱신 ${result.updatedCount}건 / 전자세금용 인증서 ${result.linkedCertificateCount}건`;
   const warningSummary =
     result.warnings.length > 0 ? `\n경고 ${result.warnings.length}건이 아래 메시지에 남아 있습니다.` : "";
-  return `${summary}\n다음 단계에서 팝빌 전자세금용 공동인증서 등록까지 이어서 진행해 주세요.${warningSummary}`;
+  return `${summary}\n다음 단계에서 전자세금용 공동인증서 등록까지 이어서 진행해 주세요.${warningSummary}`;
 }
 
 function summarizeElectronicTaxRegistrationFailure(detail: string): string {
   const separatorIndex = detail.indexOf(":");
   const customerName = separatorIndex >= 0 ? detail.slice(0, separatorIndex).trim() : "";
   const rawMessage = separatorIndex >= 0 ? detail.slice(separatorIndex + 1).trim() : detail.trim();
-  const normalizedMessage = rawMessage.replace(/\s+/g, " ");
+  const normalizedMessage = rawMessage
+    .replace(/\s+/g, " ")
+    .replace(/팝빌\s*전자세금용\s*공동인증서/g, "전자세금용 공동인증서")
+    .replace(/팝빌\s*전자세금용\s*인증서/g, "전자세금용 인증서")
+    .replace(/팝빌\s*인증서/g, "전자세금용 인증서")
+    .replace(/팝빌\s*등록/g, "전자세금용 등록")
+    .replace(/팝빌/g, "등록 처리")
+    .replace(/Popbill|POPBILL/g, "등록 처리");
 
   let simplifiedMessage = normalizedMessage;
   if (normalizedMessage.includes("공동인증서 비밀번호가 올바르지 않습니다")) {
@@ -57,7 +64,7 @@ function summarizeElectronicTaxRegistrationFailure(detail: string): string {
   ) {
     simplifiedMessage = "비밀번호 입력창이 활성화되지 않아 자동 등록을 중단했습니다.";
   } else if (normalizedMessage.includes("page.waitForResponse: Timeout")) {
-    simplifiedMessage = "팝빌 등록 확인 응답을 기다리다 시간 초과되었습니다.";
+    simplifiedMessage = "전자세금용 등록 확인 응답을 기다리다 시간 초과되었습니다.";
   } else if (normalizedMessage.includes("선택한 공동인증서 serial이 현재 로컬 인증서와 달라")) {
     simplifiedMessage = "선택한 공동인증서와 현재 로컬 인증서가 일치하지 않습니다.";
   } else if (normalizedMessage.includes("디버그 아티팩트:")) {

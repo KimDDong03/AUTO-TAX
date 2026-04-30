@@ -18,6 +18,8 @@ export type QueueAutoJoinCustomerJobResult = {
 };
 
 const AUTO_JOIN_POPBILL_MAX_ID_RETRIES = 5;
+export const POPBILL_JOIN_SUPPORT_MESSAGE =
+  "발행 연동 가입을 완료하지 못했습니다. AUTO-TAX 운영팀에 문의해 주세요.";
 type PopbillAutoJoinOperation = "check-is-member" | "join-member";
 
 type AutoJoinCustomerDeps = {
@@ -102,7 +104,7 @@ export async function autoJoinCustomerPopbill(
   requestStore: AppStore,
   customer: Customer,
   getSettings: (requestStore: AppStore) => Promise<AppSettings>,
-  getErrorMessage: (error: unknown, fallbackMessage?: string) => string,
+  _getErrorMessage: (error: unknown, fallbackMessage?: string) => string,
   deps: AutoJoinCustomerDeps = {}
 ): Promise<AutoJoinCustomerResult> {
   const checkCustomerMembership = deps.checkIsMember ?? checkIsMember;
@@ -282,10 +284,16 @@ export async function autoJoinCustomerPopbill(
         {
           errorCategory: failureContext ? "external-api" : undefined,
           errorOperation: failureContext?.operation,
-          errorCode: failureContext?.code
+          errorCode: failureContext?.code,
+          supportCategory: "popbill-join",
+          userFacingError: POPBILL_JOIN_SUPPORT_MESSAGE
         }
       )
     );
-    return { customer: failedCustomer, status: "failed", error: getErrorMessage(error, errorMessage) };
+    return {
+      customer: failedCustomer,
+      status: "failed",
+      error: POPBILL_JOIN_SUPPORT_MESSAGE
+    };
   }
 }

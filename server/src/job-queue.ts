@@ -965,7 +965,7 @@ export async function dispatchRecurringJobs(
 
     const integrationRow = integrationByOrganizationId.get(organizationId) ?? {};
     const timeZone = normalizeTimeZone(asNullableString(row.timezone));
-    const scheduledDay = Math.max(1, Math.min(asNumber(row.default_issue_day, 26), 31));
+    const scheduledDay = Math.max(1, Math.min(asNumber(row.default_issue_day, 20), 31));
     const scheduledHour = Math.max(0, Math.min(asNumber(row.default_issue_hour, 9), 23));
     const scheduledMinute = Math.max(0, Math.min(asNumber(row.default_issue_minute, 0), 59));
     const batchKey = createMonthlyBatchKey(now, timeZone, scheduledDay);

@@ -5,8 +5,14 @@ import type {
   Customer,
   CustomerCertificate,
   CustomerCertificateInput,
+  CustomerContractRenewalCompletion,
+  CustomerContractRenewalDueItem,
   CustomerImportProfile,
   CustomerInput,
+  CustomerReportDetail,
+  CustomerReportDetailInput,
+  CustomerReportMonth,
+  CustomerReportProfile,
   DashboardPayload,
   DraftStatus,
   InboxMessage,
@@ -20,6 +26,18 @@ import type {
   PopbillState
 } from "./domain.js";
 import { buildPilotDraftTimeline, buildPilotIssuanceReport, buildPilotLogContext } from "./pilot-issuance.js";
+import {
+  createEmptyCustomerReportProfile,
+  createEmptyCustomerReportMonth,
+  deriveContractEndMonth,
+  ensureCustomerReportDetailMonths,
+  normalizeCustomerReportDetailInput
+} from "./customer-report-detail.js";
+import {
+  buildCustomerContractRenewalDueItem,
+  calculateCompletedContractRenewalPeriod,
+  CustomerContractRenewalConflictError
+} from "./customer-contract-renewals.js";
 import { createSupabaseAdminClient } from "./supabase.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
 import { decryptSecret, encryptSecret } from "./secret-box.js";
@@ -142,10 +160,10 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     smtpFromEmail: asString(integrationRow.smtp_from_email),
     mailConnectionVerifiedAt: asNullableString(settingsRow.mail_connection_verified_at),
     notificationEmails: asStringArray(settingsRow.notification_emails),
-    defaultIssueDay: asNumber(settingsRow.default_issue_day, 26),
+    defaultIssueDay: asNumber(settingsRow.default_issue_day, 20),
     defaultIssueHour: asNumber(settingsRow.default_issue_hour, 9),
     defaultIssueMinute: asNumber(settingsRow.default_issue_minute, 0),
-    mailPollMinutes: asNumber(settingsRow.mail_poll_minutes, 5),
+    mailPollMinutes: asNumber(settingsRow.mail_poll_minutes, 1440),
     mailSyncStartAt: asNullableString(settingsRow.mail_sync_start_at),
     timezone: asString(settingsRow.timezone, "Asia/Seoul"),
     popbillLinkId: asString(integrationRow.popbill_link_id),
@@ -342,6 +360,38 @@ function mapCustomerCertificate(row: Row): CustomerCertificate {
     linkSource: asString(row.link_source, "manual") as CustomerCertificate["linkSource"],
     createdAt: asString(row.created_at, nowIso()),
     updatedAt: asString(row.updated_at, nowIso())
+  };
+}
+
+function mapCustomerReportProfile(row: Row, customerId: number): CustomerReportProfile {
+  const contractStartMonth = asNullableString(row.contract_start_month);
+  return {
+    customerId,
+    certificateRenewalDate: asNullableString(row.certificate_renewal_date),
+    hasPersonalGeneralCertificate: asBoolean(row.has_personal_general_certificate, false),
+    hasTaxInvoiceBusinessCertificate: asBoolean(row.has_tax_invoice_business_certificate, false),
+    solarCapacityKw: row.solar_capacity_kw === null || row.solar_capacity_kw === undefined ? null : asNumber(row.solar_capacity_kw),
+    contractStartMonth,
+    contractEndMonth: deriveContractEndMonth(contractStartMonth),
+    otherNote: asString(row.other_note),
+    createdAt: asNullableString(row.created_at),
+    updatedAt: asNullableString(row.updated_at)
+  };
+}
+
+function mapCustomerReportMonth(row: Row): CustomerReportMonth {
+  const supplyAmount = asNumber(row.supply_amount);
+  const vatAmount = asNumber(row.vat_amount);
+  return {
+    reportYear: asNumber(row.report_year),
+    reportMonth: asNumber(row.report_month),
+    issueYear: row.issue_year === null || row.issue_year === undefined ? null : asNumber(row.issue_year),
+    issueDate: asNullableString(row.issue_date),
+    supplyAmount,
+    vatAmount,
+    totalAmount: supplyAmount + vatAmount,
+    createdAt: asNullableString(row.created_at),
+    updatedAt: asNullableString(row.updated_at)
   };
 }
 
@@ -1019,7 +1069,12 @@ export class SupabaseStore implements AppStore {
     }
     const organizationId = this.requireOrganizationId();
 
-    await assertUniquePopbillUserPrefix(this.client, organizationId, next.popbillUserIdPrefix);
+    if (
+      input.popbillUserIdPrefix !== undefined &&
+      next.popbillUserIdPrefix !== current.popbillUserIdPrefix
+    ) {
+      await assertUniquePopbillUserPrefix(this.client, organizationId, next.popbillUserIdPrefix);
+    }
 
     await assertNoError(
       "조직 설정 저장 실패",
@@ -1427,6 +1482,220 @@ export class SupabaseStore implements AppStore {
       plantNames: [],
       matchAddresses: effectiveMatchAddresses
     });
+  }
+
+  async getCustomerReportDetail(customerId: number, reportYear: number): Promise<CustomerReportDetail> {
+    const customerRow = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!customerRow) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const organizationId = this.requireOrganizationId();
+    const managedCustomerId = asString(customerRow.id);
+    const [profileRow, monthRows] = await Promise.all([
+      assertNoError(
+        "고객 신고 상세 프로필 조회 실패",
+        this.client
+          .from("customer_report_profiles")
+          .select("*")
+          .eq("organization_id", organizationId)
+          .eq("managed_customer_id", managedCustomerId)
+          .maybeSingle()
+      ),
+      assertNoError(
+        "고객 월별 신고 이력 조회 실패",
+        this.client
+          .from("customer_report_months")
+          .select("*")
+          .eq("organization_id", organizationId)
+          .eq("managed_customer_id", managedCustomerId)
+          .eq("report_year", reportYear)
+          .order("report_month", { ascending: true })
+      )
+    ]);
+
+    return ensureCustomerReportDetailMonths({
+      customerId,
+      reportYear,
+      profile: profileRow ? mapCustomerReportProfile(profileRow as Row, customerId) : createEmptyCustomerReportProfile(customerId),
+      months: ((monthRows as Row[]) ?? []).map(mapCustomerReportMonth)
+    });
+  }
+
+  async saveCustomerReportDetail(customerId: number, input: CustomerReportDetailInput): Promise<CustomerReportDetail> {
+    const customerRow = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!customerRow) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const normalized = normalizeCustomerReportDetailInput(input);
+    const timestamp = nowIso();
+    const organizationId = this.requireOrganizationId();
+    const managedCustomerId = asString(customerRow.id);
+    const [profileRow, monthRows] = await Promise.all([
+      assertNoError(
+        "고객 신고 상세 프로필 저장 실패",
+        this.client
+          .from("customer_report_profiles")
+          .upsert(
+            {
+              organization_id: organizationId,
+              managed_customer_id: managedCustomerId,
+              certificate_renewal_date: normalized.profile.certificateRenewalDate,
+              has_personal_general_certificate: normalized.profile.hasPersonalGeneralCertificate,
+              has_tax_invoice_business_certificate: normalized.profile.hasTaxInvoiceBusinessCertificate,
+              solar_capacity_kw: normalized.profile.solarCapacityKw,
+              contract_start_month: normalized.profile.contractStartMonth,
+              contract_end_month: normalized.profile.contractEndMonth,
+              other_note: normalized.profile.otherNote,
+              updated_at: timestamp
+            },
+            { onConflict: "managed_customer_id" }
+          )
+          .select("*")
+          .single()
+      ),
+      assertNoError(
+        "고객 월별 신고 이력 저장 실패",
+        this.client
+          .from("customer_report_months")
+          .upsert(
+            normalized.months.map((month) => ({
+              organization_id: organizationId,
+              managed_customer_id: managedCustomerId,
+              report_year: normalized.reportYear,
+              report_month: month.reportMonth,
+              issue_year: month.issueYear,
+              issue_date: month.issueDate,
+              supply_amount: month.supplyAmount,
+              vat_amount: month.vatAmount,
+              updated_at: timestamp
+            })),
+            { onConflict: "managed_customer_id,report_year,report_month" }
+          )
+          .select("*")
+      )
+    ]);
+
+    return ensureCustomerReportDetailMonths({
+      customerId,
+      reportYear: normalized.reportYear,
+      profile: mapCustomerReportProfile(profileRow as Row, customerId),
+      months: ((monthRows as Row[]) ?? []).map(mapCustomerReportMonth)
+    });
+  }
+
+  async listCustomerContractRenewalsDue(currentYearMonth: string): Promise<CustomerContractRenewalDueItem[]> {
+    await this.initialize();
+    const organizationId = this.requireOrganizationId();
+    const [profileRows, customerRows] = await Promise.all([
+      assertNoError(
+        "갱신 대상 고객 계약 프로필 조회 실패",
+        this.client
+          .from("customer_report_profiles")
+          .select("*")
+          .eq("organization_id", organizationId)
+          .not("contract_start_month", "is", null)
+          .order("contract_end_month", { ascending: true })
+      ),
+      assertNoError(
+        "갱신 대상 고객 조회 실패",
+        this.client
+          .from("managed_customers")
+          .select("*")
+          .eq("organization_id", organizationId)
+      )
+    ]);
+
+    const customersById = new Map((customerRows as Row[]).map((row) => [asString(row.id), row]));
+    return (profileRows as Row[])
+      .map((profileRow) => {
+        const customerRow = customersById.get(asString(profileRow.managed_customer_id));
+        if (!customerRow) {
+          return null;
+        }
+        return buildCustomerContractRenewalDueItem(
+          {
+            customerId: asNumber(customerRow.legacy_id),
+            customerName: asString(customerRow.customer_name),
+            corpName: asString(customerRow.corp_name),
+            businessNumber: asString(customerRow.business_number),
+            renewalContactMobile: asString(customerRow.renewal_contact_mobile),
+            contractStartMonth: asNullableString(profileRow.contract_start_month),
+            contractEndMonth: asNullableString(profileRow.contract_end_month)
+          },
+          currentYearMonth
+        );
+      })
+      .filter((item): item is CustomerContractRenewalDueItem => item !== null)
+      .sort((left, right) =>
+        left.contractEndMonth.localeCompare(right.contractEndMonth) ||
+        left.corpName.localeCompare(right.corpName) ||
+        left.customerName.localeCompare(right.customerName)
+      );
+  }
+
+  async completeCustomerContractRenewal(
+    customerId: number,
+    expectedContractEndMonth: string
+  ): Promise<CustomerContractRenewalCompletion> {
+    await this.initialize();
+    const customerRow = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!customerRow) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const organizationId = this.requireOrganizationId();
+    const managedCustomerId = asString(customerRow.id);
+    const profileRow = await assertNoError(
+      "고객 계약 프로필 조회 실패",
+      this.client
+        .from("customer_report_profiles")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("managed_customer_id", managedCustomerId)
+        .maybeSingle()
+    );
+
+    if (!profileRow) {
+      throw new Error("계약 기간을 계산할 수 없습니다.");
+    }
+
+    const profile = {
+      ...mapCustomerReportProfile(profileRow as Row, customerId),
+      contractEndMonth: asNullableString((profileRow as Row).contract_end_month)
+    };
+    const period = calculateCompletedContractRenewalPeriod(profile, expectedContractEndMonth);
+    const timestamp = nowIso();
+    const updatedRow = await assertNoError(
+      "고객 계약 갱신 완료 저장 실패",
+      this.client
+        .from("customer_report_profiles")
+        .update({
+          contract_start_month: period.newContractStartMonth,
+          contract_end_month: period.newContractEndMonth,
+          updated_at: timestamp
+        })
+        .eq("organization_id", organizationId)
+        .eq("managed_customer_id", managedCustomerId)
+        .eq("contract_start_month", period.oldContractStartMonth)
+        .eq("contract_end_month", period.oldContractEndMonth)
+        .select("*")
+        .maybeSingle()
+    );
+
+    if (!updatedRow) {
+      throw new CustomerContractRenewalConflictError();
+    }
+
+    return {
+      completed: true,
+      profile: mapCustomerReportProfile(updatedRow as Row, customerId),
+      oldContractStartMonth: period.oldContractStartMonth,
+      oldContractEndMonth: period.oldContractEndMonth,
+      newContractStartMonth: period.newContractStartMonth,
+      newContractEndMonth: period.newContractEndMonth
+    };
   }
 
   async upsertCustomerCertificate(input: CustomerCertificateInput): Promise<CustomerCertificate> {

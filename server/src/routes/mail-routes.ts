@@ -1,8 +1,14 @@
 import type { Express } from "express";
+import { z } from "zod";
 import type { AppStore } from "../store-contract.js";
 import type { InvoiceDraft, MailParseStatus } from "../domain.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor } from "../route-types.js";
-import type { MailSyncResult } from "../mail-sync.js";
+import type { MailSyncOptions, MailSyncResult } from "../mail-sync.js";
+
+const mailSyncSchema = z.object({
+  receivedMonth: z.string().trim().regex(/^\d{4}-\d{2}$/).optional(),
+  billingMonth: z.string().trim().regex(/^\d{4}-\d{2}$/).optional()
+});
 
 type RouteDeps = {
   app: Express;
@@ -13,7 +19,7 @@ type RouteDeps = {
     requestStore: AppStore,
     messageId: number
   ) => Promise<{ status: MailParseStatus; draft?: InvoiceDraft | null }>;
-  syncMailbox: (requestStore: AppStore) => Promise<MailSyncResult>;
+  syncMailbox: (requestStore: AppStore, options?: MailSyncOptions) => Promise<MailSyncResult>;
 };
 
 export function registerMailRoutes(deps: RouteDeps) {
@@ -38,10 +44,13 @@ export function registerMailRoutes(deps: RouteDeps) {
     res.json({ ok: true, ...result });
   });
 
-  app.post("/api/mail/sync", async (_req, res) => {
+  app.post("/api/mail/sync", async (req, res) => {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
-    const result = await syncMailbox(requestStore);
+    const payload = mailSyncSchema.parse(req.body ?? {});
+    const result = await syncMailbox(requestStore, {
+      receivedMonth: payload.receivedMonth ?? payload.billingMonth ?? null
+    });
     res.json(result);
   });
 }

@@ -340,7 +340,7 @@ function resolvePathFromRoot(rootDir: string, value: string): string {
 export function toClientSettings(settings: AppSettings): ClientAppSettings {
   const runtimeSettings = applyServerManagedSettings(settings);
   const mailPasswordConfigured = Boolean(trimOrNull(settings.imapPass) || trimOrNull(settings.smtpPass));
-  const popbillSharedPasswordConfigured = Boolean(trimOrNull(settings.popbillSharedPassword));
+  const popbillSharedPasswordConfigured = Boolean(trimOrNull(runtimeSettings.popbillSharedPassword));
   const renewalCertificatePasswordConfigured = Boolean(trimOrNull(settings.renewalCertificatePassword));
   const renewalIssuePasswordConfigured = Boolean(trimOrNull(settings.renewalIssuePassword));
   return {
@@ -367,7 +367,7 @@ export function toClientSettings(settings: AppSettings): ClientAppSettings {
     mailSyncStartAt: settings.mailSyncStartAt,
     timezone: settings.timezone,
     popbillIsTest: runtimeSettings.popbillIsTest,
-    popbillUserIdPrefix: settings.popbillUserIdPrefix,
+    popbillUserIdPrefix: "",
     popbillSharedPassword: "",
     operatorContactName: settings.operatorContactName,
     operatorContactEmail: settings.operatorContactEmail,
@@ -387,7 +387,7 @@ export function toClientSettings(settings: AppSettings): ClientAppSettings {
     renewalCertificatePasswordConfigured,
     renewalIssuePasswordConfigured,
     operatorConfigured: Boolean(
-      settings.popbillUserIdPrefix &&
+      runtimeSettings.popbillUserIdPrefix &&
       popbillSharedPasswordConfigured &&
       settings.operatorContactName &&
       settings.operatorContactEmail &&
@@ -422,10 +422,10 @@ function createEmptySettings(): AppSettings {
     smtpFromEmail: "",
     mailConnectionVerifiedAt: null,
     notificationEmails: [],
-    defaultIssueDay: 26,
+    defaultIssueDay: 20,
     defaultIssueHour: 9,
     defaultIssueMinute: 0,
-    mailPollMinutes: 5,
+    mailPollMinutes: 1440,
     mailSyncStartAt: null,
     timezone: "Asia/Seoul",
     popbillLinkId: "",
@@ -761,6 +761,14 @@ const publicLoginLimiter = createRateLimiter({
   }
 });
 
+const publicConsultationLimiter = createRateLimiter({
+  keyPrefix: "public-consultation",
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: "상담 신청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+  keyGenerator: (req) => resolveRequestIp(req)
+});
+
 const requireInternalJobAccess = createInternalJobAccessGuard({
   hasValidJobSecret
 });
@@ -841,6 +849,7 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     requireAuthContext,
     requireInternalJobAccess,
     publicLoginLimiter,
+    publicConsultationLimiter,
     createSupabaseAdminClient,
     createSupabasePublicClient,
     findAuthUserByLoginId,
@@ -873,8 +882,19 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     app,
     requirePlatformAdmin,
     createSupabaseAdminClient,
+    createOrganizationStore: async ({ organizationId, actorUserId }) => {
+      const requestStore = new SupabaseStore({
+        organizationId,
+        actorUserId: actorUserId ?? undefined,
+        bootstrapOrganization: false
+      });
+      await requestStore.initialize();
+      return requestStore;
+    },
     listOpsWorkspaces,
     getOpsWorkspaceSummaryById,
+    toClientSettings,
+    testMailConnections,
     digitsOnly,
     normalizeLoginId,
     createWorkspaceSeed,

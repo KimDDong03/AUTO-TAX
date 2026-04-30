@@ -3,6 +3,12 @@ import type { z } from "zod";
 import { z as zod } from "zod";
 import type { AppSettings, Customer, CustomerInput } from "../domain.js";
 import type { CertificateRefreshResult } from "../certificate-monitor.js";
+import { MAX_CUSTOMER_REPORT_YEAR, MIN_CUSTOMER_REPORT_YEAR } from "../customer-report-detail.js";
+import {
+  CustomerContractRenewalConflictError,
+  CustomerContractRenewalInvalidPeriodError,
+  getCurrentKstYearMonth
+} from "../customer-contract-renewals.js";
 import { getCertificateExpireDate, getTaxCertURL, isPopbillMemberMissingError, quitMember } from "../popbill-client.js";
 import { RenewalAutomationManager } from "../renewal-automation.js";
 import type { AppStore } from "../store-contract.js";
@@ -110,9 +116,188 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     linkSource: zod.enum(["auto", "manual"]).optional().default("manual")
   });
 
+  const nullableTrimmedStringSchema = zod
+    .union([zod.string(), zod.null(), zod.undefined()])
+    .transform((value) => {
+      const trimmed = typeof value === "string" ? value.trim() : "";
+      return trimmed === "" ? null : trimmed;
+    });
+  const nullableDateStringSchema = nullableTrimmedStringSchema.refine(
+    (value) => value === null || /^\d{4}-\d{2}-\d{2}$/.test(value),
+    "날짜는 YYYY-MM-DD 형식이어야 합니다."
+  );
+  const nullableMonthStringSchema = nullableTrimmedStringSchema.refine(
+    (value) => value === null || /^\d{4}-\d{2}$/.test(value),
+    "월은 YYYY-MM 형식이어야 합니다."
+  );
+  const nullableNonnegativeNumberSchema = zod
+    .union([zod.number(), zod.string(), zod.null(), zod.undefined()])
+    .transform((value, context) => {
+      if (value === null || value === undefined || value === "") {
+        return null;
+      }
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        context.addIssue({
+          code: "custom",
+          message: "0 이상의 숫자여야 합니다."
+        });
+        return zod.NEVER;
+      }
+      return parsed;
+    });
+  const nullableIssueYearSchema = zod
+    .union([zod.number(), zod.string(), zod.null(), zod.undefined()])
+    .transform((value, context) => {
+      if (value === null || value === undefined || value === "") {
+        return null;
+      }
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 1900 || parsed > 2200) {
+        context.addIssue({
+          code: "custom",
+          message: "발행년도는 1900년부터 2200년 사이여야 합니다."
+        });
+        return zod.NEVER;
+      }
+      return parsed;
+    });
+  const reportYearSchema = zod.coerce.number().int().min(MIN_CUSTOMER_REPORT_YEAR).max(MAX_CUSTOMER_REPORT_YEAR);
+  const reportMonthSchema = zod.coerce.number().int().min(1).max(12);
+  const customerReportMonthSchema = zod.object({
+    reportMonth: reportMonthSchema,
+    issueYear: nullableIssueYearSchema,
+    issueDate: nullableDateStringSchema,
+    supplyAmount: zod.coerce.number().finite().min(0).default(0),
+    vatAmount: zod.coerce.number().finite().min(0).default(0)
+  });
+  const customerReportDetailSchema = zod
+    .object({
+      reportYear: reportYearSchema,
+      profile: zod.object({
+        certificateRenewalDate: nullableDateStringSchema,
+        hasPersonalGeneralCertificate: zod.boolean().default(false),
+        hasTaxInvoiceBusinessCertificate: zod.boolean().default(false),
+        solarCapacityKw: nullableNonnegativeNumberSchema,
+        contractStartMonth: nullableMonthStringSchema,
+        contractEndMonth: nullableMonthStringSchema,
+        otherNote: zod.string().trim().max(10000).default("")
+      }),
+      months: zod.array(customerReportMonthSchema).max(12).default([])
+    })
+    .superRefine((value, context) => {
+      const seen = new Set<number>();
+      for (const month of value.months) {
+        if (seen.has(month.reportMonth)) {
+          context.addIssue({
+            code: "custom",
+            path: ["months"],
+            message: `신고 이력 월이 중복되었습니다: ${month.reportMonth}`
+          });
+          return;
+        }
+        seen.add(month.reportMonth);
+      }
+    });
+  const customerContractRenewalCompleteSchema = zod.object({
+    expectedContractEndMonth: nullableMonthStringSchema.refine((value) => value !== null, "예상 계약 종료월이 필요합니다.")
+  });
+
+  function parseCustomerIdParam(value: string): number | null {
+    const customerId = Number(value);
+    return Number.isInteger(customerId) && customerId > 0 ? customerId : null;
+  }
+
+  function getDefaultReportYear(): number {
+    return new Date().getFullYear();
+  }
+
   app.get("/api/customers", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
     res.json((await requestStore.listCustomers()).map(toClientCustomer));
+  });
+
+  app.get("/api/customers/contract-renewals/due", async (_req, res) => {
+    const requestStore = getRequestStore(res, store);
+    res.json(await requestStore.listCustomerContractRenewalsDue(getCurrentKstYearMonth()));
+  });
+
+  app.get("/api/customers/:id/report-detail", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const customerId = parseCustomerIdParam(req.params.id);
+    if (customerId === null) {
+      res.status(400).json({ error: "고객 ID가 올바르지 않습니다." });
+      return;
+    }
+    const reportYear = reportYearSchema.parse(req.query.year ?? getDefaultReportYear());
+    const customer = await requestStore.getCustomer(customerId);
+    if (!customer) {
+      res.status(404).json({ error: "고객을 찾지 못했습니다." });
+      return;
+    }
+    res.json(await requestStore.getCustomerReportDetail(customerId, reportYear));
+  });
+
+  app.put("/api/customers/:id/report-detail", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const customerId = parseCustomerIdParam(req.params.id);
+    if (customerId === null) {
+      res.status(400).json({ error: "고객 ID가 올바르지 않습니다." });
+      return;
+    }
+    const customer = await requestStore.getCustomer(customerId);
+    if (!customer) {
+      res.status(404).json({ error: "고객을 찾지 못했습니다." });
+      return;
+    }
+    const payload = customerReportDetailSchema.parse(req.body ?? {});
+    const detail = await requestStore.saveCustomerReportDetail(customerId, payload);
+    await requestStore.createLog("info", "customers", "고객 신고 상세 정보를 저장했습니다.", {
+      customerId,
+      reportYear: detail.reportYear
+    });
+    res.json(detail);
+  });
+
+  app.post("/api/customers/:id/contract-renewal/complete", async (req, res) => {
+    const authContext = requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const customerId = parseCustomerIdParam(req.params.id);
+    if (customerId === null) {
+      res.status(400).json({ error: "고객 ID가 올바르지 않습니다." });
+      return;
+    }
+
+    const payload = customerContractRenewalCompleteSchema.parse(req.body ?? {});
+    try {
+      const result = await requestStore.completeCustomerContractRenewal(customerId, payload.expectedContractEndMonth);
+      await requestStore.createLog("info", "customers", "고객 계약 갱신 완료를 기록했습니다.", {
+        eventType: "customer-contract-renewal-completed",
+        actorUserId: authContext.userId,
+        organizationId: authContext.activeOrganizationId,
+        customerId,
+        oldContractStartMonth: result.oldContractStartMonth,
+        oldContractEndMonth: result.oldContractEndMonth,
+        newContractStartMonth: result.newContractStartMonth,
+        newContractEndMonth: result.newContractEndMonth
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof CustomerContractRenewalConflictError) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+      if (error instanceof CustomerContractRenewalInvalidPeriodError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      if (error instanceof Error && error.message.includes("고객을 찾지 못했습니다")) {
+        res.status(404).json({ error: "고객을 찾지 못했습니다." });
+        return;
+      }
+      throw error;
+    }
   });
 
   app.get("/api/customer-certificates", async (_req, res) => {
@@ -272,7 +457,7 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
       res.status(400).json({
         ok: false,
         status: autoJoin.status,
-        error: autoJoin.error ?? "팝빌 가입에 실패했습니다.",
+        error: autoJoin.error ?? "발행 연동에 실패했습니다.",
         customer: toClientCustomer(autoJoin.customer)
       });
       return;

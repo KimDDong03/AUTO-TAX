@@ -7,6 +7,22 @@ import type {
 
 type ElectronicTaxOnboardingCertificateRow = CustomerOnboardingWorkbookInput["certificates"][number];
 
+function sanitizeElectronicTaxRegistrationMessage(value: string): string {
+  return value
+    .replace(/팝빌\s*전자세금용\s*공동인증서/g, "전자세금용 공동인증서")
+    .replace(/팝빌\s*전자세금용\s*인증서/g, "전자세금용 인증서")
+    .replace(/팝빌\s*인증서/g, "전자세금용 인증서")
+    .replace(/팝빌\s*등록/g, "전자세금용 등록")
+    .replace(/팝빌/g, "등록 처리")
+    .replace(/Popbill|POPBILL/g, "등록 처리");
+}
+
+function getElectronicTaxRegistrationErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error
+    ? sanitizeElectronicTaxRegistrationMessage(error.message)
+    : fallback;
+}
+
 export async function waitForElectronicTaxOnboardingCommitBatch(options: {
   batchId: string;
   initial?: CustomerOnboardingCommitStartResponse;
@@ -87,14 +103,14 @@ export async function processElectronicTaxOnboardingCertificateRegistrations(opt
         refreshWarnings.push(`${customer.customerName}: ${result.refreshErrorMessage}`);
       }
     } catch (error) {
-      failedDetails.push(`${customer.customerName}: ${error instanceof Error ? error.message : "자동 등록 실패"}`);
+      failedDetails.push(`${customer.customerName}: ${getElectronicTaxRegistrationErrorMessage(error, "자동 등록 실패")}`);
     }
   }
 
   try {
     await options.reloadAll();
   } catch (error) {
-    refreshWarnings.push(`전체 새로고침 실패: ${error instanceof Error ? error.message : "새로고침 실패"}`);
+    refreshWarnings.push(`전체 새로고침 실패: ${getElectronicTaxRegistrationErrorMessage(error, "새로고침 실패")}`);
   }
 
   return {

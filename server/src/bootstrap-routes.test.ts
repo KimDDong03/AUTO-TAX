@@ -129,6 +129,7 @@ test("bootstrap stays slim and mailbox/log data remains on dedicated endpoints",
     requireAuthContext: () => authContext as never,
     requireInternalJobAccess: () => "secret",
     publicLoginLimiter: (_req, _res, next) => next(),
+    publicConsultationLimiter: (_req, _res, next) => next(),
     createSupabaseAdminClient: () => ({}) as never,
     createSupabasePublicClient: () =>
       ({
@@ -185,7 +186,8 @@ test("bootstrap stays slim and mailbox/log data remains on dedicated endpoints",
       createdDrafts: 0,
       scheduledDrafts: 0,
       unmatched: 0,
-      failures: 0
+      failures: 0,
+      receivedMonth: "2026-04"
     })
   });
 
@@ -324,6 +326,7 @@ test("bootstrap redacts stored onboarding passwords while keeping configured fla
     requireAuthContext: () => authContext as never,
     requireInternalJobAccess: () => "secret",
     publicLoginLimiter: (_req, _res, next) => next(),
+    publicConsultationLimiter: (_req, _res, next) => next(),
     createSupabaseAdminClient: () => ({}) as never,
     createSupabasePublicClient: () =>
       ({
@@ -376,6 +379,7 @@ test("bootstrap redacts stored onboarding passwords while keeping configured fla
     assert.equal(payload.settings.renewalCertificatePasswordConfigured, true);
     assert.equal(payload.settings.renewalIssuePasswordConfigured, true);
     assert.equal(payload.settings.operatorConfigured, true);
+    assert.equal(payload.settings.popbillUserIdPrefix, "");
     assert.equal(payload.settings.popbillSharedPassword, "");
     assert.equal(payload.settings.renewalCertificatePassword, "");
     assert.equal(payload.settings.renewalIssuePassword, "");

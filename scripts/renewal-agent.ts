@@ -102,7 +102,7 @@ type BridgeProbeResult = {
         validateFrom: string | null;
         detailValidateTo: string | null;
         certDirPath: string | null;
-        listSource?: "bridge-hdd" | "filesystem-hdd" | "ml4web-hdd" | "ml4web-web";
+        listSource?: "bridge-hdd" | "filesystem-hdd" | "ml4web-hdd" | "ml4web-web" | "upload-session";
         supportsPreflight?: boolean;
       }>;
       error: string | null;

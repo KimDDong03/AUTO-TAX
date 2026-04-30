@@ -29,6 +29,8 @@ This file is the developer reference for the current Supabase model. The migrati
 - `managed_customer_plants`
 - `managed_customer_match_addresses`
 - `customer_certificates`
+- `customer_report_profiles`
+- `customer_report_months`
 
 ### Import and onboarding
 
@@ -46,6 +48,7 @@ This file is the developer reference for the current Supabase model. The migrati
 
 ### Operational state
 
+- `public_consultation_requests`
 - `app_logs`
 - `job_queue`
 - `renewal_agent_heartbeats`
@@ -115,6 +118,11 @@ Important fields:
 - `cert_last_checked_at`
 - `cert_alert_last_sent_at`
 
+Important invariants:
+
+- `default_issue_day` defaults to `20` and controls the monthly automatic `mail-sync` dispatch schedule.
+- `mail_poll_minutes` is retained only for compatibility with older payloads and stored rows. Runtime mail sync must not use it as a polling interval.
+
 ### organization_integrations
 
 Per-workspace secret and integration settings.
@@ -134,7 +142,8 @@ Important fields:
 
 Important invariants:
 
-- Runtime env still overrides live Popbill secrets.
+- Runtime env still overrides live Popbill secrets and customer identity defaults.
+- `popbill_user_id_prefix` and `popbill_shared_password_encrypted` are retained for compatibility/internal storage, but customer workspaces no longer read or edit them; use `AUTO_TAX_POPBILL_USER_ID_PREFIX` and `AUTO_TAX_POPBILL_SHARED_PASSWORD` as the authoritative runtime values.
 - `renewal_issue_password_encrypted` may remain as an encrypted workspace default for the agent path, but it must not be returned to ordinary browser responses.
 - `renewal_certificate_password_encrypted` is legacy/transitional; new code should not rely on server-stored certificate passwords.
 
@@ -222,6 +231,53 @@ Important invariants:
 - `certificate_password_encrypted` is legacy/transitional only; new flows should not store or return certificate passwords from this table.
 - `cert_dir_path` is local metadata, not a certificate payload, and should be masked in logs and errors.
 - RLS is read-scoped to workspace members and write-scoped to workspace editors.
+
+### customer_report_profiles
+
+One editable report-detail profile per managed customer.
+
+Important fields:
+
+- `organization_id`
+- `managed_customer_id`
+- `certificate_renewal_date`
+- `has_personal_general_certificate`
+- `has_tax_invoice_business_certificate`
+- `solar_capacity_kw`
+- `contract_start_month`
+- `contract_end_month`
+- `other_note`
+
+Important invariants:
+
+- There is one profile row per `managed_customer_id`.
+- `contract_end_month` is derived in app code as the same month one year after `contract_start_month`.
+- The Home renewal list uses this profile only: due customers are those whose derived `contract_end_month` is the current KST month or earlier.
+- Renewal completion updates the same profile row by setting the next `contract_start_month` to old `contract_end_month + 1 month`; the next `contract_end_month` remains derived from that new start month.
+- The table stores only operational/reporting detail; it does not store resident registration numbers.
+- RLS is read-scoped to workspace members and write-scoped to workspace editors through the linked customer.
+
+### customer_report_months
+
+Per-customer monthly report history, grouped by report year.
+
+Important fields:
+
+- `organization_id`
+- `managed_customer_id`
+- `report_year`
+- `report_month`
+- `issue_year`
+- `issue_date`
+- `supply_amount`
+- `vat_amount`
+
+Important invariants:
+
+- Uniqueness is `(managed_customer_id, report_year, report_month)`.
+- `report_month` is constrained to `1` through `12`.
+- `total_amount` is not stored. App code calculates it as `supply_amount + vat_amount`.
+- RLS is read-scoped to workspace members and write-scoped to workspace editors through the linked customer.
 
 ## 6. Import And Onboarding Tables
 
@@ -319,6 +375,10 @@ Important fields:
 - `mailbox`
 - `last_uid`
 
+Important invariant:
+
+- Month-bounded IMAP sync can rescan an explicit received month; duplicate `message_uid` handling remains the durable dedupe boundary.
+
 ### inbox_messages
 
 Mail ingestion, parse, and match state.
@@ -391,6 +451,34 @@ Important invariant:
 
 ## 8. Operational Tables
 
+### public_consultation_requests
+
+Anonymous consultation intake queue. It is intentionally not tied to a workspace because the workspace may not exist yet.
+
+Important fields:
+
+- `id`
+- `name`
+- `phone`
+- `status`
+- `note`
+- `handled_by`
+- `created_at`
+- `updated_at`
+
+Current `status` values:
+
+- `new`
+- `contacted`
+- `workspace_opened`
+- `closed`
+
+Important invariants:
+
+- The public form stores only name and phone.
+- It does not create Supabase auth users, organization rows, or pending workspaces.
+- Ops routes update status and notes with the platform admin user recorded in `handled_by`.
+
 ### app_logs
 
 Scoped application log stream.
@@ -408,6 +496,7 @@ Important invariants:
 
 - Organization scoping stays authoritative in `organization_id`.
 - Pilot issuance reporting reuses `app_logs` instead of adding a new reporting table.
+- Customer contract-renewal completion is logged here with old/new contract months and the acting user context; there is no separate renewal history table.
 - Passwords, secrets, and certificate-path-like values should be masked before write and again on read surfaces.
 
 Common `context_json` keys:
@@ -417,11 +506,14 @@ Common `context_json` keys:
 - `customerId`
 - `issueMode`
 - `errorCategory`
+- `errorOperation`
 - `draftSource`
 - `pipeline`
 - `previewSource`
 - `status`
 - `errorCode`
+- `supportCategory`
+- `userFacingError`
 - `errorOperation`
 - `syncStage`
 - `reprocessStage`

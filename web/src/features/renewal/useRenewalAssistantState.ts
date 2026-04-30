@@ -10,6 +10,7 @@ import {
   type LocalRenewalHelperUpgradeState
 } from "../../helper-version";
 import type { RenewalAutomationPayload } from "../../types";
+import { isCustomerCertificateExpired } from "./customerRenewalCertificateUtils";
 
 export type RenewalAgentSnapshot = RenewalAutomationPayload["agent"];
 export type RenewalAgentCertificate = RenewalAgentSnapshot["bridge"]["storageProbe"]["certificates"][number];
@@ -53,7 +54,9 @@ function nextLocalRenewalJobId(): number {
 
 export function buildLocalRenewalBridgeJob(
   result: RenewalAutomationPayload["jobs"][number]["result"],
-  visibleCertificateCount?: number
+  visibleCertificateCount?: number,
+  visibleCertificateLabel = "전자세금용 공동인증서",
+  emptyVisibleCertificateMessage = "전자세금용 공동인증서를 찾지 못했습니다."
 ): RenewalJob {
   const requestedAt = new Date().toISOString();
   const storageProbe = result?.bridge.storageProbe;
@@ -63,8 +66,8 @@ export function buildLocalRenewalBridgeJob(
     ? "공동인증서 불러오기에 실패했습니다."
     : hasVisibleCertificateCount
       ? visibleCertificateCount > 0
-        ? `전자세금용 공동인증서 ${visibleCertificateCount}건을 불러왔습니다.`
-        : "전자세금용 공동인증서를 찾지 못했습니다."
+        ? `${visibleCertificateLabel} ${visibleCertificateCount}건을 불러왔습니다.`
+        : emptyVisibleCertificateMessage
       : `공동인증서 ${storageProbe.certificateCount}건을 불러왔습니다.`;
 
   return {
@@ -276,13 +279,23 @@ export function useRenewalAssistantState({
   );
 
   const syncCustomerRenewalCertificates = useCallback(
-    async (options?: { showAlert?: boolean }) => {
-      ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
+    async (options?: { showAlert?: boolean; skipReadinessCheck?: boolean }) => {
+      if (!options?.skipReadinessCheck) {
+        ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
+      }
 
       const showLoadAlert = options?.showAlert ?? true;
       const response = await requestLocalRenewalBridgeProbe();
       const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
-      const bridgeJob = buildLocalRenewalBridgeJob(response.result, allCertificates.length);
+      const availableCertificates = allCertificates.filter(
+        (certificate) => !isCustomerCertificateExpired(certificate.todate ?? certificate.detailValidateTo ?? null)
+      );
+      const bridgeJob = buildLocalRenewalBridgeJob(
+        response.result,
+        availableCertificates.length,
+        "사용 가능한 공동인증서",
+        "만료되지 않은 공동인증서를 찾지 못했습니다."
+      );
       const helperMessage = bridgeJob.error ?? bridgeJob.summary;
 
       setCustomerRenewalAssistant((prev) =>
@@ -303,13 +316,17 @@ export function useRenewalAssistantState({
       );
 
       if (showLoadAlert && showAlert) {
+        const alertMessage =
+          response.result.bridge.storageProbe.ok && availableCertificates.length > 0
+            ? `사용 가능한 공동인증서 ${availableCertificates.length}건을 불러왔습니다.\n만료된 인증서는 목록에서 제외됩니다.`
+            : response.result.bridge.storageProbe.ok
+              ? "만료되지 않은 공동인증서를 찾지 못했습니다.\n만료된 인증서는 목록에서 제외됩니다."
+              : bridgeJob.error ?? "공동인증서를 불러오지 못했습니다.";
         await showAlert(
-          allCertificates.length > 0
-            ? `공동인증서 ${allCertificates.length}건을 불러왔습니다.\n공동인증서 탭에서 고객 연결과 갱신을 진행할 수 있습니다.`
-            : bridgeJob.error ?? "공동인증서를 불러오지 못했습니다.",
+          alertMessage,
           {
             title: "공동인증서 읽기",
-            tone: allCertificates.length > 0 ? "success" : "danger"
+            tone: availableCertificates.length > 0 ? "success" : response.result.bridge.storageProbe.ok ? "warn" : "danger"
           }
         );
       }

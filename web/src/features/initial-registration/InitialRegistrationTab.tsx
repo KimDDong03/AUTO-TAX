@@ -111,10 +111,10 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
         ? "이 PC에서 전자세금용 공동인증서를 찾지 못했습니다."
         : needsUploadRetry
           ? `검토 ${input.blockedCount}건 수정 후 다시 업로드하세요.`
-          : stage === "certificate" && input.certificatePendingJoinCount > 0
-            ? `팝빌 가입 ${input.certificatePendingJoinCount}건이 진행 중입니다. 가입이 끝나면 전자세금용 등록을 자동으로 이어서 처리합니다.`
-            : stage === "certificate" && input.certificateFailedJoinCount > 0
-              ? `팝빌 가입 확인이 필요한 고객 ${input.certificateFailedJoinCount}건이 있습니다.`
+        : stage === "certificate" && input.certificatePendingJoinCount > 0
+          ? `등록 처리 ${input.certificatePendingJoinCount}건이 진행 중입니다. 완료되면 전자세금용 등록을 자동으로 이어서 처리합니다.`
+          : stage === "certificate" && input.certificateFailedJoinCount > 0
+            ? `등록 처리 확인이 필요한 고객 ${input.certificateFailedJoinCount}건이 있습니다.`
               : undefined;
   const uploadStepStatus: InitialRegistrationStepStatus = needsUploadRetry
     ? "current"
@@ -138,7 +138,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           : "지금 할 일 · 양식 업로드"
         : stage === "commit"
           ? "지금 할 일 · 고객 반영"
-          : "지금 할 일 · 팝빌 전자세금용 등록";
+          : "지금 할 일 · 전자세금용 등록";
   const description = certificateCompleted
     ? "다음 단계로 이동"
     : stage === "download"
@@ -155,9 +155,9 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
             : input.certificateAutoTargetCount > 0
               ? `전자세금용 자동 등록 ${input.certificateAutoTargetCount}건`
               : input.certificatePendingJoinCount > 0
-                ? `팝빌 가입 대기 ${input.certificatePendingJoinCount}건`
+                ? `등록 처리 대기 ${input.certificatePendingJoinCount}건`
                 : input.certificateFailedJoinCount > 0
-                  ? `팝빌 가입 확인 필요 ${input.certificateFailedJoinCount}건`
+                  ? `등록 처리 확인 필요 ${input.certificateFailedJoinCount}건`
                   : certificatePendingCount > 0
                     ? `추가 확인 ${certificatePendingCount}건`
                     : "마무리 확인"
@@ -178,7 +178,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
             : input.certificateAutoTargetCount > 0
               ? "전자세금용 등록 마무리"
               : input.certificatePendingJoinCount > 0
-                ? "팝빌 가입 완료 대기"
+                ? "등록 처리 대기"
                 : input.certificateFailedJoinCount > 0
                   ? "고객 관리에서 확인"
                   : "다음 단계 보기"
@@ -227,7 +227,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
     },
     {
       step: 4,
-      title: "팝빌 전자세금용 등록",
+      title: "전자세금용 등록",
       description: certificateCompleted
         ? "완료"
         : input.certificateAutoTargetCount > 0 && input.certificateRetryCount > 0
@@ -235,7 +235,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           : input.certificateAutoTargetCount > 0
             ? `자동 등록 ${input.certificateAutoTargetCount}건`
             : input.certificatePendingJoinCount > 0
-              ? `팝빌 가입 대기 ${input.certificatePendingJoinCount}건`
+              ? `등록 처리 대기 ${input.certificatePendingJoinCount}건`
               : input.certificateFailedJoinCount > 0
                 ? `가입 확인 ${input.certificateFailedJoinCount}건`
                 : certificatePendingCount > 0
@@ -458,6 +458,19 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   ]
     .filter(Boolean)
     .join(" · ");
+  const previewRows = props.customerOnboardingPreview?.rows ?? [];
+  const blockedPreviewRows = previewRows.filter((row) => row.status === "blocked");
+  const firstBlockedPreviewRow = blockedPreviewRows[0] ?? null;
+  const previewSummaryItems = props.customerOnboardingPreview
+    ? [
+        { label: "전체 고객", value: `${props.customerOnboardingPreview.totalCustomers}건` },
+        { label: "신규", value: `${props.customerOnboardingPreview.createCount}건` },
+        { label: "갱신", value: `${props.customerOnboardingPreview.updateCount}건` },
+        { label: "검토 필요", value: `${props.customerOnboardingPreview.blockedCount}건` },
+        { label: "발전소", value: `${props.customerOnboardingPreview.totalPlants}건` },
+        { label: "인증서", value: `${props.customerOnboardingPreview.totalCertificates}건` }
+      ]
+    : [];
 
   return (
     <div className="initial-screen">
@@ -629,14 +642,14 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               <strong>다음</strong>
               <span className="helper-multiline-text helper-multiline-scroll">
                 {(props.certificatePendingJoinCount ?? 0) > 0
-                  ? `팝빌 가입 대기 ${props.certificatePendingJoinCount ?? 0}건`
+                  ? `등록 처리 대기 ${props.certificatePendingJoinCount ?? 0}건`
                   : ""}
                 {(props.certificatePendingJoinCount ?? 0) > 0 &&
                 props.pendingOnboardingCertificateRegistrationCount > 0
                   ? "\n"
                   : ""}
                 {props.pendingOnboardingCertificateRegistrationCount > 0
-                  ? `팝빌 전자세금용 인증서 등록 ${props.pendingOnboardingCertificateRegistrationCount}건`
+                  ? `전자세금용 인증서 등록 ${props.pendingOnboardingCertificateRegistrationCount}건`
                   : ""}
               </span>
             </div>
@@ -681,38 +694,97 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               <span className="helper-multiline-text helper-multiline-scroll">{props.customerOnboardingPreview.fileErrors.join("\n")}</span>
             </div>
           ) : null}
-          {props.customerOnboardingPreview?.rows.length ? (
-            <details className="initial-onboarding-preview-details">
-              <summary>
-                <span>반영 미리 보기</span>
-                <span className="chip">{props.customerOnboardingPreview.rows.length}건</span>
-              </summary>
-              <div className="ops-list initial-onboarding-preview-list">
-                {props.customerOnboardingPreview.rows.map((row) => {
-                  const toneClass =
-                    row.status === "blocked" ? "chip-danger" : row.status === "update" ? "chip-warn" : "chip-success";
-                  const statusLabel = row.status === "blocked" ? "검토 필요" : row.status === "update" ? "기존 고객 갱신" : "신규 등록";
-
-                  return (
-                    <article key={`customer-onboarding-${row.rowIndex}-${row.businessNumber}`} className="ops-card">
-                      <div className="ops-card-head">
-                        <div>
-                          <strong>{row.corpName || row.customerName || `고객 ${row.rowIndex}행`}</strong>
-                          <span>{row.businessNumber || "-"}</span>
-                        </div>
-                        <span className={`chip ${toneClass}`}>{statusLabel}</span>
-                      </div>
-                      <div className="ops-card-meta">
-                        <span>발전소 {row.plantCount}건</span>
-                        <span>공동인증서 {row.certificateCount}건</span>
-                        {row.errors.length > 0 ? <span className="text-danger">{row.errors.join(" ")}</span> : null}
-                        {row.warnings.length > 0 ? <span className="text-warn">{row.warnings.join(" ")}</span> : null}
-                      </div>
-                    </article>
-                  );
-                })}
+          {previewRows.length > 0 ? (
+            <section className="initial-preview-console" aria-label="고객 초기 등록 미리보기">
+              <div className="initial-preview-summary">
+                {previewSummaryItems.map((item) => (
+                  <div key={item.label} className="initial-preview-summary-card">
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
               </div>
-            </details>
+              <div className="initial-preview-grid">
+                <div className="initial-preview-table-card">
+                  <div className="initial-preview-card-head">
+                    <strong>반영 미리 보기</strong>
+                    <span className="chip">{previewRows.length}건</span>
+                  </div>
+                  <div className="initial-preview-table-wrap">
+                    <table className="responsive-table initial-preview-table">
+                      <thead>
+                        <tr>
+                          <th>행</th>
+                          <th>고객</th>
+                          <th>상태</th>
+                          <th>구성</th>
+                          <th>문제 사유</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows.map((row) => {
+                          const toneClass =
+                            row.status === "blocked" ? "chip-danger" : row.status === "update" ? "chip-warn" : "chip-success";
+                          const statusLabel = row.status === "blocked" ? "검토 필요" : row.status === "update" ? "기존 고객 갱신" : "신규 등록";
+                          const issueText = [...row.errors, ...row.warnings].join(" ") || "-";
+
+                          return (
+                            <tr key={`customer-onboarding-${row.rowIndex}-${row.businessNumber}`} className={row.status === "blocked" ? "is-blocked" : undefined}>
+                              <td data-label="행">{row.rowIndex}</td>
+                              <td data-label="고객">
+                                <div className="initial-preview-customer">
+                                  <strong>{row.corpName || row.customerName || `고객 ${row.rowIndex}행`}</strong>
+                                  <span>{row.businessNumber || "-"}</span>
+                                </div>
+                              </td>
+                              <td data-label="상태">
+                                <span className={`chip ${toneClass}`}>{statusLabel}</span>
+                              </td>
+                              <td data-label="구성">
+                                발전소 {row.plantCount}건 · 인증서 {row.certificateCount}건
+                              </td>
+                              <td data-label="문제 사유">
+                                <span className={row.errors.length > 0 ? "text-danger" : row.warnings.length > 0 ? "text-warn" : undefined}>
+                                  {issueText}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <aside className="initial-preview-blocked-card">
+                  <div className="initial-preview-card-head">
+                    <strong>막힌 행 상세</strong>
+                    <span className={blockedPreviewRows.length > 0 ? "chip chip-danger" : "chip chip-success"}>
+                      {blockedPreviewRows.length}건
+                    </span>
+                  </div>
+                  {firstBlockedPreviewRow ? (
+                    <div className="initial-preview-blocked-body">
+                      <strong>{firstBlockedPreviewRow.corpName || firstBlockedPreviewRow.customerName || `${firstBlockedPreviewRow.rowIndex}행`}</strong>
+                      <span>{firstBlockedPreviewRow.businessNumber || "사업자번호 없음"}</span>
+                      <div className="initial-preview-issue-list">
+                        {firstBlockedPreviewRow.errors.map((error) => (
+                          <p key={`blocked-error-${error}`} className="text-danger">{error}</p>
+                        ))}
+                        {firstBlockedPreviewRow.warnings.map((warning) => (
+                          <p key={`blocked-warning-${warning}`} className="text-warn">{warning}</p>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="context-empty-state tone-success">
+                      <strong>막힌 행이 없습니다.</strong>
+                      <p>미리보기 결과를 확인한 뒤 고객 등록 반영을 진행하면 됩니다.</p>
+                    </div>
+                  )}
+                </aside>
+              </div>
+            </section>
           ) : null}
         </>
       ) : !hasExceptionMessages ? (
@@ -731,7 +803,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             {exceptionStatusSummary ? <span>{exceptionStatusSummary}</span> : null}
           </div>
 
-          <div className="import-layout">
+          <div className="import-layout exception-triage-layout">
             <Panel
               className="panel-initial-unmatched"
               title={`예외 메일 ${props.quickRegisterMessages.length}건`}
@@ -803,6 +875,18 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                       }`}
                     </span>
                   </div>
+                  <div className="quick-register-compare-grid">
+                    <div className="quick-register-compare-card">
+                      <span>메일 기준</span>
+                      <strong>{props.selectedQuickRegisterMessage.parsedData?.plantAddress || props.selectedQuickRegisterMessage.parsedData?.plantName || "-"}</strong>
+                      <p>{props.selectedQuickRegisterMessage.parsedData?.billingMonth || "정산월 없음"} · {props.selectedQuickRegisterMessage.fromAddress || "-"}</p>
+                    </div>
+                    <div className="quick-register-compare-card">
+                      <span>등록 후보</span>
+                      <strong>{props.quickRegisterForm.corpName || props.quickRegisterForm.customerName || "고객 정보 입력 필요"}</strong>
+                      <p>{props.quickRegisterForm.businessNumber || "사업자번호 없음"} · {props.quickRegisterForm.addr || "주소 없음"}</p>
+                    </div>
+                  </div>
                   {canQuickRegisterSelectedMessage ? (
                     <form
                       onSubmit={(event) => {
@@ -850,7 +934,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                         <button type="submit" disabled={props.busyKey !== null}>
                           {props.isQuickRegistering ? "처리 중..." : "예외 고객 등록 후 메일 연결"}
                         </button>
-                        {props.isQuickRegistering ? <span className="field-hint">고객 등록, 팝빌 가입, 메일 연결을 처리하고 있습니다.</span> : null}
+                        {props.isQuickRegistering ? <span className="field-hint">고객 등록과 메일 연결을 처리하고 있습니다.</span> : null}
                       </div>
                     </form>
                   ) : (

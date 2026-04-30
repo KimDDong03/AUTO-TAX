@@ -6,8 +6,24 @@ import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, Reveal
 import { CertificatesScreen } from "./features/certificates/CertificatesScreen";
 import { useCertificatesScreenModel } from "./features/certificates/useCertificatesScreenModel";
 import { matchesCustomerSearchQuery } from "./features/customers/customerSearch";
+import {
+  buildCustomerListFilterContext,
+  buildIssuedDraftsByCustomerId,
+  getCurrentSeoulBillingMonth,
+  matchesCustomerListFilter,
+  type CustomerListFilter
+} from "./features/customers/customerListFilters";
+import {
+  buildCustomerCertificateOnestopDraftFromCertificate,
+  runCustomerCertificateOnestopRegistration,
+  type CustomerCertificateOnestopDraft,
+  type CustomerCertificateOnestopResult
+} from "./features/customers/customerCertificateOnestop";
+import { normalizeCustomerReportDetail } from "./features/customers/customerReportDetail";
+import { downloadSelectedCustomersWorkbook } from "./features/customers/customerSelectedExport";
 import { CustomersTab } from "./features/customers/CustomersTab";
 import { HomeTab } from "./features/home/HomeTab";
+import { downloadCustomerContractRenewalsWorkbook } from "./features/home/customerContractRenewals";
 import { IssuanceTab } from "./features/issuance/IssuanceTab";
 import { buildHomeScreenModel, type HomeActionKey } from "./features/home/homeScreenModel";
 import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
@@ -94,6 +110,7 @@ import {
   formatRenewalVersionSummary
 } from "./features/renewal/renewalDiagnosticsFormatters";
 import {
+  requestLocalCertificateUploadSession,
   requestLocalPopbillCertificateRegistration,
   requestLocalRenewalCertificates,
   requestLocalRenewalBridgeProbe,
@@ -104,25 +121,31 @@ import {
 import { getSessionSafely, supabase } from "./supabase";
 import type {
   BootstrapPayload,
+  AppSettings,
   CompletedBillingMonth,
   Customer,
   CustomerCertificate,
   CustomerCertificateKind,
+  CustomerContractRenewalCompletion,
+  CustomerContractRenewalDueItem,
   CustomerImportProfile,
+  CustomerReportDetail,
   InboxMessage,
   InvoiceDraft,
   LogEntry,
+  MailPreviewImageResponse,
   OpsWorkspaceCreateResponse,
   OpsWorkspaceLimitUpdateResponse,
   OpsWorkspaceSummary,
   PartnerPointsPayload,
+  PublicConsultationRequest,
+  PublicConsultationRequestStatus,
   RenewalInfoSnapshot,
   RenewalAutomationPayload
 } from "./types";
 
 type TabId = "onboarding" | "home" | "issuance" | "customers" | "certificates" | "settings" | "ops";
 
-const ONBOARDING_NAV_STORAGE_KEY_PREFIX = "auto-tax:onboarding-nav:";
 const HELPER_SETUP_STORAGE_KEY_PREFIX = "auto-tax:helper-setup:";
 const CUSTOMER_ONBOARDING_STORAGE_KEY_PREFIX = "auto-tax:customer-onboarding:";
 const HOME_MOCK_REVIEW_TARGET_COUNT = 15;
@@ -294,31 +317,6 @@ function buildHomeMockInboxMessage(index: number): InboxMessage {
       kepcoBranchId: `ORG3AF92FB3_${610 + index}`
     }
   };
-}
-
-function getOnboardingNavStorageKey(organizationId: string): string {
-  return `${ONBOARDING_NAV_STORAGE_KEY_PREFIX}${organizationId}`;
-}
-
-function readOnboardingNavVisibilityPreference(organizationId: string): boolean {
-  if (typeof window === "undefined") return false;
-
-  try {
-    const value = window.localStorage.getItem(getOnboardingNavStorageKey(organizationId));
-    return value === "show" || value === "true" || value === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeOnboardingNavVisibilityPreference(organizationId: string, show: boolean) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage.setItem(getOnboardingNavStorageKey(organizationId), show ? "show" : "hide");
-  } catch {
-    // ignore storage failures in unsupported/private contexts
-  }
 }
 
 function getHelperSetupStorageKey(organizationId: string): string {
@@ -558,7 +556,6 @@ function OnboardingCertificateAutoRunner({
   return null;
 }
 type CustomerDetailTabId = "info" | "history";
-type CustomerListFilter = "all" | "blocked" | "ready" | "expiring" | "unjoined";
 type CustomerRenewalCandidateView = {
   customerId: number;
   customerName: string;
@@ -580,6 +577,15 @@ type OpsConsoleData = {
   renewalAutomation: RenewalAutomationPayload;
   logs: LogEntry[];
   workspaces: OpsWorkspaceSummary[];
+  consultationRequests: PublicConsultationRequest[];
+};
+type OpsLogDiagnosticRow = {
+  label: string;
+  value: string;
+};
+type OpsLogDiagnostic = {
+  title: string;
+  rows: OpsLogDiagnosticRow[];
 };
 
 type InternalJobDispatchResponse = {
@@ -599,8 +605,8 @@ type InternalJobRunResponse = {
   failed: number;
 };
 
-function shouldLoadMailboxData(activeTab: TabId, customerDetailTab: CustomerDetailTabId): boolean {
-  return activeTab === "home" || activeTab === "issuance" || (activeTab === "customers" && customerDetailTab === "history");
+function shouldLoadMailboxData(activeTab: TabId, _customerDetailTab: CustomerDetailTabId): boolean {
+  return activeTab === "home" || activeTab === "issuance" || activeTab === "customers";
 }
 
 type OpsWorkspaceFormState = {
@@ -610,6 +616,20 @@ type OpsWorkspaceFormState = {
   ownerLoginId: string;
   ownerDisplayName: string;
   ownerPassword: string;
+};
+
+type OpsWorkspaceMailSettingsTarget = {
+  organizationId: string;
+  organizationName: string;
+};
+
+type OpsWorkspaceMailSettingsFormState = {
+  mailAddress: string;
+  mailPassword: string;
+  operatorContactName: string;
+  operatorContactTel: string;
+  operatorContactEmail: string;
+  testConnection: boolean;
 };
 
 type CustomerFormState = {
@@ -897,6 +917,15 @@ const baseOpsWorkspaceForm: OpsWorkspaceFormState = {
   ownerPassword: ""
 };
 
+const baseOpsWorkspaceMailSettingsForm: OpsWorkspaceMailSettingsFormState = {
+  mailAddress: "",
+  mailPassword: "",
+  operatorContactName: "",
+  operatorContactTel: "",
+  operatorContactEmail: "",
+  testConnection: true
+};
+
 function getTabFromHash(hash: string): TabId | null {
   const value = hash.replace(/^#/, "");
 
@@ -1118,6 +1147,35 @@ function getOrganizationStatusLabel(status: OpsWorkspaceSummary["organizationSta
   }
 }
 
+function getConsultationStatusLabel(status: PublicConsultationRequestStatus): string {
+  switch (status) {
+    case "new":
+      return "신규";
+    case "contacted":
+      return "연락 완료";
+    case "workspace_opened":
+      return "개통 완료";
+    case "closed":
+      return "종료";
+    default:
+      return status;
+  }
+}
+
+function getConsultationStatusChipClass(status: PublicConsultationRequestStatus): string {
+  switch (status) {
+    case "new":
+      return "chip-warn";
+    case "workspace_opened":
+      return "chip-success";
+    case "closed":
+      return "chip-danger";
+    case "contacted":
+    default:
+      return "";
+  }
+}
+
 function simplifyIssueError(message: string): string {
   if (!message) return "";
 
@@ -1133,7 +1191,7 @@ function simplifyIssueError(message: string): string {
     .trim();
 
   if (normalized.includes("연동회원으로 가입된 사업자 번호가 존재하지 않습니다")) {
-    return `팝빌 가입 필요${suffix}`;
+    return `운영 확인 필요${suffix}`;
   }
 
   if (normalized.includes("포인트 부족")) {
@@ -1153,6 +1211,93 @@ function simplifyIssueError(message: string): string {
   }
 
   return `오류 확인 필요${suffix}`;
+}
+
+function sanitizeSupplierDisplayText(value: string): string {
+  return value
+    .replace(/팝빌\s*전자세금용\s*공동인증서/g, "전자세금용 공동인증서")
+    .replace(/팝빌\s*전자세금용\s*인증서/g, "전자세금용 인증서")
+    .replace(/팝빌\s*인증서/g, "전자세금용 인증서")
+    .replace(/팝빌\s*가입/g, "등록 처리")
+    .replace(/팝빌\s*연동회원/g, "등록 계정")
+    .replace(/팝빌\s*문서/g, "문서")
+    .replace(/팝빌\s*연동/g, "등록 처리")
+    .replace(/팝빌/g, "등록 처리")
+    .replace(/Popbill|POPBILL/g, "등록 처리");
+}
+
+function getDisplayErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const codeSuffix = error.code ? ` (${error.code})` : "";
+    return `${sanitizeSupplierDisplayText(error.message)}${codeSuffix}`;
+  }
+
+  return error instanceof Error
+    ? sanitizeSupplierDisplayText(error.message)
+    : fallback;
+}
+
+function parseLogContextJson(log: LogEntry): Record<string, unknown> | null {
+  if (!log.contextJson.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(log.contextJson) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function getLogContextText(context: Record<string, unknown>, key: string): string {
+  const value = context[key];
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function formatPopbillJoinOperation(value: string): string {
+  switch (value) {
+    case "check-is-member":
+      return "연동회원 가입 여부 확인";
+    case "join-member":
+      return "연동회원 신규가입";
+    default:
+      return value || "-";
+  }
+}
+
+function getOpsPopbillJoinDiagnostic(log: LogEntry): OpsLogDiagnostic | null {
+  const context = parseLogContextJson(log);
+  if (!context || log.scope !== "popbill") {
+    return null;
+  }
+
+  const operation = getLogContextText(context, "errorOperation");
+  const supportCategory = getLogContextText(context, "supportCategory");
+  const isJoinFailure =
+    supportCategory === "popbill-join" ||
+    operation === "join-member" ||
+    operation === "check-is-member" ||
+    log.message.includes("팝빌 자동 가입");
+
+  if (!isJoinFailure) {
+    return null;
+  }
+
+  return {
+    title: "Popbill 가입 오류 원인",
+    rows: [
+      { label: "고객 ID", value: getLogContextText(context, "customerId") || "-" },
+      { label: "단계", value: formatPopbillJoinOperation(operation) },
+      { label: "Popbill 오류 코드", value: getLogContextText(context, "errorCode") || "-" },
+      { label: "Popbill 원문", value: getLogContextText(context, "error") || "-" },
+      { label: "고객 화면 안내", value: getLogContextText(context, "userFacingError") || "AUTO-TAX 운영팀 문의 안내" }
+    ]
+  };
 }
 
 function getParseStatusLabel(status: string): string {
@@ -1237,7 +1382,7 @@ function getCustomerIssueReadiness(customer: Customer): {
       canIssueNow: false,
       label: "준비 필요",
       tone: "danger",
-      reason: "팝빌 가입 필요"
+      reason: "운영 확인 필요"
     };
   }
 
@@ -1289,9 +1434,8 @@ function getCustomerIssueChecklist(customer: Customer): Array<{
     return [
       {
         key: "join-popbill",
-        label: "팝빌 가입 필요",
+        label: "운영 확인 필요",
         tone: "danger",
-        actionLabel: "팝빌 가입",
         actionKind: "join-popbill"
       }
     ];
@@ -1340,28 +1484,6 @@ function getCustomerIssueChecklist(customer: Customer): Array<{
   ];
 }
 
-function matchesCustomerListFilter(customer: Customer, filter: CustomerListFilter): boolean {
-  const readiness = getCustomerIssueReadiness(customer);
-  if (filter === "blocked") {
-    return !readiness.canIssueNow;
-  }
-
-  if (filter === "ready") {
-    return readiness.canIssueNow;
-  }
-
-  if (filter === "expiring") {
-    const days = getDaysUntilDate(customer.popbillCertExpireDate);
-    return days !== null && days >= 0 && days <= 30;
-  }
-
-  if (filter === "unjoined") {
-    return customer.popbillState !== "joined" || !customer.popbillCertRegistered;
-  }
-
-  return true;
-}
-
 function compareCustomersForList(left: Customer, right: Customer): number {
   const leftReadiness = getCustomerIssueReadiness(left);
   const rightReadiness = getCustomerIssueReadiness(right);
@@ -1401,6 +1523,32 @@ function compareCustomersForList(left: Customer, right: Customer): number {
   return left.customerName.localeCompare(right.customerName, "ko");
 }
 
+function buildCurrentCustomerListFilterContext(
+  customers: Customer[],
+  drafts: InvoiceDraft[],
+  contractRenewalDueItems: CustomerContractRenewalDueItem[]
+) {
+  const expiredCertCustomers: Customer[] = [];
+  const expiringSoonCustomers: Customer[] = [];
+
+  for (const customer of customers) {
+    const days = getDaysUntilDate(customer.popbillCertExpireDate);
+    if (days !== null && days < 0) {
+      expiredCertCustomers.push(customer);
+    } else if (days !== null && days >= 0 && days <= 30) {
+      expiringSoonCustomers.push(customer);
+    }
+  }
+
+  return buildCustomerListFilterContext({
+    currentBillingMonth: getCurrentSeoulBillingMonth(),
+    issuedDraftsByCustomerId: buildIssuedDraftsByCustomerId(drafts),
+    expiredCertCustomers,
+    expiringSoonCustomers,
+    contractRenewalDueItems
+  });
+}
+
 function getDaysUntilDate(value: string | null): number | null {
   if (!value) return null;
   const compact = value.replace(/\D/g, "");
@@ -1421,14 +1569,14 @@ function getDaysUntilDate(value: string | null): number | null {
 
 function getCustomerPopbillSummary(customer: Customer): string {
   if (customer.popbillState === "joined") {
-    return `팝빌 연결됨${customer.popbillUserId ? ` · ${customer.popbillUserId}` : ""}`;
+    return "등록 처리 완료";
   }
 
   if (customer.popbillState === "failed") {
-    return "팝빌 연결 실패";
+    return "등록 처리 확인 필요";
   }
 
-  return "팝빌 가입 필요";
+  return "등록 처리 대기";
 }
 
 function getCustomerCertificateSummary(customer: Customer): string {
@@ -1473,7 +1621,7 @@ function formatPartnerPointsMessage(partnerPoints: PartnerPointsPayload | null):
     !partnerPoints.isTest &&
     partnerPoints.message.includes("연동회원으로 가입된 사업자 번호가 존재하지 않습니다")
   ) {
-    return "운영 팝빌 연동 전입니다. 계약/개통 후 조회 가능합니다.";
+    return "운영 개통 전입니다. 계약/개통 후 조회 가능합니다.";
   }
 
   return partnerPoints.message;
@@ -1673,6 +1821,11 @@ export function App() {
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
+  const [consultationName, setConsultationName] = useState("");
+  const [consultationPhone, setConsultationPhone] = useState("");
+  const [consultationNotice, setConsultationNotice] = useState("");
+  const [consultationError, setConsultationError] = useState("");
+  const [consultationBusy, setConsultationBusy] = useState(false);
   const [signInAccount, setSignInAccount] = useState("");
   const [signInPassword, setSignInPassword] = useState("");
   const [recoveryMode, setRecoveryMode] = useState(() =>
@@ -1685,16 +1838,9 @@ export function App() {
   const [opsConsole, setOpsConsole] = useState<OpsConsoleData | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
-    return getTabFromHash(hash) ?? "home";
+    const hashTab = getTabFromHash(hash);
+    return hashTab === "onboarding" ? "home" : hashTab ?? "home";
   });
-  const [onboardingNavPreference, setOnboardingNavPreference] = useState<{
-    organizationId: string | null;
-    showCompletedOnboardingNav: boolean;
-  }>({
-    organizationId: null,
-    showCompletedOnboardingNav: false
-  });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [onboardingModalOpen, setOnboardingModalOpen] = useState(() => {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     return getTabFromHash(hash) === "onboarding";
@@ -1713,6 +1859,10 @@ export function App() {
   const [ownerPasswordResetTarget, setOwnerPasswordResetTarget] =
     useState<OwnerPasswordResetTarget | null>(null);
   const [opsWorkspaceForm, setOpsWorkspaceForm] = useState<OpsWorkspaceFormState>(baseOpsWorkspaceForm);
+  const [opsWorkspaceMailSettingsTarget, setOpsWorkspaceMailSettingsTarget] =
+    useState<OpsWorkspaceMailSettingsTarget | null>(null);
+  const [opsWorkspaceMailSettingsForm, setOpsWorkspaceMailSettingsForm] =
+    useState<OpsWorkspaceMailSettingsFormState>(baseOpsWorkspaceMailSettingsForm);
   const [workspaceLimitEdits, setWorkspaceLimitEdits] = useState<Record<string, string>>({});
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
   const [appDialog, setAppDialog] = useState<AppDialogState | null>(null);
@@ -1723,6 +1873,7 @@ export function App() {
   const [customerImportPreview, setCustomerImportPreview] = useState<CustomerImportPreviewResponse | null>(null);
   const [customerImportProfile, setCustomerImportProfile] = useState<CustomerImportProfile | null>(null);
   const [completedBillingMonths, setCompletedBillingMonths] = useState<CompletedBillingMonth[]>([]);
+  const [customerContractRenewalsDue, setCustomerContractRenewalsDue] = useState<CustomerContractRenewalDueItem[]>([]);
   const [customerImportError, setCustomerImportError] = useState("");
   const [customerImportNotice, setCustomerImportNotice] = useState("");
   const [customerOnboardingFileName, setCustomerOnboardingFileName] = useState("");
@@ -1871,8 +2022,6 @@ export function App() {
     organizationId: null,
     completed: false
   });
-  const showCompletedOnboardingNav =
-    onboardingNavPreference.organizationId === activeOrganizationId && onboardingNavPreference.showCompletedOnboardingNav;
   const customerImportHeaderOptions = customerImportFile
     ? buildCustomerImportColumnOptions(customerImportFile.rows, customerImportHeaderRowIndex)
     : [];
@@ -1906,18 +2055,20 @@ export function App() {
   };
 
   const loadOpsConsole = async (): Promise<OpsConsoleData> => {
-    const [partnerPoints, renewalAutomation, logs, workspaces] = await Promise.all([
+    const [partnerPoints, renewalAutomation, logs, workspaces, consultationRequests] = await Promise.all([
       api<PartnerPointsPayload>("/api/popbill/partner-points"),
       api<RenewalAutomationPayload>("/api/automation/renewal-agent/snapshot"),
       api<LogEntry[]>("/api/logs"),
-      api<OpsWorkspaceSummary[]>("/api/ops/workspaces")
+      api<OpsWorkspaceSummary[]>("/api/ops/workspaces"),
+      api<PublicConsultationRequest[]>("/api/ops/consultation-requests")
     ]);
 
     return {
       partnerPoints,
       renewalAutomation,
       logs,
-      workspaces
+      workspaces,
+      consultationRequests
     };
   };
 
@@ -1976,6 +2127,10 @@ export function App() {
       ? await api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
       : [];
     ensureActiveLoad(loadToken);
+    const nextCustomerContractRenewalsDue = payload.auth.activeOrganizationId
+      ? await api<CustomerContractRenewalDueItem[]>("/api/customers/contract-renewals/due")
+      : [];
+    ensureActiveLoad(loadToken);
     setError("");
     setActiveOrganizationId(payload.auth.activeOrganizationId);
     const nextActiveOrganizationId = payload.auth.activeOrganizationId ?? null;
@@ -1997,6 +2152,7 @@ export function App() {
     customerCertificatePasswordCacheRef.current = {};
     setOpsConsole(nextOpsConsole);
     setCompletedBillingMonths(nextCompletedBillingMonths);
+    setCustomerContractRenewalsDue(nextCustomerContractRenewalsDue);
     setWorkspaceLimitEdits(
       nextOpsConsole
         ? Object.fromEntries(
@@ -2109,7 +2265,7 @@ export function App() {
           }
         }
       } catch (actionError) {
-        setError(actionError instanceof Error ? actionError.message : "작업에 실패했습니다.");
+        setError(getDisplayErrorMessage(actionError, "작업에 실패했습니다."));
       } finally {
         setBusyKey(null);
       }
@@ -2415,6 +2571,7 @@ export function App() {
         invalidateActiveLoads();
         setData(null);
         setOpsConsole(null);
+        setCustomerContractRenewalsDue([]);
         setAppDialog(null);
         appDialogResolverRef.current = null;
         setActiveOrganizationId(null);
@@ -2486,32 +2643,6 @@ export function App() {
 
   useEffect(() => {
     if (!activeOrganizationId) {
-      setOnboardingNavPreference({
-        organizationId: null,
-        showCompletedOnboardingNav: false
-      });
-      return;
-    }
-
-    setOnboardingNavPreference({
-      organizationId: activeOrganizationId,
-      showCompletedOnboardingNav: readOnboardingNavVisibilityPreference(activeOrganizationId)
-    });
-  }, [activeOrganizationId]);
-
-  useEffect(() => {
-    if (!onboardingNavPreference.organizationId) {
-      return;
-    }
-
-    writeOnboardingNavVisibilityPreference(
-      onboardingNavPreference.organizationId,
-      onboardingNavPreference.showCompletedOnboardingNav
-    );
-  }, [onboardingNavPreference]);
-
-  useEffect(() => {
-    if (!activeOrganizationId) {
       setHelperSetupPreference({
         organizationId: null,
         completed: false
@@ -2563,8 +2694,13 @@ export function App() {
 
   useEffect(() => {
     if (!data || activeTab !== "customers" || creatingCustomer) return;
+    const customerListFilterContext = buildCurrentCustomerListFilterContext(
+      data.customers,
+      data.drafts,
+      customerContractRenewalsDue
+    );
     const visibleCustomers = data.customers.filter((customer) => {
-      const matchesFilter = matchesCustomerListFilter(customer, customerListFilter);
+      const matchesFilter = matchesCustomerListFilter(customer, customerListFilter, customerListFilterContext);
       const matchesSearch = matchesCustomerSearchQuery(customer, customerSearchQuery);
       return matchesFilter && matchesSearch;
     }).sort(compareCustomersForList);
@@ -2585,7 +2721,7 @@ export function App() {
     if (!visibleCustomers.some((customer) => customer.id === customerForm.id)) {
       setCustomerForm(customerToForm(visibleCustomers[0]));
     }
-  }, [activeTab, creatingCustomer, customerForm, customerListFilter, customerSearchQuery, data]);
+  }, [activeTab, creatingCustomer, customerContractRenewalsDue, customerForm, customerListFilter, customerSearchQuery, data]);
 
   useEffect(() => {
     if (!data?.auth.activeOrganizationId) {
@@ -2787,6 +2923,29 @@ export function App() {
     }
   };
 
+  const submitConsultationRequest = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try {
+      setConsultationError("");
+      setConsultationNotice("");
+      setConsultationBusy(true);
+      await api("/api/public/consultation-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          name: consultationName.trim(),
+          phone: consultationPhone.trim()
+        })
+      });
+      setConsultationName("");
+      setConsultationPhone("");
+      setConsultationNotice("상담 신청이 접수되었습니다. 운영팀이 연락드리겠습니다.");
+    } catch (requestError) {
+      setConsultationError(getDisplayErrorMessage(requestError, "상담 신청 접수에 실패했습니다."));
+    } finally {
+      setConsultationBusy(false);
+    }
+  };
+
   const signOut = async () => {
     invalidateActiveLoads();
     authSessionRef.current = null;
@@ -2797,11 +2956,14 @@ export function App() {
     setOpsConsole(null);
     setOwnerPasswordResetTarget(null);
     setOwnerPasswordResetForm(createEmptyPasswordResetForm());
+    setOpsWorkspaceMailSettingsTarget(null);
+    setOpsWorkspaceMailSettingsForm(baseOpsWorkspaceMailSettingsForm);
     setRecoveryMode(false);
     setRecoveryPasswordForm(createEmptyPasswordResetForm());
     setAppDialog(null);
     appDialogResolverRef.current = null;
     setActiveOrganizationId(null);
+    setCustomerContractRenewalsDue([]);
     clearSupabaseAuthHash();
     await supabase.auth.signOut();
   };
@@ -2909,6 +3071,35 @@ export function App() {
       customerAddressLookupRef.current = "";
       return;
     }
+  };
+
+  const saveCustomerIssueMode = async (customer: Customer, issueMode: Customer["issueMode"]) => {
+    if (customer.issueMode === issueMode) {
+      return;
+    }
+
+    const savedCustomer = await api<CustomerSaveResponse>(`/api/customers/${customer.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        customerName: customer.customerName,
+        businessNumber: customer.businessNumber,
+        corpName: customer.corpName,
+        ceoName: customer.customerName,
+        addr: customer.addr,
+        bizType: customer.bizType,
+        bizClass: customer.bizClass,
+        issueMode,
+        issueDay: customer.issueDay,
+        issueHour: customer.issueHour,
+        issueMinute: customer.issueMinute,
+        renewalContactMobile: customer.renewalContactMobile,
+        memo: customer.memo,
+        plantNames: customer.plantNames,
+        matchAddresses: customer.matchAddresses
+      })
+    });
+
+    setCustomerForm((prev) => (prev.id === customer.id ? customerToForm(savedCustomer) : prev));
   };
 
   const applyCustomerImportHeaderRow = (nextHeaderRowIndex: number) => {
@@ -3191,8 +3382,8 @@ export function App() {
     setCustomerOnboardingNotice(
       `${buildElectronicTaxOnboardingCommitNotice(result)}\n${
         certificateDone
-          ? "고객 반영 이후 팝빌 전자세금용 공동인증서 등록까지 완료했습니다."
-          : "고객 반영이 끝났습니다. 4단계에서 팝빌 전자세금용 공동인증서 등록을 자동으로 이어서 처리합니다."
+          ? "고객 반영 이후 전자세금용 공동인증서 등록까지 완료했습니다."
+          : "고객 반영이 끝났습니다. 4단계에서 전자세금용 공동인증서 등록을 자동으로 이어서 처리합니다."
       }`
     );
 
@@ -3501,6 +3692,101 @@ export function App() {
         tone: "success"
       }
     );
+  };
+
+  const updateConsultationRequestStatus = async (
+    request: PublicConsultationRequest,
+    status: PublicConsultationRequestStatus
+  ) => {
+    const result = await api<{ request: PublicConsultationRequest }>(
+      `/api/ops/consultation-requests/${request.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status })
+      }
+    );
+
+    setOpsConsole((prev) =>
+      prev
+        ? {
+            ...prev,
+            consultationRequests: prev.consultationRequests.map((item) =>
+              item.id === result.request.id ? result.request : item
+            )
+          }
+        : prev
+    );
+  };
+
+  const openOpsWorkspaceMailSettings = (workspace: OpsWorkspaceSummary) => {
+    setOpsWorkspaceMailSettingsTarget({
+      organizationId: workspace.organizationId,
+      organizationName: workspace.organizationName
+    });
+    setOpsWorkspaceMailSettingsForm((prev) => ({
+      ...baseOpsWorkspaceMailSettingsForm,
+      operatorContactName: workspace.ownerDisplayName ?? prev.operatorContactName
+    }));
+  };
+
+  const cancelOpsWorkspaceMailSettings = () => {
+    setOpsWorkspaceMailSettingsTarget(null);
+    setOpsWorkspaceMailSettingsForm(baseOpsWorkspaceMailSettingsForm);
+  };
+
+  const submitOpsWorkspaceMailSettings = async () => {
+    if (!opsWorkspaceMailSettingsTarget) {
+      throw new Error("메일 설정을 저장할 작업공간을 먼저 선택하세요.");
+    }
+
+    const mailAddress = opsWorkspaceMailSettingsForm.mailAddress.trim();
+    const operatorContactEmail = opsWorkspaceMailSettingsForm.operatorContactEmail.trim();
+    if (!mailAddress) {
+      throw new Error("메일 주소를 입력하세요.");
+    }
+    if (!opsWorkspaceMailSettingsForm.operatorContactName.trim()) {
+      throw new Error("담당자 이름을 입력하세요.");
+    }
+    if (!opsWorkspaceMailSettingsForm.operatorContactTel.trim()) {
+      throw new Error("담당자 연락처를 입력하세요.");
+    }
+    if (!operatorContactEmail) {
+      throw new Error("담당자 이메일을 입력하세요.");
+    }
+
+    const result = await api<{
+      settings: AppSettings;
+      mailTest: null | {
+        imapOk: boolean;
+        imapMessage?: string;
+        smtpOk: boolean;
+        smtpMessage?: string;
+      };
+    }>(`/api/ops/workspaces/${opsWorkspaceMailSettingsTarget.organizationId}/mail-settings`, {
+      method: "PUT",
+      body: JSON.stringify({
+        mailAddress,
+        mailPassword: opsWorkspaceMailSettingsForm.mailPassword,
+        operatorContactName: opsWorkspaceMailSettingsForm.operatorContactName.trim(),
+        operatorContactTel: opsWorkspaceMailSettingsForm.operatorContactTel.trim(),
+        operatorContactEmail,
+        notificationEmails: operatorContactEmail ? [operatorContactEmail] : [],
+        testConnection: opsWorkspaceMailSettingsForm.testConnection
+      })
+    });
+
+    const mailTestSummary = result.mailTest
+      ? `\nIMAP: ${result.mailTest.imapOk ? "성공" : "실패"}${result.mailTest.imapMessage ? ` · ${result.mailTest.imapMessage}` : ""}\nSMTP: ${result.mailTest.smtpOk ? "성공" : "실패"}${result.mailTest.smtpMessage ? ` · ${result.mailTest.smtpMessage}` : ""}`
+      : "\n연결 테스트는 실행하지 않았습니다.";
+
+    await showAppAlert(
+      `${opsWorkspaceMailSettingsTarget.organizationName} 작업공간의 메일/담당자 설정을 저장했습니다.${mailTestSummary}`,
+      {
+        title: "작업공간 메일 설정",
+        tone: result.mailTest && (!result.mailTest.imapOk || !result.mailTest.smtpOk) ? "warn" : "success"
+      }
+    );
+    cancelOpsWorkspaceMailSettings();
   };
 
   const requestRenewalBridgeProbe = async (customerId?: number | null) => {
@@ -3877,13 +4163,13 @@ export function App() {
               await linkCustomerCertificate(createdCustomer.id, certificate, { linkSource: "auto" });
             } catch (error) {
               certificateLinkFailedDetails.push(
-                `${createdCustomer.customerName}: ${error instanceof Error ? error.message : "공동인증서 연결 실패"}`
+                `${createdCustomer.customerName}: ${getDisplayErrorMessage(error, "공동인증서 연결 실패")}`
               );
             }
             existingBusinessNumbers.add(digitsOnly(createdCustomer.businessNumber));
           } catch (error) {
             failedDetails.push(
-              `${certificate.cn || `인증서 #${certificate.index}`}: ${error instanceof Error ? error.message : "고객 생성 실패"}`
+              `${certificate.cn || `인증서 #${certificate.index}`}: ${getDisplayErrorMessage(error, "고객 생성 실패")}`
             );
           }
         }
@@ -3896,7 +4182,7 @@ export function App() {
           const createdCustomer = entry.customer;
           if (createdCustomer.popbillState !== "joined") {
             certificateRegistrationSkippedNames.push(
-              `${createdCustomer.customerName}: ${createdCustomer.popbillState === "failed" ? "팝빌 가입 실패" : "팝빌 가입 미완료"}`
+              `${createdCustomer.customerName}: ${createdCustomer.popbillState === "failed" ? "등록 처리 확인 필요" : "등록 처리 대기"}`
             );
             continue;
           }
@@ -3922,12 +4208,12 @@ export function App() {
               refreshedCertificateStatusCount += 1;
             } catch (error) {
               certificateRegistrationRefreshFailedDetails.push(
-                `${createdCustomer.customerName}: ${error instanceof Error ? error.message : "인증서 상태 반영 실패"}`
+                `${createdCustomer.customerName}: ${getDisplayErrorMessage(error, "인증서 상태 반영 실패")}`
               );
             }
           } catch (error) {
             certificateRegistrationFailedDetails.push(
-              `${createdCustomer.customerName}: ${error instanceof Error ? error.message : "팝빌 인증서 자동 등록 실패"}`
+              `${createdCustomer.customerName}: ${getDisplayErrorMessage(error, "전자세금용 인증서 자동 등록 실패")}`
             );
           }
         }
@@ -3938,7 +4224,7 @@ export function App() {
           existingCount > 0 ? `기존 고객 ${existingCount}건` : null,
           missingDataCount > 0 ? `정보 부족 ${missingDataCount}건` : null,
           failedCount > 0 ? `실패 ${failedCount}건` : null,
-          certificateRegistrationCompletedNames.length > 0 ? `팝빌 인증서 자동 등록 ${certificateRegistrationCompletedNames.length}건` : null,
+          certificateRegistrationCompletedNames.length > 0 ? `전자세금용 인증서 자동 등록 ${certificateRegistrationCompletedNames.length}건` : null,
           certificateRegistrationAlreadyRegisteredNames.length > 0
             ? `이미 등록된 인증서 ${certificateRegistrationAlreadyRegisteredNames.length}건`
             : null
@@ -3965,7 +4251,7 @@ export function App() {
             await load();
           } catch (error) {
             certificateRegistrationRefreshFailedDetails.push(
-              `자동 새로고침 실패: ${error instanceof Error ? error.message : "새로고침 실패"}`
+              `자동 새로고침 실패: ${getDisplayErrorMessage(error, "새로고침 실패")}`
             );
           }
         }
@@ -3974,7 +4260,7 @@ export function App() {
           failedDetails.length > 0 ? `\n\n실패 내역\n${failedDetails.slice(0, 5).join("\n")}` : ""
         }${
           certificateRegistrationCompletedNames.length > 0
-            ? `\n\n팝빌 인증서 자동 등록 완료\n${certificateRegistrationCompletedNames.slice(0, 5).join("\n")}`
+            ? `\n\n전자세금용 인증서 자동 등록 완료\n${certificateRegistrationCompletedNames.slice(0, 5).join("\n")}`
             : ""
         }${
           certificateRegistrationSkippedNames.length > 0
@@ -3986,7 +4272,7 @@ export function App() {
             : ""
         }${
           certificateRegistrationFailedDetails.length > 0
-            ? `\n\n팝빌 인증서 자동 등록 실패\n${certificateRegistrationFailedDetails.slice(0, 5).join("\n")}\n실패한 고객은 고객관리에서 인증서 등록을 다시 시도하면 됩니다.`
+            ? `\n\n전자세금용 인증서 자동 등록 실패\n${certificateRegistrationFailedDetails.slice(0, 5).join("\n")}\n실패한 고객은 고객관리에서 인증서 등록을 다시 시도하면 됩니다.`
             : ""
         }${
           certificateLinkFailedDetails.length > 0
@@ -4408,9 +4694,9 @@ export function App() {
 
   const resetPopbillLink = async (customer: Customer) => {
     const confirmed = await showAppConfirm(
-      `${customer.customerName} 고객의 팝빌 로컬 연결 상태를 초기화합니다.\n팝빌 실제 계정은 삭제되지 않고, 앱 상태만 pending/인증전으로 돌아갑니다.`,
+      `${customer.customerName} 고객의 등록 처리 상태를 초기화합니다.\n외부 계정은 삭제되지 않고, 앱 상태만 pending/인증전으로 돌아갑니다.`,
       {
-        title: "팝빌 연결 상태 초기화",
+        title: "등록 처리 상태 초기화",
         tone: "warn",
         confirmLabel: "초기화"
       }
@@ -4443,9 +4729,9 @@ export function App() {
   const quitPopbillMember = async (customer: Customer) => {
     const popbillEnvironmentLabel = data?.settings.popbillIsTest ? "테스트" : "운영";
     const confirmed = await showAppConfirm(
-      `${customer.customerName} 고객을 팝빌 ${popbillEnvironmentLabel} 서버에서 탈퇴시킵니다.\n이 작업은 팝빌 ${popbillEnvironmentLabel} 환경의 연동회원 자체를 제거합니다.\n계속할까요?`,
+      `${customer.customerName} 고객을 ${popbillEnvironmentLabel} 등록 계정에서 해지합니다.\n이 작업은 ${popbillEnvironmentLabel} 환경의 외부 계정 자체를 제거합니다.\n계속할까요?`,
       {
-        title: `팝빌 ${popbillEnvironmentLabel} 회원 탈퇴`,
+        title: `${popbillEnvironmentLabel} 등록 계정 해지`,
         tone: "danger",
         confirmLabel: "탈퇴시키기"
       }
@@ -4460,7 +4746,7 @@ export function App() {
   const showDraftPopbillInfo = async (draftId: number) => {
     const info = await api<Record<string, unknown>>(`/api/drafts/${draftId}/popbill/info`);
     await showAppAlert(summarizePopbillInfo(info), {
-      title: "팝빌 문서 정보"
+      title: "발행 문서 정보"
     });
   };
 
@@ -4499,6 +4785,47 @@ export function App() {
     await showAppAlert(`검수 건 직접 발행 완료\n대상: ${result.total}건\n성공: ${result.issued}건\n실패: ${result.failed}건`, {
       title: "검수 건 직접 발행 완료",
       tone: "success"
+    });
+  };
+
+  const issueSelectedDrafts = async (draftIds: number[]) => {
+    const selectedDraftIds = new Set(draftIds);
+    const targets =
+      data?.drafts.filter((draft) => selectedDraftIds.has(draft.id) && (draft.status === "review" || draft.status === "failed")) ?? [];
+
+    if (targets.length === 0) {
+      await showAppAlert("선택한 항목 중 직접 발행할 검수 대기/실패 건이 없습니다.", {
+        title: "선택 발행"
+      });
+      return;
+    }
+
+    const confirmed = await showAppConfirm(`선택한 검수 대기/실패 ${targets.length}건을 직접 발행합니다.\n계속할까요?`, {
+      title: "선택 발행 확인",
+      tone: "warn",
+      confirmLabel: "선택 발행"
+    });
+    if (!confirmed) return;
+
+    let issued = 0;
+    let failed = 0;
+    const failedDetails: string[] = [];
+
+    for (const draft of targets) {
+      try {
+        await api(`/api/drafts/${draft.id}/issue`, { method: "POST" });
+        issued += 1;
+      } catch (error) {
+        failed += 1;
+        const message = getDisplayErrorMessage(error, "발행 실패");
+        failedDetails.push(`${draft.customerName}: ${message}`);
+      }
+    }
+
+    const detailLines = failedDetails.length > 0 ? `\n실패 상세:\n${failedDetails.slice(0, 5).join("\n")}` : "";
+    await showAppAlert(`선택 발행 완료\n대상: ${targets.length}건\n성공: ${issued}건\n실패: ${failed}건${detailLines}`, {
+      title: "선택 발행 완료",
+      tone: failed > 0 ? "warn" : "success"
     });
   };
 
@@ -4692,6 +5019,13 @@ export function App() {
     return (
       <>
         <PublicLanding
+          consultationName={consultationName}
+          setConsultationName={setConsultationName}
+          consultationPhone={consultationPhone}
+          setConsultationPhone={setConsultationPhone}
+          consultationNotice={consultationNotice}
+          consultationError={consultationError}
+          consultationBusy={consultationBusy}
           signInAccount={signInAccount}
           setSignInAccount={setSignInAccount}
           signInPassword={signInPassword}
@@ -4699,6 +5033,7 @@ export function App() {
           authNotice={authNotice}
           error={error}
           authBusy={authBusy}
+          onConsultationSubmit={submitConsultationRequest}
           onSignIn={signIn}
         />
         {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
@@ -4772,6 +5107,13 @@ export function App() {
       popbillPendingCustomers.push(customer);
     }
   }
+  const customerListFilterContext = buildCustomerListFilterContext({
+    currentBillingMonth: getCurrentSeoulBillingMonth(),
+    issuedDraftsByCustomerId,
+    expiredCertCustomers,
+    expiringSoonCustomers,
+    contractRenewalDueItems: customerContractRenewalsDue
+  });
   const exceptionMessages = [...data.inbox]
     .filter((message) => isInboxActionable(message))
     .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime());
@@ -4817,7 +5159,7 @@ export function App() {
   const homeRecentInboxMessages = padHomeCollection(recentInboxMessages, HOME_MOCK_RECENT_INBOX_TARGET_COUNT, buildHomeMockInboxMessage);
   const homeRecentIssuedDrafts = padHomeCollection(recentIssuedDrafts, HOME_MOCK_RECENT_ISSUED_TARGET_COUNT, buildHomeMockIssuedDraft);
   const filteredCustomers = data.customers
-    .filter((customer) => matchesCustomerListFilter(customer, customerListFilter))
+    .filter((customer) => matchesCustomerListFilter(customer, customerListFilter, customerListFilterContext))
     .filter((customer) => matchesCustomerSearchQuery(customer, deferredCustomerSearchQuery))
     .sort(compareCustomersForList);
   const customerImportHeaderCandidates = customerImportFile
@@ -4907,6 +5249,7 @@ export function App() {
   const opsJobs = opsConsole?.renewalAutomation.jobs ?? [];
   const opsLogs = opsConsole?.logs ?? [];
   const opsWorkspaces = opsConsole?.workspaces ?? [];
+  const opsConsultationRequests = opsConsole?.consultationRequests ?? [];
   const customerRenewalCandidates: CustomerRenewalCandidateView[] = data.customers
     .filter((customer) => customer.popbillState === "joined" && customer.popbillCertRegistered)
     .map((customer) => {
@@ -4951,11 +5294,11 @@ export function App() {
   const partnerTaxInvoiceUnitCost = opsConsole?.partnerPoints.taxInvoiceUnitCost ?? null;
   const opsPartnerIsTest = opsConsole?.partnerPoints.isTest ?? false;
   const workspacePopbillIsTest = currentWorkspaceSettings?.popbillIsTest ?? data.settings.popbillIsTest;
-  const workspacePopbillModeLabel = workspacePopbillIsTest ? "팝빌 테스트" : "팝빌 운영";
+  const workspacePopbillModeLabel = workspacePopbillIsTest ? "테스트 발행" : "운영 발행";
   const opsPartnerModeLabel = opsPartnerIsTest ? "테스트 모드" : "운영 모드";
   const opsPartnerModeDescription = opsPartnerIsTest
-    ? "현재 팝빌 테스트 환경으로 연결되어 있습니다. 실제 고객 운영 전에는 운영 모드 전환 여부를 다시 확인하세요."
-    : "현재 팝빌 운영 환경으로 연결되어 있습니다. 실제 발행과 파트너 포인트가 운영 기준으로 반영됩니다.";
+    ? "현재 테스트 발행 환경으로 연결되어 있습니다. 실제 고객 운영 전에는 운영 모드 전환 여부를 다시 확인하세요."
+    : "현재 운영 발행 환경으로 연결되어 있습니다. 실제 발행과 파트너 포인트가 운영 기준으로 반영됩니다.";
   const totalWorkspaceIssuedDraftCount = opsWorkspaces.reduce((sum, workspace) => sum + workspace.issuedDraftCount, 0);
   const totalWorkspaceCurrentMonthIssuedDraftCount = opsWorkspaces.reduce(
     (sum, workspace) => sum + workspace.currentMonthIssuedDraftCount,
@@ -4987,7 +5330,8 @@ export function App() {
     setActiveTab("settings");
   };
   const openCertificates = () => {
-    setActiveTab("certificates");
+    setActiveTab("customers");
+    setCustomerListFilter("certificate-expiration");
   };
   const startCreatingCustomer = () => {
     setCreatingCustomer(true);
@@ -5074,7 +5418,7 @@ export function App() {
       reloadAfter?: boolean;
     }
   ) => {
-    ensureLocalRenewalHelperActionAllowed("팝빌 인증서 등록");
+    ensureLocalRenewalHelperActionAllowed("전자세금용 인증서 등록");
     const onboardingCertificateRow = options?.onboardingCertificateRow ?? getOnboardingElectronicTaxCertificateRow(customer);
     const linkedCertificate = getPrimaryElectronicTaxCustomerCertificate(customer.id);
     const effectivePassword =
@@ -5115,10 +5459,10 @@ export function App() {
         status: {
           online: true,
           version: registrationResponse.version,
-          message: registrationResponse.result.message
+          message: sanitizeSupplierDisplayText(registrationResponse.result.message)
         },
         helperVersion: registrationResponse.version,
-        helperMessage: registrationResponse.result.message,
+        helperMessage: sanitizeSupplierDisplayText(registrationResponse.result.message),
         jobs: prev?.jobs ?? [],
         certificates: prev?.certificates ?? [],
         releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
@@ -5130,14 +5474,14 @@ export function App() {
     try {
       await refreshSingleCustomerCertificateStatus(customer.id);
     } catch (error) {
-      refreshErrorMessage = error instanceof Error ? error.message : "인증서 상태를 다시 확인하지 못했습니다.";
+      refreshErrorMessage = getDisplayErrorMessage(error, "인증서 상태를 다시 확인하지 못했습니다.");
     }
 
     if (options?.reloadAfter !== false) {
       try {
         await load();
       } catch (error) {
-        const reloadErrorMessage = error instanceof Error ? error.message : "화면 새로고침에 실패했습니다.";
+        const reloadErrorMessage = getDisplayErrorMessage(error, "화면 새로고침에 실패했습니다.");
         refreshErrorMessage = refreshErrorMessage
           ? `${refreshErrorMessage} / ${reloadErrorMessage}`
           : reloadErrorMessage;
@@ -5150,6 +5494,182 @@ export function App() {
     };
   };
 
+  const buildCustomerCertificateOnestopDraftFromSnapshot = (
+    certificate: RenewalAgentCertificate,
+    snapshot: RenewalInfoSnapshot | null
+  ): CustomerCertificateOnestopDraft => {
+    if (!snapshot) {
+      return buildCustomerCertificateOnestopDraftFromCertificate(certificate);
+    }
+
+    const draft = buildCustomerDraftFromRenewalSnapshot(certificate, snapshot);
+    return {
+      customerName: draft.customerName,
+      businessNumber: draft.businessNumber,
+      corpName: draft.corpName,
+      addr: draft.addr,
+      bizType: draft.bizType,
+      bizClass: draft.bizClass,
+      renewalContactMobile: draft.renewalContactMobile,
+      memo: draft.memo
+    };
+  };
+
+  const loadCustomerAddElectronicTaxCertificates = async () =>
+    await loadCustomerOnboardingAvailableCertificates({ forceRefresh: true });
+
+  const uploadCustomerAddCertificateFiles = async (files: File[]) => {
+    ensureLocalRenewalHelperActionAllowed("전자세금용 공동인증서 업로드");
+    const response = await requestLocalCertificateUploadSession(files);
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status: {
+          online: true,
+          version: response.version,
+          message:
+            response.result.certificates.length > 0
+              ? `업로드 인증서 ${response.result.certificates.length}건을 읽었습니다.`
+              : "업로드한 파일에서 전자세금용 공동인증서를 찾지 못했습니다."
+        },
+        helperVersion: response.version,
+        helperMessage:
+          response.result.certificates.length > 0
+            ? `업로드 인증서 ${response.result.certificates.length}건을 읽었습니다.`
+            : "업로드한 파일에서 전자세금용 공동인증서를 찾지 못했습니다.",
+        jobs: prev?.jobs ?? [],
+        certificates: prev?.certificates ?? [],
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+        defaultRenewalHelperDownloadUrl
+      })
+    );
+    return response.result;
+  };
+
+  const previewCustomerCertificateOnestop = async (
+    certificate: RenewalAgentCertificate,
+    certificatePassword: string
+  ): Promise<{
+    draft: CustomerCertificateOnestopDraft;
+    message: string;
+  }> => {
+    ensureLocalRenewalHelperActionAllowed("전자세금용 공동인증서 정보 확인");
+    const certificateIndex = Number(certificate.index);
+    const canRunPreflight =
+      Number.isInteger(certificateIndex) &&
+      certificateIndex > 0 &&
+      certificate.supportsPreflight !== false;
+
+    if (!canRunPreflight) {
+      return {
+        draft: buildCustomerCertificateOnestopDraftFromSnapshot(certificate, null),
+        message: "파일 기반 인증서는 고객 기본값 자동 조회를 건너뜁니다. 확인 화면에서 사업자 정보를 입력하세요."
+      };
+    }
+
+    if (!certificatePassword.trim()) {
+      throw new Error("공동인증서 비밀번호를 입력하세요.");
+    }
+
+    const response = await requestLocalRenewalPreflight({
+      certificateIndex,
+      certificateCn: certificate.cn || null,
+      certificatePassword
+    });
+    const preflightJob = buildLocalRenewalPreflightJob(certificate, response.result);
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        status: {
+          online: true,
+          version: response.version,
+          message: preflightJob.error ?? preflightJob.summary
+        },
+        helperVersion: response.version,
+        helperMessage: preflightJob.error ?? preflightJob.summary,
+        jobs: [preflightJob, ...(prev?.jobs ?? [])],
+        certificates: prev?.certificates ?? [],
+        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+        defaultRenewalHelperDownloadUrl
+      })
+    );
+
+    if (preflightJob.error) {
+      throw new Error(preflightJob.error);
+    }
+
+    const snapshot = response.result.bridge.preflightProbe.renewInfoSnapshot;
+    return {
+      draft: buildCustomerCertificateOnestopDraftFromSnapshot(certificate, snapshot),
+      message: snapshot
+        ? "공동인증서에서 사업자 정보를 읽었습니다. 저장 전 확인하세요."
+        : "공동인증서 메타데이터만 확인했습니다. 사업자 정보를 직접 입력하세요."
+    };
+  };
+
+  const executeCustomerCertificateOnestop = async (input: {
+    certificate: RenewalAgentCertificate;
+    draft: CustomerCertificateOnestopDraft;
+    certificatePassword: string;
+  }): Promise<CustomerCertificateOnestopResult> => {
+    ensureLocalRenewalHelperActionAllowed("고객 원스톱 등록");
+    const result = await runCustomerCertificateOnestopRegistration({
+      customers: data?.customers ?? [],
+      draft: input.draft,
+      certificate: input.certificate,
+      certificatePassword: input.certificatePassword,
+      createCustomer: async (payload) => {
+        const savedCustomer = await api<CustomerSaveResponse>("/api/customers", {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        return {
+          customer: savedCustomer,
+          autoJoinStatus: savedCustomer.autoJoinStatus,
+          autoJoinError: savedCustomer.autoJoinError ?? null
+        };
+      },
+      joinPopbill: async (customerId) => {
+        const response = await api<{
+          ok: true;
+          status: string;
+          customer: CustomerSaveResponse;
+        }>(`/api/customers/${customerId}/popbill/join`, { method: "POST" });
+        return response.customer;
+      },
+      linkCertificate: async (customerId, certificate, options) =>
+        await linkCustomerCertificate(customerId, certificate, { linkSource: options?.linkSource ?? "auto" }),
+      loadAvailableCertificates: loadCustomerAddElectronicTaxCertificates,
+      registerCertificate: async (customer, certificate, certificatePassword) => {
+        const registrationResponse = await requestLocalPopbillCertificateRegistrationWithRetry({
+          customerId: customer.id,
+          certificateIndex: Number(certificate.index),
+          certificateCn: certificate.cn || customer.corpName || customer.customerName,
+          certificateKind: "electronic_tax",
+          serial: certificate.serial || null,
+          userDN: certificate.userDN || null,
+          certificatePassword
+        });
+        return {
+          outcome: registrationResponse.result.outcome
+        };
+      },
+      refreshCertificateStatus: async (customerId) =>
+        await api<CustomerSaveResponse>(`/api/customers/${customerId}/popbill/cert-status`, { method: "POST" })
+    });
+
+    const latestPayload = await load();
+    const latestCustomer = latestPayload.customers.find((customer) => customer.id === result.customer.id) ?? result.customer;
+    setCustomerDetailTab("info");
+    setCustomerForm(customerToForm(latestCustomer));
+    setCustomerAddressResolveMessage("");
+    customerAddressLookupRef.current = "";
+    return {
+      ...result,
+      customer: latestCustomer
+    };
+  };
+
   const openCustomerCertRegistration = async (customerId: number) => {
     const result = await getCustomerCertificateRegistrationUrl(customerId);
     setCustomerCertNotice("인증서 등록 창을 열었습니다. 등록 후 이 화면으로 돌아오면 상태를 자동으로 다시 확인합니다.");
@@ -5159,7 +5679,7 @@ export function App() {
 
   const openOnboardingPendingCustomerFollowUp = () => {
     const firstPendingCustomer = onboardingPendingCertificateCustomers[0] ?? null;
-    setCustomerListFilter("unjoined");
+    setCustomerListFilter("unissued");
     if (firstPendingCustomer) {
       selectCustomerForEdit(firstPendingCustomer);
     }
@@ -5169,7 +5689,7 @@ export function App() {
   const proceedOnboardingCertificateRegistration = async () => {
     const pendingCustomers = [...pendingOnboardingCertificateRegistrationTargets];
     if (pendingCustomers.length === 0) {
-      throw new Error("팝빌 전자세금용 인증서 등록이 필요한 고객이 없습니다.");
+      throw new Error("전자세금용 인증서 등록이 필요한 고객이 없습니다.");
     }
 
     setCustomerOnboardingAttemptedCertificateBusinessNumbers((prev) =>
@@ -5237,7 +5757,6 @@ export function App() {
   const onboardingRegistrationPrimaryActionLabel = onboardingRegistrationFlow.primaryActionLabel;
   const onboardingRegistrationBlockedReason = onboardingRegistrationFlow.blockedReason;
   const onboardingFirstSyncBlockedSteps = settingsOnboardingModel.firstSyncBlockedSteps;
-  const onboardingMailSetupContent = settingsOnboardingContent.mailContent;
   const onboardingDefaultsContent = settingsOnboardingContent.defaultsContent;
   const onboardingHelperContent = settingsOnboardingContent.helperContent;
   const onboardingCertificateAutoTargetCount = pendingOnboardingCertificateRegistrationTargets.length;
@@ -5254,7 +5773,7 @@ export function App() {
       : onboardingCertificateAutoTargetCount > 0
         ? "전자세금용 등록 마무리"
         : onboardingPendingPopbillJoinCount > 0
-          ? "팝빌 가입 완료 대기"
+          ? "등록 처리 대기"
           : onboardingFailedPopbillJoinCount > 0
             ? "고객 관리에서 확인"
             : onboardingIssueSetupPendingCount > 0
@@ -5265,7 +5784,7 @@ export function App() {
   const onboardingCertificateActionTitle = !onboardingCustomerRegistrationReady
     ? "먼저 고객 초기 등록을 끝내세요."
     : onboardingPendingPopbillJoinCount > 0
-      ? "팝빌 가입이 진행 중입니다. 가입이 끝나면 전자세금용 등록을 자동으로 이어서 처리합니다."
+      ? "등록 처리가 진행 중입니다. 완료되면 전자세금용 등록을 자동으로 이어서 처리합니다."
       : undefined;
   const proceedOnboardingCertificateFollowUpAction = () => {
     if (onboardingCertificateAutoTargetCount > 0) {
@@ -5365,7 +5884,7 @@ export function App() {
                   <span className="chip chip-warn">준비 필요</span>
                 </div>
                 <div className="ops-card-meta">
-                  <span>{customer.popbillState !== "joined" ? "팝빌 가입 필요" : "전자세금용 인증서 등록 필요"}</span>
+                  <span>{customer.popbillState !== "joined" ? "운영 확인 필요" : "전자세금용 인증서 등록 필요"}</span>
                 </div>
               </article>
             ))}
@@ -5390,8 +5909,10 @@ export function App() {
           <strong>{canRunOnboardingFirstSync ? "이제 실제 메일을 처음 읽어올 차례입니다." : "아직 시작할 수 없습니다."}</strong>
           <p>
             {canRunOnboardingFirstSync
-              ? "메일 연결 테스트와 실제 메일 읽기는 분리되어 있습니다. 지금 동기화를 실행하면 자동 매칭이 시작되고, 남은 예외만 다음 단계에서 처리합니다."
-              : "준비가 덜 된 상태에서는 동기화 버튼보다 먼저 막힌 단계를 끝내야 합니다."}
+              ? "운영팀이 검증한 메일 설정으로 이번 달 수신 메일을 읽어옵니다. 정산월은 본문 파싱 후 확인하고, 남은 예외만 다음 단계에서 처리합니다."
+              : settingsHealth.mailReady
+                ? "준비가 덜 된 상태에서는 동기화 버튼보다 먼저 막힌 단계를 끝내야 합니다."
+                : "운영팀이 메일 주소와 앱 비밀번호를 설정하고 연결 테스트를 완료해야 첫 동기화를 시작할 수 있습니다."}
           </p>
         </div>
 
@@ -5476,29 +5997,20 @@ export function App() {
   );
   const onboardingSteps: OnboardingStep[] = [
     {
-      id: "mail",
-      step: 1,
-      title: "메일 연결",
-      summary: settingsHealth.mailReady ? "연결됨" : "입력 필요",
-      primaryActionLabel: settingsHealth.mailReady ? "메일 연결 테스트 완료" : "메일 연결 테스트",
-      done: settingsHealth.mailReady,
-      content: onboardingMailSetupContent
-    },
-    {
       id: "defaults",
-      step: 2,
-      title: "발행 기본값 입력",
+      step: 1,
+      title: "담당자 정보 입력",
       summary:
         settingsHealth.popbillReady && settingsHealth.operatorReady
           ? "완료"
           : "입력 필요",
-      primaryActionLabel: settingsHealth.popbillReady && settingsHealth.operatorReady ? "필수 입력 완료" : "필수값 입력",
+      primaryActionLabel: settingsHealth.popbillReady && settingsHealth.operatorReady ? "담당자 정보 입력 완료" : "담당자 정보 입력",
       done: settingsHealth.popbillReady && settingsHealth.operatorReady,
       content: onboardingDefaultsContent
     },
     {
       id: "helper",
-      step: 3,
+      step: 2,
       title: "로컬 헬퍼 준비",
       summary: helperOnboardingReady
         ? customerRenewalAssistantElectronicTaxCertificateCount > 0
@@ -5516,7 +6028,7 @@ export function App() {
     },
     {
       id: "registration",
-      step: 4,
+      step: 3,
       title: "고객 초기 등록",
       summary: onboardingCustomerRegistrationReady
         ? `등록 ${data.customers.length}명`
@@ -5587,7 +6099,7 @@ export function App() {
     },
     {
       id: "certificates",
-      step: 5,
+      step: 4,
       title: "인증서 연결 마무리",
       summary: !onboardingCustomerRegistrationReady
         ? "고객 등록 후 진행"
@@ -5603,7 +6115,7 @@ export function App() {
     },
     {
       id: "first-sync",
-      step: 6,
+      step: 5,
       title: "첫 메일 동기화",
       summary: !onboardingCertificateReady
         ? "이전 단계 완료 후 실행"
@@ -5617,7 +6129,7 @@ export function App() {
     },
     {
       id: "exceptions",
-      step: 7,
+      step: 6,
       title: "미매칭 메일 예외 처리",
       summary: !onboardingFirstSyncReady
         ? "첫 동기화 후 확인"
@@ -5686,7 +6198,7 @@ export function App() {
     },
     {
       id: "first-issue",
-      step: 8,
+      step: 7,
       title: "첫 발행 확인",
       summary: !onboardingFirstSyncReady
         ? "첫 동기화 후 확인"
@@ -5707,19 +6219,15 @@ export function App() {
       content: onboardingFirstIssueCheckContent
     }
   ];
-  const onboardingSetupStepIds = new Set([
-    "mail",
+  const onboardingSetupSteps = onboardingSteps;
+  const onboardingCompletionStepIds = new Set([
     "defaults",
     "helper",
     "registration",
-    ...(onboardingCertificateFollowUpActive ? (["certificate"] as const) : [])
-  ]);
-  const onboardingSetupSteps = onboardingSteps.filter((step) => onboardingSetupStepIds.has(step.id));
-  const onboardingCompletionStepIds = new Set([
-    "mail",
-    "defaults",
-    "registration",
-    ...(onboardingCertificateFollowUpActive ? (["certificate"] as const) : [])
+    ...(onboardingCertificateFollowUpActive ? (["certificates"] as const) : []),
+    "first-sync",
+    "exceptions",
+    "first-issue"
   ]);
   const onboardingCompletionSteps = onboardingSteps.filter((step) => onboardingCompletionStepIds.has(step.id));
   const onboardingSetupCompletedCount = onboardingCompletionSteps.filter((step) => step.done).length;
@@ -5751,7 +6259,6 @@ export function App() {
   const reopenOnboarding = () => {
     openOnboardingStep(firstPendingOnboardingStep?.id ?? onboardingCompletionSteps[0]?.id ?? null);
   };
-  const showOnboardingNavItem = hasActiveWorkspace;
   const navItems: Array<{ id: TabId; label: string; icon: string }> = [
     ...(hasActiveWorkspace
         ? [
@@ -5759,21 +6266,13 @@ export function App() {
             { id: "issuance" as const, label: "세금계산서 발행", icon: "issue" },
             { id: "customers" as const, label: "고객", icon: "group" },
             { id: "certificates" as const, label: "인증서", icon: "certificate" },
-            { id: "settings" as const, label: "설정", icon: "settings" },
-            ...(showOnboardingNavItem ? [{ id: "onboarding" as const, label: "도입 준비", icon: "initial" }] : [])
+            { id: "settings" as const, label: "설정", icon: "settings" }
           ]
       : []),
     ...(isPlatformAdmin ? [{ id: "ops" as const, label: "관리자", icon: "ops" }] : [])
   ];
-  const secondaryNavItemIds = new Set<TabId>(["settings", "onboarding", "ops"]);
-  const primaryNavItems = navItems.filter((item) => !secondaryNavItemIds.has(item.id));
-  const secondaryNavItems = navItems.filter((item) => secondaryNavItemIds.has(item.id));
+  const visibleNavItems = navItems.filter((item) => item.id !== "certificates");
   const handleNavSelect = (nextTab: TabId) => {
-    if (nextTab === "onboarding") {
-      reopenOnboarding();
-      return;
-    }
-
     setActiveTab(nextTab);
     if (nextTab === "settings") {
       openSettingsSection(settingsActionBar.primarySection);
@@ -5819,7 +6318,7 @@ export function App() {
         return;
       case "blockedCustomers":
         setActiveTab("customers");
-        setCustomerListFilter("blocked");
+        setCustomerListFilter("unissued");
         return;
       case "recentIssued":
         setWorkFeedTab("issued");
@@ -5829,26 +6328,54 @@ export function App() {
         reopenOnboarding();
         return;
       case "certificates":
-        setActiveTab("certificates");
+        openCertificates();
         return;
     }
+  };
+  const completeCustomerContractRenewal = async (item: CustomerContractRenewalDueItem) => {
+    await api<CustomerContractRenewalCompletion>(`/api/customers/${item.customerId}/contract-renewal/complete`, {
+      method: "POST",
+      body: JSON.stringify({
+        expectedContractEndMonth: item.contractEndMonth
+      })
+    });
+    setCustomerContractRenewalsDue((current) => current.filter((entry) => entry.customerId !== item.customerId));
+  };
+  const downloadCustomerContractRenewals = async () => {
+    const XLSX = await loadXlsxModule();
+    downloadCustomerContractRenewalsWorkbook(XLSX, customerContractRenewalsDue);
+  };
+  const downloadSelectedCustomers = async (customers: Customer[], reportYear: number) => {
+    const [XLSX, reportDetails] = await Promise.all([
+      loadXlsxModule(),
+      Promise.all(
+        customers.map(async (customer) =>
+          normalizeCustomerReportDetail(
+            await api<CustomerReportDetail>(`/api/customers/${customer.id}/report-detail?year=${encodeURIComponent(String(reportYear))}`)
+          )
+        )
+      )
+    ]);
+
+    downloadSelectedCustomersWorkbook(
+      XLSX,
+      customers.map((customer, index) => ({
+        customer,
+        reportDetail: reportDetails[index]
+      })),
+      { reportYear }
+    );
   };
   const screenActionBar = {
     onboarding: {
       title: "도입 준비",
       primaryActionLabel:
-        firstPendingOnboardingStep?.id === "mail"
-          ? "메일 연결 열기"
-          : firstPendingOnboardingStep?.id === "defaults"
+        firstPendingOnboardingStep?.id === "defaults"
             ? "발행 설정 열기"
             : firstPendingOnboardingStep?.id === "helper"
               ? "헬퍼 상태 열기"
               : firstPendingOnboardingStep?.primaryActionLabel ?? "도입 준비 보기",
       onPrimaryAction: () => {
-        if (firstPendingOnboardingStep?.id === "mail") {
-          openSettingsSection("gmail");
-          return;
-        }
         if (firstPendingOnboardingStep?.id === "defaults") {
           openSettingsSection("popbill");
           return;
@@ -5888,7 +6415,6 @@ export function App() {
         { label: "전체", value: `${data.customers.length}명`, tone: data.customers.length > 0 ? "default" : "warn" },
         { label: "조치 필요", value: `${blockedCustomerCount}명`, tone: blockedCustomerCount > 0 ? "danger" : "success" },
         { label: "발행 가능", value: `${readyNowCustomers.length}명`, tone: readyNowCustomers.length > 0 ? "success" : "default" },
-        { label: "연결 필요", value: `${popbillPendingCustomers.length}명`, tone: popbillPendingCustomers.length > 0 ? "warn" : "success" }
       ]
     },
     certificates: {
@@ -5924,6 +6450,7 @@ export function App() {
       primaryActionLabel: "새 작업공간",
       onPrimaryAction: () => scrollToElementById("ops-workspace-create"),
       chips: [
+        { label: "상담 신청", value: `${opsConsultationRequests.filter((request) => request.status === "new").length}건`, tone: opsConsultationRequests.some((request) => request.status === "new") ? "warn" : "default" },
         { label: "작업공간", value: `${opsWorkspaces.length}개`, tone: opsWorkspaces.length > 0 ? "default" : "warn" },
         { label: "운영 로그", value: `${opsLogs.length}건`, tone: opsLogs.some((log) => log.level === "error") ? "danger" : "default" },
         { label: "진단 작업", value: `${opsJobs.length}건`, tone: opsJobs.some((job) => job.status === "failed") ? "warn" : "success" },
@@ -5946,8 +6473,7 @@ export function App() {
   });
   const activeScreenBar = screenActionBar[visibleActiveTab];
   const activeNavLabel = navItems.find((item) => item.id === visibleActiveTab)?.label ?? "AUTO-TAX";
-  const isNavItemActive = (itemId: TabId) =>
-    itemId === "onboarding" ? hasActiveWorkspace && onboardingModalOpen : visibleActiveTab === itemId;
+  const isNavItemActive = (itemId: TabId) => visibleActiveTab === itemId;
   const showHomeSyncButton = false;
   const showScreenPrimaryAction = visibleActiveTab === "ops" || visibleActiveTab === "certificates" || visibleActiveTab === "issuance";
   const showActionBarActions = showHomeSyncButton || showScreenPrimaryAction;
@@ -5957,116 +6483,65 @@ export function App() {
     visibleActiveTab !== "issuance" &&
     visibleActiveTab !== "certificates" &&
     visibleActiveTab !== "settings";
-  const sidebarToggleLabel = sidebarCollapsed ? "사이드바 펼치기" : "사이드바 숨기기";
-
   return (
     <>
-      <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
-        <div className={sidebarCollapsed ? "sidebar-shell is-collapsed" : "sidebar-shell"}>
-          <aside className={sidebarCollapsed ? "sidebar is-collapsed" : "sidebar"}>
-            <div className="brand">
-              <div className="brand-copy">
-                <h1>AUTO-TAX</h1>
-              </div>
+      <div className="app-shell app-shell-topnav">
+        <header className="topnav-shell">
+          <div className="topnav-brand">
+            <span className="brand-badge topnav-brand-badge">AT</span>
+            <div className="brand-copy">
+              <h1>AUTO-TAX</h1>
             </div>
+          </div>
 
-            <div className="sidebar-body">
-              <div className="sidebar-nav-stack">
-                {primaryNavItems.length > 0 ? (
-                  <div className="sidebar-nav-cluster">
-                    {!sidebarCollapsed ? <span className="sidebar-nav-caption">주 메뉴</span> : null}
-                    <nav className="nav-list sidebar-nav-group" aria-label="주 메뉴">
-                      {primaryNavItems.map((item) => (
-                        <button
-                          key={item.id}
-                          aria-label={item.label}
-                          title={sidebarCollapsed ? item.label : undefined}
-                          className={isNavItemActive(item.id) ? "nav-button active" : "nav-button"}
-                          onClick={() => handleNavSelect(item.id)}
-                        >
-                          <Icon name={item.icon} className="nav-icon" />
-                          <div className="nav-copy">
-                            <span className="nav-title">{item.label}</span>
-                          </div>
-                        </button>
-                      ))}
-                    </nav>
-                  </div>
-                ) : null}
+          <nav className="topnav-list" aria-label="주 메뉴">
+            {visibleNavItems.map((item) => (
+              <button
+                key={item.id}
+                aria-label={item.label}
+                className={isNavItemActive(item.id) ? "topnav-button active" : "topnav-button"}
+                onClick={() => handleNavSelect(item.id)}
+              >
+                <Icon name={item.icon} className="nav-icon topnav-icon" />
+                <span className="nav-title">{item.label}</span>
+              </button>
+            ))}
+          </nav>
 
-                <div className="sidebar-support-stack">
-                  {secondaryNavItems.length > 0 ? (
-                    <div className="sidebar-nav-cluster sidebar-nav-cluster-secondary">
-                      {!sidebarCollapsed ? <span className="sidebar-nav-caption">보조 메뉴</span> : null}
-                      <nav className="nav-list sidebar-nav-group sidebar-nav-group-secondary" aria-label="보조 메뉴">
-                        {secondaryNavItems.map((item) => (
-                          <button
-                            key={item.id}
-                            aria-label={item.label}
-                            title={sidebarCollapsed ? item.label : undefined}
-                            className={isNavItemActive(item.id) ? "nav-button active" : "nav-button"}
-                            onClick={() => handleNavSelect(item.id)}
-                          >
-                            <Icon name={item.icon} className="nav-icon" />
-                            <div className="nav-copy">
-                              <span className="nav-title">{item.label}</span>
-                            </div>
-                          </button>
-                        ))}
-                      </nav>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-              <div className="sidebar-meta">
-                <div className="sidebar-profile">
-                  <span className="sidebar-meta-badge" aria-hidden="true">
-                    <Icon name="user" />
-                  </span>
-                  <div className="sidebar-meta-copy">
-                    <strong>{currentMembership?.displayName || data.auth.email || "로그인 사용자"}</strong>
-                  </div>
-                </div>
-                {hasActiveWorkspace && data.auth.organizations.length > 1 ? (
-                  <select
-                    className="workspace-select"
-                    value={data.auth.activeOrganizationId ?? ""}
-                    onChange={(event) => void changeOrganization(event.target.value)}
-                    disabled={busyKey !== null}
-                  >
-                    {data.auth.organizations.map((organization) => (
-                      <option key={organization.organizationId} value={organization.organizationId}>
-                        {organization.organizationName}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                <button
-                  className="btn-secondary sidebar-logout"
-                  aria-label="로그아웃"
-                  onClick={() => void signOut()}
-                  disabled={busyKey !== null}
-                >
-                  {sidebarCollapsed ? "종료" : "로그아웃"}
-                </button>
-              </div>
-            </div>
-          </aside>
-
-          <div className="sidebar-hover-zone">
-            <button
-              type="button"
-              className="sidebar-thumb-toggle"
-              aria-label={sidebarToggleLabel}
-              title={sidebarToggleLabel}
-              onClick={() => setSidebarCollapsed((current) => !current)}
-            >
-              <span className="sidebar-thumb-icon" aria-hidden="true">
-                {sidebarCollapsed ? "›" : "‹"}
+          <div className="topnav-context">
+            <div className="topnav-user">
+              <span className="topnav-user-badge" aria-hidden="true">
+                <Icon name="user" />
               </span>
+              <div className="topnav-user-copy">
+                <strong>{currentMembership?.displayName || data.auth.email || "로그인 사용자"}</strong>
+              </div>
+            </div>
+            {hasActiveWorkspace && data.auth.organizations.length > 1 ? (
+              <select
+                className="workspace-select topnav-workspace-select"
+                value={data.auth.activeOrganizationId ?? ""}
+                onChange={(event) => void changeOrganization(event.target.value)}
+                disabled={busyKey !== null}
+                aria-label="작업공간 선택"
+              >
+                {data.auth.organizations.map((organization) => (
+                  <option key={organization.organizationId} value={organization.organizationId}>
+                    {organization.organizationName}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <button
+              className="btn-secondary topnav-logout"
+              aria-label="로그아웃"
+              onClick={() => void signOut()}
+              disabled={busyKey !== null}
+            >
+              로그아웃
             </button>
           </div>
-        </div>
+        </header>
 
         <main
           className={
@@ -6098,7 +6573,6 @@ export function App() {
                 ) : null}
                 <div className="action-bar-status">
                   <span className="action-bar-pill action-bar-pill-workspace">{activeWorkspaceName}</span>
-                  {visibleActiveTab !== "ops" ? <span className={workspacePopbillIsTest ? "action-bar-pill tone-warn" : "action-bar-pill"}>{workspacePopbillModeLabel}</span> : null}
                   {activeScreenBar.chips.map((metric) => (
                     <span
                       key={`${visibleActiveTab}-${metric.label}`}
@@ -6198,6 +6672,7 @@ export function App() {
             reviewDrafts={homeReviewDrafts}
             recentInboxMessages={homeRecentInboxMessages}
             recentIssuedDrafts={homeRecentIssuedDrafts}
+            contractRenewalDueItems={customerContractRenewalsDue}
             workFeedTab={workFeedTab}
             reprocessableMessageCount={reprocessableMessages.length}
             busyKey={busyKey}
@@ -6216,6 +6691,12 @@ export function App() {
             }
             onCancelDraft={(draftId) =>
               void runAction(`draft-cancel-${draftId}`, async () => void (await cancelIssuedDraft(draftId)))
+            }
+            onCompleteContractRenewal={(item) =>
+              void runAction(`contract-renewal-${item.customerId}`, async () => void (await completeCustomerContractRenewal(item)), { reload: false })
+            }
+            onDownloadContractRenewals={() =>
+              void runAction("contract-renewals-export", downloadCustomerContractRenewals, { reload: false })
             }
             getInboxDisplayParseStatus={getInboxDisplayParseStatus}
             getParseStatusLabel={getParseStatusLabel}
@@ -6237,10 +6718,14 @@ export function App() {
             requestedFilter={requestedIssuanceFilter}
             onConsumeRequestedFilter={() => setRequestedIssuanceFilter(null)}
             drafts={data.drafts}
+            inboxMessages={data.inbox}
             unmatchedInboxMessages={unmatchedInboxMessages}
             customers={data.customers}
             busyKey={busyKey}
+            onSyncMail={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))}
+            loadDraftMailPreview={(draftId) => api<MailPreviewImageResponse>(`/api/drafts/${draftId}/mail-preview-image`)}
             onIssueAllReviewDrafts={() => void runAction("issue-all", issueAllReviewDrafts)}
+            onIssueSelectedDrafts={(draftIds) => void runAction("issue-selected", async () => void (await issueSelectedDrafts(draftIds)))}
             onIssueDraft={(draftId) =>
               void runAction(`issue-${draftId}`, async () => void (await api(`/api/drafts/${draftId}/issue`, { method: "POST" })))
             }
@@ -6271,6 +6756,8 @@ export function App() {
         {visibleActiveTab === "customers" ? (
           <CustomersTab
             customers={data.customers}
+            customerCertificates={data.customerCertificates}
+            customerCertificateItems={certificatesScreenModel.certificateItems}
             expiredCertCustomers={expiredCertCustomers}
             expiringSoonCustomers={expiringSoonCustomers}
             filteredCustomers={filteredCustomers}
@@ -6279,6 +6766,8 @@ export function App() {
             selectedCustomerReadiness={selectedCustomerReadiness}
             selectedCustomerIssues={selectedCustomerIssues}
             selectedCustomerIssuedDrafts={selectedCustomerIssuedDrafts}
+            issuedDraftsByCustomerId={issuedDraftsByCustomerId}
+            contractRenewalDueItems={customerContractRenewalsDue}
             blockedCustomerCount={blockedCustomerCount}
             readyCustomerCount={readyNowCustomers.length}
             expiringSoonCustomerCount={expiringSoonCustomers.length}
@@ -6296,7 +6785,10 @@ export function App() {
             customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
             customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
             customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
-            customerRenewalLoadedCertificateCount={customerRenewalAssistantCertificates.length}
+            customerRenewalAssistantUpgradeState={customerRenewalAssistant?.upgradeState ?? "unknown"}
+            customerRenewalAssistantUpgradeMessage={customerRenewalAssistant?.upgradeMessage ?? null}
+            renewalHelperDownloadUrl={renewalHelperDownloadUrl}
+            customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
             userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
             workspaceLabel={activeWorkspaceName}
             workspaceModeLabel={workspacePopbillModeLabel}
@@ -6311,16 +6803,28 @@ export function App() {
             onCreateCustomer={startCreatingCustomer}
             onCancelCreateCustomer={cancelCreatingCustomer}
             onRefreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
-            onLoadCustomerRenewalCertificates={loadCustomerRenewalCertificates}
+            onLoadCustomerRenewalCertificates={async () => {
+              await syncCustomerRenewalCertificates({ showAlert: false, skipReadinessCheck: true });
+            }}
+            onLoadCustomerAddCertificates={loadCustomerAddElectronicTaxCertificates}
+            onUploadCustomerAddCertificateFiles={uploadCustomerAddCertificateFiles}
+            onPreviewCustomerCertificateOnestop={previewCustomerCertificateOnestop}
+            onExecuteCustomerCertificateOnestop={executeCustomerCertificateOnestop}
             onStartCustomerRenewal={startCustomerRenewal}
             onSelectCustomer={selectCustomerForEdit}
             onSaveCustomer={saveCustomer}
+            onSaveCustomerIssueMode={saveCustomerIssueMode}
             onJoinCustomerPopbill={joinCustomerPopbill}
             onOpenCustomerCertRegistration={openCustomerCertRegistration}
+            onLinkCustomerCertificate={linkLocalCertificateToCustomer}
+            onUnlinkCustomerCertificate={unlinkCustomerCertificate}
+            onPrepareCustomerCertificateRenewal={prepareLinkedCustomerCertificateRenewal}
+            onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
             onRefreshCustomerCertificateStatus={refreshSingleCustomerCertificateStatus}
             onRefreshAllCertificateStatuses={refreshAllCertificateStatuses}
             onResetPopbillLink={resetPopbillLink}
             onDeleteCustomer={deleteCustomer}
+            onExportSelectedCustomers={downloadSelectedCustomers}
             onShowDraftPopbillInfo={showDraftPopbillInfo}
             onOpenDraftPopbillUrl={openDraftPopbillUrl}
             resolveCustomerAddress={resolveCustomerAddress}
@@ -6348,13 +6852,6 @@ export function App() {
             onboardingComplete={onboardingComplete}
             onboardingProgressText={onboardingHeroProgressText}
             onboardingPendingStepCount={onboardingPendingStepCount}
-            showCompletedOnboardingNav={showCompletedOnboardingNav}
-            onShowCompletedOnboardingNavChange={(nextValue) =>
-              setOnboardingNavPreference({
-                organizationId: activeOrganizationId,
-                showCompletedOnboardingNav: nextValue
-              })
-            }
             openOnboarding={reopenOnboarding}
             busyKey={busyKey}
             customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
@@ -6409,20 +6906,119 @@ export function App() {
 
         {visibleActiveTab === "ops" ? (
           <div className="ops-layout">
-            <AccountPasswordPanel
-              title="플랫폼 관리자 계정 보안"
-              subtitle={`현재 로그인한 플랫폼 관리자 계정(${data.auth.email ?? "이메일 없음"})의 비밀번호를 바꿉니다.`}
-              hintText="플랫폼 운영 계정도 여기서 직접 새 비밀번호를 저장할 수 있습니다."
-              account={settingsScreenState.account}
-              reveals={settingsFeatureOrchestration.reveals.accountPassword}
-              onSubmit={() =>
-                settingsFeatureOrchestration.actions.changePassword(
-                  settingsScreenState.account.changePassword
-                )
-              }
-            />
+            <aside className="ops-admin-rail" aria-label="관리자 메뉴">
+              <section className="panel ops-admin-menu">
+                <div className="ops-admin-menu-head">
+                  <strong>관리자 메뉴</strong>
+                  <span>{data.auth.email ?? "admin"}</span>
+                </div>
+                <nav className="ops-admin-menu-list" aria-label="관리자 로컬 메뉴">
+                  <a href="#ops-consultation-requests">상담 신청</a>
+                  <a href="#ops-workspaces">작업공간 관리</a>
+                  <a href="#ops-workspace-create">작업공간 생성</a>
+                  <a href="#ops-owner-security">owner 비밀번호 재설정</a>
+                  <a href="#ops-agent-status">renewal agent 상태</a>
+                  <a href="#ops-logs">운영 로그</a>
+                  <a href="#ops-account-security">내 계정 보안</a>
+                </nav>
+                <div className="ops-admin-session">
+                  <span>세션</span>
+                  <strong>{activeWorkspaceName}</strong>
+                  <small>{formatDateTime(new Date().toISOString())}</small>
+                </div>
+              </section>
+              <div id="ops-account-security">
+                <AccountPasswordPanel
+                  title="플랫폼 관리자 계정 보안"
+                  subtitle={`현재 로그인한 플랫폼 관리자 계정(${data.auth.email ?? "이메일 없음"})의 비밀번호를 바꿉니다.`}
+                  hintText="플랫폼 운영 계정도 여기서 직접 새 비밀번호를 저장할 수 있습니다."
+                  account={settingsScreenState.account}
+                  reveals={settingsFeatureOrchestration.reveals.accountPassword}
+                  onSubmit={() =>
+                    settingsFeatureOrchestration.actions.changePassword(
+                      settingsScreenState.account.changePassword
+                    )
+                  }
+                />
+              </div>
+            </aside>
             {opsConsole ? (
               <>
+                <Panel
+                  className="panel-ops-consultation"
+                  id="ops-consultation-requests"
+                  title="상담 신청"
+                  subtitle="공개 화면에서 접수된 이름/전화번호만 확인하고 상태를 관리합니다."
+                >
+                  <div className="ops-list">
+                    {opsConsultationRequests.length > 0 ? (
+                      opsConsultationRequests.slice(0, 12).map((request) => (
+                        <article key={request.id} className="ops-card">
+                          <div className="ops-card-head">
+                            <div>
+                              <strong>{request.name}</strong>
+                              <span>{request.phone}</span>
+                            </div>
+                            <span className={`chip ${getConsultationStatusChipClass(request.status)}`}>
+                              {getConsultationStatusLabel(request.status)}
+                            </span>
+                          </div>
+                          <div className="ops-card-meta">
+                            <span>접수 {formatDateTime(request.createdAt)}</span>
+                            {request.note ? <span>{request.note}</span> : null}
+                          </div>
+                          <div className="ops-card-actions">
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={busyKey !== null || request.status === "contacted"}
+                              onClick={() =>
+                                void runAction(
+                                  `ops-consultation-contacted-${request.id}`,
+                                  async () => void (await updateConsultationRequestStatus(request, "contacted")),
+                                  { reload: false }
+                                )
+                              }
+                            >
+                              연락 완료
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={busyKey !== null || request.status === "workspace_opened"}
+                              onClick={() =>
+                                void runAction(
+                                  `ops-consultation-opened-${request.id}`,
+                                  async () => void (await updateConsultationRequestStatus(request, "workspace_opened")),
+                                  { reload: false }
+                                )
+                              }
+                            >
+                              개통 완료
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={busyKey !== null || request.status === "closed"}
+                              onClick={() =>
+                                void runAction(
+                                  `ops-consultation-closed-${request.id}`,
+                                  async () => void (await updateConsultationRequestStatus(request, "closed")),
+                                  { reload: false }
+                                )
+                              }
+                            >
+                              종료
+                            </button>
+                          </div>
+                        </article>
+                      ))
+                    ) : (
+                      <div className="empty">접수된 상담 신청이 없습니다.</div>
+                    )}
+                  </div>
+                </Panel>
+
                 <Panel
                   className="panel-ops-workspace-create"
                   id="ops-workspace-create"
@@ -6544,184 +7140,327 @@ export function App() {
                   <StatCard label="진단 작업" value={opsJobs.length} tone={opsJobs.some((job) => job.status === "failed") ? "warn" : "default"} />
                 </section>
 
-                <Panel className="panel-ops-workspaces" title="개통된 고객사 작업공간">
+                <Panel className="panel-ops-workspaces" id="ops-workspaces" title="개통된 고객사 작업공간">
                   <p className="ops-helper-text">
                     고객사별 발행 완료 건수를 기준으로 사용량을 집계합니다.
                     {partnerTaxInvoiceUnitCost !== null
                       ? ` 현재 팝빌 전자세금계산서 단가 ${formatMoney(partnerTaxInvoiceUnitCost)}P 기준 추정 사용 포인트도 함께 표시합니다.`
                       : " 팝빌 전자세금계산서 단가를 읽지 못해 추정 포인트는 아직 계산하지 못했습니다."}
                   </p>
-                  <div className="ops-list">
+                  <div className="ops-workspace-table-wrap">
                     {opsWorkspaces.length > 0 ? (
-                      opsWorkspaces.map((workspace) => {
-                        const isOwnerResetTarget =
-                          ownerPasswordResetTarget?.organizationId === workspace.organizationId;
-                        const workspaceEstimatedPointUsage = getWorkspaceEstimatedPointUsage(workspace, partnerTaxInvoiceUnitCost);
-                        const workspaceCurrentMonthEstimatedPointUsage = getWorkspaceCurrentMonthEstimatedPointUsage(
-                          workspace,
-                          partnerTaxInvoiceUnitCost
-                        );
+                      <table className="ops-workspace-table">
+                        <thead>
+                          <tr>
+                            <th>작업공간 ID</th>
+                            <th>작업공간명</th>
+                            <th>도메인</th>
+                            <th>owner</th>
+                            <th>상태</th>
+                            <th>이번 달</th>
+                            <th>포인트</th>
+                            <th>최근 발행</th>
+                            <th>액션</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {opsWorkspaces.map((workspace, index) => {
+                            const workspaceEstimatedPointUsage = getWorkspaceEstimatedPointUsage(workspace, partnerTaxInvoiceUnitCost);
+                            const workspaceCurrentMonthEstimatedPointUsage = getWorkspaceCurrentMonthEstimatedPointUsage(
+                              workspace,
+                              partnerTaxInvoiceUnitCost
+                            );
+                            const workspaceCode = `WS-${String(index + 1).padStart(4, "0")}`;
 
-                        return (
-                          <article key={workspace.organizationId} className="ops-card">
-                            <div className="ops-card-head">
-                              <div>
-                                <strong>{workspace.organizationName}</strong>
-                                <span>{workspace.organizationBusinessNumber || "사업자번호(선택) 미입력"}</span>
-                              </div>
-                              <span className={`chip ${workspace.organizationStatus === "active" ? "chip-success" : workspace.organizationStatus === "trial" ? "chip-warn" : "chip-danger"}`}>
-                                {getOrganizationStatusLabel(workspace.organizationStatus)}
-                              </span>
-                            </div>
-                            <div className="ops-card-meta">
-                              <span>owner: {workspace.ownerDisplayName ? `${workspace.ownerDisplayName} · ` : ""}{workspace.ownerLoginId ?? "-"}</span>
-                              <span>멤버 {workspace.memberCount}명</span>
-                              <span>플랜 {workspace.organizationPlanCode}</span>
-                              <span>
-                                이번 달 발행 {formatMoney(workspace.currentMonthIssuedDraftCount)}건
-                                {workspace.managedCustomerLimit !== null ? ` / 한도 ${workspace.managedCustomerLimit}건` : ""}
-                              </span>
-                              <span>누적 발행 {formatMoney(workspace.issuedDraftCount)}건</span>
-                              <span>등록 고객 {workspace.managedCustomerCount}명</span>
-                              <span>
-                                누적 추정 사용 {workspaceEstimatedPointUsage !== null ? `${formatMoney(workspaceEstimatedPointUsage)}P` : "-"}
-                              </span>
-                              <span>
-                                이번 달 추정 사용 {workspaceCurrentMonthEstimatedPointUsage !== null ? `${formatMoney(workspaceCurrentMonthEstimatedPointUsage)}P` : "-"}
-                              </span>
-                              <span>최근 발행 {formatDateTime(workspace.lastIssuedAt)}</span>
-                              <span>생성 {formatDateTime(workspace.createdAt)}</span>
-                            </div>
-                            <div className="ops-card-actions">
-                              <button
-                                className="btn-secondary"
-                                disabled={busyKey !== null}
-                                onClick={() => openOwnerPasswordReset(workspace)}
-                              >
-                                owner 비밀번호 재설정
-                              </button>
-                            </div>
-                            <div className="helper-box-stack">
-                              <strong>월 발행 한도</strong>
-                              <div className="form-grid">
-                                <label>
-                                  이번 달 발행
-                                  <input value={`${workspace.currentMonthIssuedDraftCount}건`} disabled />
-                                </label>
-                                <label>
-                                  최대 발행 가능 수
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    step="1"
-                                    value={workspaceLimitEdits[workspace.organizationId] ?? String(workspace.managedCustomerLimit ?? "")}
-                                    onChange={(event) =>
-                                      setWorkspaceLimitEdits((prev) => ({
-                                        ...prev,
-                                        [workspace.organizationId]: event.target.value
-                                      }))
-                                    }
-                                  />
-                                </label>
-                              </div>
-                              <div className="button-row">
-                                <button
-                                  className="btn-secondary"
-                                  disabled={busyKey !== null}
-                                  onClick={() =>
-                                    void runAction(
-                                      `ops-workspace-limit-${workspace.organizationId}`,
-                                      async () => void (await updateWorkspaceManagedCustomerLimit(workspace)),
-                                      { reload: false }
-                                    )
-                                  }
-                                >
-                                  한도 저장
-                                </button>
-                              </div>
-                            </div>
-                            {isOwnerResetTarget ? (
-                              <div className="helper-box-stack inline-password-reset">
-                                <strong>{workspace.organizationName} owner 임시 비밀번호 재설정</strong>
-                                <div className="form-grid">
-                                  <label>
-                                    새 임시 비밀번호
-                                    <div className="password-field">
-                                      <input
-                                        type={revealedFields.ownerResetNextPassword ? "text" : "password"}
-                                        value={ownerPasswordResetForm.nextPassword}
-                                        onChange={(event) =>
-                                          setOwnerPasswordResetForm((prev) => ({
-                                            ...prev,
-                                            nextPassword: event.target.value
-                                          }))
-                                        }
-                                        placeholder="8자 이상 입력"
-                                      />
-                                      <button
-                                        type="button"
-                                        className="password-toggle"
-                                        aria-label={revealedFields.ownerResetNextPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
-                                        onClick={() => toggleRevealField("ownerResetNextPassword")}
-                                      >
-                                        <RevealIcon open={Boolean(revealedFields.ownerResetNextPassword)} />
-                                      </button>
-                                    </div>
-                                  </label>
-                                  <label>
-                                    새 임시 비밀번호 확인
-                                    <div className="password-field">
-                                      <input
-                                        type={revealedFields.ownerResetConfirmPassword ? "text" : "password"}
-                                        value={ownerPasswordResetForm.confirmPassword}
-                                        onChange={(event) =>
-                                          setOwnerPasswordResetForm((prev) => ({
-                                            ...prev,
-                                            confirmPassword: event.target.value
-                                          }))
-                                        }
-                                        placeholder="한 번 더 입력"
-                                      />
-                                      <button
-                                        type="button"
-                                        className="password-toggle"
-                                        aria-label={revealedFields.ownerResetConfirmPassword ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"}
-                                        onClick={() => toggleRevealField("ownerResetConfirmPassword")}
-                                      >
-                                        <RevealIcon open={Boolean(revealedFields.ownerResetConfirmPassword)} />
-                                      </button>
-                                    </div>
-                                  </label>
-                                </div>
-                                <div className="button-row">
-                                  <button
-                                    onClick={() =>
-                                      void runAction(
-                                        `reset-owner-password-${workspace.organizationId}`,
-                                        submitOwnerPasswordReset,
-                                        { reload: false }
-                                      )
-                                    }
-                                  >
-                                    임시 비밀번호 저장
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn-secondary"
-                                    onClick={cancelOwnerPasswordReset}
-                                  >
-                                    취소
-                                  </button>
-                                </div>
-                              </div>
-                            ) : null}
-                          </article>
-                        );
-                      })
+                            return (
+                              <tr key={workspace.organizationId}>
+                                <td>{workspaceCode}</td>
+                                <td>
+                                  <strong>{workspace.organizationName}</strong>
+                                  <span>{workspace.organizationBusinessNumber || "사업자번호 미입력"}</span>
+                                </td>
+                                <td>{workspace.organizationPlanCode}</td>
+                                <td>
+                                  {workspace.ownerDisplayName ? `${workspace.ownerDisplayName} · ` : ""}
+                                  {workspace.ownerLoginId ?? "-"}
+                                </td>
+                                <td>
+                                  <span className={`chip ${workspace.organizationStatus === "active" ? "chip-success" : workspace.organizationStatus === "trial" ? "chip-warn" : "chip-danger"}`}>
+                                    {getOrganizationStatusLabel(workspace.organizationStatus)}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div className="ops-limit-cell">
+                                    <span>{formatMoney(workspace.currentMonthIssuedDraftCount)}건 / {workspace.managedCustomerLimit ?? "-"}건</span>
+                                    <input
+                                      aria-label={`${workspace.organizationName} 월 발행 한도`}
+                                      type="number"
+                                      min="1"
+                                      step="1"
+                                      value={workspaceLimitEdits[workspace.organizationId] ?? String(workspace.managedCustomerLimit ?? "")}
+                                      onChange={(event) =>
+                                        setWorkspaceLimitEdits((prev) => ({
+                                          ...prev,
+                                          [workspace.organizationId]: event.target.value
+                                        }))
+                                      }
+                                    />
+                                  </div>
+                                </td>
+                                <td>
+                                  <span>누적 {workspaceEstimatedPointUsage !== null ? `${formatMoney(workspaceEstimatedPointUsage)}P` : "-"}</span>
+                                  <span>이번 달 {workspaceCurrentMonthEstimatedPointUsage !== null ? `${formatMoney(workspaceCurrentMonthEstimatedPointUsage)}P` : "-"}</span>
+                                </td>
+                                <td>{formatDateTime(workspace.lastIssuedAt)}</td>
+                                <td>
+                                  <div className="ops-table-actions">
+                                    <button
+                                      className="btn-secondary"
+                                      disabled={busyKey !== null}
+                                      onClick={() => openOwnerPasswordReset(workspace)}
+                                    >
+                                      owner 재설정
+                                    </button>
+                                    <button
+                                      className="btn-secondary"
+                                      disabled={busyKey !== null}
+                                      onClick={() => openOpsWorkspaceMailSettings(workspace)}
+                                    >
+                                      메일 설정
+                                    </button>
+                                    <button
+                                      className="btn-secondary"
+                                      disabled={busyKey !== null}
+                                      onClick={() =>
+                                        void runAction(
+                                          `ops-workspace-limit-${workspace.organizationId}`,
+                                          async () => void (await updateWorkspaceManagedCustomerLimit(workspace)),
+                                          { reload: false }
+                                        )
+                                      }
+                                    >
+                                      한도 저장
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     ) : (
                       <div className="empty">아직 개통된 고객사 작업공간이 없습니다.</div>
                     )}
                   </div>
+                  {ownerPasswordResetTarget ? (() => {
+                    const workspace = opsWorkspaces.find((item) => item.organizationId === ownerPasswordResetTarget.organizationId);
+                    if (!workspace) {
+                      return null;
+                    }
+
+                    return (
+                      <div id="ops-owner-security" className="helper-box-stack inline-password-reset ops-owner-reset-panel">
+                        <strong>{workspace.organizationName} owner 임시 비밀번호 재설정</strong>
+                        <div className="form-grid">
+                          <label>
+                            새 임시 비밀번호
+                            <div className="password-field">
+                              <input
+                                type={revealedFields.ownerResetNextPassword ? "text" : "password"}
+                                value={ownerPasswordResetForm.nextPassword}
+                                onChange={(event) =>
+                                  setOwnerPasswordResetForm((prev) => ({
+                                    ...prev,
+                                    nextPassword: event.target.value
+                                  }))
+                                }
+                                placeholder="8자 이상 입력"
+                              />
+                              <button
+                                type="button"
+                                className="password-toggle"
+                                aria-label={revealedFields.ownerResetNextPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
+                                onClick={() => toggleRevealField("ownerResetNextPassword")}
+                              >
+                                <RevealIcon open={Boolean(revealedFields.ownerResetNextPassword)} />
+                              </button>
+                            </div>
+                          </label>
+                          <label>
+                            새 임시 비밀번호 확인
+                            <div className="password-field">
+                              <input
+                                type={revealedFields.ownerResetConfirmPassword ? "text" : "password"}
+                                value={ownerPasswordResetForm.confirmPassword}
+                                onChange={(event) =>
+                                  setOwnerPasswordResetForm((prev) => ({
+                                    ...prev,
+                                    confirmPassword: event.target.value
+                                  }))
+                                }
+                                placeholder="한 번 더 입력"
+                              />
+                              <button
+                                type="button"
+                                className="password-toggle"
+                                aria-label={revealedFields.ownerResetConfirmPassword ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"}
+                                onClick={() => toggleRevealField("ownerResetConfirmPassword")}
+                              >
+                                <RevealIcon open={Boolean(revealedFields.ownerResetConfirmPassword)} />
+                              </button>
+                            </div>
+                          </label>
+                        </div>
+                        <div className="button-row">
+                          <button
+                            onClick={() =>
+                              void runAction(
+                                `reset-owner-password-${workspace.organizationId}`,
+                                submitOwnerPasswordReset,
+                                { reload: false }
+                              )
+                            }
+                          >
+                            임시 비밀번호 저장
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={cancelOwnerPasswordReset}
+                          >
+                            취소
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })() : null}
+                  {opsWorkspaceMailSettingsTarget ? (() => {
+                    const workspace = opsWorkspaces.find((item) => item.organizationId === opsWorkspaceMailSettingsTarget.organizationId);
+                    if (!workspace) {
+                      return null;
+                    }
+
+                    return (
+                      <div id="ops-mail-settings" className="helper-box-stack inline-password-reset ops-mail-settings-panel">
+                        <strong>{workspace.organizationName} 메일/담당자 설정</strong>
+                        <span className="field-hint">메일 앱 비밀번호는 저장 후 다시 표시하지 않습니다. 비워두면 기존 저장값을 유지합니다.</span>
+                        <div className="form-grid">
+                          <label>
+                            메일 주소
+                            <input
+                              value={opsWorkspaceMailSettingsForm.mailAddress}
+                              onChange={(event) =>
+                                setOpsWorkspaceMailSettingsForm((prev) => ({
+                                  ...prev,
+                                  mailAddress: event.target.value
+                                }))
+                              }
+                              placeholder="customer@gmail.com"
+                            />
+                          </label>
+                          <label>
+                            앱 비밀번호
+                            <div className="password-field">
+                              <input
+                                type={revealedFields.opsMailPassword ? "text" : "password"}
+                                value={opsWorkspaceMailSettingsForm.mailPassword}
+                                onChange={(event) =>
+                                  setOpsWorkspaceMailSettingsForm((prev) => ({
+                                    ...prev,
+                                    mailPassword: event.target.value
+                                  }))
+                                }
+                                placeholder="변경할 때만 입력"
+                              />
+                              <button
+                                type="button"
+                                className="password-toggle"
+                                aria-label={revealedFields.opsMailPassword ? "앱 비밀번호 숨기기" : "앱 비밀번호 보기"}
+                                onClick={() => toggleRevealField("opsMailPassword")}
+                              >
+                                <RevealIcon open={Boolean(revealedFields.opsMailPassword)} />
+                              </button>
+                            </div>
+                          </label>
+                          <label>
+                            담당자 이름
+                            <input
+                              value={opsWorkspaceMailSettingsForm.operatorContactName}
+                              onChange={(event) =>
+                                setOpsWorkspaceMailSettingsForm((prev) => ({
+                                  ...prev,
+                                  operatorContactName: event.target.value
+                                }))
+                              }
+                              placeholder="담당자 이름"
+                            />
+                          </label>
+                          <label>
+                            담당자 연락처
+                            <input
+                              value={opsWorkspaceMailSettingsForm.operatorContactTel}
+                              onChange={(event) =>
+                                setOpsWorkspaceMailSettingsForm((prev) => ({
+                                  ...prev,
+                                  operatorContactTel: event.target.value
+                                }))
+                              }
+                              placeholder="01012345678"
+                            />
+                          </label>
+                          <label className="full">
+                            담당자 이메일
+                            <input
+                              type="email"
+                              value={opsWorkspaceMailSettingsForm.operatorContactEmail}
+                              onChange={(event) =>
+                                setOpsWorkspaceMailSettingsForm((prev) => ({
+                                  ...prev,
+                                  operatorContactEmail: event.target.value
+                                }))
+                              }
+                              placeholder="operator@example.com"
+                            />
+                          </label>
+                          <label className="checkbox-row full">
+                            <input
+                              type="checkbox"
+                              checked={opsWorkspaceMailSettingsForm.testConnection}
+                              onChange={(event) =>
+                                setOpsWorkspaceMailSettingsForm((prev) => ({
+                                  ...prev,
+                                  testConnection: event.target.checked
+                                }))
+                              }
+                            />
+                            <span>저장 후 메일 연결 테스트 실행</span>
+                          </label>
+                        </div>
+                        <div className="button-row">
+                          <button
+                            onClick={() =>
+                              void runAction(
+                                `ops-mail-settings-${workspace.organizationId}`,
+                                submitOpsWorkspaceMailSettings,
+                                { reload: false }
+                              )
+                            }
+                            disabled={busyKey !== null}
+                          >
+                            메일 설정 저장
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={cancelOpsWorkspaceMailSettings}
+                            disabled={busyKey !== null}
+                          >
+                            취소
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })() : null}
                 </Panel>
 
                 <div className="ops-grid">
@@ -6934,23 +7673,39 @@ export function App() {
                   <Panel className="panel-ops-logs" title="최근 운영 로그">
                     <div className="ops-list">
                       {opsLogs.length > 0 ? (
-                        opsLogs.slice(0, 12).map((log) => (
-                          <article key={log.id} className="ops-card">
-                            <div className="ops-card-head">
-                              <div>
-                                <strong>{log.message}</strong>
-                                <span>{log.scope}</span>
+                        opsLogs.slice(0, 12).map((log) => {
+                          const popbillDiagnostic = getOpsPopbillJoinDiagnostic(log);
+                          return (
+                            <article key={log.id} className="ops-card">
+                              <div className="ops-card-head">
+                                <div>
+                                  <strong>{log.message}</strong>
+                                  <span>{log.scope}</span>
+                                </div>
+                                <span className={`chip ${log.level === "error" ? "chip-danger" : log.level === "warn" ? "chip-warn" : "chip-success"}`}>
+                                  {log.level.toUpperCase()}
+                                </span>
                               </div>
-                              <span className={`chip ${log.level === "error" ? "chip-danger" : log.level === "warn" ? "chip-warn" : "chip-success"}`}>
-                                {log.level.toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="ops-card-meta">
-                              <span>{formatDateTime(log.createdAt)}</span>
-                              <span>{log.contextJson || "-"}</span>
-                            </div>
-                          </article>
-                        ))
+                              {popbillDiagnostic ? (
+                                <div className="ops-log-diagnostic">
+                                  <strong>{popbillDiagnostic.title}</strong>
+                                  <dl>
+                                    {popbillDiagnostic.rows.map((row) => (
+                                      <div key={row.label}>
+                                        <dt>{row.label}</dt>
+                                        <dd>{row.value}</dd>
+                                      </div>
+                                    ))}
+                                  </dl>
+                                </div>
+                              ) : null}
+                              <div className="ops-card-meta">
+                                <span>{formatDateTime(log.createdAt)}</span>
+                                <span>{log.contextJson || "-"}</span>
+                              </div>
+                            </article>
+                          );
+                        })
                       ) : (
                         <div className="empty">표시할 운영 로그가 없습니다.</div>
                       )}

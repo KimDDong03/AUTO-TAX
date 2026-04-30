@@ -601,7 +601,7 @@ export async function commitCustomerOnboardingPreparedEntry(
     if (autoJoinResult.status === "failed") {
       warnings.push({
         rowIndex: entry.rowIndex,
-        message: `팝빌 자동 가입 실패: ${autoJoinResult.error ?? "원인을 확인해 주세요."}`
+        message: `발행 연동 실패: ${autoJoinResult.error ?? "원인을 확인해 주세요."}`
       });
     }
   }

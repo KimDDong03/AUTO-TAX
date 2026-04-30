@@ -1,8 +1,11 @@
 import type { Express } from "express";
 import { z } from "zod";
 import type { AuthUserSummary, OpsWorkspaceSummary } from "../admin-types.js";
+import { listPublicConsultationRequests, updatePublicConsultationRequest } from "../consultation-requests.js";
+import type { AppSettings } from "../domain.js";
 import { HttpError } from "../http-errors.js";
 import type { RequirePlatformAdmin } from "../route-types.js";
+import type { AppStore } from "../store-contract.js";
 
 const opsWorkspaceCreateSchema = z.object({
   organizationName: z.string().trim().min(1),
@@ -28,12 +31,86 @@ const passwordResetSchema = z.object({
   password: z.string().trim().min(8).max(128)
 });
 
+const consultationRequestUpdateSchema = z.object({
+  status: z.enum(["new", "contacted", "workspace_opened", "closed"]).optional(),
+  note: z.string().trim().max(2000).optional()
+});
+
+const opsWorkspaceMailSettingsSchema = z.object({
+  mailAddress: z.string().trim().email(),
+  mailPassword: z.string().default(""),
+  operatorContactName: z.string().trim().default(""),
+  operatorContactEmail: z.string().trim().email().or(z.literal("")).default(""),
+  operatorContactTel: z.string().trim().default(""),
+  imapMailbox: z.string().trim().default("INBOX"),
+  notificationEmails: z.array(z.string().trim().email()).default([]),
+  testConnection: z.boolean().default(true)
+});
+
+function inferMailProviderSettings(mailAddress: string) {
+  const domain = mailAddress.split("@")[1]?.toLowerCase() ?? "";
+  if (domain === "naver.com") {
+    return {
+      imapHost: "imap.naver.com",
+      imapPort: 993,
+      imapSecure: true,
+      smtpHost: "smtp.naver.com",
+      smtpPort: 465,
+      smtpSecure: true
+    };
+  }
+
+  if (domain === "daum.net" || domain === "hanmail.net" || domain === "kakao.com") {
+    return {
+      imapHost: "imap.daum.net",
+      imapPort: 993,
+      imapSecure: true,
+      smtpHost: "smtp.daum.net",
+      smtpPort: 465,
+      smtpSecure: true
+    };
+  }
+
+  return {
+    imapHost: "imap.gmail.com",
+    imapPort: 993,
+    imapSecure: true,
+    smtpHost: "smtp.gmail.com",
+    smtpPort: 465,
+    smtpSecure: true
+  };
+}
+
 type RouteDeps = {
   app: Express;
   requirePlatformAdmin: RequirePlatformAdmin;
   createSupabaseAdminClient: () => ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>;
+  createOrganizationStore: (options: { organizationId: string; actorUserId: string | null }) => Promise<AppStore>;
   listOpsWorkspaces: (organizationIdsFilter?: string[]) => Promise<OpsWorkspaceSummary[]>;
   getOpsWorkspaceSummaryById: (organizationId: string) => Promise<OpsWorkspaceSummary | null>;
+  toClientSettings: (settings: AppSettings) => unknown;
+  testMailConnections: (input: {
+    imapHost: string;
+    imapPort: number;
+    imapSecure: boolean;
+    imapUser: string;
+    imapPass: string;
+    imapMailbox: string;
+    smtpHost: string;
+    smtpPort: number;
+    smtpSecure: boolean;
+    smtpUser: string;
+    smtpPass: string;
+    smtpFromName: string;
+    smtpFromEmail: string;
+    notificationEmails: string[];
+  }) => Promise<{
+    imapOk: boolean;
+    imapMessage?: string;
+    smtpOk: boolean;
+    smtpMessage?: string;
+    testMailSent?: boolean;
+  }>;
   digitsOnly: (value: string) => string;
   normalizeLoginId: (value: string) => string;
   createWorkspaceSeed: (organizationName: string, ownerLoginId: string, businessNumber: string) => string;
@@ -56,8 +133,11 @@ export function registerOpsRoutes(deps: RouteDeps) {
     app,
     requirePlatformAdmin,
     createSupabaseAdminClient,
+    createOrganizationStore,
     listOpsWorkspaces,
     getOpsWorkspaceSummaryById,
+    toClientSettings,
+    testMailConnections,
     digitsOnly,
     normalizeLoginId,
     createWorkspaceSeed,
@@ -72,6 +152,33 @@ export function registerOpsRoutes(deps: RouteDeps) {
   app.get("/api/ops/workspaces", async (_req, res) => {
     requirePlatformAdmin(res);
     res.json(await listOpsWorkspaces());
+  });
+
+  app.get("/api/ops/consultation-requests", async (_req, res) => {
+    requirePlatformAdmin(res);
+    res.json(await listPublicConsultationRequests(createSupabaseAdminClient()));
+  });
+
+  app.patch("/api/ops/consultation-requests/:id", async (req, res) => {
+    const authContext = requirePlatformAdmin(res);
+    const params = z.object({ id: z.string().uuid() }).parse(req.params);
+    const payload = consultationRequestUpdateSchema.parse(req.body ?? {});
+    if (payload.status === undefined && payload.note === undefined) {
+      throw new HttpError(400, "변경할 상담 신청 값이 없습니다.");
+    }
+
+    const request = await updatePublicConsultationRequest(createSupabaseAdminClient(), {
+      id: params.id,
+      status: payload.status,
+      note: payload.note,
+      handledBy: authContext.userId
+    });
+
+    if (!request) {
+      throw new HttpError(404, "상담 신청을 찾지 못했습니다.");
+    }
+
+    res.json({ request });
   });
 
   app.post("/api/ops/workspaces", async (req, res) => {
@@ -263,6 +370,88 @@ export function registerOpsRoutes(deps: RouteDeps) {
     }
 
     res.json({ workspace });
+  });
+
+  app.put("/api/ops/workspaces/:organizationId/mail-settings", async (req, res) => {
+    const authContext = requirePlatformAdmin(res);
+    const params = z.object({ organizationId: z.string().uuid() }).parse(req.params);
+    const payload = opsWorkspaceMailSettingsSchema.parse(req.body ?? {});
+    const requestStore = await createOrganizationStore({
+      organizationId: params.organizationId,
+      actorUserId: authContext.userId
+    });
+
+    try {
+      const currentSettings = await requestStore.getSettings();
+      const provider = inferMailProviderSettings(payload.mailAddress);
+      const nextPassword = payload.mailPassword.trim() || currentSettings.imapPass || currentSettings.smtpPass;
+      const nextSettingsInput: Partial<AppSettings> = {
+        imapHost: provider.imapHost,
+        imapPort: provider.imapPort,
+        imapSecure: provider.imapSecure,
+        imapUser: payload.mailAddress,
+        imapPass: nextPassword,
+        imapMailbox: payload.imapMailbox || currentSettings.imapMailbox || "INBOX",
+        smtpHost: provider.smtpHost,
+        smtpPort: provider.smtpPort,
+        smtpSecure: provider.smtpSecure,
+        smtpUser: payload.mailAddress,
+        smtpPass: nextPassword,
+        smtpFromName: payload.operatorContactName || currentSettings.smtpFromName || "AUTO-TAX",
+        smtpFromEmail: payload.mailAddress,
+        notificationEmails: payload.notificationEmails,
+        operatorContactName: payload.operatorContactName,
+        operatorContactEmail: payload.operatorContactEmail,
+        operatorContactTel: payload.operatorContactTel
+      };
+
+      let settings = await requestStore.updateSettings(nextSettingsInput);
+      let mailTestResult: {
+        imapOk: boolean;
+        imapMessage?: string;
+        smtpOk: boolean;
+        smtpMessage?: string;
+        testMailSent?: boolean;
+      } | null = null;
+
+      if (payload.testConnection) {
+        mailTestResult = await testMailConnections({
+          imapHost: settings.imapHost,
+          imapPort: settings.imapPort,
+          imapSecure: settings.imapSecure,
+          imapUser: settings.imapUser,
+          imapPass: settings.imapPass,
+          imapMailbox: settings.imapMailbox,
+          smtpHost: settings.smtpHost,
+          smtpPort: settings.smtpPort,
+          smtpSecure: settings.smtpSecure,
+          smtpUser: settings.smtpUser,
+          smtpPass: settings.smtpPass,
+          smtpFromName: settings.smtpFromName,
+          smtpFromEmail: settings.smtpFromEmail,
+          notificationEmails: settings.notificationEmails
+        });
+
+        if (mailTestResult.imapOk && mailTestResult.smtpOk) {
+          settings = await requestStore.updateSettings({
+            mailConnectionVerifiedAt: new Date().toISOString()
+          });
+        }
+      }
+
+      await requestStore.createLog("info", "ops", "플랫폼 관리자가 작업공간 메일/담당자 설정을 저장했습니다.", {
+        mailAddress: payload.mailAddress,
+        testConnection: payload.testConnection,
+        testSucceeded: mailTestResult ? Boolean(mailTestResult.imapOk && mailTestResult.smtpOk) : null
+      });
+
+      res.json({
+        settings: toClientSettings(settings),
+        mailTest: mailTestResult
+      });
+    } finally {
+      await requestStore.close();
+    }
   });
 
   app.post("/api/ops/workspaces/:organizationId/reset-owner-password", async (req, res) => {

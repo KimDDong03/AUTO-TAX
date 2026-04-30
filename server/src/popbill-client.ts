@@ -54,7 +54,7 @@ function mapPopbillError(operation: PopbillOperation, code: string, rawMessage: 
   ) {
     return {
       status: 409,
-      message: appendCode("팝빌 연동회원이 없습니다. 고객 팝빌 가입을 다시 진행하세요.", code)
+      message: appendCode("발행 연동 계정이 없습니다. 고객 발행 연동을 다시 진행하세요.", code)
     };
   }
 
@@ -64,14 +64,14 @@ function mapPopbillError(operation: PopbillOperation, code: string, rawMessage: 
   ) {
     return {
       status: 409,
-      message: appendCode("팝빌 회원 아이디가 이미 사용 중입니다. 다른 아이디로 다시 시도하세요.", code)
+      message: appendCode("발행 연동 ID가 이미 사용 중입니다. 다른 ID로 다시 시도하세요.", code)
     };
   }
 
   if (normalized.includes("포인트 부족")) {
     return {
       status: 409,
-      message: appendCode("팝빌 포인트가 부족합니다. 포인트를 충전한 뒤 다시 시도하세요.", code)
+      message: appendCode("발행 포인트가 부족합니다. 포인트를 충전한 뒤 다시 시도하세요.", code)
     };
   }
 
@@ -89,27 +89,27 @@ function mapPopbillError(operation: PopbillOperation, code: string, rawMessage: 
     return {
       status: 404,
       message: appendCode(
-        "팝빌 문서를 찾지 못했습니다. 현재 연결 모드와 문서가 발행된 환경(테스트/운영)이 같은지 확인하세요.",
+        "발행 문서를 찾지 못했습니다. 현재 연결 모드와 문서가 발행된 환경(테스트/운영)이 같은지 확인하세요.",
         code
       )
     };
   }
 
   const fallbackByOperation: Record<PopbillOperation, string> = {
-    "join-member": "팝빌 가입에 실패했습니다.",
-    "check-member": "팝빌 가입 상태 확인에 실패했습니다.",
-    "quit-member": "팝빌 연동회원 탈퇴에 실패했습니다.",
-    "cert-url": "팝빌 공동인증서 등록 URL을 가져오지 못했습니다.",
-    "cert-expire-date": "팝빌 공동인증서 상태를 조회하지 못했습니다.",
+    "join-member": "발행 연동에 실패했습니다.",
+    "check-member": "발행 연동 상태 확인에 실패했습니다.",
+    "quit-member": "발행 연동 계정 해지에 실패했습니다.",
+    "cert-url": "전자세금용 공동인증서 등록 URL을 가져오지 못했습니다.",
+    "cert-expire-date": "전자세금용 공동인증서 상태를 조회하지 못했습니다.",
     "partner-balance": "팝빌 파트너 포인트를 조회하지 못했습니다.",
     "unit-cost": "팝빌 단가를 조회하지 못했습니다.",
     balance: "팝빌 잔액을 조회하지 못했습니다.",
     "partner-charge-url": "팝빌 충전 페이지 URL을 가져오지 못했습니다.",
-    "invoice-info": "팝빌 문서 정보를 조회하지 못했습니다.",
-    "invoice-view-url": "팝빌 문서 보기 URL을 가져오지 못했습니다.",
-    "invoice-print-url": "팝빌 문서 인쇄 URL을 가져오지 못했습니다.",
-    "invoice-cancel": "팝빌 문서 취소에 실패했습니다.",
-    "invoice-issue": "팝빌 전자세금계산서 발행에 실패했습니다."
+    "invoice-info": "발행 문서 정보를 조회하지 못했습니다.",
+    "invoice-view-url": "발행 문서 보기 URL을 가져오지 못했습니다.",
+    "invoice-print-url": "발행 문서 인쇄 URL을 가져오지 못했습니다.",
+    "invoice-cancel": "발행 문서 취소에 실패했습니다.",
+    "invoice-issue": "전자세금계산서 발행에 실패했습니다."
   };
 
   return {
@@ -166,7 +166,7 @@ function isPopbillQuitUserIdMismatchError(error: unknown): boolean {
 
 function getService(settings: AppSettings): any {
   if (!settings.popbillLinkId || !settings.popbillSecretKey) {
-    throw new Error("팝빌 LinkID 또는 SecretKey가 설정되지 않았습니다.");
+    throw new Error("발행 연동 서버 운영값이 설정되지 않았습니다.");
   }
 
   popbill.config({
@@ -201,7 +201,7 @@ function promisify<T>(
 
 function assertCustomerPopbillIdentity(customer: Customer): void {
   if (!customer.popbillUserId) {
-    throw new Error("고객 팝빌 ID가 없습니다. 시스템설정의 팝빌 ID 접두어를 확인한 뒤 고객을 다시 저장하세요.");
+    throw new Error("고객 발행 연동 ID가 없습니다. 서버 발행 연동 운영값을 확인한 뒤 고객을 다시 저장하세요.");
   }
 }
 
@@ -248,7 +248,7 @@ export async function joinMember(settings: AppSettings, customer: Customer): Pro
   assertCustomerPopbillIdentity(customer);
   assertOperatorContact(settings);
   if (!customer.popbillPassword) {
-    throw new Error("고객 팝빌 비밀번호가 없습니다. 시스템설정의 팝빌 공통 비밀번호를 저장한 뒤 고객을 다시 저장하세요.");
+    throw new Error("고객 발행 연동 비밀번호가 없습니다. 서버 발행 연동 운영값을 확인한 뒤 고객을 다시 저장하세요.");
   }
   const service = getService(settings);
   return promisify("join-member", (done) => {
@@ -484,8 +484,8 @@ export async function issueTaxInvoice(
     invoicerAddr: customer.addr,
     invoicerBizClass: customer.bizClass,
     invoicerBizType: customer.bizType,
-    invoicerContactName: "",
-    invoicerTEL: "",
+    invoicerContactName: settings.operatorContactName || "",
+    invoicerTEL: settings.operatorContactTel || "",
     invoicerEmail: settings.operatorContactEmail || "",
     invoicerSMSSendYN: false,
     invoiceeType: "사업자",

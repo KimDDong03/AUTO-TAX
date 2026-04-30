@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { issueDraftNow } from "../automation.js";
 import type { AppSettings, Customer, DraftStatus, InvoiceDraft } from "../domain.js";
 import type { ApiErrorBody } from "../http-errors.js";
+import { renderMailPreviewImage } from "../mail-preview-image.js";
 import { buildPilotIssuanceReportCsv, buildPilotLogContext } from "../pilot-issuance.js";
 import { cancelTaxInvoice, getTaxInvoiceInfo, getTaxInvoicePrintURL, getTaxInvoiceViewURL } from "../popbill-client.js";
 import type { AppStore } from "../store-contract.js";
@@ -148,6 +149,30 @@ export function registerDraftRoutes(deps: RouteDeps) {
     }
 
     res.json(timeline);
+  });
+
+  app.get("/api/drafts/:id/mail-preview-image", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const draftId = Number(req.params.id);
+    const draft = await requestStore.getDraft(draftId);
+    if (!draft) {
+      res.status(404).json({ error: "발행 대기건을 찾지 못했습니다." });
+      return;
+    }
+
+    const sourceMessage = await requestStore.getInboxMessage(draft.sourceMessageId);
+    if (!sourceMessage) {
+      res.status(404).json({ error: "원본 메일을 찾지 못했습니다." });
+      return;
+    }
+
+    try {
+      const preview = await renderMailPreviewImage(sourceMessage);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(preview);
+    } catch (error) {
+      res.status(getErrorStatus(error, 500)).json(buildApiErrorBody(error, "원본 메일 이미지 생성에 실패했습니다."));
+    }
   });
 
   app.post("/api/drafts/:id/issue", async (req, res) => {

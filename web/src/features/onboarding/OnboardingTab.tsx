@@ -92,8 +92,8 @@ export function OnboardingTab(props: OnboardingTabProps) {
     : null;
 
   return (
-    <div className="onboarding-compact-shell">
-      <div className="onboarding-step-strip" role="tablist" aria-label="준비 단계">
+    <div className="onboarding-task-shell">
+      <aside className="onboarding-step-strip onboarding-stepper-rail" role="tablist" aria-label="준비 단계">
         {props.steps.map((step) => {
           const isActive = activeStep?.id === step.id;
           const isRecommended = step.id === recommendedStepId;
@@ -130,7 +130,7 @@ export function OnboardingTab(props: OnboardingTabProps) {
             </button>
           );
         })}
-      </div>
+      </aside>
 
       {activeStep ? (
         <section

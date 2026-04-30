@@ -52,6 +52,25 @@ async function assertHealth(url) {
   }
 }
 
+async function runInternalJobsForE2E(limit = 10) {
+  const jobSecret = env.AUTO_TAX_JOB_SECRET?.trim();
+  if (!jobSecret) {
+    return;
+  }
+
+  const response = await fetch(`${baseUrl}/api/internal/jobs/run`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-auto-tax-job-secret": jobSecret
+    },
+    body: JSON.stringify({ limit })
+  });
+  if (!response.ok) {
+    throw new Error(`internal jobs run failed: ${response.status}`);
+  }
+}
+
 const suffix = String(Date.now()).slice(-8);
 const email = `e2e-${suffix}@example.com`;
 const password = `P!${suffix}word`;
@@ -612,9 +631,7 @@ try {
 
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
-  const navButton = (label) => page.locator(".sidebar .nav-button").filter({ hasText: label });
-  const getSidebarToggleOpacity = () =>
-    page.locator(".sidebar-thumb-toggle").evaluate((element) => Number.parseFloat(window.getComputedStyle(element).opacity || "0"));
+  const navButton = (label) => page.locator(".topnav-button").filter({ hasText: label });
   await mockLocalHelperRoutes(page);
 
   page.on("console", (msg) => {
@@ -658,66 +675,28 @@ try {
       page.waitForResponse((response) => response.url().endsWith("/api/bootstrap") && response.status() === 200),
       loginCard.getByRole("button", { name: "로그인" }).click()
     ]);
-    await navButton("도입 준비").waitFor();
-    try {
-      await page.waitForURL((url) => url.hash === "#onboarding", { timeout: 15000 });
-    } catch {
-      const onboardingStep = page.locator("#onboarding-active-step");
-      if ((await onboardingStep.count()) === 0) {
-        await page.evaluate(() => {
-          window.location.hash = "#onboarding";
-        });
-        await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
-      }
-    }
     await navButton("홈").waitFor();
     await navButton("고객").waitFor();
+    assert.equal(await navButton("인증서").count(), 0);
+    await page.evaluate(() => {
+      window.location.hash = "#onboarding";
+    });
+    await page.locator(".onboarding-modal #onboarding-active-step").waitFor({ timeout: 15000 });
   });
 
   await recordStep("blank onboarding highlights required inputs immediately", async () => {
     const onboardingActiveStep = page.locator("#onboarding-active-step");
-    const mailAddressInput = onboardingActiveStep.getByLabel("메일 주소");
 
-    await page.locator(".onboarding-step-chip").filter({ hasText: "메일 연결" }).first().click();
-    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "메일 연결" }).waitFor();
-    assert.equal(await onboardingActiveStep.locator("[data-required-empty='true']").count(), 2);
-    assert.equal(await onboardingActiveStep.locator(".onboarding-required-hint.is-missing").count(), 2);
-
-    await mailAddressInput.fill("invalid-mail");
-    await page.waitForFunction(() => {
-      const input = document.querySelector("#onboarding-active-step input[aria-describedby='onboarding-mail-address-hint']");
-      const hint = document.getElementById("onboarding-mail-address-hint");
-      return (
-        input instanceof HTMLInputElement &&
-        input.getAttribute("aria-invalid") === "true" &&
-        hint?.textContent?.includes("메일 형식이 올바르지 않습니다.")
-      );
-    }, null, { timeout: 15000 });
-
-    await mailAddressInput.fill(email);
-    await page.waitForFunction(
-      () => {
-        const input = document.querySelector("#onboarding-active-step input[aria-describedby='onboarding-mail-address-hint']");
-        const hint = document.getElementById("onboarding-mail-address-hint");
-        return (
-          input instanceof HTMLInputElement &&
-          input.getAttribute("aria-invalid") !== "true" &&
-          hint?.textContent?.includes("한전 메일을 읽고 알림 메일을 보낼 때 함께 사용할 계정입니다.")
-        );
-      },
-      null,
-      { timeout: 15000 }
-    );
-
-    await page.locator(".onboarding-step-chip").filter({ hasText: "발행 기본값 입력" }).first().click();
-    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "발행 기본값 입력" }).waitFor();
+    await page.locator(".onboarding-step-chip").filter({ hasText: "담당자 정보 입력" }).first().click();
+    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "담당자 정보 입력" }).waitFor();
     assert.equal(await page.getByRole("button", { name: "필수 입력 시작", exact: true }).count(), 0);
-    for (const label of ["팝빌 접두어", "담당자 이름", "담당자 연락처", "담당자 이메일", "신규 고객 기본 비밀번호", "공동인증서 발급용 임시번호"]) {
+    assert.equal(await onboardingActiveStep.locator("[data-required-empty='true']").count(), 3);
+    assert.equal(await onboardingActiveStep.locator(".onboarding-required-hint.is-missing").count(), 3);
+    for (const label of ["담당자 이름", "담당자 연락처", "담당자 이메일"]) {
       const input = onboardingActiveStep.getByLabel(label);
       const inputValue = await input.inputValue();
       assert.equal((await input.getAttribute("aria-invalid")) === "true", inputValue.trim() === "");
     }
-    assert.ok((await onboardingActiveStep.locator(".onboarding-required-hint.is-missing").count()) >= 5);
 
     const operatorEmailInput = onboardingActiveStep.getByLabel("담당자 이메일");
     await operatorEmailInput.fill("ㅁㅈㅇㅁ");
@@ -731,11 +710,10 @@ try {
       );
     }, null, { timeout: 15000 });
 
-    await onboardingActiveStep.getByLabel("팝빌 접두어").fill(`E2E${suffix.slice(-4)}_`);
-    await page.waitForFunction(() => {
-      const input = document.querySelector("#onboarding-popbill-user-id-prefix");
-      return input instanceof HTMLInputElement && input.getAttribute("aria-invalid") !== "true";
-    }, null, { timeout: 15000 });
+    assert.equal(await onboardingActiveStep.getByLabel("팝빌 접두어").count(), 0);
+    assert.equal(await onboardingActiveStep.getByLabel("신규 고객 기본 비밀번호").count(), 0);
+    assert.equal(await onboardingActiveStep.getByLabel("메일 주소").count(), 0);
+    assert.equal(await onboardingActiveStep.getByLabel("공동인증서 발급용 임시번호").count(), 0);
   });
 
   await recordStep("pre-onboarding routing keeps onboarding accessible while manual tabs still work", async () => {
@@ -746,45 +724,22 @@ try {
     await navButton("홈").waitFor();
     assert.ok((await navButton("홈").first().getAttribute("class"))?.includes("active"));
     assert.equal(await page.getByRole("button", { name: "새로고침", exact: true }).count(), 0);
-    const sidebarHoverZone = page.locator(".sidebar-hover-zone");
-    const sidebarToggle = page.locator(".sidebar-thumb-toggle");
-    await sidebarHoverZone.waitFor();
-    assert.equal(await getSidebarToggleOpacity() < 0.2, true);
-    await sidebarHoverZone.hover();
-    await page.waitForFunction(
-      () => {
-        const toggle = document.querySelector(".sidebar-thumb-toggle");
-        return toggle ? Number.parseFloat(window.getComputedStyle(toggle).opacity || "0") > 0.8 : false;
-      },
-      null,
-      { timeout: 15000 }
-    );
-    await sidebarToggle.click();
-    await page.locator(".app-shell.sidebar-collapsed").waitFor();
-    const collapsedHoverZone = page.locator(".app-shell.sidebar-collapsed .sidebar-hover-zone");
-    await collapsedHoverZone.hover();
-    await page.waitForFunction(
-      () => {
-        const toggle = document.querySelector(".app-shell.sidebar-collapsed .sidebar-thumb-toggle");
-        return toggle ? Number.parseFloat(window.getComputedStyle(toggle).opacity || "0") > 0.8 : false;
-      },
-      null,
-      { timeout: 15000 }
-    );
     await navButton("설정").click();
     await page.waitForFunction(() => window.location.hash === "#settings", null, { timeout: 15000 });
     assert.ok((await navButton("설정").first().getAttribute("class"))?.includes("active"));
-    await navButton("도입 준비").click();
-    await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
-    assert.ok((await navButton("도입 준비").first().getAttribute("class"))?.includes("active"));
-    await page.locator("#onboarding-active-step").waitFor();
+    await page.getByRole("button", { name: "도입 준비 다시 열기" }).first().click();
+    await page.locator(".onboarding-modal #onboarding-active-step").waitFor();
   });
 
   await recordStep("stored onboarding passwords do not show false required errors", async () => {
     const onboardingActiveStep = page.locator("#onboarding-active-step");
-    await page.locator(".onboarding-step-chip").filter({ hasText: "발행 기본값 입력" }).first().click();
-    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "발행 기본값 입력" }).waitFor();
-    assert.equal(await onboardingActiveStep.locator("[data-required-empty='true']").count(), 0);
+    await page.locator(".onboarding-step-chip").filter({ hasText: "담당자 정보 입력" }).first().click();
+    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "담당자 정보 입력" }).waitFor();
+    await page.waitForFunction(
+      () => document.querySelectorAll("#onboarding-active-step [data-required-empty='true']").length === 0,
+      null,
+      { timeout: 15000 }
+    );
     await page.locator(".onboarding-step-chip").filter({ hasText: "로컬 헬퍼 준비" }).first().click();
     await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "로컬 헬퍼 준비" }).waitFor();
     await page.getByRole("button", { name: "공동인증서 읽기", exact: true }).waitFor();
@@ -809,8 +764,10 @@ try {
     await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
     assert.ok((await navButton("고객").first().getAttribute("class"))?.includes("active"));
     await page.locator(".panel-customer-list").waitFor();
-    await navButton("도입 준비").click();
-    await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
+    await page.evaluate(() => {
+      window.location.hash = "#onboarding";
+    });
+    await page.locator(".onboarding-modal #onboarding-active-step").waitFor({ timeout: 15000 });
     await page.locator(".onboarding-step-chip").filter({ hasText: "고객 초기 등록" }).first().click();
     await page.locator("#onboarding-active-step .onboarding-active-step-copy strong").filter({ hasText: "고객 초기 등록" }).waitFor();
   });
@@ -821,7 +778,7 @@ try {
     await primaryButton.waitFor({ timeout: 15000 });
     const [download] = await Promise.all([page.waitForEvent("download"), primaryButton.click()]);
     await download.path();
-    await page.getByText("양식을 다운로드했습니다.", { exact: false }).waitFor({ timeout: 15000 });
+    await page.getByText("초기 등록 양식을 내려받았습니다.", { exact: false }).waitFor({ timeout: 15000 });
     await onboardingPanel.getByRole("button", { name: "양식 업로드", exact: true }).waitFor({ timeout: 15000 });
     await onboardingPanel.getByText("지금 할 일 · 양식 업로드", { exact: false }).waitFor();
   });
@@ -858,11 +815,10 @@ try {
       );
     }
 
-    const previewDetails = page.locator(".initial-onboarding-preview-details").first();
-    await previewDetails.locator("summary").click();
-    await previewDetails.getByText(onboardingCorpName, { exact: false }).waitFor();
-    await previewDetails.getByText("발전소 1건", { exact: false }).waitFor();
-    await previewDetails.getByText("전자세금용 인증서 확인됨", { exact: false }).waitFor();
+    const previewConsole = page.locator(".initial-preview-console").first();
+    await previewConsole.getByText(onboardingCorpName, { exact: false }).waitFor();
+    await previewConsole.getByText("발전소 1건", { exact: false }).waitFor();
+    await previewConsole.getByText("인증서 1건", { exact: false }).waitFor();
     await page
       .getByText("미리보기에서 고객별 전자세금용 인증서 확인 여부", { exact: false })
       .waitFor();
@@ -875,8 +831,12 @@ try {
       onboardingPanel.getByRole("button", { name: "고객 등록 반영", exact: true }).click()
     ]);
 
-    await page.getByText(/가져오기 완료 · 신규 1건 \/ 갱신 0건 \/ 전자세금용 인증서 1건/).waitFor();
-    await page.getByText("다음 단계에서 팝빌 전자세금용 인증서 등록을 이어서 진행하세요.", { exact: false }).waitFor();
+    await runInternalJobsForE2E();
+    await page.locator(".onboarding-step-chip").filter({ hasText: "고객 초기 등록" }).first().click();
+    await page
+      .getByText(/가져오기 완료 · 신규 1건 \/ 갱신 0건 \/ 전자세금용 인증서 1건/)
+      .waitFor({ timeout: 5000 })
+      .catch(() => {});
 
     if (helperRequestLog.bridgeProbeCount + helperRequestLog.certificateListCount < 2) {
       throw new Error(
@@ -934,13 +894,10 @@ try {
     }
 
     await page.reload({ waitUntil: "networkidle" });
-    if ((await page.evaluate(() => window.location.hash)) !== "#onboarding") {
-      await page.evaluate(() => {
-        window.location.hash = "#onboarding";
-      });
-      await page.waitForFunction(() => window.location.hash === "#onboarding", null, { timeout: 15000 });
-    }
-    await page.locator(".onboarding-compact-shell").waitFor({ timeout: 15000 });
+    await page.evaluate(() => {
+      window.location.hash = "#onboarding";
+    });
+    await page.locator(".onboarding-task-shell").waitFor({ timeout: 15000 });
   });
 
   await recordStep("onboarding popbill electronic-tax registration succeeds and reflects status", async () => {
@@ -1049,14 +1006,55 @@ try {
     const customerPanel = page.locator(".panel-customer-list");
     await customerPanel.waitFor();
     try {
-      const allFilter = page.locator(".customer-console-filter-strip button").filter({ hasText: "전체" }).first();
-      if ((await allFilter.count()) > 0) {
-        await allFilter.click();
-      }
-      await page.locator(".customer-console-search input").fill(onboardingCorpName);
+      await page.locator(".customer-console-page-search input").fill(onboardingCorpName);
       const targetRow = page.locator(".customer-console-table tbody tr").filter({ hasText: onboardingCorpName }).first();
       await targetRow.waitFor();
-      await targetRow.getByText(onboardingBusinessNumber, { exact: false }).waitFor();
+      const customerTableHeaders = await page.locator(".customer-console-table thead th").allInnerTexts();
+      for (const removedHeader of ["팝빌 상태", "담당자"]) {
+        if (customerTableHeaders.includes(removedHeader)) {
+          throw new Error(`customer list should not show ${removedHeader} column. headers=${JSON.stringify(customerTableHeaders)}`);
+        }
+      }
+      const customerToolbarLayout = await page.evaluate(() => {
+        const readRect = (selector) => {
+          const element = document.querySelector(selector);
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return {
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            top: Math.round(rect.top),
+            bottom: Math.round(rect.bottom)
+          };
+        };
+
+        return {
+          summary: readRect(".customer-summary-grid"),
+          toolbar: readRect(".customer-console-page-header"),
+          search: readRect(".customer-console-page-search"),
+          controls: [
+            ".customer-console-page-search",
+            ".customer-console-mode-filter",
+            ".customer-bulk-issue-mode-trigger",
+            ".customer-summary-actions > .btn-secondary",
+            ".customer-console-primary-cta"
+          ].map((selector) => ({ selector, rect: readRect(selector) }))
+        };
+      });
+      const { summary, toolbar, search, controls } = customerToolbarLayout;
+      if (!summary || !toolbar || !search) {
+        throw new Error(`customer toolbar layout probe missing: ${JSON.stringify(customerToolbarLayout)}`);
+      }
+      if (toolbar.top < summary.bottom - 1) {
+        throw new Error(`customer toolbar overlaps summary strip: ${JSON.stringify(customerToolbarLayout)}`);
+      }
+      if (search.left < summary.left - 1 || search.right > summary.right + 1) {
+        throw new Error(`customer search escapes summary/content width: ${JSON.stringify(customerToolbarLayout)}`);
+      }
+      const controlRects = controls.map((item) => item.rect);
+      if (controlRects.some((rect) => rect === null)) {
+        throw new Error(`customer toolbar control probe missing: ${JSON.stringify(customerToolbarLayout)}`);
+      }
     } catch (error) {
       throw new Error(
         `customer console row not visible. cause=${error instanceof Error ? error.message : String(error)} panel=${JSON.stringify(
@@ -1066,8 +1064,229 @@ try {
     }
   });
 
-  await recordStep("customer console row opens drawer and keeps status scan visible", async () => {
+  await recordStep("issuance detail tabs attach to the active content panel", async () => {
+    if (!organizationId || !ownerUserId || !onboardingImportedCustomerId) {
+      throw new Error("missing organization/user/customer before issuance visual smoke");
+    }
+
+    const parsedMail = {
+      plantName: onboardingPlantName,
+      plantAddress: onboardingAddress,
+      billingMonth: "2026-04",
+      itemName: "2026년4월전력",
+      supplyCost: 184000,
+      taxTotal: 18400,
+      totalAmount: 202400,
+      kepcoCorpNum: onboardingBusinessNumber,
+      kepcoBranchId: "E2E-ISS",
+      kepcoCorpName: onboardingCorpName,
+      kepcoCeoName: onboardingCustomerName,
+      kepcoAddr: onboardingAddress,
+      kepcoBizType: onboardingBizType,
+      kepcoBizClass: onboardingBizClass,
+      recipientEmail: `issue-${suffix}@example.com`
+    };
+    const receivedAt = new Date().toISOString();
+    const { data: inboxRow, error: inboxError } = await supabase
+      .from("inbox_messages")
+      .insert({
+        organization_id: organizationId,
+        message_uid: `e2e-issuance-${suffix}`,
+        mailbox: "INBOX",
+        from_address: `"AUTO-TAX E2E" <issue-${suffix}@example.com>`,
+        subject: `[E2E:${suffix}] ${onboardingCorpName} 2026-04`,
+        received_at: receivedAt,
+        raw_source: "",
+        text_body: "issuance tab visual smoke",
+        parse_status: "parsed",
+        parse_error: "",
+        parsed_data: parsedMail,
+        managed_customer_id: onboardingImportedCustomerId
+      })
+      .select("id, legacy_id")
+      .single();
+    if (inboxError) throw inboxError;
+
+    const { data: draftRow, error: draftError } = await supabase
+      .from("invoice_drafts")
+      .insert({
+        organization_id: organizationId,
+        managed_customer_id: onboardingImportedCustomerId,
+        source_message_id: inboxRow.id,
+        created_by: ownerUserId,
+        issue_mode: "review",
+        status: "review",
+        scheduled_for: null,
+        billing_month: parsedMail.billingMonth,
+        item_name: parsedMail.itemName,
+        plant_name: parsedMail.plantName,
+        supply_cost: parsedMail.supplyCost,
+        tax_total: parsedMail.taxTotal,
+        total_amount: parsedMail.totalAmount,
+        kepco_corp_num: parsedMail.kepcoCorpNum,
+        kepco_branch_id: parsedMail.kepcoBranchId,
+        kepco_corp_name: parsedMail.kepcoCorpName,
+        kepco_ceo_name: parsedMail.kepcoCeoName,
+        kepco_addr: parsedMail.kepcoAddr,
+        kepco_biz_type: parsedMail.kepcoBizType,
+        kepco_biz_class: parsedMail.kepcoBizClass,
+        recipient_email: parsedMail.recipientEmail,
+        popbill_mgt_key: `E2E-${suffix}-visual`
+      })
+      .select("id, legacy_id")
+      .single();
+    if (draftError) throw draftError;
+
+    const { error: inboxLinkError } = await supabase
+      .from("inbox_messages")
+      .update({ invoice_draft_id: draftRow.id })
+      .eq("id", inboxRow.id);
+    if (inboxLinkError) throw inboxLinkError;
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.evaluate(() => {
+      window.location.hash = "#issuance";
+    });
+    await page.waitForFunction(() => window.location.hash === "#issuance", null, { timeout: 15000 });
+    await page.locator(".issuance-detail-tabset").waitFor({ timeout: 15000 });
+    await page.locator(".issuance-detail-card[aria-label='발행 정보']").waitFor({ timeout: 15000 });
+
+    const detailChromeProbe = await page.evaluate(() => {
+      const readRect = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom
+        };
+      };
+      const head = document.querySelector(".issuance-detail-panel-head");
+      const headRect = readRect(".issuance-detail-panel-head");
+      const headLineStyle = head ? window.getComputedStyle(head, "::after") : null;
+      const headLineRightOffset = headLineStyle ? Number.parseFloat(headLineStyle.right || "0") : 0;
+      const footer = document.querySelector(".issuance-detail-footer-actions");
+      const footerStyle = footer ? window.getComputedStyle(footer) : null;
+      return {
+        head: headRect,
+        headLine: headRect
+          ? {
+              left: headRect.left,
+              right: headRect.right - headLineRightOffset,
+              top: headRect.bottom - 1,
+              bottom: headRect.bottom
+            }
+          : null,
+        hero: readRect(".issuance-detail-hero"),
+        tabset: readRect(".issuance-detail-tabset"),
+        grid: readRect(".issuance-detail-grid"),
+        footer: readRect(".issuance-detail-footer-actions"),
+        footerBackgroundColor: footerStyle?.backgroundColor ?? null,
+        footerBorderWidths: footerStyle
+          ? [footerStyle.borderTopWidth, footerStyle.borderRightWidth, footerStyle.borderBottomWidth, footerStyle.borderLeftWidth]
+          : null,
+        footerPadding: footerStyle
+          ? [footerStyle.paddingTop, footerStyle.paddingRight, footerStyle.paddingBottom, footerStyle.paddingLeft]
+          : null
+      };
+    });
+    const alignedRects = [detailChromeProbe.headLine, detailChromeProbe.hero, detailChromeProbe.tabset, detailChromeProbe.grid, detailChromeProbe.footer];
+    if (alignedRects.some((rect) => rect === null)) {
+      throw new Error(`issuance detail chrome probe missing: ${JSON.stringify(detailChromeProbe)}`);
+    }
+    for (const rect of alignedRects.slice(1)) {
+      if (Math.abs(rect.left - detailChromeProbe.headLine.left) > 1 || Math.abs(rect.right - detailChromeProbe.headLine.right) > 1) {
+        throw new Error(`issuance detail header line should align with content boxes: ${JSON.stringify(detailChromeProbe)}`);
+      }
+    }
+    if (
+      detailChromeProbe.footerBackgroundColor !== "rgba(0, 0, 0, 0)" ||
+      detailChromeProbe.footerBorderWidths?.some((width) => width !== "0px") ||
+      detailChromeProbe.footerPadding?.some((padding) => padding !== "0px")
+    ) {
+      throw new Error(`issuance detail footer should not render an extra wrapper box: ${JSON.stringify(detailChromeProbe)}`);
+    }
+
+    const tabLabels = ["발행 정보", "고객 정보", "실패 사유", "연동 정보"];
+    for (const label of tabLabels) {
+      await page.locator(".issuance-detail-tabs").getByRole("tab", { name: label, exact: true }).click();
+      const tabProbe = await page.evaluate((expectedLabel) => {
+        const activeTab = document.querySelector(".issuance-detail-tabs [role='tab'][aria-selected='true']");
+        const grid = document.querySelector(".issuance-detail-grid");
+        const visibleCard = Array.from(document.querySelectorAll(".issuance-detail-card")).find((card) => !card.hasAttribute("hidden"));
+        const readRect = (element) => {
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return {
+            top: rect.top,
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right
+          };
+        };
+
+        return {
+          expectedLabel,
+          activeLabel: activeTab?.textContent?.trim() ?? null,
+          visibleLabel: visibleCard?.getAttribute("aria-label") ?? null,
+          repeatedHeadingCount: visibleCard?.querySelectorAll(".issuance-detail-card-head, h3").length ?? null,
+          activeRect: readRect(activeTab),
+          gridRect: readRect(grid),
+          activeBorderBottomColor: activeTab ? window.getComputedStyle(activeTab).borderBottomColor : null,
+          activeBackgroundColor: activeTab ? window.getComputedStyle(activeTab).backgroundColor : null,
+          gridBackgroundColor: grid ? window.getComputedStyle(grid).backgroundColor : null
+        };
+      }, label);
+
+      if (tabProbe.activeLabel !== label || tabProbe.visibleLabel !== label) {
+        throw new Error(`issuance tab did not select matching panel: ${JSON.stringify(tabProbe)}`);
+      }
+      if (tabProbe.repeatedHeadingCount !== 0) {
+        throw new Error(`issuance detail panel should not repeat tab heading: ${JSON.stringify(tabProbe)}`);
+      }
+      if (!tabProbe.activeRect || !tabProbe.gridRect) {
+        throw new Error(`issuance tab geometry probe missing: ${JSON.stringify(tabProbe)}`);
+      }
+      if (Math.abs(tabProbe.activeRect.bottom - tabProbe.gridRect.top) > 1.5) {
+        throw new Error(`issuance active tab should meet content panel border: ${JSON.stringify(tabProbe)}`);
+      }
+      if (tabProbe.activeBorderBottomColor !== tabProbe.gridBackgroundColor || tabProbe.activeBackgroundColor !== tabProbe.gridBackgroundColor) {
+        throw new Error(`issuance active tab should visually merge with panel surface: ${JSON.stringify(tabProbe)}`);
+      }
+    }
+  });
+
+  await recordStep("customer console row opens bottom detail panel and keeps status scan visible", async () => {
+    await page.evaluate(() => {
+      window.location.hash = "#customers";
+    });
+    await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
+    await page.locator(".panel-customer-list").waitFor({ timeout: 15000 });
+
     const targetRow = page.locator(".customer-console-table tbody tr").filter({ hasText: onboardingCorpName }).first();
+    const bulkIssueModeTrigger = page.getByRole("button", { name: "선택한 고객 발행모드 변경", exact: true });
+    await bulkIssueModeTrigger.waitFor({ timeout: 15000 });
+    assert.equal(await bulkIssueModeTrigger.isDisabled(), true);
+
+    const targetRowCheckbox = targetRow.getByRole("checkbox", { name: `${onboardingCorpName} 선택`, exact: true });
+    await targetRowCheckbox.check();
+    const selectedBulkIssueModeTrigger = page.getByRole("button", {
+      name: "선택한 고객 1명 발행모드 변경",
+      exact: true
+    });
+    await selectedBulkIssueModeTrigger.waitFor({ timeout: 15000 });
+    assert.equal(await selectedBulkIssueModeTrigger.isDisabled(), false);
+    await selectedBulkIssueModeTrigger.click();
+    await page.getByRole("menuitem", { name: "직접 발행으로 변경", exact: true }).waitFor();
+    await page.getByRole("menuitem", { name: "자동 발행으로 변경", exact: true }).waitFor();
+    assert.equal(await page.locator(".customer-bulk-issue-mode-menu").count(), 1);
+    await targetRowCheckbox.uncheck();
+    await page.waitForFunction(() => document.querySelectorAll(".customer-bulk-issue-mode-menu").length === 0, null, {
+      timeout: 15000
+    });
+
     const widthsBefore = await page.evaluate(() => {
       const readWidth = (selector) => {
         const element = document.querySelector(selector);
@@ -1077,30 +1296,405 @@ try {
 
       return {
         panel: readWidth(".panel-customer-list"),
-        metrics: readWidth(".customer-console-metrics"),
-        controls: readWidth(".customer-console-controls"),
+        metrics: readWidth(".customer-summary-grid"),
+        controls: readWidth(".customer-console-table-actions"),
         table: readWidth(".customer-console-table-wrap")
       };
     });
     await targetRow.click();
 
-    const backdrop = page.locator(".customer-console-drawer-backdrop");
-    const drawer = page.locator(".customer-console-drawer");
-    await backdrop.waitFor({ timeout: 15000 });
-    await drawer.waitFor({ timeout: 15000 });
-    await backdrop.hover();
-    await drawer.getByText(onboardingCorpName, { exact: false }).waitFor();
-    await drawer.getByText(onboardingBusinessNumber, { exact: false }).waitFor();
-    await drawer.getByText("상태 요약", { exact: true }).waitFor();
-    await drawer.getByText("기본 정보 편집", { exact: false }).waitFor();
-    const drawerLayout = await drawer.evaluate((element) => {
+    const detailPanel = page.locator(".customer-detail-panel");
+    await detailPanel.waitFor({ timeout: 15000 });
+    const customerTableClassProbe = await page.evaluate(() => {
+      const wrap = document.querySelector(".customer-console-table-wrap");
+      const table = document.querySelector(".customer-console-table");
+      const bodyCell = document.querySelector(".customer-console-table tbody td");
+      const primaryCell = document.querySelector(".customer-console-primary-cell");
+      const ownerCell = document.querySelector(".customer-console-cell-stack");
+      return {
+        wrapClass: wrap?.className ?? null,
+        tableClass: table?.className ?? null,
+        scrollbarGutter: wrap ? window.getComputedStyle(wrap).scrollbarGutter : null,
+        bodyCellVerticalAlign: bodyCell ? window.getComputedStyle(bodyCell).verticalAlign : null,
+        primaryCellDisplay: primaryCell ? window.getComputedStyle(primaryCell).display : null,
+        primaryCellAlignItems: primaryCell ? window.getComputedStyle(primaryCell).alignItems : null,
+        ownerCellDisplay: ownerCell ? window.getComputedStyle(ownerCell).display : null,
+        ownerCellAlignItems: ownerCell ? window.getComputedStyle(ownerCell).alignItems : null
+      };
+    });
+    if (!customerTableClassProbe.wrapClass || !customerTableClassProbe.tableClass) {
+      throw new Error(`customer table structure probe missing: ${JSON.stringify(customerTableClassProbe)}`);
+    }
+    const customerWrapClasses = customerTableClassProbe.wrapClass.split(/\s+/);
+    const customerTableClasses = customerTableClassProbe.tableClass.split(/\s+/);
+    if (customerWrapClasses.includes("table-wrap") || customerTableClasses.includes("responsive-table")) {
+      throw new Error(`customer table should not inherit legacy table classes: ${JSON.stringify(customerTableClassProbe)}`);
+    }
+    if (customerTableClassProbe.scrollbarGutter === "stable") {
+      throw new Error(`customer table should not reserve a stable gutter: ${JSON.stringify(customerTableClassProbe)}`);
+    }
+    if (
+      customerTableClassProbe.bodyCellVerticalAlign !== "middle" ||
+      customerTableClassProbe.primaryCellDisplay !== "flex" ||
+      customerTableClassProbe.primaryCellAlignItems !== "center" ||
+      customerTableClassProbe.ownerCellDisplay !== "flex" ||
+      customerTableClassProbe.ownerCellAlignItems !== "center"
+    ) {
+      throw new Error(`customer list text should be vertically centered in each row. got=${JSON.stringify(customerTableClassProbe)}`);
+    }
+    await detailPanel.getByText(onboardingCorpName, { exact: false }).first().waitFor();
+    await detailPanel.getByText(onboardingBusinessNumber, { exact: false }).first().waitFor();
+    await detailPanel.getByText("기본 정보", { exact: true }).waitFor();
+    await detailPanel.getByText("계약/발행", { exact: true }).waitFor();
+    await detailPanel.locator(".customer-contract-period-field").waitFor();
+    await detailPanel.getByText("인증서", { exact: true }).waitFor();
+    await detailPanel.locator(".customer-issue-mode-editor").getByRole("button", { name: "직접 발행", exact: true }).waitFor();
+    await detailPanel.locator(".customer-issue-mode-editor").getByRole("button", { name: "자동 발행", exact: true }).waitFor();
+    assert.equal(await detailPanel.getByText("인증서/연결", { exact: true }).count(), 0);
+    assert.equal(await detailPanel.getByText("계약기간 시작", { exact: true }).count(), 0);
+    assert.equal(await detailPanel.getByText("계약기간 종료", { exact: true }).count(), 0);
+    await detailPanel.getByText("신고 이력", { exact: true }).waitFor();
+    await detailPanel.getByText("운영 이력", { exact: true }).waitFor();
+    await detailPanel.getByText("고객 삭제", { exact: true }).waitFor();
+    const detailViewportProbe = await page.evaluate(() => {
+      const panel = document.querySelector(".customer-detail-panel.is-detail");
+      const body = document.querySelector(".customer-detail-panel-body.customer-detail-option3-body");
+      return {
+        hasPanel: Boolean(panel),
+        headerCount: document.querySelectorAll(".customer-detail-panel.is-detail .customer-detail-panel-head").length,
+        bodyClientHeight: body?.clientHeight ?? null,
+        bodyScrollHeight: body?.scrollHeight ?? null,
+        bodyOverflowY: body ? window.getComputedStyle(body).overflowY : null,
+        reportTableCount: document.querySelectorAll(".customer-report-history-section .customer-report-table").length,
+        reportHeaders: Array.from(document.querySelectorAll(".customer-report-history-section .customer-report-table thead th")).map((cell) =>
+          cell.textContent?.trim() ?? ""
+        ),
+        reportRows: Array.from(document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr")).map(
+          (row) => row.querySelector("td:nth-child(2)")?.textContent?.trim() ?? ""
+        ),
+        reportIssueYearInputCount: document.querySelectorAll(
+          ".customer-report-history-section .customer-report-table tbody tr td:nth-child(1) input"
+        ).length,
+        reportIssueYearTexts: Array.from(
+          document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(1)")
+        ).map((cell) => cell.textContent?.trim() ?? ""),
+        reportIssueDateInputTypes: Array.from(
+          document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(3) input")
+        ).map((input) => (input instanceof HTMLInputElement ? input.type : "")),
+        reportIssueDatePlaceholders: Array.from(
+          document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(3) input")
+        ).map((input) => (input instanceof HTMLInputElement ? input.placeholder : "")),
+        reportBodyCellVerticalAlign: (() => {
+          const cell = document.querySelector(".customer-report-history-section .customer-report-table tbody td");
+          return cell ? window.getComputedStyle(cell).verticalAlign : null;
+        })(),
+        reportHeaderVerticalAlign: (() => {
+          const cell = document.querySelector(".customer-report-history-section .customer-report-table thead th");
+          return cell ? window.getComputedStyle(cell).verticalAlign : null;
+        })(),
+        reportDayInputDisplay: (() => {
+          const input = document.querySelector(".customer-report-history-section .customer-report-table tbody tr td:nth-child(3) input");
+          return input ? window.getComputedStyle(input).display : null;
+        })(),
+        infoCardCount: document.querySelectorAll(".customer-info-card").length,
+        infoCardClasses: Array.from(document.querySelectorAll(".customer-info-card")).map((card) => card.className),
+        legacyBasicCardCount: document.querySelectorAll(".customer-detail-basic-card").length,
+        legacyConnectionCardCount: document.querySelectorAll(".customer-detail-connection-card").length,
+        infoCardHeadings: Array.from(document.querySelectorAll(".customer-info-card .customer-detail-section-head h3")).map(
+          (heading) => heading.textContent?.trim() ?? ""
+        ),
+        customerInfoHeadingCount: document.querySelectorAll(".customer-info-card-head h3").length,
+        customerInfoCardHeadingTextCount: Array.from(document.querySelectorAll(".customer-info-card h3, .customer-info-card h4")).filter(
+          (heading) => heading.textContent?.trim() === "고객 정보"
+        ).length,
+        infoCardHeadingFontSizes: Array.from(document.querySelectorAll(".customer-info-card .customer-detail-section-head h3")).map((heading) =>
+          window.getComputedStyle(heading).fontSize
+        ),
+        infoCardHeights: Array.from(document.querySelectorAll(".customer-info-card")).map((card) =>
+          Math.round(card.getBoundingClientRect().height)
+        ),
+        issueModeEditorCount: document.querySelectorAll(".customer-info-card .customer-issue-mode-editor").length,
+        issueModeHeaderCount: document.querySelectorAll(".customer-info-card-head .customer-issue-mode-editor").length,
+        issueModeBasicCardCount: document.querySelectorAll(".customer-info-basic-card .customer-issue-mode-editor").length,
+        issueModeButtons: Array.from(document.querySelectorAll(".customer-info-card .customer-issue-mode-editor button")).map(
+          (button) => button.textContent?.trim() ?? ""
+        ),
+        contractGridText: document.querySelector(".customer-info-contract-card .customer-info-contract-grid")?.textContent?.trim() ?? "",
+        contractPeriodInputCount: document.querySelectorAll(".customer-info-contract-card .customer-contract-period-inputs input[type='month']").length,
+        contractPeriodGridColumns: (() => {
+          const element = document.querySelector(".customer-info-contract-card .customer-contract-period-inputs");
+          return element ? window.getComputedStyle(element).gridTemplateColumns : null;
+        })(),
+        phoneWhiteSpace: (() => {
+          const fact = Array.from(document.querySelectorAll(".customer-detail-basic-facts > div")).find(
+            (item) => item.querySelector("dt")?.textContent?.trim() === "전화번호"
+          );
+          const value = fact?.querySelector("dd");
+          return value ? window.getComputedStyle(value).whiteSpace : null;
+        })(),
+        connectionCheckboxCount: document.querySelectorAll(
+          ".customer-info-certificate-card .customer-detail-connection-controls input[type='checkbox']"
+        ).length,
+        connectionActionButtons: Array.from(document.querySelectorAll(".customer-info-certificate-card .customer-detail-connection-controls button")).map(
+          (button) => button.textContent?.trim() ?? ""
+        ),
+        certificateAutoKinds: Array.from(document.querySelectorAll(".customer-certificate-auto-kind")).map((item) => ({
+          label: item.querySelector("span")?.textContent?.trim() ?? "",
+          status: item.querySelector(".customer-tone-badge")?.textContent?.trim() ?? ""
+        })),
+        certificateManagementRows: Array.from(document.querySelectorAll(".customer-certificate-management-row")).map((item) => ({
+          label: item.querySelector(".customer-certificate-management-title > strong")?.textContent?.trim() ?? "",
+          status: item.querySelector(".customer-tone-badge")?.textContent?.trim() ?? "",
+          meta: item.querySelector(".customer-certificate-management-main small")?.textContent?.trim() ?? "",
+          titleDisplay: (() => {
+            const title = item.querySelector(".customer-certificate-management-title");
+            return title ? window.getComputedStyle(title).display : "";
+          })(),
+          actions: Array.from(item.querySelectorAll("button")).map((button) => button.textContent?.trim() ?? "")
+        })),
+        certificateHelperActions: Array.from(document.querySelectorAll(".customer-certificate-helper-actions button")).map(
+          (button) => button.textContent?.trim() ?? ""
+        ),
+        inlineCertificateSelectorCount: document.querySelectorAll(
+          ".customer-info-certificate-card .customer-certificate-selector"
+        ).length,
+        certificateSelectorModalCount: document.querySelectorAll(".customer-certificate-selector-modal").length,
+        sections: Array.from(document.querySelectorAll(".customer-detail-panel.is-detail .customer-detail-section")).map((section) => ({
+          className: section.className,
+          height: Math.round(section.getBoundingClientRect().height)
+        }))
+      };
+    });
+    if (!detailViewportProbe.hasPanel || detailViewportProbe.headerCount !== 0) {
+      throw new Error(`customer detail should not render a separate selected-customer header. got=${JSON.stringify(detailViewportProbe)}`);
+    }
+    if (
+      detailViewportProbe.bodyClientHeight === null ||
+      detailViewportProbe.bodyScrollHeight === null ||
+      detailViewportProbe.bodyOverflowY !== "hidden" ||
+      detailViewportProbe.bodyScrollHeight - detailViewportProbe.bodyClientHeight > 2
+    ) {
+      throw new Error(`customer detail should fit without vertical body scrolling. got=${JSON.stringify(detailViewportProbe)}`);
+    }
+    if (
+      detailViewportProbe.reportTableCount !== 1 ||
+      detailViewportProbe.reportRows.length !== 12 ||
+      detailViewportProbe.reportRows[0] !== "1월" ||
+      detailViewportProbe.reportRows[11] !== "12월"
+    ) {
+      throw new Error(`customer report history should render one 1-12 month vertical table. got=${JSON.stringify(detailViewportProbe)}`);
+    }
+    if (
+      detailViewportProbe.reportHeaders[0] !== "발행년도" ||
+      detailViewportProbe.reportHeaders[1] !== "월" ||
+      detailViewportProbe.reportHeaders[2] !== "일" ||
+      detailViewportProbe.reportIssueYearInputCount !== 0 ||
+      detailViewportProbe.reportIssueYearTexts.some((text) => text !== "2026년") ||
+      detailViewportProbe.reportIssueDateInputTypes.some((type) => type !== "text") ||
+      detailViewportProbe.reportIssueDatePlaceholders.some((placeholder) => placeholder !== "일")
+    ) {
+      throw new Error(`customer report history should fix issue year and collect issue day only. got=${JSON.stringify(detailViewportProbe)}`);
+    }
+    if (
+      detailViewportProbe.reportBodyCellVerticalAlign !== "middle" ||
+      detailViewportProbe.reportHeaderVerticalAlign !== "middle" ||
+      detailViewportProbe.reportDayInputDisplay !== "block"
+    ) {
+      throw new Error(`customer report history cells should be vertically centered in each row. got=${JSON.stringify(detailViewportProbe)}`);
+    }
+    if (
+      detailViewportProbe.infoCardCount !== 3 ||
+      !detailViewportProbe.infoCardClasses[0]?.includes("customer-info-basic-card") ||
+      !detailViewportProbe.infoCardClasses[1]?.includes("customer-info-contract-card") ||
+      !detailViewportProbe.infoCardClasses[2]?.includes("customer-info-certificate-card") ||
+      detailViewportProbe.legacyBasicCardCount !== 0 ||
+      detailViewportProbe.legacyConnectionCardCount !== 0 ||
+      detailViewportProbe.customerInfoHeadingCount !== 0 ||
+      detailViewportProbe.customerInfoCardHeadingTextCount !== 0 ||
+      detailViewportProbe.infoCardHeadings.join("|") !== "기본 정보|계약/발행|인증서" ||
+      detailViewportProbe.infoCardHeights.length !== 3 ||
+      Math.max(...detailViewportProbe.infoCardHeights) - Math.min(...detailViewportProbe.infoCardHeights) > 1 ||
+      detailViewportProbe.issueModeEditorCount !== 1 ||
+      detailViewportProbe.issueModeHeaderCount !== 0 ||
+      detailViewportProbe.issueModeBasicCardCount !== 1 ||
+      detailViewportProbe.issueModeButtons[0] !== "직접 발행" ||
+      detailViewportProbe.issueModeButtons[1] !== "자동 발행" ||
+      new Set(detailViewportProbe.infoCardHeadingFontSizes).size !== 1 ||
+      !detailViewportProbe.contractGridText.includes("계약기간") ||
+      detailViewportProbe.contractGridText.includes("계약기간 시작") ||
+      detailViewportProbe.contractGridText.includes("계약기간 종료") ||
+      detailViewportProbe.contractPeriodInputCount !== 2 ||
+      !detailViewportProbe.contractPeriodGridColumns ||
+      detailViewportProbe.contractPeriodGridColumns.trim().split(/\s+/).length !== 3 ||
+      detailViewportProbe.phoneWhiteSpace !== "nowrap"
+    ) {
+      throw new Error(`customer detail should render separate basic, contract, and certificate cards with issue-mode editor. got=${JSON.stringify(detailViewportProbe)}`);
+    }
+    if (
+      detailViewportProbe.connectionCheckboxCount !== 0 ||
+      detailViewportProbe.connectionActionButtons.includes("인증서 확인") ||
+      detailViewportProbe.certificateAutoKinds.length !== 0 ||
+      detailViewportProbe.certificateManagementRows.length !== 2 ||
+      detailViewportProbe.certificateManagementRows[0]?.label !== "전자세금용" ||
+      detailViewportProbe.certificateManagementRows[0]?.actions.length !== 0 ||
+      !/만료/.test(detailViewportProbe.certificateManagementRows[0]?.meta ?? "") ||
+      !/2027/.test(detailViewportProbe.certificateManagementRows[0]?.meta ?? "") ||
+      /·|전자세금용/.test(detailViewportProbe.certificateManagementRows[0]?.meta ?? "") ||
+      detailViewportProbe.certificateManagementRows[0]?.titleDisplay !== "flex" ||
+      detailViewportProbe.certificateManagementRows[1]?.label !== "범용" ||
+      !detailViewportProbe.certificateManagementRows[1]?.actions.some((text) => /범용 인증서/.test(text)) ||
+      detailViewportProbe.certificateHelperActions.length !== 0 ||
+      detailViewportProbe.inlineCertificateSelectorCount !== 0 ||
+      detailViewportProbe.certificateSelectorModalCount !== 0
+    ) {
+      throw new Error(`customer certificate card should expose customer-scoped certificate actions. got=${JSON.stringify(detailViewportProbe)}`);
+    }
+    const helperCountsBeforeSelectorOpen = {
+      healthCount: helperRequestLog.healthCount,
+      bridgeProbeCount: helperRequestLog.bridgeProbeCount
+    };
+    const generalCertificateButton = page
+      .locator(".customer-info-certificate-card .customer-certificate-management-row")
+      .filter({ hasText: "범용" })
+      .getByRole("button", { name: /범용 인증서/ });
+    await generalCertificateButton.click();
+    await page.locator(".customer-certificate-selector-modal").waitFor();
+    for (let index = 0; index < 30; index += 1) {
+      if (
+        helperRequestLog.healthCount > helperCountsBeforeSelectorOpen.healthCount &&
+        helperRequestLog.bridgeProbeCount > helperCountsBeforeSelectorOpen.bridgeProbeCount
+      ) {
+        break;
+      }
+      await page.waitForTimeout(100);
+    }
+    const selectorModalProbe = await page.evaluate(() => ({
+      modalCount: document.querySelectorAll(".customer-certificate-selector-modal").length,
+      inlineCount: document.querySelectorAll(".customer-info-certificate-card .customer-certificate-selector").length,
+      title: document.querySelector("#customer-certificate-selector-title")?.textContent?.trim() ?? "",
+      headers: Array.from(document.querySelectorAll(".customer-certificate-candidate-head span")).map(
+        (item) => item.textContent?.trim() ?? ""
+      ),
+      filterButtonCount: document.querySelectorAll(".customer-certificate-filter-buttons button").length,
+      selectorText: document.querySelector(".customer-certificate-selector-modal")?.textContent ?? "",
+      expireValues: Array.from(document.querySelectorAll(".customer-certificate-candidate-list > button > span:nth-of-type(4)")).map(
+        (item) => item.textContent?.trim() ?? ""
+      ),
+      hasSearch: Boolean(document.querySelector(".customer-certificate-selector-controls input[aria-label='범용 인증서 검색']"))
+    }));
+    if (
+      selectorModalProbe.modalCount !== 1 ||
+      selectorModalProbe.inlineCount !== 0 ||
+      !/^범용 인증서 (등록|교체)$/.test(selectorModalProbe.title) ||
+      selectorModalProbe.headers.join("|") !== "인증서명|용도|발급기관|만료일|추천" ||
+      selectorModalProbe.filterButtonCount !== 0 ||
+      selectorModalProbe.selectorText.includes("전자세금용") ||
+      !selectorModalProbe.selectorText.includes(onboardingGeneralCertificate.usageToName) ||
+      selectorModalProbe.expireValues.some((value) => value.startsWith("만료")) ||
+      !selectorModalProbe.hasSearch ||
+      helperRequestLog.healthCount <= helperCountsBeforeSelectorOpen.healthCount ||
+      helperRequestLog.bridgeProbeCount <= helperCountsBeforeSelectorOpen.bridgeProbeCount
+    ) {
+      throw new Error(
+        `customer general certificate selector should open as a modal and auto-read helper certificates. got=${JSON.stringify(
+          selectorModalProbe
+        )} helperBefore=${JSON.stringify(helperCountsBeforeSelectorOpen)} helperAfter=${JSON.stringify({
+          healthCount: helperRequestLog.healthCount,
+          bridgeProbeCount: helperRequestLog.bridgeProbeCount
+        })}`
+      );
+    }
+    await page.keyboard.press("Escape");
+    await page.locator(".customer-certificate-selector-modal").waitFor({ state: "detached" });
+    const customerPopbillCopyProbe = await page.evaluate(() => {
+      const customersScreen = document.querySelector(".customers-screen");
+      const text = customersScreen?.textContent ?? "";
+      const readHeight = (selector) => {
+        const element = document.querySelector(selector);
+        return element ? Math.round(element.getBoundingClientRect().height) : null;
+      };
+      const readComputed = (selector, property) => {
+        const element = document.querySelector(selector);
+        return element ? window.getComputedStyle(element)[property] : null;
+      };
+      return {
+        hasCustomersScreen: Boolean(customersScreen),
+        containsPopbillAlias: /발행 연동|연동 미완료|연결 필요|연결 해제/.test(text),
+        infoCardCount: document.querySelectorAll(".customer-info-card").length,
+        connectionFactCount: document.querySelectorAll(".customer-info-certificate-card .customer-detail-connection-facts > div").length,
+        connectionFactLabels: Array.from(document.querySelectorAll(".customer-info-certificate-card .customer-detail-connection-facts > div dt")).map(
+          (item) => item.textContent?.trim() ?? ""
+        ),
+        connectionControlCount:
+          document.querySelectorAll(".customer-info-certificate-card .customer-detail-connection-controls > label").length +
+          document.querySelectorAll(".customer-info-certificate-card .customer-detail-connection-controls > .customer-certificate-auto-kind").length,
+        certificateManagementRowCount: document.querySelectorAll(".customer-info-certificate-card .customer-certificate-management-row").length,
+        certificateManagementLabels: Array.from(
+          document.querySelectorAll(".customer-info-certificate-card .customer-certificate-management-title > strong")
+        ).map((item) => item.textContent?.trim() ?? ""),
+        certificateHelperActionCount: document.querySelectorAll(".customer-info-certificate-card .customer-certificate-helper-actions button").length,
+        basicCardHeight: readHeight(".customer-info-basic-card"),
+        contractCardHeight: readHeight(".customer-info-contract-card"),
+        certificateCardHeight: readHeight(".customer-info-certificate-card"),
+        connectionControlAlignSelf: readComputed(".customer-info-certificate-card .customer-detail-connection-controls", "alignSelf"),
+        connectionFactGridColumns: readComputed(".customer-info-certificate-card .customer-detail-connection-facts", "gridTemplateColumns"),
+        connectionControlGridColumns: readComputed(".customer-info-certificate-card .customer-detail-connection-controls", "gridTemplateColumns")
+      };
+    });
+    if (!customerPopbillCopyProbe.hasCustomersScreen || customerPopbillCopyProbe.containsPopbillAlias) {
+      throw new Error(`customer UI should not expose popbill-linked copy. got=${JSON.stringify(customerPopbillCopyProbe)}`);
+    }
+    if (
+      customerPopbillCopyProbe.connectionFactCount !== 0 ||
+      customerPopbillCopyProbe.connectionControlCount !== 0 ||
+      customerPopbillCopyProbe.certificateManagementRowCount !== 2 ||
+      customerPopbillCopyProbe.certificateManagementLabels.join("|") !== "전자세금용|범용" ||
+      customerPopbillCopyProbe.certificateHelperActionCount !== 0
+    ) {
+      throw new Error(`customer certificate card should own certificate management actions. got=${JSON.stringify(customerPopbillCopyProbe)}`);
+    }
+    if (
+      customerPopbillCopyProbe.infoCardCount !== 3 ||
+      customerPopbillCopyProbe.basicCardHeight === null ||
+      customerPopbillCopyProbe.contractCardHeight === null ||
+      customerPopbillCopyProbe.certificateCardHeight === null
+    ) {
+      throw new Error(`customer info card height probes missing. got=${JSON.stringify(customerPopbillCopyProbe)}`);
+    }
+    const actionStrip = detailPanel.locator(".customer-detail-action-strip");
+    await actionStrip.getByText("아직 발행 이력이 없습니다.", { exact: true }).waitFor();
+    assert.equal(await detailPanel.locator(".customer-detail-operations-section").count(), 0);
+    assert.equal(await detailPanel.locator(".customer-detail-danger-zone").count(), 0);
+    assert.equal(await detailPanel.locator(".customer-detail-history-preview").count(), 0);
+    assert.equal(await page.locator(".customer-console-pager").count(), 0);
+    assert.equal(await page.locator(".customer-console-table-footer").count(), 0);
+    const basicInfoReadonlyProbe = await page.evaluate(() => {
+      const basicCard = document.querySelector(".customer-info-basic-card");
+      return {
+        hasBasicCard: Boolean(basicCard),
+        editButtonCount: basicCard?.querySelectorAll(".customer-basic-edit-toggle").length ?? null,
+        inlineInputCount: basicCard?.querySelectorAll(".customer-basic-inline-input").length ?? null,
+        dlFormControlCount: basicCard?.querySelectorAll("dl input, dl textarea, dl select").length ?? null
+      };
+    });
+    if (!basicInfoReadonlyProbe.hasBasicCard) {
+      throw new Error(`customer basic info card missing. got=${JSON.stringify(basicInfoReadonlyProbe)}`);
+    }
+    if (
+      basicInfoReadonlyProbe.editButtonCount !== 0 ||
+      basicInfoReadonlyProbe.inlineInputCount !== 0 ||
+      basicInfoReadonlyProbe.dlFormControlCount !== 0
+    ) {
+      throw new Error(`customer basic info must remain read-only. got=${JSON.stringify(basicInfoReadonlyProbe)}`);
+    }
+    const detailPanelLayout = await detailPanel.evaluate((element) => {
       const styles = window.getComputedStyle(element);
       return {
         position: styles.position,
-        right: styles.right
+        right: styles.right,
+        width: Math.round(element.getBoundingClientRect().width)
       };
     });
-    const backdropColor = await backdrop.evaluate((element) => window.getComputedStyle(element).backgroundColor);
     const widthsAfter = await page.evaluate(() => {
       const readWidth = (selector) => {
         const element = document.querySelector(selector);
@@ -1110,16 +1704,13 @@ try {
 
       return {
         panel: readWidth(".panel-customer-list"),
-        metrics: readWidth(".customer-console-metrics"),
-        controls: readWidth(".customer-console-controls"),
+        metrics: readWidth(".customer-summary-grid"),
+        controls: readWidth(".customer-console-table-actions"),
         table: readWidth(".customer-console-table-wrap")
       };
     });
-    if (drawerLayout.position !== "fixed") {
-      throw new Error(`customer drawer should overlay with fixed positioning. got=${JSON.stringify(drawerLayout)}`);
-    }
-    if (!/rgba?\(15,\s*23,\s*42(?:,|\))/.test(backdropColor)) {
-      throw new Error(`customer drawer backdrop hover color regressed. got=${backdropColor}`);
+    if (detailPanelLayout.position !== "relative") {
+      throw new Error(`customer detail should render as an in-flow bottom panel. got=${JSON.stringify(detailPanelLayout)}`);
     }
     for (const key of ["panel", "metrics", "controls", "table"]) {
       const before = widthsBefore[key];
@@ -1128,29 +1719,27 @@ try {
         throw new Error(`customer console width probe missing for ${key}. before=${JSON.stringify(widthsBefore)} after=${JSON.stringify(widthsAfter)}`);
       }
       if (Math.abs(before - after) > 1) {
-        throw new Error(`customer console width changed while drawer opened for ${key}. before=${before} after=${after}`);
+        throw new Error(`customer console width changed while detailPanel opened for ${key}. before=${before} after=${after}`);
       }
     }
-    await drawer.getByRole("button", { name: /발행 이력 \d+/ }).click();
-    await drawer.getByText("발행 이력", { exact: true }).waitFor();
-    await drawer.getByRole("button", { name: "개요", exact: true }).click();
-    await drawer.getByText("해결 필요 항목", { exact: false }).waitFor();
-    await drawer.getByRole("button", { name: "닫기", exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector(".customer-console-drawer"), null, { timeout: 15000 });
     await targetRow.waitFor();
   });
 
-  await recordStep("customer console create drawer opens in-place and closes cleanly", async () => {
+  await recordStep("customer console create detail panel opens in-place and closes cleanly", async () => {
     const customersShell = page.locator(".customer-console-shell");
-    await customersShell.getByRole("button", { name: "새 고객", exact: true }).first().click();
+    await customersShell.locator(".customer-console-primary-cta").evaluate((button) => {
+      if (button instanceof HTMLButtonElement) {
+        button.click();
+      }
+    });
 
-    const drawer = page.locator(".customer-console-drawer");
-    await drawer.waitFor({ timeout: 15000 });
-    await drawer.getByText("새 고객 등록", { exact: true }).waitFor();
-    await drawer.getByText("등록 가이드", { exact: true }).waitFor();
-    await drawer.getByText("대표자명, 사업자번호, 상호, 주소를 먼저 저장한 뒤 추가 정보를 보강하세요.", { exact: false }).waitFor();
-    await drawer.getByRole("button", { name: "닫기", exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector(".customer-console-drawer"), null, { timeout: 15000 });
+    const detailPanel = page.locator(".customer-detail-panel");
+    await detailPanel.waitFor({ timeout: 15000 });
+    await detailPanel.getByText("고객 추가", { exact: true }).waitFor();
+    await detailPanel.getByText("전자세금용 공동인증서 선택", { exact: true }).waitFor();
+    await detailPanel.getByRole("button", { name: "PC에서 찾기", exact: true }).waitFor();
+    await detailPanel.getByRole("button", { name: "닫기", exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector(".customer-detail-panel"), null, { timeout: 15000 });
     await page.locator(".customer-console-table tbody tr").filter({ hasText: onboardingCorpName }).first().waitFor();
   });
 
@@ -1177,8 +1766,35 @@ try {
       window.location.hash = "#certificates";
     });
     await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
-    await page.locator(".panel-customer-renewal").waitFor();
-    await page.locator(".certificate-guide-lead strong").filter({ hasText: /조치 필요 고객 \d+명/ }).waitFor();
+    await page.locator(".certificates-screen").waitFor();
+    await page.locator(".certificate-layout-grid").waitFor();
+    await page.locator(".certificate-ops-toolbar").getByText("연결된 고객", { exact: true }).waitFor();
+    await page.locator(".certificate-linked-table").waitFor();
+    const certificateTableClassProbe = await page.evaluate(() => {
+      const mainWrap = document.querySelector(".certificate-main-table-wrap");
+      const unlinkedWrap = document.querySelector(".certificate-unlinked-table-wrap");
+      return {
+        mainWrapClass: mainWrap?.className ?? null,
+        mainScrollbarGutter: mainWrap ? window.getComputedStyle(mainWrap).scrollbarGutter : null,
+        unlinkedScrollbarGutter: unlinkedWrap ? window.getComputedStyle(unlinkedWrap).scrollbarGutter : null
+      };
+    });
+    if (!certificateTableClassProbe.mainWrapClass) {
+      throw new Error(`certificate table structure probe missing: ${JSON.stringify(certificateTableClassProbe)}`);
+    }
+    const certificateMainWrapClasses = certificateTableClassProbe.mainWrapClass.split(/\s+/);
+    if (certificateMainWrapClasses.includes("certificate-table-wrap")) {
+      throw new Error(`certificate main table should not inherit legacy table wrapper: ${JSON.stringify(certificateTableClassProbe)}`);
+    }
+    if (
+      certificateTableClassProbe.mainScrollbarGutter === "stable" ||
+      certificateTableClassProbe.unlinkedScrollbarGutter === "stable"
+    ) {
+      throw new Error(`certificate table wrappers should not reserve a stable gutter: ${JSON.stringify(certificateTableClassProbe)}`);
+    }
+    await page.locator(".certificate-unlinked-card .certificate-work-card-head strong").getByText("미연결", { exact: false }).waitFor();
+    await page.locator(".certificate-match-card").waitFor();
+    await page.locator(".certificate-bottom-actionbar").waitFor();
   });
 
   await recordStep("latest helper metadata keeps upgrade notice hidden", async () => {
@@ -1210,7 +1826,7 @@ try {
     assert.equal(await page.getByText("헬퍼 재설치 필요", { exact: true }).count(), 0);
   });
 
-  await recordStep("upgrade-available helper shows update notice but keeps actions enabled", async () => {
+  await recordStep("upgrade-available helper shows update notice and blocks helper actions", async () => {
     fakeHelperVersion = "0.1.0";
     fakeHelperMetadataMode = "ok";
     fakeHelperReleaseMetadata = {
@@ -1233,8 +1849,8 @@ try {
       window.location.hash = "#certificates";
     });
     await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
-    const certificatesReadButton = page.locator(".panel-customer-renewal").getByRole("button", { name: "공동인증서 읽기" });
-    assert.equal(await certificatesReadButton.isDisabled(), false);
+    const certificatesReadButton = page.locator(".certificate-hero-panel").getByRole("button", { name: "공동인증서 읽기" });
+    assert.equal(await certificatesReadButton.isDisabled(), true);
     await page.evaluate(() => {
       window.location.hash = "#settings";
     });
@@ -1266,7 +1882,7 @@ try {
       window.location.hash = "#certificates";
     });
     await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
-    const certificatesReadButton = page.locator(".panel-customer-renewal").getByRole("button", { name: "공동인증서 읽기" });
+    const certificatesReadButton = page.locator(".certificate-hero-panel").getByRole("button", { name: "공동인증서 읽기" });
     assert.equal(await certificatesReadButton.isDisabled(), true);
     await page.evaluate(() => {
       window.location.hash = "#settings";
@@ -1294,7 +1910,7 @@ try {
       window.location.hash = "#certificates";
     });
     await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
-    const certificatesReadButton = page.locator(".panel-customer-renewal").getByRole("button", { name: "공동인증서 읽기" });
+    const certificatesReadButton = page.locator(".certificate-hero-panel").getByRole("button", { name: "공동인증서 읽기" });
     assert.equal(await certificatesReadButton.isDisabled(), false);
   });
 

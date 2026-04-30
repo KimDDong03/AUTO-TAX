@@ -1,6 +1,6 @@
 # AUTO-TAX
 
-AUTO-TAX is a multi-tenant tax invoice operations app for solar operators. The current product shape is a customer access portal plus a workspace app for mail ingestion, customer management, invoice draft issuance, and Windows-only local certificate assistance.
+AUTO-TAX is a multi-tenant tax invoice operations app for solar operators. The current product shape is a consultation-first public portal, a secondary existing-customer login path, and a workspace app for mail ingestion, customer management, invoice draft issuance, and Windows-only local certificate assistance.
 
 ## System Shape
 
@@ -50,9 +50,9 @@ npm run renewal-agent:dev
 ## Ground Truths
 
 - Customer auto-matching is address-first through `managed_customer_match_addresses`.
-- Public `/` is a customer access portal, not a marketing landing page.
+- Public `/` is a consultation request portal first and an existing-customer login path second.
 - Product behavior is mostly `owner` versus non-owner member even though the DB still stores broader roles.
-- Popbill live secrets are server-managed env values.
+- Popbill live secrets and customer identity defaults are server-managed env values.
 - `job_queue` and `renewal_automation_jobs` are separate systems and should not be debugged as one queue.
 - There is no canonical design guide; visual and interaction rules are intentionally not fixed in docs.
 - `data/` may hold user state; do not remove it casually.

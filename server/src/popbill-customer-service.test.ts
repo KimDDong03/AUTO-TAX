@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppSettings, Customer } from "./domain.js";
 import { PopbillApiError } from "./popbill-client.js";
-import { autoJoinCustomerPopbill } from "./services/popbill-customer-service.js";
+import { POPBILL_JOIN_SUPPORT_MESSAGE, autoJoinCustomerPopbill } from "./services/popbill-customer-service.js";
 import type { AppStore } from "./store-contract.js";
 
 function buildCustomer(overrides: Partial<Customer> = {}): Customer {
@@ -105,6 +105,7 @@ test("autoJoinCustomerPopbill writes explicit external-api logs for final join f
   );
 
   assert.equal(result.status, "failed");
+  assert.equal(result.error, POPBILL_JOIN_SUPPORT_MESSAGE);
   assert.equal(result.customer.popbillState, "failed");
   assert.deepEqual(logs, [
     {
@@ -117,7 +118,9 @@ test("autoJoinCustomerPopbill writes explicit external-api logs for final join f
         error: "가입 실패",
         errorCategory: "external-api",
         errorOperation: "join-member",
-        errorCode: "-99999999"
+        errorCode: "-99999999",
+        supportCategory: "popbill-join",
+        userFacingError: POPBILL_JOIN_SUPPORT_MESSAGE
       }
     }
   ]);

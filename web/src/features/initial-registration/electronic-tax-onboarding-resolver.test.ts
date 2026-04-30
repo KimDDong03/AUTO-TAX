@@ -107,7 +107,7 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook groups plant rows and prese
     issuerName: "테스트 기관",
     serial: "SERIAL-001",
     userDN: "USER-DN-001",
-    certificatePassword: "",
+    certificatePassword: "shared-secret",
     isPrimary: true
   });
 });

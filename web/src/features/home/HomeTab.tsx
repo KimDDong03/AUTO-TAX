@@ -1,5 +1,6 @@
 import { Icon } from "../../components/ui";
-import type { InboxMessage, InvoiceDraft } from "../../types";
+import type { CustomerContractRenewalDueItem, InboxMessage, InvoiceDraft } from "../../types";
+import { formatContractRenewalStatus } from "./customerContractRenewals";
 import type { HomeActionKey, HomeScreenModel } from "./homeScreenModel";
 
 type HomeTabProps = {
@@ -12,6 +13,7 @@ type HomeTabProps = {
   reviewDrafts: InvoiceDraft[];
   recentInboxMessages: InboxMessage[];
   recentIssuedDrafts: InvoiceDraft[];
+  contractRenewalDueItems: CustomerContractRenewalDueItem[];
   workFeedTab: "inbox" | "issued";
   reprocessableMessageCount: number;
   busyKey: string | null;
@@ -23,6 +25,8 @@ type HomeTabProps = {
   onReprocessAllMessages: () => void;
   onViewDraft: (draftId: number) => void;
   onCancelDraft: (draftId: number) => void;
+  onCompleteContractRenewal: (item: CustomerContractRenewalDueItem) => void;
+  onDownloadContractRenewals: () => void;
   getInboxDisplayParseStatus: (message: InboxMessage) => string;
   getParseStatusLabel: (status: string) => string;
   getDraftStatusLabel: (status: string) => string;
@@ -99,6 +103,9 @@ function isMockHomeRow(id: number): boolean {
 
 export function HomeTab(props: HomeTabProps) {
   const onboardingBanner = props.model.onboardingBanner;
+  const onboardingProgressMainText = onboardingBanner
+    ? onboardingBanner.progressText.replace("완료", "").split("·")[0]?.trim() || onboardingBanner.progressText
+    : "";
   const hasLiveReviewDraft = props.reviewDrafts.some((draft) => !isMockHomeRow(draft.id));
 
   return (
@@ -136,22 +143,43 @@ export function HomeTab(props: HomeTabProps) {
         ) : null}
 
         {onboardingBanner ? (
-          <section className="home-onboarding-banner">
+          <section className="home-onboarding-banner home-onboarding-b3">
+            <div className="home-onboarding-progress-dial" aria-label={`도입 준비 ${onboardingBanner.progressText}`}>
+              <span>도입 준비</span>
+              <strong>{onboardingProgressMainText}</strong>
+              <small>진행 중</small>
+            </div>
             <div className="home-onboarding-banner-copy">
               <div className="home-onboarding-banner-head">
-                <span className="chip chip-warn">도입 준비</span>
-                <strong>{onboardingBanner.title}</strong>
+                <strong>세금계산서 발행을 시작하려면 도입 준비를 완료하세요.</strong>
               </div>
               <p>{onboardingBanner.summary}</p>
+              <ul className="home-onboarding-check-list" aria-label="완료된 준비 항목">
+                <li>메일 수신 설정</li>
+                <li>기본 발행 설정</li>
+                <li>담당자 초대</li>
+                <li>권한 설정</li>
+              </ul>
             </div>
-            <div className="home-onboarding-banner-meta">
-              <span>{onboardingBanner.progressText}</span>
+            <div className="home-onboarding-next-card">
+              <span>다음 진행 단계</span>
+              <strong>{onboardingBanner.title.replace(/^다음 단계 ·\s*/, "")}</strong>
+              <p>자동으로 수신 메일을 읽어 고객과 문서를 맞출 수 있도록 설정합니다.</p>
               <button type="button" onClick={() => props.onOpenAction(onboardingBanner.actionKey)}>
                 {onboardingBanner.actionLabel}
               </button>
             </div>
           </section>
         ) : null}
+
+        <section className="home-metric-row" aria-label="홈 운영 지표">
+          {props.model.chips.map((metric) => (
+            <article key={metric.label} className={`home-metric-cell tone-${metric.tone}`}>
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+            </article>
+          ))}
+        </section>
 
         <section className="home-section">
           <div className="home-section-head">
@@ -189,6 +217,77 @@ export function HomeTab(props: HomeTabProps) {
               <p>{props.model.priorityEmptyState.body}</p>
             </div>
           )}
+        </section>
+
+        <section id="home-contract-renewals" className="home-section home-contract-renewals-section">
+          <div className="home-section-head home-contract-renewals-head">
+            <div className="home-contract-renewals-title">
+              <h3>갱신 고객</h3>
+              <span className={props.contractRenewalDueItems.length > 0 ? "chip chip-warn" : "chip chip-success"}>
+                {props.contractRenewalDueItems.length}명
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn-secondary home-contract-renewals-export"
+              disabled={props.busyKey !== null || props.contractRenewalDueItems.length === 0}
+              onClick={props.onDownloadContractRenewals}
+            >
+              엑셀 다운로드
+            </button>
+          </div>
+          <div className={props.contractRenewalDueItems.length === 0 ? "queue-table-shell home-contract-renewals-table-shell is-empty" : "queue-table-shell home-contract-renewals-table-shell"}>
+            <table className="responsive-table queue-table home-contract-renewals-table">
+              <thead>
+                <tr>
+                  <th>상호명</th>
+                  <th>대표자명</th>
+                  <th>연락처</th>
+                  <th>계약 시작월</th>
+                  <th>계약 종료월</th>
+                  <th>다음 시작월</th>
+                  <th>상태</th>
+                  <th>액션</th>
+                </tr>
+              </thead>
+              <tbody>
+                {props.contractRenewalDueItems.map((item) => (
+                  <tr key={item.customerId}>
+                    <td data-label="상호명" className="home-contract-renewals-primary-cell">
+                      <strong>{item.corpName || item.customerName}</strong>
+                    </td>
+                    <td data-label="대표자명">{item.customerName}</td>
+                    <td data-label="연락처">{item.renewalContactMobile || "-"}</td>
+                    <td data-label="계약 시작월">{item.contractStartMonth}</td>
+                    <td data-label="계약 종료월">{item.contractEndMonth}</td>
+                    <td data-label="다음 시작월">{item.nextContractStartMonth}</td>
+                    <td data-label="상태">
+                      <span className={item.status === "overdue" ? "status status-failed" : "status status-pending"}>
+                        {formatContractRenewalStatus(item.status)}
+                      </span>
+                    </td>
+                    <td data-label="액션" className="home-contract-renewals-action-cell">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={props.busyKey !== null}
+                        onClick={() => props.onCompleteContractRenewal(item)}
+                      >
+                        갱신 완료
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {props.contractRenewalDueItems.length === 0 ? (
+                  <tr className="queue-empty-row">
+                    <td className="queue-empty-cell" colSpan={8}>
+                      갱신 대상 고객이 없습니다.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section id="work-review-queue" className="home-section home-review-section">
@@ -287,55 +386,67 @@ export function HomeTab(props: HomeTabProps) {
           <h3>{props.model.recentTitle}</h3>
           <p>{props.model.recentSubtitle}</p>
         </div>
-        <div className="home-side-filters">
-          <button
-            type="button"
-            className={props.workFeedTab === "inbox" ? "btn-secondary active-filter" : "btn-secondary"}
-            onClick={() => props.onSelectFeedTab("inbox")}
-          >
-            최근 수신 {props.recentInboxMessages.length}
-          </button>
-          <button
-            type="button"
-            className={props.workFeedTab === "issued" ? "btn-secondary active-filter" : "btn-secondary"}
-            onClick={() => props.onSelectFeedTab("issued")}
-          >
-            최근 발행 {props.recentIssuedDrafts.length}
-          </button>
-          {props.workFeedTab === "inbox" && props.reprocessableMessageCount > 0 ? (
-            <button type="button" className="btn-secondary" onClick={props.onReprocessAllMessages}>
-              재처리
-            </button>
-          ) : null}
-        </div>
-
         <div className="home-side-list">
-          {props.workFeedTab === "inbox"
-            ? props.recentInboxMessages.map((message) => {
+          <section className="home-flow-panel">
+            <div className="home-flow-panel-head">
+              <strong>최근 수신 메일</strong>
+              <button type="button" className="btn-secondary" onClick={() => props.onSelectFeedTab("inbox")}>
+                모두 보기
+              </button>
+            </div>
+            <div className="home-flow-panel-list home-flow-panel-list-inbox">
+              {props.recentInboxMessages.map((message) => {
                 const status = props.getInboxDisplayParseStatus(message);
                 const isMockRow = isMockHomeRow(message.id);
                 return (
                   <article key={message.id} className="home-flow-item">
-                    <div className="home-flow-item-head">
+                    <div className="home-flow-copy">
                       <strong>{message.parsedData?.plantName ?? "미확인 메일"}</strong>
+                      <span className="home-flow-time">{props.formatDateTime(message.receivedAt)}</span>
+                    </div>
+                    <div className="home-flow-controls">
+                      <span className={`status status-${status}`}>{props.getParseStatusLabel(status)}</span>
                       {props.isInboxActionable(message) && !isMockRow ? (
                         <button type="button" className="btn-secondary home-flow-action" onClick={() => props.onReprocessInboxMessage(message.id)}>
                           재처리
                         </button>
                       ) : null}
                     </div>
-                    <span className="home-flow-time">{props.formatDateTime(message.receivedAt)}</span>
-                    <span className={`status status-${status}`}>{props.getParseStatusLabel(status)}</span>
                   </article>
                 );
-              })
-            : props.recentIssuedDrafts.map((draft) => {
+              })}
+              {props.recentInboxMessages.length === 0 ? (
+                <div className="empty">{props.model.recentInboxEmptyMessage}</div>
+              ) : null}
+              {props.reprocessableMessageCount > 0 ? (
+                <div className="home-flow-panel-foot">
+                  <button type="button" className="btn-secondary" onClick={props.onReprocessAllMessages}>
+                    전체 재처리
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </section>
+          <section className="home-flow-panel">
+            <div className="home-flow-panel-head">
+              <strong>최근 발행 이력</strong>
+              <button type="button" className="btn-secondary" onClick={() => props.onSelectFeedTab("issued")}>
+                모두 보기
+              </button>
+            </div>
+            <div className="home-flow-panel-list home-flow-panel-list-issued">
+              {props.recentIssuedDrafts.map((draft) => {
                 const isMockRow = isMockHomeRow(draft.id);
 
                 return (
                   <article key={draft.id} className="home-flow-item">
-                    <div className="home-flow-item-head">
+                    <div className="home-flow-copy">
                       <strong>{draft.customerName}</strong>
+                      <span className="home-flow-time">
+                        {props.formatDateTime(draft.issuedAt)} · {props.formatMoney(draft.totalAmount)}원
+                      </span>
+                    </div>
+                    <div className="home-flow-controls">
                       {isMockRow ? (
                         <span className="status status-pending">목업</span>
                       ) : (
@@ -343,20 +454,16 @@ export function HomeTab(props: HomeTabProps) {
                           보기
                         </button>
                       )}
+                      <span className="status status-issued">발행 완료</span>
                     </div>
-                    <span className="home-flow-time">
-                      {props.formatDateTime(draft.issuedAt)} · {props.formatMoney(draft.totalAmount)}원
-                    </span>
-                    <span className="status status-issued">발행 완료</span>
                   </article>
                 );
               })}
-          {props.workFeedTab === "inbox" && props.recentInboxMessages.length === 0 ? (
-            <div className="empty">{props.model.recentInboxEmptyMessage}</div>
-          ) : null}
-          {props.workFeedTab === "issued" && props.recentIssuedDrafts.length === 0 ? (
-            <div className="empty">{props.model.recentIssuedEmptyMessage}</div>
-          ) : null}
+              {props.recentIssuedDrafts.length === 0 ? (
+                <div className="empty">{props.model.recentIssuedEmptyMessage}</div>
+              ) : null}
+            </div>
+          </section>
         </div>
       </aside>
     </div>

@@ -286,6 +286,167 @@ test("draft pilot timeline route returns 404 when draft timeline is unavailable"
   }
 });
 
+test("draft mail preview image route renders source-derived image json", async () => {
+  const sourceMessageId = 701;
+  const rawSource = [
+    "From: kepco@example.com",
+    "To: operator@example.com",
+    "Subject: KEPCO amount notice",
+    "MIME-Version: 1.0",
+    "Content-Type: text/html; charset=utf-8",
+    "",
+    `<!doctype html>
+<html>
+  <body>
+    <p>MAIL-RAW-SECRET-SHOULD-NOT-LEAK</p>
+    <img src="https://example.invalid/tracker.png" alt="blocked tracker" />
+    <table style="width: 640px; border: 3px solid #222; border-collapse: collapse; font-size: 16px;">
+      <tr>
+        <th style="border: 1px solid #555; padding: 12px;">구입전력금액</th>
+        <th style="border: 1px solid #555; padding: 12px;">공급가액</th>
+        <th style="border: 1px solid #555; padding: 12px;">VAT</th>
+      </tr>
+      <tr>
+        <td style="border: 1px solid #555; padding: 12px;">합계</td>
+        <td style="border: 1px solid #555; padding: 12px;">1,234,000원</td>
+        <td style="border: 1px solid #555; padding: 12px;">123,400원</td>
+      </tr>
+    </table>
+  </body>
+</html>`
+  ].join("\r\n");
+  const requestStore = {
+    getPilotIssuanceReport: async () => ({ ok: true }),
+    getDraftPilotTimeline: async () => null,
+    getDraft: async () =>
+      ({
+        id: 501,
+        sourceMessageId
+      }) as Awaited<ReturnType<AppStore["getDraft"]>>,
+    getInboxMessage: async (messageId: number) =>
+      messageId === sourceMessageId
+        ? ({
+            id: sourceMessageId,
+            rawSource,
+            textBody: "MAIL-BODY-SECRET-SHOULD-NOT-LEAK"
+          } as Awaited<ReturnType<AppStore["getInboxMessage"]>>)
+        : null
+  } as unknown as AppStore;
+
+  const app = express();
+  registerDraftRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireWorkspaceEditor: () => ({}) as never,
+    getServerManagedSettings: async () => ({}) as never,
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorStatus: () => 500,
+    buildApiErrorBody: (error, fallbackMessage) => ({
+      error: error instanceof Error ? error.message : (fallbackMessage ?? "unused")
+    }),
+    assertDraftPopbillEnvironment: async () => undefined,
+    backfillDraftPopbillEnvironmentIfMissing: async () => undefined
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/drafts/501/mail-preview-image`);
+    assert.equal(response.status, 200);
+    const payload = (await response.json()) as Record<string, unknown>;
+    assert.equal(payload.sourceMessageId, sourceMessageId);
+    assert.equal(payload.generatedFrom, "raw-source-html");
+    assert.equal(payload.cropKind, "kepco-amount-section");
+    assert.equal(typeof payload.width, "number");
+    assert.equal(typeof payload.height, "number");
+    assert.match(String(payload.imageDataUrl), /^data:image\/png;base64,/);
+
+    const serializedPayload = JSON.stringify(payload);
+    assert.equal("rawSource" in payload, false);
+    assert.equal("textBody" in payload, false);
+    assert.equal(serializedPayload.includes("MAIL-RAW-SECRET-SHOULD-NOT-LEAK"), false);
+    assert.equal(serializedPayload.includes("MAIL-BODY-SECRET-SHOULD-NOT-LEAK"), false);
+    assert.equal(serializedPayload.includes("<table"), false);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
+test("draft mail preview image route returns 404 when draft or source message is missing", async () => {
+  const calls: number[] = [];
+  const requestStore = {
+    getPilotIssuanceReport: async () => ({ ok: true }),
+    getDraftPilotTimeline: async () => null,
+    getDraft: async (draftId: number) =>
+      draftId === 501
+        ? ({
+            id: 501,
+            sourceMessageId: 701
+          } as Awaited<ReturnType<AppStore["getDraft"]>>)
+        : null,
+    getInboxMessage: async (messageId: number) => {
+      calls.push(messageId);
+      return null;
+    }
+  } as unknown as AppStore;
+
+  const app = express();
+  registerDraftRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireWorkspaceEditor: () => ({}) as never,
+    getServerManagedSettings: async () => ({}) as never,
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorStatus: () => 500,
+    buildApiErrorBody: () => ({ error: "unused" }),
+    assertDraftPopbillEnvironment: async () => undefined,
+    backfillDraftPopbillEnvironmentIfMissing: async () => undefined
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const missingDraftResponse = await fetch(`${baseUrl}/api/drafts/404/mail-preview-image`);
+    assert.equal(missingDraftResponse.status, 404);
+    assert.deepEqual(await missingDraftResponse.json(), {
+      error: "발행 대기건을 찾지 못했습니다."
+    });
+
+    const missingSourceResponse = await fetch(`${baseUrl}/api/drafts/501/mail-preview-image`);
+    assert.equal(missingSourceResponse.status, 404);
+    assert.deepEqual(await missingSourceResponse.json(), {
+      error: "원본 메일을 찾지 못했습니다."
+    });
+    assert.deepEqual(calls, [701]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
 test("draft pilot timeline route preserves actor and context evidence without reshaping it", async () => {
   const comparableSnapshot = {
     supplyCost: 100000,

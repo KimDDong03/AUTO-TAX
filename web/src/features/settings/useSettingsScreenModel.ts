@@ -17,8 +17,6 @@ export type SettingsScreenProps = {
   onboardingComplete: boolean;
   onboardingProgressText: string;
   onboardingPendingStepCount: number;
-  showCompletedOnboardingNav: boolean;
-  onShowCompletedOnboardingNavChange: (nextValue: boolean) => void;
   openOnboarding: () => void;
   openCertificates: () => void;
   busyKey: string | null;
@@ -117,6 +115,11 @@ export function useSettingsScreenModel(
 
   return useMemo<SettingsTabModel>(
     () => ({
+      context: {
+        userLabel: props.userLabel,
+        workspaceLabel: props.workspaceLabel,
+        popbillModeLabel: props.popbillModeLabel
+      },
       sidebar: {
         settingsSections: props.settingsState.settingsSections,
         activeSettingsSection: props.activeSettingsSection,
@@ -130,7 +133,8 @@ export function useSettingsScreenModel(
           props.settingsState.nextSettingsSection
         ),
         setActiveSettingsSection: props.setActiveSettingsSection,
-        openCertificates: props.openCertificates
+        openCertificates: props.openCertificates,
+        openOnboarding: props.openOnboarding
       },
       sections: {
         mail: {
@@ -208,8 +212,7 @@ export function useSettingsScreenModel(
           onLoadCurrentPopbillSharedPassword:
             props.settingsState.runLoadCurrentPopbillSharedPassword,
           onLoadCurrentRenewalIssuePassword:
-            props.settingsState.runLoadCurrentRenewalIssuePassword,
-          helperStatus
+            props.settingsState.runLoadCurrentRenewalIssuePassword
         },
         helper: {
           done:
@@ -222,9 +225,6 @@ export function useSettingsScreenModel(
             complete: props.onboardingComplete,
             progressText: props.onboardingProgressText,
             pendingStepCount: props.onboardingPendingStepCount,
-            showCompletedOnboardingNav: props.showCompletedOnboardingNav,
-            onShowCompletedOnboardingNavChange:
-              props.onShowCompletedOnboardingNavChange,
             openOnboarding: props.openOnboarding
           },
           account: props.settingsState.account,
@@ -258,12 +258,12 @@ export function useSettingsScreenModel(
       props.customerRenewalAssistantOnline,
       props.customerRenewalLoadedCertificateCount,
       props.formatDateTime,
-      props.onShowCompletedOnboardingNavChange,
       props.onboardingComplete,
       props.onboardingPendingStepCount,
       props.onboardingProgressText,
       props.openCertificates,
       props.openOnboarding,
+      props.popbillModeLabel,
       props.orchestration.actions.changePassword,
       props.orchestration.actions.createOrganizationMember,
       props.orchestration.actions.removeOrganizationMember,
@@ -296,7 +296,8 @@ export function useSettingsScreenModel(
       props.settingsState.settingsHealth.popbillReady,
       props.settingsState.settingsSections,
       props.settingsState.setupPendingCount,
-      props.showCompletedOnboardingNav,
+      props.userLabel,
+      props.workspaceLabel,
       setSettingsField,
       settingsForm.defaultIssueDay,
       settingsForm.defaultIssueHour,

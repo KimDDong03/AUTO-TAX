@@ -181,16 +181,12 @@ export function buildSettingsOnboardingModel({
     !onboardingMailAddressMissing && !isLikelyEmailAddress(fields.mailAddress);
   const onboardingMailPasswordMissing =
     fields.mailPassword.trim() === "" && !configured.mailPasswordConfigured;
-  const onboardingPopbillPrefixMissing = fields.popbillUserIdPrefix.trim() === "";
   const onboardingOperatorNameMissing = fields.operatorContactName.trim() === "";
   const onboardingOperatorTelMissing = fields.operatorContactTel.trim() === "";
   const onboardingOperatorEmailMissing = fields.operatorContactEmail.trim() === "";
   const onboardingOperatorEmailInvalid =
     !onboardingOperatorEmailMissing &&
     !isLikelyEmailAddress(fields.operatorContactEmail);
-  const onboardingPopbillSharedPasswordMissing =
-    fields.popbillSharedPassword.trim() === "" &&
-    !configured.popbillSharedPasswordConfigured;
   const onboardingRenewalIssuePasswordMissing =
     normalizeRenewalIssuePasswordInput(fields.renewalIssuePassword).length === 0 &&
     !configured.renewalIssuePasswordConfigured;
@@ -208,12 +204,11 @@ export function buildSettingsOnboardingModel({
 
   return {
     hasSavedDefaults:
-      configured.popbillSharedPasswordConfigured ||
       configured.renewalIssuePasswordConfigured,
     helperStatusLine: onboardingHelperStatusLine,
     firstSyncBlockedSteps: [
-      !settingsHealth.mailReady ? "메일 연결" : null,
-      !(settingsHealth.popbillReady && settingsHealth.operatorReady) ? "발행 기본값 입력" : null,
+      !settingsHealth.mailReady ? "운영팀 메일 설정" : null,
+      !(settingsHealth.popbillReady && settingsHealth.operatorReady) ? "담당자 정보 입력" : null,
       !helper.ready ? "로컬 헬퍼 준비" : null,
       !progress.customerRegistrationReady ? "고객 초기 등록" : null,
       !progress.certificateReady ? "인증서 연결 마무리" : null
@@ -233,14 +228,14 @@ export function buildSettingsOnboardingModel({
     defaults: {
       headline:
         settingsHealth.popbillReady && settingsHealth.operatorReady
-          ? "필수값 입력 완료"
-          : "필수값만 먼저 입력하세요.",
+          ? "담당자 정보 입력 완료"
+          : "담당자 정보를 먼저 입력하세요.",
       popbillReadyLabel: settingsHealth.popbillReady ? "준비됨" : "입력 필요",
       operatorReadyLabel: settingsHealth.operatorReady ? "준비됨" : "입력 필요",
       popbillPrefix: {
-        missing: onboardingPopbillPrefixMissing,
+        missing: false,
         invalid: false,
-        hasError: onboardingPopbillPrefixMissing
+        hasError: false
       },
       operatorName: {
         missing: onboardingOperatorNameMissing,
@@ -258,8 +253,8 @@ export function buildSettingsOnboardingModel({
         hasError: onboardingOperatorEmailMissing || onboardingOperatorEmailInvalid
       },
       popbillSharedPassword: {
-        missing: onboardingPopbillSharedPasswordMissing,
-        hasError: onboardingPopbillSharedPasswordMissing
+        missing: false,
+        hasError: false
       },
       renewalIssuePassword: {
         missing: onboardingRenewalIssuePasswordMissing,

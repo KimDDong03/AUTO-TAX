@@ -4,8 +4,12 @@ import type {
   Customer,
   CustomerCertificate,
   CustomerCertificateInput,
+  CustomerContractRenewalCompletion,
+  CustomerContractRenewalDueItem,
   CustomerImportProfile,
   CustomerInput,
+  CustomerReportDetail,
+  CustomerReportDetailInput,
   DashboardPayload,
   DraftStatus,
   InboxMessage,
@@ -41,6 +45,13 @@ export interface AppStore {
   findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null>;
   findCustomerByMatchAddress(matchAddress: string): Promise<Customer | null>;
   saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer>;
+  getCustomerReportDetail(customerId: number, reportYear: number): Promise<CustomerReportDetail>;
+  saveCustomerReportDetail(customerId: number, input: CustomerReportDetailInput): Promise<CustomerReportDetail>;
+  listCustomerContractRenewalsDue(currentYearMonth: string): Promise<CustomerContractRenewalDueItem[]>;
+  completeCustomerContractRenewal(
+    customerId: number,
+    expectedContractEndMonth: string
+  ): Promise<CustomerContractRenewalCompletion>;
   upsertCustomerCertificate(input: CustomerCertificateInput): Promise<CustomerCertificate>;
   deleteCustomerCertificate(certificateId: number): Promise<void>;
   updateCustomerTaxProfile(customerId: number, bizType: string, bizClass: string): Promise<Customer>;

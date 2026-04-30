@@ -33,7 +33,7 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
         <div className="settings-detected-provider full">
           <span>첫 동기화 시 읽는 기본 범위</span>
           <strong>최근 메일 1000통</strong>
-          <p className="settings-inline-help">실제 수집은 홈 준비 단계에서 실행합니다.</p>
+          <p className="settings-inline-help">실제 메일 동기화는 준비 단계나 발행 화면에서 실행합니다.</p>
         </div>
         <div className="settings-detected-provider full">
           <span>자동으로 찾은 메일 서비스</span>
@@ -147,7 +147,7 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
                 </div>
               </label>
             </div>
-            <span>기본값은 매월 26일입니다.</span>
+            <span>기본값은 매월 20일입니다.</span>
           </div>
         </details>
       </div>

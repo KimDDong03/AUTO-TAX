@@ -117,7 +117,7 @@ test("SettingsMailOnboardingStep keeps required-field hints and busy test button
   assert.equal(testButton.props.disabled, true);
 });
 
-test("SettingsDefaultsOnboardingStep only renders saved-secret reload helpers when configured", () => {
+test("SettingsDefaultsOnboardingStep keeps onboarding focused on operator contact only", () => {
   const configuredTree = SettingsDefaultsOnboardingStep({
     onboarding: {
       headline: "필수값만 먼저 입력하세요.",
@@ -202,19 +202,24 @@ test("SettingsDefaultsOnboardingStep only renders saved-secret reload helpers wh
   });
   const configuredText = collectText(configuredTree);
   const hiddenText = collectText(hiddenTree);
-  const renewalIssueInput = findElement(
+  const operatorNameInput = findElement(
     configuredTree,
     (element) =>
       element.type === "input" &&
-      element.props["aria-describedby"] === "onboarding-renewal-issue-password-hint"
+      element.props["aria-describedby"] === "onboarding-operator-name-hint"
   );
 
-  assert.match(configuredText, /신규 고객 기본 비밀번호 불러오기/);
-  assert.match(configuredText, /발급용 임시번호 불러오기/);
+  assert.match(configuredText, /메일 주소와 앱 비밀번호는 운영팀 상담 중 별도로 설정합니다/);
+  assert.match(configuredText, /담당자 이름/);
+  assert.match(configuredText, /담당자 연락처/);
+  assert.match(configuredText, /담당자 이메일/);
+  assert.doesNotMatch(configuredText, /발급용 임시번호/);
+  assert.doesNotMatch(configuredText, /팝빌/);
+  assert.doesNotMatch(configuredText, /접두어/);
+  assert.doesNotMatch(configuredText, /신규 고객 기본 비밀번호/);
   assert.doesNotMatch(configuredText, /인증서 공통 비밀번호 \(선택\)/);
   assert.doesNotMatch(configuredText, /인증서 공통 비밀번호 불러오기/);
-  assert.ok(renewalIssueInput);
-  assert.equal(renewalIssueInput.props.maxLength, 6);
+  assert.ok(operatorNameInput);
   assert.doesNotMatch(hiddenText, /저장된 값 다시 불러오기는 필요할 때만 보기/);
 });
 

@@ -17,7 +17,7 @@ export function SettingsAccountSection({
         title="도입 준비 메뉴"
         subtitle={
           model.onboarding.complete
-            ? "완료 후에도 보조 메뉴에서 다시 열 수 있습니다"
+            ? "완료 후에도 홈과 설정에서 다시 열 수 있습니다"
             : `진행 중 · 남은 ${model.onboarding.pendingStepCount}단계`
         }
         actions={
@@ -34,8 +34,8 @@ export function SettingsAccountSection({
           <strong>{model.onboarding.progressText}</strong>
           <span className="field-hint">
             {model.onboarding.complete
-              ? "이제 도입 준비는 사이드바 보조 메뉴에 계속 남아 언제든 다시 확인할 수 있습니다."
-              : "진행 중에는 보조 메뉴에서 계속 보이며, 완료 후에도 다시 열 수 있습니다."}
+              ? "도입 준비는 독립 메뉴가 아니라 홈과 설정에서 여는 확인 모달입니다."
+              : "진행 중에는 홈의 준비 카드와 설정의 보조 진입에서 같은 모달을 다시 열 수 있습니다."}
           </span>
         </div>
       </Panel>

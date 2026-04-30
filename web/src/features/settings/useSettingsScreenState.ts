@@ -128,9 +128,7 @@ export function useSettingsScreenState({
     showConfirm
   });
   const isBootstrapReadyForActiveOrganization =
-    activeOrganizationId !== null &&
-    activeOrganizationId === bootstrapOrganizationId &&
-    bootstrapSettings !== null;
+    activeOrganizationId === bootstrapOrganizationId && bootstrapSettings !== null;
   const publicAccount: SettingsAccountState = account;
   const {
     savedSettings,

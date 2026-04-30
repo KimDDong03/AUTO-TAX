@@ -18,17 +18,21 @@ The product is multi-tenant. A logged-in session always operates against one act
 
 ### Public surface
 
-- `/` is a customer access portal.
-- The anonymous flow is public login and recovery follow-up, not a broad marketing site.
+- `/` is a consultation-first access portal.
+- Anonymous users can submit a name and phone number through `POST /api/public/consultation-requests`.
+- Existing customers who already received an account can still use the secondary login form.
+- The anonymous flow does not create Supabase users, workspaces, or collect mail app passwords.
 
 ### Logged-in workspace tabs
 
-- `onboarding`
 - `home`
+- `issuance`
 - `customers`
 - `certificates`
 - `settings`
 - `ops` for platform admins only
+
+`onboarding` is not a persistent top-level tab. The active shell uses a top navigation bar for `home`, `issuance`, `customers`, `certificates`, `settings`, and platform-admin `ops`; onboarding opens as a large modal from the home setup card, settings, or legacy `#onboarding` hash compatibility. The modal keeps setup, first customer registration, first mail sync, exception handling, and first issue confirmation in one task surface.
 
 ### Runtime truth
 
@@ -61,6 +65,8 @@ The product is multi-tenant. A logged-in session always operates against one act
 - `web/src/features/customers/`
   - managed customer CRUD
   - customer state, notes, and Popbill actions
+  - certificate-first customer add flow for one-stop customer creation, certificate linking, Popbill join, and Popbill certificate registration retries
+  - two-pane customer console with report-detail profile and monthly report history editing
 - `web/src/features/certificates/`
   - certificate listing and customer linking
   - newer split screen model for certificate operations
@@ -78,7 +84,7 @@ The product is multi-tenant. A logged-in session always operates against one act
 
 - `web/src/local-renewal-helper.ts`
   - talks to the Windows helper running on the operator machine
-  - used for certificate listing, local checks, prepare/payment-open support, and local Popbill certificate registration help
+  - used for certificate listing, browser-selected NPKI upload-session metadata extraction, local checks, prepare/payment-open support, and local Popbill certificate registration help
 
 ## 4. Backend Map
 
@@ -107,12 +113,15 @@ The product is multi-tenant. A logged-in session always operates against one act
 - `server/src/routes/core-routes.ts`
   - health
   - public login
+  - public consultation request intake
   - bootstrap
   - internal job endpoints
 - `server/src/routes/customer-popbill-routes.ts`
   - customer CRUD
   - Popbill member actions
   - issue mode transition logging and guards
+  - customer report-detail `GET/PUT` endpoints
+  - customer contract renewal due/complete endpoints backed by report-detail contract months
 - `server/src/routes/draft-routes.ts`
   - manual issue, cancel, preview, print, pilot reporting
 - `server/src/routes/mail-routes.ts`
@@ -125,6 +134,8 @@ The product is multi-tenant. A logged-in session always operates against one act
   - owner-only member management
 - `server/src/routes/ops-routes.ts`
   - platform admin workspace management and ops console data
+  - public consultation request review/status updates
+  - platform-admin workspace mail/contact setup for 상담 후 개통
 - `server/src/routes/renewal-routes.ts`
   - renewal snapshots
   - bridge probes and preflight queueing
@@ -133,7 +144,7 @@ The product is multi-tenant. A logged-in session always operates against one act
 ### Core persistence and services
 
 - `server/src/supabase-store.ts`
-  - main persistence boundary for dashboard, customers, drafts, settings, logs, and import profiles
+  - main persistence boundary for dashboard, customers, customer report details, drafts, settings, logs, and import profiles
 - `server/src/mail-sync.ts`
   - IMAP sync
   - parser invocation
@@ -169,26 +180,27 @@ The product is multi-tenant. A logged-in session always operates against one act
 
 ## 5. Primary Flows
 
-### A. Public login to workspace bootstrap
+### A. Public consultation and login
 
-1. Public root renders the customer access portal.
-2. Client posts `POST /api/public/login`.
-3. Supabase session is returned to the browser.
-4. Client sets the active workspace id.
-5. Client loads `GET /api/bootstrap`.
-6. `SupabaseStore.getDashboard()` returns scoped workspace data.
+1. Public root renders a consultation request form first and the customer login form second.
+2. New prospects post `POST /api/public/consultation-requests` with only `name` and `phone`.
+3. Platform admins review requests in ops and change status through `GET/PATCH /api/ops/consultation-requests`.
+4. After 상담, an operator uses the existing ops workspace-create flow to create the workspace and first owner account.
+5. The platform admin can save the target workspace mail address/app password/contact values from ops and run a mail connection test.
+6. Existing customers post `POST /api/public/login`, receive a Supabase session, set the active workspace id, and load `GET /api/bootstrap`.
 
 Main coupling:
 
 - `web/src/api.ts`
 - `server/src/routes/core-routes.ts`
+- `server/src/routes/ops-routes.ts`
 - `server/src/api-access.ts`
 - `server/src/supabase-store.ts`
 
 ### B. Mail sync to draft generation
 
-1. A user or cron run creates `mail-sync` work.
-2. `server/src/mail-sync.ts` pulls mail from IMAP.
+1. A user clicks **메일 동기화** from the issuance/onboarding flow, or the monthly job dispatcher creates `mail-sync` work after the configured monthly schedule is reached. The default monthly day is the 20th.
+2. `server/src/mail-sync.ts` pulls IMAP messages in a Seoul-calendar received-month range. Manual API calls accept `receivedMonth` or `billingMonth` as `YYYY-MM`; the default is the current KST month.
 3. `server/src/parser.ts` extracts KEPCO fields.
 4. Store logic resolves the customer by normalized address.
 5. Matching mail creates or updates a draft.
@@ -198,6 +210,8 @@ Important invariant:
 
 - Auto-match uses `managed_customer_match_addresses.normalized_match_address`.
 - `managed_customer_plants` is not the primary match key.
+- IMAP date filtering is by received month only. The actual 정산월 remains parser-derived after the message body is read.
+- `mail_poll_minutes` is legacy storage only. It must not be used to run five-minute mail collection.
 
 ### C. Onboarding and import
 
@@ -217,6 +231,7 @@ Main endpoints:
 
 Main files:
 
+- `web/src/App.tsx` for the top navigation shell and onboarding modal compatibility
 - `web/src/features/onboarding/*`
 - `web/src/features/initial-registration/*`
 - `server/src/routes/settings-routes.ts`
@@ -224,13 +239,38 @@ Main files:
 - `server/src/services/customer-onboarding-import-service.ts`
 - `server/src/services/customer-onboarding-batch-service.ts`
 
+### C-1. Customer report detail
+
+1. The customer screen shows a left customer selector and a right customer detail pane.
+2. The left selector intentionally shows only `corpName` and `customerName`.
+3. The right detail pane reads `GET /api/customers/:id/report-detail?year=YYYY` on demand.
+4. Operators edit report profile fields and 12 monthly rows, then save through `PUT /api/customers/:id/report-detail`.
+5. Contract end month is derived as the same month one year after the contract start month.
+6. The monthly total is calculated in app code as `supplyAmount + vatAmount`; it is not stored.
+7. Home contract-renewal alerts read customers whose derived contract end month is this month or earlier.
+8. Completing a contract renewal advances the start month to the previous end month plus one month and derives the new end month from that new start month.
+
+Main files:
+
+- `web/src/features/customers/CustomersTab.tsx`
+- `web/src/features/customers/useCustomerReportDetail.ts`
+- `web/src/features/customers/customerReportDetail.ts`
+- `server/src/routes/customer-popbill-routes.ts`
+- `server/src/customer-report-detail.ts`
+- `server/src/customer-contract-renewals.ts`
+- `server/src/supabase-store.ts`
+- `docs/SUPABASE_SCHEMA_PLAN.md`
+
 ### D. Draft issuance and pilot reporting
 
 1. A draft is created from matched mail.
-2. The draft is issued manually or scheduled for auto issue.
-3. Route and job code call the Popbill client.
-4. Draft state, result payloads, and audit signals are persisted.
-5. Pilot reporting reads `app_logs` and `invoice_drafts` without a separate metrics table.
+2. The issuance screen can render a source-derived mail preview image through `GET /api/drafts/:id/mail-preview-image` using the draft's stored `inbox_messages.raw_source`.
+3. The issuance screen also synthesizes current-month `메일 미수신` rows for managed customers that have no draft or matched mail for the current billing month.
+4. The draft is issued manually or scheduled for auto issue.
+5. Route and job code call the Popbill client.
+6. Draft state, result payloads, and audit signals are persisted.
+7. Pilot reporting reads `app_logs` and `invoice_drafts` without a separate metrics table.
+8. Customer Popbill join failures shown to workspace users use support-contact copy, while raw Popbill cause, code, and operation stay in `app_logs.context_json` for the platform-admin `ops` screen.
 
 Main files:
 
@@ -261,6 +301,7 @@ Main files:
 Security boundary for this flow:
 
 - The server must not persist or re-display Hometax credentials, raw certificate files, or certificate passwords.
+- Browser-selected NPKI files for manual customer add are posted only to the `127.0.0.1` helper upload-session endpoint; the app server receives customer fields and certificate metadata only.
 - Onboarding preview and batch persistence strip workbook `certificatePassword` before DB write.
 - `renewal_automation_jobs.submission_profile_json` strips `issuePassword` at rest and only rehydrates it for the agent claim path.
 - `app_logs`, API errors, and helper responses mask password-like values and local certificate paths.
@@ -273,6 +314,7 @@ Security boundary for this flow:
 - Storage: `job_queue`
 - Purpose: mail sync, auto issue, certificate checks, other recurring business work
 - Trigger path: `supabase/functions/job-tick` -> internal API endpoints
+- `mail-sync` dispatch is monthly, defaulting to the 20th, and is separate from the manual **메일 동기화** button.
 
 ### Renewal helper jobs
 
@@ -284,8 +326,8 @@ Do not debug these two systems as if they were one queue.
 
 ## 7. Non-Obvious Invariants
 
-1. Popbill secrets are server-owned at runtime.
-   Workspace settings are supplemental. `AUTO_TAX_POPBILL_*` env values remain authoritative.
+1. Popbill runtime values are server-owned.
+   Workspace settings are supplemental. `AUTO_TAX_POPBILL_*` env values remain authoritative for credentials, mode, customer user-id prefix, and the shared new-customer password. Customer workspace browsers must not read or edit the prefix/shared password values.
 2. UI roles are narrower than DB roles.
    The DB still stores `owner/admin/operator/viewer`, but product behavior is mostly owner versus member.
 3. The public root is not a general landing page.

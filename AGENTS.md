@@ -73,8 +73,8 @@ npm run renewal-agent:dev
    That is current implementation state, not a frozen design requirement.
 3. Current role behavior is effectively `owner` and non-owner member.
    DB roles still include `admin`, `operator`, and `viewer`, but current workflows mostly expose owner versus member behavior.
-4. Popbill secrets are server-managed.
-   Runtime env overrides workspace-level values for `AUTO_TAX_POPBILL_*`.
+4. Popbill runtime values are server-managed.
+   Runtime env overrides workspace-level values for `AUTO_TAX_POPBILL_*`, including customer ID prefix and shared new-customer password defaults.
 5. There are two job systems.
    `job_queue` handles mail and issuance work. `renewal_automation_jobs` handles local certificate diagnostics and preflight.
 6. Local certificate support is Windows-only and not fully autonomous.

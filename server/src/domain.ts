@@ -5,6 +5,7 @@ export type MailParseStatus = "pending" | "parsed" | "failed" | "unmatched" | "d
 export type DraftStatus = "review" | "scheduled" | "issuing" | "issued" | "failed";
 export type CustomerCertificateKind = "electronic_tax" | "general_personal" | "general_business" | "unknown";
 export type CustomerCertificateLinkSource = "auto" | "manual";
+export type PublicConsultationRequestStatus = "new" | "contacted" | "workspace_opened" | "closed";
 
 export interface AppSettings {
   id: number;
@@ -93,6 +94,17 @@ export interface CustomerInput {
   matchAddresses: string[];
 }
 
+export interface PublicConsultationRequest {
+  id: string;
+  name: string;
+  phone: string;
+  status: PublicConsultationRequestStatus;
+  note: string;
+  handledBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CustomerCertificate {
   id: number;
   customerId: number;
@@ -126,6 +138,86 @@ export interface CustomerCertificateInput {
   certificatePassword?: string;
   isPrimary: boolean;
   linkSource: CustomerCertificateLinkSource;
+}
+
+export interface CustomerReportProfile {
+  customerId: number;
+  certificateRenewalDate: string | null;
+  hasPersonalGeneralCertificate: boolean;
+  hasTaxInvoiceBusinessCertificate: boolean;
+  solarCapacityKw: number | null;
+  contractStartMonth: string | null;
+  contractEndMonth: string | null;
+  otherNote: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface CustomerReportMonth {
+  reportYear: number;
+  reportMonth: number;
+  issueYear: number | null;
+  issueDate: string | null;
+  supplyAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface CustomerReportDetail {
+  customerId: number;
+  reportYear: number;
+  profile: CustomerReportProfile;
+  months: CustomerReportMonth[];
+}
+
+export type CustomerContractRenewalStatus = "due_this_month" | "overdue";
+
+export interface CustomerContractRenewalDueItem {
+  customerId: number;
+  customerName: string;
+  corpName: string;
+  businessNumber: string;
+  renewalContactMobile: string;
+  contractStartMonth: string;
+  contractEndMonth: string;
+  nextContractStartMonth: string;
+  nextContractEndMonth: string;
+  status: CustomerContractRenewalStatus;
+}
+
+export interface CustomerContractRenewalCompletion {
+  completed: true;
+  profile: CustomerReportProfile;
+  oldContractStartMonth: string;
+  oldContractEndMonth: string;
+  newContractStartMonth: string;
+  newContractEndMonth: string;
+}
+
+export interface CustomerReportProfileInput {
+  certificateRenewalDate: string | null;
+  hasPersonalGeneralCertificate: boolean;
+  hasTaxInvoiceBusinessCertificate: boolean;
+  solarCapacityKw: number | null;
+  contractStartMonth: string | null;
+  contractEndMonth: string | null;
+  otherNote: string;
+}
+
+export interface CustomerReportMonthInput {
+  reportMonth: number;
+  issueYear: number | null;
+  issueDate: string | null;
+  supplyAmount: number;
+  vatAmount: number;
+}
+
+export interface CustomerReportDetailInput {
+  reportYear: number;
+  profile: CustomerReportProfileInput;
+  months: CustomerReportMonthInput[];
 }
 
 export interface CustomerImportProfile {

@@ -291,7 +291,7 @@ test("commitCustomerOnboardingImport saves customers, links certificates, and re
 
   const result = await commitCustomerOnboardingImport(requestStore, workbook, {
     resolveAddress: resolveAddressStub,
-    autoJoinCustomer: async () => ({ status: "failed", error: "팝빌 테스트 실패" })
+    autoJoinCustomer: async () => ({ status: "failed", error: "발행 연동 테스트 실패" })
   });
 
   assert.equal(result.createdCount, 1);
@@ -300,7 +300,7 @@ test("commitCustomerOnboardingImport saves customers, links certificates, and re
   assert.equal(result.failedCount, 0);
   assert.equal(result.linkedCertificateCount, 1);
   assert.equal(result.warnings.length, 1);
-  assert.match(result.warnings[0]?.message ?? "", /팝빌 자동 가입 실패/);
+  assert.match(result.warnings[0]?.message ?? "", /발행 연동 실패/);
   assert.equal(savedCustomers.length, 1);
   assert.deepEqual(savedCustomers[0]?.input.plantNames, ["새 1호기"]);
   assert.deepEqual(savedCustomers[0]?.input.matchAddresses, ["경기도 여주시 대신면 새길 10"]);

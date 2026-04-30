@@ -1,5 +1,6 @@
 import type { AppSettings } from "./domain.js";
 import type { AppStore } from "./store-contract.js";
+import { normalizePopbillUserPrefix } from "./utils.js";
 
 function envString(name: string): string | undefined {
   const value = process.env[name]?.trim();
@@ -20,7 +21,13 @@ export function applyServerManagedSettings(settings: AppSettings): AppSettings {
     popbillLinkId: envString("AUTO_TAX_POPBILL_LINK_ID") ?? settings.popbillLinkId,
     popbillSecretKey: envString("AUTO_TAX_POPBILL_SECRET_KEY") ?? settings.popbillSecretKey,
     popbillIsTest: envBool("AUTO_TAX_POPBILL_IS_TEST") ?? settings.popbillIsTest,
-    popbillPartnerCorpNum: envString("AUTO_TAX_POPBILL_PARTNER_CORP_NUM") ?? settings.popbillPartnerCorpNum
+    popbillPartnerCorpNum: envString("AUTO_TAX_POPBILL_PARTNER_CORP_NUM") ?? settings.popbillPartnerCorpNum,
+    popbillUserIdPrefix:
+      envString("AUTO_TAX_POPBILL_USER_ID_PREFIX") !== undefined
+        ? normalizePopbillUserPrefix(envString("AUTO_TAX_POPBILL_USER_ID_PREFIX") ?? "")
+        : settings.popbillUserIdPrefix,
+    popbillSharedPassword:
+      envString("AUTO_TAX_POPBILL_SHARED_PASSWORD") ?? settings.popbillSharedPassword
   };
 }
 

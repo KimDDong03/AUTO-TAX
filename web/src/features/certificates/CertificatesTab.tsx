@@ -1,5 +1,4 @@
 import { useDeferredValue, useMemo, useRef, useState } from "react";
-import { Icon } from "../../components/ui";
 import type { Customer, CustomerCertificateKind } from "../../types";
 
 type CertificateTabItem = {
@@ -104,11 +103,11 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
       : null;
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Record<string, string>>({});
   const [selectedManagedCustomerIds, setSelectedManagedCustomerIds] = useState<Record<number, boolean>>({});
+  const [focusedUnlinkedCertificateKey, setFocusedUnlinkedCertificateKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [customerFilter, setCustomerFilter] = useState<
     "action_needed" | "all" | "prepare_needed" | "payment_ready" | "expiring_30" | "missing_general" | "missing_electronic"
   >("action_needed");
-  const [activeDataTab, setActiveDataTab] = useState<"linked" | "unlinked">("linked");
   const [queueNotice, setQueueNotice] = useState("");
   const [batchPrepareState, setBatchPrepareState] = useState<{
     active: boolean;
@@ -374,31 +373,12 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
       count: missingElectronicCustomerCount
     }
   };
-  const focusFilters: Array<{
-    key: "action_needed" | "payment_ready" | "prepare_needed" | "expiring_30";
-    tone: "warn" | "success";
-  }> = [
-    { key: "action_needed", tone: actionNeededCustomerCount > 0 ? "warn" : "success" },
-    { key: "payment_ready", tone: paymentReadyCustomerCount > 0 ? "success" : "warn" },
-    { key: "prepare_needed", tone: prepareNeededCustomerCount > 0 ? "warn" : "success" },
-    { key: "expiring_30", tone: expiringCustomerCount > 0 ? "warn" : "success" }
-  ];
-  const certificateGuideCards = [
-    {
-      key: "electronic",
-      title: "전자세금",
-      description: "실제 발행"
-    },
-    {
-      key: "general",
-      title: "범용",
-      description: "갱신 준비"
-    },
-    {
-      key: "unlinked",
-      title: "미연결",
-      description: "예외 확인"
-    }
+  const customerFilterOptions: Array<typeof customerFilter> = [
+    "action_needed",
+    "all",
+    "prepare_needed",
+    "payment_ready",
+    "expiring_30"
   ];
   const certificateStatusLead = helperUpgradeRequired
     ? "로컬 헬퍼 재설치 필요"
@@ -424,61 +404,41 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
         : props.customerRenewalLoadedCertificateCount === 0
         ? "전자세금용 / 범용 / 미연결 상태를 읽어옵니다."
         : "필요하면 전체 보기나 미연결 목록을 확인하세요.";
-  const certificateStatusSummary = helperUpgradeRequired
-    ? "로컬 헬퍼를 다시 설치한 뒤 상태를 다시 확인하세요."
-    : helperVersionMismatch
-      ? "헬퍼를 업데이트한 뒤 인증서 상태를 다시 불러오세요."
-      : !props.customerRenewalAssistantOnline
-        ? "고객 PC에서 로컬 헬퍼를 실행한 뒤 상태를 다시 확인하세요."
-        : actionNeededCustomerCount > 0
-          ? "기본 보기는 조치가 필요한 고객부터 보여줍니다."
-          : props.customerRenewalLoadedCertificateCount === 0
-            ? "공동인증서를 읽어 발행용과 갱신 준비 상태를 먼저 정리하세요."
-            : "왼쪽에서 필터와 일괄 작업을 관리하고 오른쪽에서 고객 상태를 확인합니다.";
-  const certificateSummaryCards = [
+  const certificateMetricCards = [
     {
       key: "helper",
-      label: "헬퍼 상태",
-      value: helperVersionMismatch
-        ? "업데이트 필요"
-        : props.customerRenewalAssistantOnline
-          ? "연결됨"
-          : "실행 필요",
-      note: props.customerRenewalAssistantHelperVersion ? `현재 v${props.customerRenewalAssistantHelperVersion}` : "상태 확인 필요",
-      icon: "dashboard",
+      label: "helper 상태",
+      value: helperVersionMismatch ? "점검" : props.customerRenewalAssistantOnline ? "정상" : "필요",
+      note: helperVersionMismatch ? "업데이트" : props.customerRenewalAssistantOnline ? "연결됨" : "실행 필요",
       tone: helperVersionMismatch ? "warn" : props.customerRenewalAssistantOnline ? "success" : "default"
     },
     {
+      key: "helper-version",
+      label: "helper 버전",
+      value: props.customerRenewalAssistantHelperVersion ?? "-",
+      note: props.customerRenewalAssistantLatestVersion ? `최신 ${props.customerRenewalAssistantLatestVersion}` : "확인 전",
+      tone: helperVersionMismatch ? "warn" : props.customerRenewalAssistantHelperVersion ? "success" : "default"
+    },
+    {
       key: "loaded",
-      label: "로컬 읽음",
-      value: `${props.customerRenewalLoadedCertificateCount}건`,
-      note:
-        props.customerRenewalLoadedCertificateCount > 0
-          ? "전자세금용 / 범용 포함"
-          : "읽은 인증서 없음",
-      icon: "certificate",
+      label: "읽은 인증서",
+      value: props.customerRenewalLoadedCertificateCount.toLocaleString("ko-KR"),
+      note: "건",
       tone: props.customerRenewalLoadedCertificateCount > 0 ? "success" : "default"
     },
     {
       key: "linked",
-      label: "연결 고객",
-      value: `${linkedCustomerRows.length}명`,
-      note: unlinkedCount > 0 ? `미연결 ${unlinkedCount}건 남음` : "연결 예외 없음",
-      icon: "group",
-      tone: unlinkedCount > 0 ? "warn" : "success"
+      label: "연결된 고객",
+      value: linkedCustomerRows.length.toLocaleString("ko-KR"),
+      note: "명",
+      tone: linkedCustomerRows.length > 0 ? "success" : "default"
     },
     {
-      key: "action",
-      label: "운영 대기",
-      value: `${actionNeededCustomerCount}명`,
-      note:
-        paymentReadyCustomerCount > 0
-          ? `결제 가능 ${paymentReadyCustomerCount}명`
-          : prepareNeededCustomerCount > 0
-            ? `준비 필요 ${prepareNeededCustomerCount}명`
-            : "즉시 조치 없음",
-      icon: paymentReadyCustomerCount > 0 ? "complete" : "review",
-      tone: actionNeededCustomerCount > 0 ? "warn" : "success"
+      key: "unlinked",
+      label: "미연결 인증서",
+      value: unlinkedCount.toLocaleString("ko-KR"),
+      note: "건",
+      tone: unlinkedCount > 0 ? "warn" : "success"
     }
   ] as const;
 
@@ -596,7 +556,6 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
 
   type LinkedCustomerRow = (typeof linkedCustomerRows)[number];
   const focusCustomerUnlinkedCertificates = (row: LinkedCustomerRow, kind: "electronic" | "general") => {
-    setActiveDataTab("unlinked");
     setSearchQuery(row.customer.customerName);
     setQueueNotice(
       `${row.customer.customerName} 고객의 ${kind === "electronic" ? "전자세금용" : "범용"} 후보 인증서를 아래 미연결 목록에서 바로 확인하세요.`
@@ -755,17 +714,17 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
       tone: "success" as const
     };
   })();
-  const linkedPanelTitle = customerFilter === "action_needed" ? "지금 조치할 고객" : "고객별 인증서 상태";
-  const linkedPanelSummary =
-    customerFilter === "action_needed"
-      ? "막힌 고객만 먼저 보여 줍니다."
-      : filterMeta[customerFilter].summary;
-  const unlinkedPanelTitle =
-    customerFilter === "action_needed" ? "예외 처리용 미연결 공동인증서" : "미연결 공동인증서";
+  const unlinkedPanelTitle = "미연결 인증서";
   const unlinkedPanelSummary =
     filteredUnlinkedCertificates.length > 0
       ? `추천 후보 ${filteredUnlinkedSuggestedCount}건`
       : "현재 검색 조건 기준 미연결 예외 목록";
+  const focusedUnlinkedCertificate =
+    filteredUnlinkedCertificates.find((item) => item.key === focusedUnlinkedCertificateKey) ?? filteredUnlinkedCertificates[0] ?? null;
+  const focusedUnlinkedCustomerValue = focusedUnlinkedCertificate
+    ? selectedCustomerIds[focusedUnlinkedCertificate.key] ?? String(focusedUnlinkedCertificate.suggestedCustomerId ?? "")
+    : "";
+  const selectedUnlinkCertificate = selectedManagedCertificates.find((item) => item.linkedCertificateId !== null) ?? null;
 
   const toggleManagedCustomer = (customerId: number) => {
     setSelectedManagedCustomerIds((prev) => ({
@@ -794,91 +753,80 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
     });
   };
 
+  const linkFocusedUnlinkedCertificate = () => {
+    if (!focusedUnlinkedCertificate || !focusedUnlinkedCustomerValue) {
+      return;
+    }
+
+    void props.runAction(
+      `customer-certificate-link-${focusedUnlinkedCertificate.certificateIndex}`,
+      async () => props.onLinkCustomerCertificate(focusedUnlinkedCertificate.certificateIndex, Number(focusedUnlinkedCustomerValue))
+    );
+  };
+
+  const unlinkSelectedCertificate = () => {
+    if (!selectedUnlinkCertificate?.linkedCertificateId) {
+      return;
+    }
+
+    void props.runAction(
+      `customer-certificate-unlink-${selectedUnlinkCertificate.linkedCertificateId}`,
+      async () => props.onUnlinkCustomerCertificate(selectedUnlinkCertificate.linkedCertificateId!)
+    );
+  };
+
   const stopRowSelection: React.MouseEventHandler<HTMLElement> = (event) => {
     event.stopPropagation();
   };
 
-  const renderLinkedCertificateList = (items: CertificateTabItem[], typeLabel: string) => {
-    if (items.length === 0) {
-      return (
-        <span className="certificate-cell-empty">
-          {typeLabel === "전자세금" ? "없음 · 실제 발행용 필요" : "없음 · 갱신 준비용 권장"}
-        </span>
-      );
-    }
+  const getRowCertificates = (row: LinkedCustomerRow) =>
+    row.electronicTaxCertificates.concat(row.generalCertificates).sort((left, right) => {
+      const leftTime = getCertificateExpireTime(left.certificateExpireDate);
+      const rightTime = getCertificateExpireTime(right.certificateExpireDate);
+      if (leftTime !== rightTime) {
+        return leftTime - rightTime;
+      }
+      return getCertificateKindLabel(left.certificateKind).localeCompare(getCertificateKindLabel(right.certificateKind), "ko");
+    });
 
-    return (
-      <div className="certificate-managed-list">
-        {items.map((item) => (
-          <div key={item.key} className="certificate-managed-item" onClick={stopRowSelection}>
-            <div className="certificate-managed-head">
-              <strong title={item.certificateCn}>{item.certificateCn}</strong>
-              <span className="certificate-mini-chip">{props.formatCertificateExpireDate(item.certificateExpireDate)}</span>
-            </div>
-            <div className="certificate-managed-meta">
-              <span
-                className={
-                  item.statusTone === "danger"
-                    ? "text-danger"
-                    : item.statusTone === "success"
-                      ? "text-success"
-                      : item.statusTone === "warn"
-                        ? "text-warn"
-                        : ""
-                }
-              >
-                {item.statusText}
-              </span>
-              {item.paymentAmount ? <span>{item.paymentAmount}</span> : null}
-            </div>
-            <div className="certificate-managed-actions">
-              <button
-                disabled={assistantBusyKey !== null || helperUpgradeRequired || (batchPrepareState.active && !item.canOpenPayment)}
-                title={helperUpgradeRequired ? certificateStatusBody : undefined}
-                onClick={() =>
-                  void props.runAction(
-                    item.canOpenPayment
-                      ? `customer-certificate-open-payment-${item.certificateIndex}`
-                      : `customer-certificate-prepare-${item.certificateIndex}`,
-                    async () => {
-                      if (item.canOpenPayment) {
-                        await pauseBatchPrepareForInteractiveAction("결제를 진행하기 위해 일괄 갱신 준비를 잠시 멈춥니다.");
-                        await props.onOpenCustomerCertificatePayment(item.certificateIndex, { showAlert: false });
-                        return;
-                      }
+  const getRowTableSummary = (row: LinkedCustomerRow) => {
+    const certificates = getRowCertificates(row);
+    const nearestCertificate = certificates[0] ?? null;
+    const rowStory = getCustomerRowStory(row);
+    const statusTone: CertificateStatusBadgeTone = !row.hasElectronicTax
+      ? "danger"
+      : row.hasPaymentReady
+        ? "success"
+        : row.hasPrepareNeeded || row.hasExpiringSoon || !row.hasGeneral
+          ? "warn"
+          : "default";
+    const statusLabel = !row.hasElectronicTax
+      ? "발행 막힘"
+      : row.hasPaymentReady
+        ? "결제 가능"
+        : row.hasExpiringSoon
+          ? "만료 임박"
+          : row.hasPrepareNeeded || !row.hasGeneral
+            ? "정상"
+            : "정상";
+    const prepareLabel = row.hasPaymentReady
+      ? "결제 가능"
+      : row.hasPrepareNeeded || !row.hasGeneral
+        ? "준비 필요"
+        : row.hasExpiringSoon
+          ? "점검 필요"
+          : "완료";
 
-                      await props.onPrepareCustomerCertificateRenewal(item.certificateIndex, { showAlert: false });
-                    },
-                    { reload: false }
-                  )
-                }
-              >
-                {activeStartCertificateIndex === item.certificateIndex || batchPrepareState.currentCertificateCn === item.certificateCn
-                  ? "진행 중..."
-                  : item.canOpenPayment
-                    ? "결제 열기"
-                    : "준비 시작"}
-              </button>
-              {item.linkedCertificateId !== null ? (
-                <button
-                  type="button"
-                  className="btn-secondary certificate-inline-button"
-                  disabled={assistantBusyKey !== null || batchPrepareState.active}
-                  onClick={() =>
-                    void props.runAction(
-                      `customer-certificate-unlink-${item.linkedCertificateId}`,
-                      async () => props.onUnlinkCustomerCertificate(item.linkedCertificateId!)
-                    )
-                  }
-                >
-                  {activeUnlinkCertificateId === item.linkedCertificateId ? "연결 해제 중..." : "연결 해제"}
-                </button>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
+    return {
+      nearestCertificate,
+      expireDate: nearestCertificate ? props.formatCertificateExpireDate(nearestCertificate.certificateExpireDate) : "-",
+      certificateLabel: nearestCertificate ? getCertificateKindLabel(nearestCertificate.certificateKind) : "연결 없음",
+      statusLabel,
+      statusTone,
+      prepareLabel,
+      note: rowStory.body,
+      rowStory
+    };
   };
 
   if (!props.canUseCustomerRenewalAssistant) {
@@ -890,514 +838,385 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
   }
 
   return (
-    <div className="certificate-screen">
-      <aside className="certificate-side-panel">
-        <section className="certificate-hero-panel">
-          <div className="certificate-hero-head">
-            <div className="certificate-hero-copy">
-              <div className="certificate-hero-copy-top">
-                <span className={helperVersionMismatch ? "chip chip-warn" : props.customerRenewalAssistantOnline ? "chip chip-success" : "chip"}>
-                  {certificateStatusLead}
-                </span>
-                {props.customerRenewalAssistantHelperVersion ? (
-                  <span className="certificate-hero-version">v{props.customerRenewalAssistantHelperVersion}</span>
-                ) : null}
-              </div>
-              <h3>헬퍼 / 인증서 상태</h3>
-              <p>{certificateStatusSummary}</p>
-            </div>
-          </div>
-          <div className="certificate-hero-actions">
-            <button
-              className="btn-secondary"
-              disabled={assistantBusyKey !== null}
-              onClick={() => void props.runRefreshCustomerRenewalAssistant()}
-            >
-              {isRefreshingRenewalAssistant ? "확인 중..." : "새로고침"}
-            </button>
-            {helperUpgradeNotice || !props.customerRenewalAssistantOnline ? (
-              <button className="btn-secondary" type="button" onClick={() => window.location.assign(props.renewalHelperDownloadUrl)}>
-                헬퍼 다운로드
-              </button>
-            ) : null}
-            <button
-              disabled={assistantBusyKey !== null || !props.customerRenewalAssistantOnline || helperVersionMismatch}
-              title={!props.customerRenewalAssistantOnline || helperVersionMismatch ? certificateStatusBody : undefined}
-              onClick={() => void props.runLoadCustomerRenewalCertificates()}
-            >
-              {isLoadingRenewalCertificates ? "읽는 중..." : "공동인증서 읽기"}
-            </button>
-          </div>
-          {!props.customerRenewalAssistantOnline ? (
-            <div className="helper-box import-helper-box">
-              <strong>로컬 헬퍼 필요</strong>
-              <span>{props.customerRenewalAssistantHelperMessage || "고객 PC에서 로컬 헬퍼를 실행하세요."}</span>
-            </div>
-          ) : null}
-          {helperUpgradeNotice ? (
-            <div className="helper-box-stack settings-install-guide">
-              <strong>{helperUpgradeNotice.title}</strong>
-              <span>{helperUpgradeNotice.message}</span>
-              {props.customerRenewalAssistantLatestVersion ? <span>최신 버전: v{props.customerRenewalAssistantLatestVersion}</span> : null}
-              {props.customerRenewalAssistantMinSupportedVersion ? <span>최소 지원 버전: v{props.customerRenewalAssistantMinSupportedVersion}</span> : null}
-            </div>
-          ) : null}
-
-          <div className="certificate-guide-strip" aria-label="인증서 운영 구분">
-            {certificateGuideCards.map((card) => (
-              <article key={card.key} className="certificate-guide-pill">
-                <strong>{card.title}</strong>
-                <span>{card.description}</span>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="certificate-side-summary-grid" aria-label="인증서 운영 요약">
-          {certificateSummaryCards.map((card) => (
+    <div className="certificate-screen certificate-option1-screen">
+      <section className="certificate-hero-panel certificate-ops-toolbar" aria-label="인증서 운영 요약">
+        <div className="certificate-ops-metrics">
+          {certificateMetricCards.map((card) => (
             <article
               key={card.key}
               className={[
-                "certificate-summary-card",
-                card.tone === "warn"
-                  ? "tone-warn"
-                  : card.tone === "success"
-                    ? "tone-success"
-                    : ""
+                "certificate-ops-metric-card",
+                card.tone === "warn" ? "tone-warn" : card.tone === "success" ? "tone-success" : ""
               ]
                 .filter(Boolean)
                 .join(" ")}
             >
-              <div className="certificate-summary-card-head">
-                <span>{card.label}</span>
-                <Icon name={card.icon} className="certificate-summary-card-icon" />
-              </div>
+              <span>
+                {card.key === "helper" ? <i aria-hidden="true" className="certificate-status-dot" /> : null}
+                {card.label}
+              </span>
               <strong>{card.value}</strong>
-              <p>{card.note}</p>
+              <small>{card.note}</small>
             </article>
           ))}
-        </section>
-
-        {props.customerRenewalAssistantOnline ? (
-          <section className="certificate-toolbar-card">
-            <div className="certificate-controls">
-              <div className="certificate-focus-grid">
-                {focusFilters.map((filter) => (
-                  <button
-                    key={filter.key}
-                    type="button"
-                    className={customerFilter === filter.key ? "certificate-focus-card active" : "certificate-focus-card"}
-                    onClick={() => {
-                      setCustomerFilter(filter.key);
-                      setActiveDataTab("linked");
-                    }}
-                  >
-                    <div className="certificate-focus-card-head">
-                      <span>{filterMeta[filter.key].label}</span>
-                      <span className={`chip ${filter.tone === "success" ? "chip-success" : "chip-warn"}`}>
-                        {filterMeta[filter.key].count}명
-                      </span>
-                    </div>
-                    <strong>{filterMeta[filter.key].count.toLocaleString("ko-KR")}</strong>
-                  </button>
-                ))}
-              </div>
-              <label className="certificate-search">
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="고객명, 상호, 사업자번호, 인증서명"
-                />
-              </label>
-              <details className="certificate-advanced-filters">
-                <summary>세부 필터 보기</summary>
-                <div className="certificate-filter-group">
-                  <button
-                    type="button"
-                    className={customerFilter === "action_needed" ? "chip chip-filter active" : "chip chip-filter"}
-                    onClick={() => {
-                      setCustomerFilter("action_needed");
-                      setActiveDataTab("linked");
-                    }}
-                  >
-                    조치 필요
-                  </button>
-                  <button
-                    type="button"
-                    className={customerFilter === "all" ? "chip chip-filter active" : "chip chip-filter"}
-                    onClick={() => {
-                      setCustomerFilter("all");
-                      setActiveDataTab("linked");
-                    }}
-                  >
-                    전체 보기
-                  </button>
-                  <button
-                    type="button"
-                    className={customerFilter === "prepare_needed" ? "chip chip-filter active" : "chip chip-filter"}
-                    onClick={() => {
-                      setCustomerFilter("prepare_needed");
-                      setActiveDataTab("linked");
-                    }}
-                  >
-                    준비 필요
-                  </button>
-                  <button
-                    type="button"
-                    className={customerFilter === "payment_ready" ? "chip chip-filter active" : "chip chip-filter"}
-                    onClick={() => {
-                      setCustomerFilter("payment_ready");
-                      setActiveDataTab("linked");
-                    }}
-                  >
-                    결제 가능
-                  </button>
-                  <button
-                    type="button"
-                    className={customerFilter === "expiring_30" ? "chip chip-filter active" : "chip chip-filter"}
-                    onClick={() => {
-                      setCustomerFilter("expiring_30");
-                      setActiveDataTab("linked");
-                    }}
-                  >
-                    30일 이내 만료
-                  </button>
-                  <button
-                    type="button"
-                    className={customerFilter === "missing_general" ? "chip chip-filter active" : "chip chip-filter"}
-                    onClick={() => {
-                      setCustomerFilter("missing_general");
-                      setActiveDataTab("linked");
-                    }}
-                  >
-                    범용 없음
-                  </button>
-                  <button
-                    type="button"
-                    className={customerFilter === "missing_electronic" ? "chip chip-filter active" : "chip chip-filter"}
-                    onClick={() => {
-                      setCustomerFilter("missing_electronic");
-                      setActiveDataTab("linked");
-                    }}
-                  >
-                    전자세금 없음
-                  </button>
-                </div>
-              </details>
-            </div>
-            <div className="certificate-focus-note">
-              <span className={customerFilter === "action_needed" ? "chip chip-warn" : "chip"}>
-                {customerFilter === "action_needed" ? "기본 보기" : "현재 보기"}
-              </span>
-              <span>{filterMeta[customerFilter].summary}</span>
-            </div>
-            <div className="certificate-queue-toolbar">
-              <div className="certificate-queue-summary">
-                <span className="certificate-queue-chip">선택 고객 {selectedManagedRows.length}명</span>
-                <span className="certificate-queue-chip is-prepare">준비 필요 {selectedPrepareCertificates.length}건</span>
-                <span className="certificate-queue-chip is-payment">결제 대기 {selectedPaymentCertificates.length}건</span>
-              </div>
-              <div className="certificate-queue-actions">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={filteredLinkedCustomerRows.length === 0}
-                  onClick={selectAllFilteredCustomers}
-                >
-                  전체 선택
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={selectedManagedRows.length === 0}
-                  onClick={clearFilteredCustomerSelection}
-                >
-                  선택 해제
-                </button>
-                <button
-                  disabled={assistantBusyKey !== null || helperUpgradeRequired || batchPrepareState.active || selectedPrepareCertificates.length === 0}
-                  title={helperUpgradeRequired ? certificateStatusBody : undefined}
-                  onClick={() => {
-                    void prepareVisibleCertificates();
-                  }}
-                >
-                  {batchPrepareState.active
-                    ? `일괄 갱신 준비 중... (${batchPrepareState.completed}/${batchPrepareState.total})`
-                    : "일괄 갱신 준비"}
-                </button>
-                <button
-                  className="btn-secondary"
-                  disabled={assistantBusyKey !== null || helperUpgradeRequired || selectedPaymentCertificates.length === 0}
-                  title={helperUpgradeRequired ? certificateStatusBody : undefined}
-                  onClick={() =>
-                    void props.runAction("customer-certificate-open-next-payment", openNextPaymentCertificate, {
-                      reload: false
-                    })
-                  }
-                >
-                  {assistantBusyKey === "customer-certificate-open-next-payment" ? "결제 창 여는 중..." : "다음 결제 열기"}
-                </button>
-              </div>
-            </div>
-            {queueNotice ? (
-              <div className="certificate-inline-note" role="status">
-                <span className="chip chip-warn">안내</span>
-                <span>{queueNotice}</span>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-      </aside>
-
-      <section className="certificate-main-panel">
-        <div className="certificate-main-head">
-          <div className="certificate-main-copy">
-            <h3>{activeDataTab === "linked" ? linkedPanelTitle : unlinkedPanelTitle}</h3>
-            <p>{activeDataTab === "linked" ? linkedPanelSummary : unlinkedPanelSummary}</p>
-          </div>
-          <div className="certificate-main-tabs" role="tablist" aria-label="인증서 데이터 보기">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeDataTab === "linked"}
-              className={activeDataTab === "linked" ? "certificate-main-tab active" : "certificate-main-tab"}
-              onClick={() => setActiveDataTab("linked")}
-            >
-              고객 상태 {filteredLinkedCustomerRows.length}명
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeDataTab === "unlinked"}
-              className={activeDataTab === "unlinked" ? "certificate-main-tab active" : "certificate-main-tab"}
-              onClick={() => setActiveDataTab("unlinked")}
-            >
-              미연결 예외 {filteredUnlinkedCertificates.length}건
-            </button>
-          </div>
         </div>
-
-        <div className="certificate-main-body">
-          {activeDataTab === "linked" ? (
-            <section className="certificate-main-section">
-              <div className="certificate-table-section-head">
-                <strong>{customerFilter === "action_needed" ? "조치 대상 목록" : "고객 상태 목록"}</strong>
-                <span>{filteredLinkedCustomerRows.length}명</span>
-              </div>
-              <div className="certificate-table-wrap certificate-main-table-wrap">
-                {filteredLinkedCustomerRows.length > 0 ? (
-                  <table className="certificate-table certificate-linked-table">
-                    <colgroup>
-                      <col className="certificate-col-customer" />
-                      <col className="certificate-col-electronic" />
-                      <col className="certificate-col-general" />
-                      <col className="certificate-col-status" />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th>고객</th>
-                        <th>전자세금</th>
-                        <th>범용</th>
-                        <th>상태</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredLinkedCustomerRows.map((row) => {
-                        const rowStory = getCustomerRowStory(row);
-                        const isRowSelected = Boolean(selectedManagedCustomerIds[row.customer.id]);
-                        const rowToneClass = !row.hasElectronicTax
-                          ? "is-danger"
-                          : row.hasPaymentReady
-                            ? "is-success"
-                            : row.hasPrepareNeeded || row.hasExpiringSoon || !row.hasGeneral
-                              ? "is-warn"
-                              : "is-default";
-                        const statusBadges: Array<{ label: string; tone: CertificateStatusBadgeTone }> = [
-                          ...(row.hasPaymentReady ? [{ label: "결제 가능", tone: "success" as const }] : []),
-                          ...(row.hasPrepareNeeded ? [{ label: "준비 필요", tone: "warn" as const }] : []),
-                          ...(!row.hasElectronicTax ? [{ label: "전자세금 없음", tone: "danger" as const }] : []),
-                          ...(!row.hasGeneral ? [{ label: "범용 없음", tone: "warn" as const }] : []),
-                          ...(row.hasExpiringSoon ? [{ label: "30일 내 만료", tone: "warn" as const }] : [])
-                        ];
-                        if (statusBadges.length === 0) {
-                          statusBadges.push({ label: "정상", tone: "default" as const });
-                        }
-
-                        return (
-                          <tr
-                            key={`customer-certificate-row-${row.customer.id}`}
-                            className={`certificate-table-row ${rowToneClass}${isRowSelected ? " is-selected" : ""}`}
-                            onClick={() => toggleManagedCustomer(row.customer.id)}
-                          >
-                            <td>
-                              <div className="certificate-table-customer">
-                                <strong>{row.customer.corpName}</strong>
-                                <span>{row.customer.customerName}</span>
-                                <small>{row.customer.businessNumber}</small>
-                              </div>
-                            </td>
-                            <td>{renderLinkedCertificateList(row.electronicTaxCertificates, "전자세금")}</td>
-                            <td>{renderLinkedCertificateList(row.generalCertificates, "범용")}</td>
-                            <td>
-                              <div className="certificate-table-status certificate-table-status-list compact">
-                                <strong>{rowStory.headline}</strong>
-                                <span>{rowStory.body}</span>
-                                <div className="certificate-status-badges">
-                                  {statusBadges.map((badge) => (
-                                    <span
-                                      key={`${row.customer.id}-${badge.label}`}
-                                      className={
-                                        badge.tone === "default"
-                                          ? "certificate-status-badge"
-                                          : `certificate-status-badge ${badge.tone}`
-                                      }
-                                    >
-                                      {badge.label}
-                                    </span>
-                                  ))}
-                                </div>
-                                <div className="certificate-row-actions" onClick={stopRowSelection}>
-                                  {rowStory.actionLabel ? (
-                                    <button
-                                      type="button"
-                                      className={rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare" ? undefined : "btn-secondary"}
-                                      disabled={
-                                        (rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare") &&
-                                        (assistantBusyKey !== null || batchPrepareState.active || helperUpgradeRequired)
-                                      }
-                                      title={
-                                        rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare"
-                                          ? helperUpgradeRequired
-                                            ? certificateStatusBody
-                                            : undefined
-                                          : undefined
-                                      }
-                                      onClick={() => runCustomerRowPrimaryAction(row)}
-                                    >
-                                      {rowStory.actionLabel}
-                                    </button>
-                                  ) : null}
-                                  <span className="certificate-row-hint">
-                                    {isRowSelected ? "선택됨 · 왼쪽 일괄 작업 포함" : "행 클릭 시 왼쪽 목록에 추가"}
-                                  </span>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className={`context-empty-state ${linkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}>
-                    <strong>{linkedTableEmptyState?.title}</strong>
-                    <p>{linkedTableEmptyState?.body}</p>
-                  </div>
-                )}
-              </div>
-            </section>
-          ) : (
-            <section className="certificate-main-section">
-              <div className="certificate-table-section-head">
-                <strong>미연결 인증서 목록</strong>
-                <span>
-                  {filteredUnlinkedCertificates.length}건
-                  {filteredUnlinkedCertificates.length > 0 ? ` · 추천 후보 ${filteredUnlinkedSuggestedCount}건` : ""}
-                </span>
-              </div>
-              <div className="certificate-table-wrap certificate-main-table-wrap">
-                {filteredUnlinkedCertificates.length > 0 ? (
-                  <table className="certificate-table certificate-unlinked-table">
-                    <colgroup>
-                      <col className="certificate-col-certificate" />
-                      <col className="certificate-col-suggested" />
-                      <col className="certificate-col-link" />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th>인증서</th>
-                        <th>추천 고객</th>
-                        <th>연결</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredUnlinkedCertificates.map((item) => {
-                        const selectedCustomerValue =
-                          selectedCustomerIds[item.key] ?? String(item.suggestedCustomerId ?? "");
-
-                        return (
-                          <tr key={item.key} className={item.suggestedCustomerLabel ? "certificate-table-row is-suggested" : "certificate-table-row"}>
-                            <td>
-                              <div className="certificate-table-customer">
-                                <strong>{item.certificateCn}</strong>
-                                <span>{getCertificateKindLabel(item.certificateKind)} · {item.issuerName || "-"}</span>
-                                <small>{props.formatCertificateExpireDate(item.certificateExpireDate)}</small>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="certificate-table-status">
-                                <strong>{item.suggestedCustomerLabel || "자동 후보 없음"}</strong>
-                                {item.suggestedCustomerLabel ? (
-                                  <span>
-                                    {item.suggestionCount > 1
-                                      ? `자동 후보 ${item.suggestionCount}명`
-                                      : "자동 연결 후보 1명"}
-                                  </span>
-                                ) : (
-                                  <span>{item.statusText}</span>
-                                )}
-                              </div>
-                            </td>
-                            <td>
-                              <div className="certificate-table-actions certificate-table-actions-stack">
-                                <select
-                                  value={selectedCustomerValue}
-                                  onClick={stopRowSelection}
-                                  onChange={(event) =>
-                                    setSelectedCustomerIds((prev) => ({
-                                      ...prev,
-                                      [item.key]: event.target.value
-                                    }))
-                                  }
-                                  disabled={assistantBusyKey !== null || batchPrepareState.active}
-                                >
-                                  <option value="">고객 선택</option>
-                                  {customerOptions.map((customer) => (
-                                    <option key={`${item.key}-customer-${customer.id}`} value={customer.id}>
-                                      {customer.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  disabled={assistantBusyKey !== null || batchPrepareState.active || !selectedCustomerValue}
-                                  onClick={() =>
-                                    void props.runAction(
-                                      `customer-certificate-link-${item.certificateIndex}`,
-                                      async () => props.onLinkCustomerCertificate(item.certificateIndex, Number(selectedCustomerValue))
-                                    )
-                                  }
-                                >
-                                  {activeLinkCertificateIndex === item.certificateIndex ? "연결 중..." : "고객 연결"}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className={`context-empty-state ${unlinkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}>
-                    <strong>{unlinkedTableEmptyState?.title}</strong>
-                    <p>{unlinkedTableEmptyState?.body}</p>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
+        <div className="certificate-ops-actions">
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={assistantBusyKey !== null}
+            onClick={() => void props.runRefreshCustomerRenewalAssistant()}
+          >
+            {isRefreshingRenewalAssistant ? "확인 중..." : "helper 새로고침"}
+          </button>
+          <button
+            type="button"
+            aria-label="공동인증서 읽기"
+            disabled={assistantBusyKey !== null || !props.customerRenewalAssistantOnline || helperVersionMismatch}
+            title={!props.customerRenewalAssistantOnline || helperVersionMismatch ? certificateStatusBody : undefined}
+            onClick={() => void props.runLoadCustomerRenewalCertificates()}
+          >
+            {isLoadingRenewalCertificates ? "읽는 중..." : "읽은 인증서 다시 읽기"}
+          </button>
         </div>
       </section>
+
+      {helperUpgradeNotice || !props.customerRenewalAssistantOnline ? (
+        <section className="certificate-helper-alert" aria-live="polite">
+          <strong>{helperUpgradeNotice?.title ?? certificateStatusLead}</strong>
+          <span>{helperUpgradeNotice?.message ?? certificateStatusBody}</span>
+          <button className="btn-secondary" type="button" onClick={() => window.location.assign(props.renewalHelperDownloadUrl)}>
+            헬퍼 다운로드
+          </button>
+        </section>
+      ) : null}
+
+      <div className="certificate-layout-grid certificate-option1-main-grid">
+        <section className="certificate-main-panel certificate-connected-panel">
+          <div className="certificate-main-head">
+            <div className="certificate-main-copy">
+              <h3>연결된 고객 인증서 상태 ({linkedCustomerRows.length.toLocaleString("ko-KR")})</h3>
+            </div>
+            <span className="certificate-main-count">현재 {filteredLinkedCustomerRows.length.toLocaleString("ko-KR")}명</span>
+          </div>
+
+          <div className="certificate-list-toolrow certificate-option1-tools">
+            <label className="certificate-search">
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="고객명, 사업자번호, 인증서명 검색"
+              />
+            </label>
+            <div className="certificate-filter-strip" aria-label="고객 인증서 상태 필터">
+              {customerFilterOptions.map((filterKey) => (
+                <button
+                  key={filterKey}
+                  type="button"
+                  className={customerFilter === filterKey ? "chip chip-filter active" : "chip chip-filter"}
+                  onClick={() => setCustomerFilter(filterKey)}
+                >
+                  {filterMeta[filterKey].label}
+                  <span>{filterMeta[filterKey].count.toLocaleString("ko-KR")}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {queueNotice ? (
+            <div className="certificate-inline-note" role="status">
+              <span className="chip chip-warn">안내</span>
+              <span>{queueNotice}</span>
+            </div>
+          ) : null}
+
+          <div className="certificate-main-table-wrap">
+            {filteredLinkedCustomerRows.length > 0 ? (
+              <table className="certificate-table certificate-linked-table certificate-option1-table">
+                <colgroup>
+                  <col className="certificate-col-customer" />
+                  <col className="certificate-col-business" />
+                  <col className="certificate-col-expire" />
+                  <col className="certificate-col-status" />
+                  <col className="certificate-col-prepare" />
+                  <col className="certificate-col-note" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>고객명</th>
+                    <th>사업자번호</th>
+                    <th>인증서 만료일</th>
+                    <th>상태</th>
+                    <th>준비 상태</th>
+                    <th>비고</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLinkedCustomerRows.map((row) => {
+                    const rowSummary = getRowTableSummary(row);
+                    const rowStory = rowSummary.rowStory;
+                    const isRowSelected = Boolean(selectedManagedCustomerIds[row.customer.id]);
+                    const rowToneClass = rowSummary.statusTone === "danger"
+                      ? "is-danger"
+                      : rowSummary.statusTone === "success"
+                        ? "is-success"
+                        : rowSummary.statusTone === "warn"
+                          ? "is-warn"
+                          : "is-default";
+
+                    return (
+                      <tr
+                        key={`customer-certificate-row-${row.customer.id}`}
+                        className={`certificate-table-row ${rowToneClass}${isRowSelected ? " is-selected" : ""}`}
+                        onClick={() => toggleManagedCustomer(row.customer.id)}
+                      >
+                        <td>
+                          <div className="certificate-table-customer">
+                            <strong>{row.customer.corpName}</strong>
+                            <span>{row.customer.customerName}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="certificate-table-business">{row.customer.businessNumber}</span>
+                        </td>
+                        <td>
+                          <div className="certificate-table-expire">
+                            <strong>{rowSummary.expireDate}</strong>
+                            <span>{rowSummary.certificateLabel}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className={rowSummary.statusTone === "default" ? "certificate-status-badge" : `certificate-status-badge ${rowSummary.statusTone}`}>
+                            {rowSummary.statusLabel}
+                          </span>
+                        </td>
+                        <td>
+                          <strong className="certificate-prepare-label">{rowSummary.prepareLabel}</strong>
+                        </td>
+                        <td>
+                          <div className="certificate-table-note" onClick={stopRowSelection}>
+                            <span>{rowSummary.note}</span>
+                            {rowStory.actionLabel ? (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                disabled={
+                                  (rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare") &&
+                                  (assistantBusyKey !== null || batchPrepareState.active || helperUpgradeRequired)
+                                }
+                                title={
+                                  rowStory.actionKind === "open-payment" || rowStory.actionKind === "prepare"
+                                    ? helperUpgradeRequired
+                                      ? certificateStatusBody
+                                      : undefined
+                                    : undefined
+                                }
+                                onClick={() => runCustomerRowPrimaryAction(row)}
+                              >
+                                {rowStory.actionLabel}
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div className={`context-empty-state ${linkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}>
+                <strong>{linkedTableEmptyState?.title}</strong>
+                <p>{linkedTableEmptyState?.body}</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <aside className="certificate-work-panel certificate-option1-side">
+          <section className="certificate-work-card certificate-unlinked-card">
+            <div className="certificate-work-card-head">
+              <strong>{unlinkedPanelTitle}</strong>
+              <span>
+                {filteredUnlinkedCertificates.length}건
+                {filteredUnlinkedCertificates.length > 0 ? ` · 추천 ${filteredUnlinkedSuggestedCount}건` : ""}
+              </span>
+            </div>
+            <p className="certificate-split-note">{unlinkedPanelSummary}</p>
+            {filteredUnlinkedCertificates.length > 0 ? (
+              <div className="certificate-unlinked-table-wrap">
+                <table className="certificate-table certificate-unlinked-table">
+                  <thead>
+                    <tr>
+                      <th>인증서 정보</th>
+                      <th>만료일</th>
+                      <th>후보 고객 매칭</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUnlinkedCertificates.map((item) => (
+                      <tr
+                        key={item.key}
+                        className={focusedUnlinkedCertificate?.key === item.key ? "is-selected" : undefined}
+                        onClick={() => setFocusedUnlinkedCertificateKey(item.key)}
+                      >
+                        <td>
+                          <div className="certificate-unlinked-name">
+                            <strong title={item.certificateCn}>{item.certificateCn}</strong>
+                            <span>{getCertificateKindLabel(item.certificateKind)}</span>
+                          </div>
+                        </td>
+                        <td>{props.formatCertificateExpireDate(item.certificateExpireDate)}</td>
+                        <td>
+                          <div className="certificate-unlinked-match-cell">
+                            <span>{item.suggestedCustomerLabel ? `후보 ${item.suggestionCount}건` : "-"}</span>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setFocusedUnlinkedCertificateKey(item.key);
+                              }}
+                            >
+                              매칭
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className={`context-empty-state ${unlinkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}>
+                <strong>{unlinkedTableEmptyState?.title}</strong>
+                <p>{unlinkedTableEmptyState?.body}</p>
+              </div>
+            )}
+          </section>
+
+          <section className="certificate-work-card certificate-match-card">
+            <div className="certificate-work-card-head">
+              <strong>후보 고객 매칭</strong>
+              <span>{focusedUnlinkedCertificate?.suggestedCustomerLabel ? "추천 후보 있음" : "수동 선택"}</span>
+            </div>
+            <p className="certificate-split-note">인증서 선택 후 고객을 선택해 연결하세요.</p>
+            <div className="certificate-match-form">
+              <label>
+                <span>선택 인증서</span>
+                <select
+                  value={focusedUnlinkedCertificate?.key ?? ""}
+                  disabled={filteredUnlinkedCertificates.length === 0 || assistantBusyKey !== null || batchPrepareState.active}
+                  onChange={(event) => setFocusedUnlinkedCertificateKey(event.target.value)}
+                >
+                  {filteredUnlinkedCertificates.length === 0 ? <option value="">미연결 인증서 없음</option> : null}
+                  {filteredUnlinkedCertificates.map((item) => (
+                    <option key={`match-certificate-${item.key}`} value={item.key}>
+                      {item.certificateCn} · {item.certificateIndex}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>후보 고객 선택</span>
+                <select
+                  value={focusedUnlinkedCustomerValue}
+                  disabled={!focusedUnlinkedCertificate || assistantBusyKey !== null || batchPrepareState.active}
+                  onChange={(event) => {
+                    if (!focusedUnlinkedCertificate) return;
+                    setSelectedCustomerIds((prev) => ({
+                      ...prev,
+                      [focusedUnlinkedCertificate.key]: event.target.value
+                    }));
+                  }}
+                >
+                  <option value="">후보 고객 선택</option>
+                  {customerOptions.map((customer) => (
+                    <option key={`match-customer-${customer.id}`} value={customer.id}>
+                      {customer.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={!focusedUnlinkedCertificate || !focusedUnlinkedCustomerValue || assistantBusyKey !== null || batchPrepareState.active}
+                onClick={linkFocusedUnlinkedCertificate}
+              >
+                {focusedUnlinkedCertificate && activeLinkCertificateIndex === focusedUnlinkedCertificate.certificateIndex ? "연결 중..." : "연결"}
+              </button>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <footer className="certificate-bottom-actionbar" aria-label="인증서 선택 작업">
+        <div className="certificate-bottom-status">
+          <span>선택 고객 {selectedManagedRows.length.toLocaleString("ko-KR")}명</span>
+          <span>준비 대상 {selectedPrepareCertificates.length.toLocaleString("ko-KR")}건</span>
+          <span>결제 가능 {selectedPaymentCertificates.length.toLocaleString("ko-KR")}건</span>
+        </div>
+        <div className="certificate-bottom-actions">
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!focusedUnlinkedCertificate || !focusedUnlinkedCustomerValue || assistantBusyKey !== null || batchPrepareState.active}
+            onClick={linkFocusedUnlinkedCertificate}
+          >
+            연결
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!selectedUnlinkCertificate || assistantBusyKey !== null || batchPrepareState.active}
+            onClick={unlinkSelectedCertificate}
+          >
+            {selectedUnlinkCertificate?.linkedCertificateId === activeUnlinkCertificateId ? "해제 중..." : "해제"}
+          </button>
+          <button
+            type="button"
+            disabled={assistantBusyKey !== null || helperUpgradeRequired || batchPrepareState.active || selectedPrepareCertificates.length === 0}
+            title={helperUpgradeRequired ? certificateStatusBody : undefined}
+            onClick={() => void prepareVisibleCertificates()}
+          >
+            {batchPrepareState.active ? `준비 중 ${batchPrepareState.completed}/${batchPrepareState.total}` : "준비 실행"}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={assistantBusyKey !== null || helperUpgradeRequired || selectedPaymentCertificates.length === 0}
+            title={helperUpgradeRequired ? certificateStatusBody : undefined}
+            onClick={() =>
+              void props.runAction("customer-certificate-open-next-payment", openNextPaymentCertificate, {
+                reload: false
+              })
+            }
+          >
+            {assistantBusyKey === "customer-certificate-open-next-payment" ? "여는 중..." : "결제 가능 열기"}
+          </button>
+          <button type="button" className="btn-secondary" disabled title="연결 이력 화면은 아직 별도 API가 없습니다.">
+            연결 이력
+          </button>
+          <button type="button" className="btn-secondary" disabled title="인증서 설정은 현재 설정 탭에서 관리합니다.">
+            설정
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={filteredLinkedCustomerRows.length === 0}
+            onClick={selectAllFilteredCustomers}
+          >
+            전체 선택
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={selectedManagedRows.length === 0}
+            onClick={clearFilteredCustomerSelection}
+          >
+            선택 해제
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }

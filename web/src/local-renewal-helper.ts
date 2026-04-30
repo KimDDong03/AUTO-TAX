@@ -2,6 +2,7 @@ import type {
   RenewalBridgeLicenseProbe,
   RenewalBridgeStorageProbe,
   RenewalBridgeProbeResult,
+  RenewalBridgeCertificateSummary,
   RenewalPreflightComparisonProfile,
   RenewalPreflightSubmissionProfile
 } from "./types";
@@ -32,6 +33,39 @@ type LocalRenewalHelperCertificateListResponse = {
     licenseProbe: RenewalBridgeLicenseProbe;
     storageProbe: RenewalBridgeStorageProbe;
   };
+};
+
+export type LocalCertificateUploadSessionFile = {
+  name: string;
+  relativePath: string;
+  base64: string;
+};
+
+export type LocalCertificateUploadSessionCertificate = RenewalBridgeCertificateSummary & {
+  listSource: "upload-session";
+  supportsPreflight: false;
+  uploadSessionId: string;
+  fileName: string;
+  relativePath: string;
+  privateKeyIncluded: boolean;
+};
+
+export type LocalCertificateUploadSessionResult = {
+  sessionId: string;
+  uploadedAt: string;
+  certificates: LocalCertificateUploadSessionCertificate[];
+  rejectedFiles: Array<{
+    name: string;
+    relativePath: string;
+    reason: string;
+  }>;
+  warnings: string[];
+};
+
+type LocalCertificateUploadSessionResponse = {
+  ok: true;
+  version: string;
+  result: LocalCertificateUploadSessionResult;
 };
 
 type LocalRenewalPaymentOpenResponse = {
@@ -117,6 +151,30 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
   }
 
   return (await response.json()) as T;
+}
+
+function isNPKICertificateMaterialFile(file: File): boolean {
+  const relativePath = ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/\\/g, "/");
+  return /(^|\/)(signCert\.der|signPri\.key)$/i.test(relativePath) || /^(signCert\.der|signPri\.key)$/i.test(file.name);
+}
+
+function arrayBufferToBase64(arrayBuffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(arrayBuffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function fileToUploadSessionFile(file: File): Promise<LocalCertificateUploadSessionFile> {
+  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+  return {
+    name: file.name,
+    relativePath,
+    base64: arrayBufferToBase64(await file.arrayBuffer())
+  };
 }
 
 export async function getLocalRenewalHelperStatus(
@@ -213,6 +271,22 @@ export async function requestLocalRenewalCertificates() {
   return await localRenewalHelperRequest<LocalRenewalHelperCertificateListResponse>("/api/certificates", {
     method: "POST",
     body: JSON.stringify({})
+  });
+}
+
+export async function requestLocalCertificateUploadSession(files: File[]) {
+  const certificateFiles = files.filter(isNPKICertificateMaterialFile);
+  if (certificateFiles.length === 0) {
+    throw new Error("NPKI 인증서 파일(signCert.der, signPri.key)을 찾지 못했습니다.");
+  }
+  if (certificateFiles.length > 80) {
+    throw new Error("한 번에 처리할 수 있는 인증서 파일은 80개까지입니다.");
+  }
+
+  const payloadFiles = await Promise.all(certificateFiles.map(fileToUploadSessionFile));
+  return await localRenewalHelperRequest<LocalCertificateUploadSessionResponse>("/api/certificates/upload-session", {
+    method: "POST",
+    body: JSON.stringify({ files: payloadFiles })
   });
 }
 

@@ -45,6 +45,11 @@ function createModel(
   activeSettingsSection: SettingsTabModel["sidebar"]["activeSettingsSection"]
 ): SettingsTabModel {
   return {
+    context: {
+      userLabel: "테스트 사용자",
+      workspaceLabel: "테스트 작업공간",
+      popbillModeLabel: "테스트"
+    },
     sidebar: {
       settingsSections: [
         {
@@ -85,7 +90,8 @@ function createModel(
       nextSettingsSection: "gmail",
       nextSettingsSectionLabel: "메일 연결",
       setActiveSettingsSection: () => {},
-      openCertificates: () => {}
+      openCertificates: () => {},
+      openOnboarding: () => {}
     },
     sections: {
       mail: {
@@ -98,7 +104,7 @@ function createModel(
           mailPassword: "",
           notificationEmailsText: "",
           schedulerEnabled: true,
-          defaultIssueDay: "26",
+          defaultIssueDay: "20",
           defaultIssueHour: "9",
           defaultIssueMinute: "0"
         },
@@ -146,22 +152,7 @@ function createModel(
         onPopbillSharedPasswordChange: () => {},
         onRenewalIssuePasswordChange: () => {},
         onLoadCurrentPopbillSharedPassword: async () => {},
-        onLoadCurrentRenewalIssuePassword: async () => {},
-        helperStatus: {
-          busyKey: null,
-          online: false,
-          helperVersion: null,
-          helperMessage: "상태 확인 전",
-          upgradeNotice: null,
-          latestVersion: null,
-          minSupportedVersion: null,
-          checkedAt: null,
-          loadedCertificateCount: 0,
-          renewalHelperDownloadUrl: "https://example.com/helper.zip",
-          openCertificates: () => {},
-          onRefreshCustomerRenewalAssistant: async () => {},
-          formatDateTime: () => "-"
-        }
+        onLoadCurrentRenewalIssuePassword: async () => {}
       },
       helper: {
         done: false,
@@ -186,8 +177,6 @@ function createModel(
           complete: false,
           progressText: "도입 준비 진행 중",
           pendingStepCount: 2,
-          showCompletedOnboardingNav: false,
-          onShowCompletedOnboardingNavChange: () => {},
           openOnboarding: () => {}
         },
         account: {
@@ -251,4 +240,27 @@ test("SettingsTab only renders the active detail section content", () => {
   assert.match(helperText, /로컬 헬퍼/);
   assert.doesNotMatch(helperText, /자동으로 찾은 메일 서비스/);
   assert.doesNotMatch(helperText, /필수 공통값/);
+});
+
+test("SettingsTab keeps local helper details out of issue defaults", () => {
+  const defaultsTree = SettingsTab({
+    model: createModel("popbill")
+  });
+  const defaultsText = collectText(defaultsTree);
+
+  assert.match(defaultsText, /필수 공통값/);
+  assert.doesNotMatch(defaultsText, /로컬 헬퍼/);
+  assert.doesNotMatch(defaultsText, /헬퍼 다운로드/);
+});
+
+test("SettingsTab mail detail hides the legacy five-minute collection setting", () => {
+  const mailTree = SettingsTab({
+    model: createModel("gmail")
+  });
+  const mailText = collectText(mailTree);
+
+  assert.match(mailText, /메일 연결 설정/);
+  assert.match(mailText, /메일 계정/);
+  assert.doesNotMatch(mailText, /수집 주기/);
+  assert.doesNotMatch(mailText, /5/);
 });
