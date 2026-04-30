@@ -1014,7 +1014,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
           <section className="issuance-detail-panel">
             <div className="issuance-detail-panel-head">
               <h2>상세</h2>
-              <span aria-hidden="true">×</span>
             </div>
             {selectedDraft ? (
               <div className="issuance-detail-scroll">
