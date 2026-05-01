@@ -162,12 +162,12 @@ test("selected customer export builds the basic info sheet in selected order", (
   ]);
 });
 
-test("selected customer export uses monthly total amount for the report sheet", () => {
+test("selected customer export uses monthly supply amount for the report sheet", () => {
   const rows = buildSelectedCustomerReportRows(exportItems);
 
   assert.deepEqual(rows[0], ["순서", "대표자명", "상호명", "1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"]);
-  assert.deepEqual(rows[1], [1, "홍성철", "홍성철발전소", 1090, 1904910, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-  assert.deepEqual(rows[2], [2, "홍계정", "홍계정발전소", 0, 0, 2200, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(rows[1], [1, "홍성철", "홍성철발전소", 1000, 1900000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(rows[2], [2, "홍계정", "홍계정발전소", 0, 0, 2000, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 test("selected customer export writes the two requested workbook sheets", () => {
@@ -202,7 +202,7 @@ test("selected customer export writes the two requested workbook sheets", () => 
 
   assert.equal(fileName, "AUTO-TAX_선택고객_2026_2026-04-29.xlsx");
   assert.equal(buildSelectedCustomerExportFileName(2026, new Date("2026-04-29T03:00:00.000Z")), fileName);
-  assert.deepEqual(sheetNames, ["고객 기본정보", "신고이력(합계액)"]);
+  assert.deepEqual(sheetNames, ["고객 기본정보", "신고이력(공급가액)"]);
   assert.equal(calls.fileName, fileName);
   assert.equal(calls.rows.length, 3);
 });

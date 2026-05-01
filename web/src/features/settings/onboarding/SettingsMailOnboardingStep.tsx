@@ -46,9 +46,8 @@ export function SettingsMailOnboardingStep({
   return (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
+        <div className="onboarding-main-copy onboarding-task-copy">
           <strong>{onboarding.headline}</strong>
-          <p>지금은 연결만 확인합니다.</p>
         </div>
 
         <div className="onboarding-inline-status">
@@ -59,10 +58,6 @@ export function SettingsMailOnboardingStep({
           <div>
             <span>메일 서비스</span>
             <strong>{detectedMailProviderLabel}</strong>
-          </div>
-          <div>
-            <span>테스트 의미</span>
-            <strong>연결만 확인</strong>
           </div>
         </div>
 

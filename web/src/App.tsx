@@ -2178,6 +2178,16 @@ export function App() {
     return nextPayload;
   };
 
+  const refreshCustomerContractRenewalsDue = async () => {
+    if (!activeOrganizationId) {
+      setCustomerContractRenewalsDue([]);
+      return;
+    }
+
+    const nextCustomerContractRenewalsDue = await api<CustomerContractRenewalDueItem[]>("/api/customers/contract-renewals/due");
+    setCustomerContractRenewalsDue(nextCustomerContractRenewalsDue);
+  };
+
   const loadWithRetry = async () => {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -2197,6 +2207,14 @@ export function App() {
     }
     throw lastError ?? new Error("초기 데이터를 불러오지 못했습니다.");
   };
+
+  useEffect(() => {
+    if (activeTab !== "home" || !activeOrganizationId) {
+      return;
+    }
+
+    void refreshCustomerContractRenewalsDue();
+  }, [activeOrganizationId, activeTab]);
 
   const openAppDialog = (dialog: AppDialogState) =>
     new Promise<boolean>((resolve) => {
@@ -5806,25 +5824,16 @@ export function App() {
   const onboardingCertificateCompletionContent = (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
+        <div className="onboarding-main-copy onboarding-task-copy">
           <strong>
             {!onboardingCustomerRegistrationReady
-              ? "먼저 고객 초기 등록을 끝내세요."
+              ? "고객 초기 등록 필요"
               : onboardingIssueSetupPendingCount === 0
-                ? "발행용 인증서 준비가 완료되었습니다."
+                ? "발행용 인증서 준비 완료"
                 : onboardingCertificateAutoTargetCount > 0
-                  ? "전자세금용 인증서 후속 등록을 마무리하세요."
-                  : "자동 대상은 없지만 아직 인증서 확인이 필요한 고객이 있습니다."}
+                  ? "전자세금용 등록 마무리"
+                  : "인증서 수동 확인 필요"}
           </strong>
-          <p>
-            {!onboardingCustomerRegistrationReady
-              ? "고객 등록 후에야 실제 발행 준비 상태를 확인할 수 있습니다."
-              : onboardingCertificateAutoTargetCount > 0
-                ? "이번 업로드로 만든 고객은 여기서 전자세금용 인증서를 순서대로 마무리할 수 있습니다."
-                : onboardingIssueSetupPendingCount > 0
-                  ? "자동으로 바로 이어갈 대상은 없으므로, 이제 인증서 관리 화면에서 미연결 고객을 확인하면 됩니다."
-                  : "이 단계는 끝났습니다. 다음 단계인 첫 메일 동기화로 바로 넘어가면 됩니다."}
-          </p>
         </div>
 
         <div className="onboarding-inline-status">
@@ -5835,18 +5844,6 @@ export function App() {
           <div>
             <span>발행 준비 미완료</span>
             <strong>{onboardingIssueSetupPendingCount}명</strong>
-          </div>
-          <div>
-            <span>현재 해야 할 일</span>
-            <strong>
-              {!onboardingCustomerRegistrationReady
-                ? "고객 초기 등록"
-                : onboardingCertificateAutoTargetCount > 0
-                  ? "전자세금용 등록 마무리"
-                  : onboardingIssueSetupPendingCount > 0
-                    ? "인증서 관리에서 확인"
-                    : "첫 메일 동기화"}
-            </strong>
           </div>
         </div>
 
@@ -5905,15 +5902,8 @@ export function App() {
   const onboardingFirstSyncContent = (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
-          <strong>{canRunOnboardingFirstSync ? "이제 실제 메일을 처음 읽어올 차례입니다." : "아직 시작할 수 없습니다."}</strong>
-          <p>
-            {canRunOnboardingFirstSync
-              ? "운영팀이 검증한 메일 설정으로 이번 달 수신 메일을 읽어옵니다. 정산월은 본문 파싱 후 확인하고, 남은 예외만 다음 단계에서 처리합니다."
-              : settingsHealth.mailReady
-                ? "준비가 덜 된 상태에서는 동기화 버튼보다 먼저 막힌 단계를 끝내야 합니다."
-                : "운영팀이 메일 주소와 앱 비밀번호를 설정하고 연결 테스트를 완료해야 첫 동기화를 시작할 수 있습니다."}
-          </p>
+        <div className="onboarding-main-copy onboarding-task-copy">
+          <strong>{canRunOnboardingFirstSync ? "첫 메일 동기화 실행" : "이전 단계 완료 필요"}</strong>
         </div>
 
         <div className="onboarding-inline-status">
@@ -5930,10 +5920,6 @@ export function App() {
             <strong>{reviewDrafts.length}건</strong>
           </div>
         </div>
-
-        {!canRunOnboardingFirstSync ? (
-          <p className="onboarding-inline-warning">{`먼저 끝낼 단계: ${onboardingFirstSyncBlockedSteps.join(" → ")}`}</p>
-        ) : null}
 
         {canRunOnboardingFirstSync ? (
           <div className="button-row onboarding-primary-row">
@@ -5957,19 +5943,18 @@ export function App() {
   const onboardingFirstIssueCheckContent = (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
+        <div className="onboarding-main-copy onboarding-task-copy">
           <strong>
             {!onboardingFirstSyncReady
-              ? "먼저 첫 메일 동기화를 실행하세요."
+              ? "첫 메일 동기화 필요"
               : exceptionMessages.length > 0
-                ? "예외 메일을 먼저 처리하세요."
+                ? "예외 메일 처리 필요"
                 : reviewDrafts.length > 0
-                  ? "생성된 초안을 검토한 뒤 로그인 사용자가 직접 발행하세요."
+                  ? "초안 검토"
                   : issuedDrafts.length > 0
-                    ? "첫 발행 결과까지 확인했습니다."
+                    ? "첫 발행 확인 완료"
                     : "현재 발행 대상 메일은 없습니다."}
           </strong>
-          <p>상세 확인은 `오늘 작업` 탭에서 진행합니다. 이 단계에서는 마지막으로 열어야 할 화면만 분명하게 보여줍니다.</p>
         </div>
 
         <div className="onboarding-inline-status">
@@ -6827,6 +6812,7 @@ export function App() {
             onExportSelectedCustomers={downloadSelectedCustomers}
             onShowDraftPopbillInfo={showDraftPopbillInfo}
             onOpenDraftPopbillUrl={openDraftPopbillUrl}
+            onCustomerReportDetailSaved={refreshCustomerContractRenewalsDue}
             resolveCustomerAddress={resolveCustomerAddress}
             runAction={runAction}
             formatCertificateExpireDate={formatCertificateExpireDate}

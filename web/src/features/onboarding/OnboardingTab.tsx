@@ -90,48 +90,11 @@ export function OnboardingTab(props: OnboardingTabProps) {
         isRecommended: activeStep.id === recommendedStepId
       })
     : null;
+  const completedStepCount = props.steps.filter((step) => step.done).length;
+  const progressText = `${completedStepCount}/${props.steps.length} 완료`;
 
   return (
     <div className="onboarding-task-shell">
-      <aside className="onboarding-step-strip onboarding-stepper-rail" role="tablist" aria-label="준비 단계">
-        {props.steps.map((step) => {
-          const isActive = activeStep?.id === step.id;
-          const isRecommended = step.id === recommendedStepId;
-          const statusMeta = getOnboardingStepStatusMeta({
-            done: step.done,
-            isRecommended
-          });
-          return (
-            <button
-              key={step.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={[
-                "onboarding-step-chip",
-                isActive ? "active" : "",
-                step.done ? "is-done" : "",
-                !step.done && isRecommended ? "is-recommended" : ""
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onClick={() => setActiveStepId(step.id)}
-            >
-              <div className="onboarding-step-chip-main">
-                <div className="onboarding-step-chip-top">
-                  <span className="onboarding-step-chip-order">0{step.step}</span>
-                  <span className={statusMeta.chipClassName}>{statusMeta.label}</span>
-                </div>
-                <div className="onboarding-step-chip-copy">
-                  <strong>{step.title}</strong>
-                  <span className="onboarding-step-chip-summary">{step.summary}</span>
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </aside>
-
       {activeStep ? (
         <section
           id="onboarding-active-step"
@@ -139,18 +102,66 @@ export function OnboardingTab(props: OnboardingTabProps) {
         >
           <header className="onboarding-active-step-head">
             <div className="onboarding-active-step-copy">
-              <div className="onboarding-active-step-top">
-                <span className="onboarding-active-step-order">0{activeStep.step}</span>
+              <div className="onboarding-active-step-meta">
+                <span className="onboarding-active-progress">{progressText}</span>
                 <span className={activeStepStatusMeta?.chipClassName ?? "chip"}>{activeStepStatusMeta?.label ?? "대기"}</span>
               </div>
-              <strong>{activeStep.title}</strong>
-              <p className="onboarding-active-step-summary">{activeStep.summary}</p>
-              {activeStep.blockedReason ? <p className="onboarding-inline-warning">{activeStep.blockedReason}</p> : null}
+              <div className="onboarding-active-step-title-row">
+                <span className="onboarding-active-step-order">0{activeStep.step}</span>
+                <div>
+                  <strong>{activeStep.title}</strong>
+                  <p className="onboarding-active-step-summary">{activeStep.summary}</p>
+                </div>
+              </div>
+              {activeStep.blockedReason ? (
+                <p className="onboarding-inline-warning">{activeStep.blockedReason}</p>
+              ) : null}
             </div>
           </header>
           <div className="onboarding-flow-section">{activeStep.content}</div>
         </section>
       ) : null}
+
+      <aside className="onboarding-step-strip onboarding-stepper-rail" role="tablist" aria-label="준비 단계">
+        <div className="onboarding-step-strip-head">
+          <strong>진행 목록</strong>
+          <span>{progressText}</span>
+        </div>
+        <div className="onboarding-step-list">
+          {props.steps.map((step) => {
+            const isActive = activeStep?.id === step.id;
+            const isRecommended = step.id === recommendedStepId;
+            const statusMeta = getOnboardingStepStatusMeta({
+              done: step.done,
+              isRecommended
+            });
+            return (
+              <button
+                key={step.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                className={[
+                  "onboarding-step-chip",
+                  isActive ? "active" : "",
+                  step.done ? "is-done" : "",
+                  !step.done && isRecommended ? "is-recommended" : ""
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={() => setActiveStepId(step.id)}
+              >
+                <span className="onboarding-step-chip-order">0{step.step}</span>
+                <span className="onboarding-step-chip-copy">
+                  <strong>{step.title}</strong>
+                  <span className="onboarding-step-chip-summary">{step.summary}</span>
+                </span>
+                <span className={statusMeta.chipClassName}>{statusMeta.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
     </div>
   );
 }

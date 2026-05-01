@@ -14133,6 +14133,12 @@ button.issuance-list-item {
   min-height: 0;
 }
 
+.app-shell-topnav .issuance-table-shell .issuance-empty-state {
+  margin: 12px;
+  min-height: 160px;
+  box-sizing: border-box;
+}
+
 .app-shell-topnav .issuance-list-table {
   width: 100%;
   min-width: 860px;
@@ -17549,6 +17555,38 @@ button.issuance-list-item {
   white-space: nowrap;
 }
 
+.app-shell-topnav .customer-report-auto-save-head,
+.app-shell-topnav .customer-report-history-head {
+  align-items: center;
+}
+
+.app-shell-topnav .customer-auto-save-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid var(--wf-border);
+  border-radius: 999px;
+  background: var(--wf-soft);
+  color: var(--wf-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.app-shell-topnav .customer-auto-save-status.tone-success {
+  border-color: rgba(22, 163, 74, 0.18);
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.app-shell-topnav .customer-auto-save-status.tone-danger {
+  border-color: rgba(220, 38, 38, 0.2);
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .app-shell-topnav .customer-report-history-section .customer-report-year-select {
   flex: 0 0 8rem;
   width: 8rem;
@@ -18458,4 +18496,4111 @@ button.issuance-list-item {
 .customer-detail-action-strip {
   border-color: rgba(220, 38, 38, 0.14);
   background: linear-gradient(180deg, #ffffff 0%, var(--danger-soft) 100%);
+}
+
+/* --- 2026-05 customer console tone pass: scoped visual layer only --- */
+.app-shell-topnav .content-customers {
+  background:
+    linear-gradient(180deg, rgba(239, 246, 255, 0.68) 0, rgba(248, 250, 252, 0.88) 220px, #f8fafc 100%);
+}
+
+.app-shell-topnav .customer-summary-card {
+  border-color: rgba(203, 213, 225, 0.95);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 24px rgba(15, 23, 42, 0.05);
+}
+
+.app-shell-topnav .customer-summary-card:hover,
+.app-shell-topnav .customer-summary-card.is-active {
+  border-color: rgba(37, 99, 235, 0.36);
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.08), 0 12px 26px rgba(37, 99, 235, 0.09);
+}
+
+.app-shell-topnav .customer-summary-card.tone-success {
+  border-color: rgba(34, 197, 94, 0.24);
+  background: linear-gradient(180deg, #ffffff 0%, #ecfdf3 100%);
+}
+
+.app-shell-topnav .customer-summary-card.tone-warn {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+}
+
+.app-shell-topnav .customer-summary-card.tone-danger {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: linear-gradient(180deg, #ffffff 0%, #fef2f2 100%);
+}
+
+.app-shell-topnav .customer-summary-card span {
+  color: #475569;
+}
+
+.app-shell-topnav .customer-summary-card strong {
+  color: #0f172a;
+}
+
+.app-shell-topnav .customer-console-page-search,
+.app-shell-topnav .customer-console-filter-strip,
+.app-shell-topnav .customer-console-panel,
+.app-shell-topnav .customer-detail-panel {
+  border-color: #dbe3ee;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.app-shell-topnav .customer-console-page-search {
+  padding: 0 12px;
+}
+
+.app-shell-topnav .customer-console-main-column {
+  gap: 8px;
+}
+
+.app-shell-topnav .customer-console-page-header {
+  gap: 8px;
+}
+
+.app-shell-topnav .customer-console-page-search:focus-within {
+  border-color: rgba(37, 99, 235, 0.5);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.app-shell-topnav .customer-console-page-search input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell-topnav .customer-console-page-search input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.app-shell-topnav .customer-console-page-search-icon {
+  color: #94a3b8;
+}
+
+.app-shell-topnav .customer-console-filter-strip {
+  gap: 4px;
+  padding: 4px;
+}
+
+.app-shell-topnav .customer-console-filter-strip button {
+  min-height: 32px;
+}
+
+.app-shell-topnav .customer-console-panel {
+  overflow: hidden;
+}
+
+.app-shell-topnav .customer-console-table-topbar {
+  padding: 9px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.app-shell-topnav .customer-console-table-wrap {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app-shell-topnav .customer-console-filter-strip {
+  background: rgba(241, 245, 249, 0.82);
+}
+
+.app-shell-topnav .customer-console-filter-strip button,
+.app-shell-topnav .customer-bulk-issue-mode-trigger,
+.app-shell-topnav .customer-console-table-actions .btn-secondary,
+.app-shell-topnav .customer-detail-panel-head-actions .btn-secondary,
+.app-shell-topnav .customer-detail-card-actions button,
+.app-shell-topnav .customer-detail-action-buttons button {
+  border-color: #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+}
+
+.app-shell-topnav .customer-console-filter-strip button:hover,
+.app-shell-topnav .customer-bulk-issue-mode-trigger:hover,
+.app-shell-topnav .customer-console-table-actions .btn-secondary:hover,
+.app-shell-topnav .customer-detail-panel-head-actions .btn-secondary:hover,
+.app-shell-topnav .customer-detail-card-actions button:hover,
+.app-shell-topnav .customer-detail-action-buttons button:hover {
+  border-color: #b8c6d8;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.app-shell-topnav .customer-console-filter-strip button.active-filter,
+.app-shell-topnav .customer-issue-mode-segment button.is-active {
+  border-color: rgba(37, 99, 235, 0.38);
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.app-shell-topnav .customer-console-primary-cta {
+  border: 1px solid #1d4ed8;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
+}
+
+.app-shell-topnav .customer-console-primary-cta:hover {
+  background: #1d4ed8;
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary,
+.app-shell-topnav .customer-summary-actions .customer-console-primary-cta {
+  height: 42px;
+  min-height: 42px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary {
+  border: 1px solid #dbe3ee;
+  background: #ffffff;
+  color: #334155;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary:hover:not(:disabled) {
+  border-color: #b8c6d8;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary:disabled {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #94a3b8;
+  opacity: 1;
+}
+
+.app-shell-topnav .customer-issue-mode-segment {
+  min-height: 34px;
+  padding: 3px;
+  border-color: #dbe3ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.app-shell-topnav .customer-issue-mode-segment button,
+.app-shell-topnav .customer-issue-mode-save {
+  min-height: 28px;
+  border-radius: 6px;
+}
+
+.app-shell-topnav .customer-issue-mode-segment button {
+  color: #64748b;
+}
+
+.app-shell-topnav .customer-issue-mode-segment button.is-active {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+}
+
+.app-shell-topnav .customer-console-table-wrap {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* True final onboarding density override. Keep this after the customer theme
+   overrides so short onboarding steps do not stretch into empty panels. */
+.onboarding-modal .onboarding-task-shell,
+.app-shell-topnav .onboarding-modal .onboarding-task-shell {
+  align-items: start !important;
+  height: auto !important;
+  max-height: calc(100vh - 220px);
+}
+
+.onboarding-modal .onboarding-active-step-shell,
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell {
+  align-self: start !important;
+  display: grid;
+  grid-template-rows: auto auto !important;
+  overflow: visible !important;
+}
+
+.onboarding-modal .onboarding-flow-section,
+.app-shell-topnav .onboarding-modal .onboarding-flow-section {
+  overflow: visible !important;
+  padding: 12px !important;
+}
+
+.onboarding-modal .onboarding-step-body,
+.app-shell-topnav .onboarding-modal .onboarding-step-body,
+.onboarding-modal .onboarding-main-card,
+.app-shell-topnav .onboarding-modal .onboarding-main-card {
+  gap: 10px !important;
+}
+
+.onboarding-modal .onboarding-main-card,
+.app-shell-topnav .onboarding-modal .onboarding-main-card {
+  align-content: start;
+}
+
+.onboarding-modal .onboarding-inline-status,
+.app-shell-topnav .onboarding-modal .onboarding-inline-status {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.onboarding-modal .onboarding-inline-status > div,
+.app-shell-topnav .onboarding-modal .onboarding-inline-status > div {
+  min-height: 50px !important;
+  padding: 9px 12px !important;
+}
+
+.onboarding-modal .onboarding-section,
+.app-shell-topnav .onboarding-modal .onboarding-section {
+  gap: 12px !important;
+  padding: 14px !important;
+  border-radius: 10px;
+}
+
+.onboarding-modal .onboarding-field-grid,
+.app-shell-topnav .onboarding-modal .onboarding-field-grid {
+  gap: 12px 16px !important;
+  align-items: start;
+}
+
+.onboarding-modal .onboarding-field-grid label,
+.app-shell-topnav .onboarding-modal .onboarding-field-grid label {
+  gap: 6px;
+}
+
+/* Final exception-triage lock. This step still reuses older import/customer
+   classes, so keep the normalization after the broad onboarding overrides. */
+.onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout),
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  max-height: calc(100vh - 230px);
+  overflow: hidden !important;
+}
+
+.onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) .onboarding-flow-section,
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) .onboarding-flow-section {
+  min-height: 0;
+  overflow: auto !important;
+  padding: 12px !important;
+}
+
+.onboarding-modal .exception-triage-layout,
+.app-shell-topnav .onboarding-modal .exception-triage-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.82fr) !important;
+  gap: 10px !important;
+  align-items: start !important;
+  min-width: 0;
+}
+
+.onboarding-modal .exception-triage-layout .panel,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  min-height: 0 !important;
+  padding: 12px !important;
+  overflow: hidden;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header {
+  display: grid;
+  gap: 3px;
+  margin: 0 !important;
+  padding: 0 0 10px !important;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header h2,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.onboarding-modal .exception-triage-layout .initial-unmatched-list,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .initial-unmatched-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, calc(100vh - 490px)) !important;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary,
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected,
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box,
+.onboarding-modal .quick-register-compare-card,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card,
+.onboarding-modal .customer-form-lead.quick-register-lead,
+.app-shell-topnav .onboarding-modal .customer-form-lead.quick-register-lead {
+  min-width: 0;
+  padding: 11px 12px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary.selected,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary.selected {
+  border-color: rgba(37, 99, 235, 0.4) !important;
+  background: #eff6ff !important;
+  box-shadow: inset 3px 0 0 #2563eb !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-head,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-head,
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+}
+
+.onboarding-modal .exception-triage-layout .status-badge,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .status-badge {
+  align-self: start;
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected,
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box,
+.onboarding-modal .quick-register-compare-card,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card,
+.onboarding-modal .customer-form-lead.quick-register-lead,
+.app-shell-topnav .onboarding-modal .customer-form-lead.quick-register-lead {
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary strong,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary strong,
+.onboarding-modal .quick-register-selected strong,
+.app-shell-topnav .onboarding-modal .quick-register-selected strong,
+.onboarding-modal .quick-register-compare-card strong,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary p,
+.onboarding-modal .quick-register-meta,
+.app-shell-topnav .onboarding-modal .quick-register-meta,
+.onboarding-modal .quick-register-compare-card p,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.onboarding-modal .quick-register-compare-grid,
+.app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+.onboarding-modal .quick-register-grid,
+.app-shell-topnav .onboarding-modal .quick-register-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.onboarding-modal .quick-register-grid label,
+.app-shell-topnav .onboarding-modal .quick-register-grid label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.onboarding-modal .quick-register-grid input,
+.app-shell-topnav .onboarding-modal .quick-register-grid input {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+}
+
+.onboarding-modal .quick-register-grid .field-hint,
+.app-shell-topnav .onboarding-modal .quick-register-grid .field-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.onboarding-modal .quick-register-actions,
+.app-shell-topnav .onboarding-modal .quick-register-actions {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.onboarding-modal .quick-register-actions button,
+.app-shell-topnav .onboarding-modal .quick-register-actions button {
+  min-height: 40px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+@media (max-width: 1180px) {
+  .onboarding-modal .exception-triage-layout,
+  .app-shell-topnav .onboarding-modal .exception-triage-layout,
+  .onboarding-modal .quick-register-compare-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+  .onboarding-modal .quick-register-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Issuance list final lock: the list panel is the rounded container, so the
+   inner table header must not create a second rounded box. */
+.app-shell-topnav .issuance-list-panel .issuance-table-shell {
+  border-right: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead,
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead tr,
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead th {
+  border-radius: 0 !important;
+  background: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead th:first-child,
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead th:last-child {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table th,
+.app-shell-topnav .issuance-list-panel .issuance-list-table td {
+  border-right: 0;
+  border-left: 0;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table th:first-child,
+.app-shell-topnav .issuance-list-panel .issuance-list-table td:first-child {
+  padding-left: 14px;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table input[type="checkbox"] {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead input[type="checkbox"] {
+  background: #ffffff;
+}
+
+/* Settings account section final lock: the stack is layout-only. Individual
+   account panels carry the surface, so the outer wrapper must not look like
+   another nested card. */
+.app-shell-topnav .settings-detail > .settings-account-stack,
+.app-shell-topnav .settings-account-stack {
+  display: grid;
+  gap: 14px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-account-stack > .panel {
+  margin: 0;
+  border-radius: var(--console-radius-panel);
+}
+
+.app-shell-topnav .settings-account-stack > .panel + .panel {
+  margin-top: 0;
+}
+
+.app-shell-topnav .issuance-screen {
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+
+/* Settings account section final lock: the stack is layout-only. Individual
+   account panels carry the surface, so the outer wrapper must not look like
+   another nested card. */
+.app-shell-topnav .settings-detail > .settings-account-stack,
+.app-shell-topnav .settings-account-stack {
+  display: grid;
+  gap: 14px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-account-stack > .panel {
+  margin: 0;
+  border-radius: var(--console-radius-panel);
+}
+
+.app-shell-topnav .settings-account-stack > .panel + .panel {
+  margin-top: 0;
+}
+
+/* Final exception-triage lock. This step still reuses older import/customer
+   classes, so keep the normalization after the broad onboarding overrides. */
+.onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout),
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  max-height: calc(100vh - 230px);
+  overflow: hidden !important;
+}
+
+.onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) .onboarding-flow-section,
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) .onboarding-flow-section {
+  min-height: 0;
+  overflow: auto !important;
+  padding: 12px !important;
+}
+
+.onboarding-modal .exception-triage-layout,
+.app-shell-topnav .onboarding-modal .exception-triage-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.82fr) !important;
+  gap: 10px !important;
+  align-items: start !important;
+  min-width: 0;
+}
+
+.onboarding-modal .exception-triage-layout .panel,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  min-height: 0 !important;
+  padding: 12px !important;
+  overflow: hidden;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header {
+  display: grid;
+  gap: 3px;
+  margin: 0 !important;
+  padding: 0 0 10px !important;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header h2,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.onboarding-modal .exception-triage-layout .initial-unmatched-list,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .initial-unmatched-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, calc(100vh - 490px)) !important;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary,
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected,
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box,
+.onboarding-modal .quick-register-compare-card,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card,
+.onboarding-modal .customer-form-lead.quick-register-lead,
+.app-shell-topnav .onboarding-modal .customer-form-lead.quick-register-lead {
+  min-width: 0;
+  padding: 11px 12px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary.selected,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary.selected {
+  border-color: rgba(37, 99, 235, 0.4) !important;
+  background: #eff6ff !important;
+  box-shadow: inset 3px 0 0 #2563eb !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-head,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-head,
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+}
+
+.onboarding-modal .exception-triage-layout .status-badge,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .status-badge {
+  align-self: start;
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected,
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box,
+.onboarding-modal .quick-register-compare-card,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card,
+.onboarding-modal .customer-form-lead.quick-register-lead,
+.app-shell-topnav .onboarding-modal .customer-form-lead.quick-register-lead {
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary strong,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary strong,
+.onboarding-modal .quick-register-selected strong,
+.app-shell-topnav .onboarding-modal .quick-register-selected strong,
+.onboarding-modal .quick-register-compare-card strong,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary p,
+.onboarding-modal .quick-register-meta,
+.app-shell-topnav .onboarding-modal .quick-register-meta,
+.onboarding-modal .quick-register-compare-card p,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.onboarding-modal .quick-register-compare-grid,
+.app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+.onboarding-modal .quick-register-grid,
+.app-shell-topnav .onboarding-modal .quick-register-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.onboarding-modal .quick-register-grid label,
+.app-shell-topnav .onboarding-modal .quick-register-grid label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.onboarding-modal .quick-register-grid input,
+.app-shell-topnav .onboarding-modal .quick-register-grid input {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+}
+
+.onboarding-modal .quick-register-grid .field-hint,
+.app-shell-topnav .onboarding-modal .quick-register-grid .field-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.onboarding-modal .quick-register-actions,
+.app-shell-topnav .onboarding-modal .quick-register-actions {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.onboarding-modal .quick-register-actions button,
+.app-shell-topnav .onboarding-modal .quick-register-actions button {
+  min-height: 40px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+@media (max-width: 1180px) {
+  .onboarding-modal .exception-triage-layout,
+  .app-shell-topnav .onboarding-modal .exception-triage-layout,
+  .onboarding-modal .quick-register-compare-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+  .onboarding-modal .quick-register-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Exception triage final lock. This must stay after the generic onboarding
+   density overrides because the exception step reuses older import classes. */
+.onboarding-modal .exception-triage-layout,
+.app-shell-topnav .onboarding-modal .exception-triage-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.82fr) !important;
+  gap: 10px !important;
+  align-items: start !important;
+}
+
+.onboarding-modal .exception-triage-layout .panel,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0 !important;
+  padding: 12px !important;
+  overflow: hidden;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header {
+  display: grid;
+  gap: 3px;
+  margin: 0 !important;
+  padding: 0 0 10px !important;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header h2,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.onboarding-modal .exception-triage-layout .initial-unmatched-list,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .initial-unmatched-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, calc(100vh - 490px)) !important;
+  padding: 0 4px 0 0;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary,
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected,
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box,
+.onboarding-modal .quick-register-compare-card,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card,
+.onboarding-modal .customer-form-lead.quick-register-lead,
+.app-shell-topnav .onboarding-modal .customer-form-lead.quick-register-lead {
+  min-width: 0;
+  padding: 11px 12px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary {
+  display: grid;
+  gap: 8px;
+  background: #ffffff !important;
+  text-align: left;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary.selected,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary.selected {
+  border-color: rgba(37, 99, 235, 0.4) !important;
+  background: #eff6ff !important;
+  box-shadow: inset 3px 0 0 #2563eb !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-head,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-head,
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary strong,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary strong,
+.onboarding-modal .quick-register-selected strong,
+.app-shell-topnav .onboarding-modal .quick-register-selected strong,
+.onboarding-modal .quick-register-compare-card strong,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary p,
+.onboarding-modal .quick-register-meta,
+.app-shell-topnav .onboarding-modal .quick-register-meta,
+.onboarding-modal .quick-register-compare-card p,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.onboarding-modal .exception-triage-layout .status-badge,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .status-badge {
+  align-self: start;
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box {
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-modal .exception-triage-layout .helper-box strong,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box strong,
+.onboarding-modal .quick-register-compare-card span,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card span,
+.onboarding-modal .quick-register-grid label,
+.app-shell-topnav .onboarding-modal .quick-register-grid label {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.onboarding-modal .exception-triage-layout .helper-multiline-scroll,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-multiline-scroll {
+  max-height: none;
+  overflow: visible;
+  white-space: pre-line;
+}
+
+.onboarding-modal .quick-register-compare-grid,
+.app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+.onboarding-modal .quick-register-grid,
+.app-shell-topnav .onboarding-modal .quick-register-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.onboarding-modal .quick-register-grid label,
+.app-shell-topnav .onboarding-modal .quick-register-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-modal .quick-register-grid input,
+.app-shell-topnav .onboarding-modal .quick-register-grid input {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+}
+
+.onboarding-modal .quick-register-grid .field-hint,
+.app-shell-topnav .onboarding-modal .quick-register-grid .field-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.onboarding-modal .quick-register-actions,
+.app-shell-topnav .onboarding-modal .quick-register-actions {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.onboarding-modal .quick-register-actions button,
+.app-shell-topnav .onboarding-modal .quick-register-actions button {
+  min-height: 40px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+@media (max-width: 1180px) {
+  .onboarding-modal .exception-triage-layout,
+  .app-shell-topnav .onboarding-modal .exception-triage-layout,
+  .onboarding-modal .quick-register-compare-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+  .onboarding-modal .quick-register-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Final pass for exception triage controls: normalize legacy Panel/import
+   pieces to the same console rhythm used by the rest of onboarding. */
+.onboarding-modal .exception-triage-layout,
+.app-shell-topnav .onboarding-modal .exception-triage-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.82fr) !important;
+  gap: 10px !important;
+}
+
+.onboarding-modal .exception-triage-layout .panel,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 10px;
+  padding: 12px !important;
+  overflow: hidden;
+  border-color: #dbe3ee !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  margin: 0 !important;
+  padding: 0 0 10px !important;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header h2,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.onboarding-modal .exception-triage-layout .initial-unmatched-list,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .initial-unmatched-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, calc(100vh - 490px)) !important;
+  padding: 0 4px 0 0;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px !important;
+  border-color: #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary.selected,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary.selected {
+  border-color: rgba(37, 99, 235, 0.4) !important;
+  background: #eff6ff !important;
+  box-shadow: inset 3px 0 0 #2563eb !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-head,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-head,
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+}
+
+.onboarding-modal .exception-triage-layout .status-badge,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .status-badge {
+  align-self: start;
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected,
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box,
+.onboarding-modal .quick-register-compare-card,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card,
+.onboarding-modal .customer-form-lead.quick-register-lead,
+.app-shell-topnav .onboarding-modal .customer-form-lead.quick-register-lead {
+  display: grid;
+  gap: 6px;
+  padding: 11px 12px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .helper-box strong,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box strong,
+.onboarding-modal .quick-register-compare-card span,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card span,
+.onboarding-modal .quick-register-grid label,
+.app-shell-topnav .onboarding-modal .quick-register-grid label {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.onboarding-modal .exception-triage-layout .helper-multiline-scroll,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-multiline-scroll {
+  max-height: none;
+  overflow: visible;
+  white-space: pre-line;
+}
+
+.onboarding-modal .quick-register-compare-grid,
+.app-shell-topnav .onboarding-modal .quick-register-compare-grid {
+  margin-top: 8px;
+}
+
+.onboarding-modal .quick-register-grid,
+.app-shell-topnav .onboarding-modal .quick-register-grid {
+  margin-top: 8px;
+}
+
+.onboarding-modal .quick-register-grid label,
+.app-shell-topnav .onboarding-modal .quick-register-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-modal .quick-register-grid input,
+.app-shell-topnav .onboarding-modal .quick-register-grid input {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+}
+
+.onboarding-modal .quick-register-grid .field-hint,
+.app-shell-topnav .onboarding-modal .quick-register-grid .field-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.onboarding-modal .quick-register-actions,
+.app-shell-topnav .onboarding-modal .quick-register-actions {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.onboarding-modal .quick-register-actions button,
+.app-shell-topnav .onboarding-modal .quick-register-actions button {
+  min-height: 40px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+@media (max-width: 1180px) {
+  .onboarding-modal .exception-triage-layout,
+  .app-shell-topnav .onboarding-modal .exception-triage-layout {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Onboarding exception triage normalization. This step still uses the older
+   import/customer classes, so scope the cleanup tightly to the modal. */
+.onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout),
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  max-height: calc(100vh - 230px);
+  overflow: hidden !important;
+}
+
+.onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) .onboarding-flow-section,
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) .onboarding-flow-section {
+  min-height: 0;
+  overflow: auto !important;
+}
+
+.onboarding-modal .exception-triage-layout,
+.app-shell-topnav .onboarding-modal .exception-triage-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(340px, 0.86fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.onboarding-modal .exception-triage-layout .panel,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel,
+.onboarding-modal .exception-triage-layout .panel-initial-unmatched,
+.onboarding-modal .exception-triage-layout .panel-initial-quick-register,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-initial-unmatched,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-initial-quick-register {
+  min-width: 0;
+  min-height: 0 !important;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.onboarding-modal .exception-triage-layout .panel-initial-unmatched .panel-body,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-initial-unmatched .panel-body,
+.onboarding-modal .exception-triage-layout .panel-initial-quick-register .panel-body,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-initial-quick-register .panel-body {
+  min-width: 0;
+}
+
+.onboarding-modal .exception-triage-layout .initial-unmatched-list,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .initial-unmatched-list {
+  max-height: min(390px, calc(100vh - 520px));
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: none;
+  text-align: left;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary.selected,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary.selected {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-head,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary strong,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary strong,
+.onboarding-modal .quick-register-selected strong,
+.app-shell-topnav .onboarding-modal .quick-register-selected strong,
+.onboarding-modal .quick-register-compare-card strong,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary p,
+.onboarding-modal .quick-register-meta,
+.app-shell-topnav .onboarding-modal .quick-register-meta,
+.onboarding-modal .quick-register-compare-card p,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.onboarding-modal .exception-triage-layout .status-badge,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .status-badge,
+.onboarding-modal .exception-triage-layout .status-failed,
+.onboarding-modal .exception-triage-layout .status-unmatched,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .status-failed,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .status-unmatched {
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected,
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box,
+.onboarding-modal .quick-register-compare-card,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card {
+  min-width: 0;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #f8fafc;
+  box-shadow: none;
+}
+
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected {
+  padding: 12px;
+}
+
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.onboarding-modal .quick-register-compare-grid,
+.app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+.onboarding-modal .quick-register-grid,
+.app-shell-topnav .onboarding-modal .quick-register-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.onboarding-modal .quick-register-grid input,
+.app-shell-topnav .onboarding-modal .quick-register-grid input {
+  min-width: 0;
+  border-color: #dbe3ee;
+  border-radius: 8px;
+}
+
+@media (max-width: 1180px) {
+  .onboarding-modal .exception-triage-layout,
+  .app-shell-topnav .onboarding-modal .exception-triage-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-modal .quick-register-compare-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+  .onboarding-modal .quick-register-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Final onboarding density pass. Active work panels should size to their
+   content; only the step rail needs to preserve the modal's vertical rhythm. */
+.onboarding-modal .onboarding-task-shell,
+.app-shell-topnav .onboarding-modal .onboarding-task-shell {
+  align-items: start !important;
+  height: auto !important;
+  max-height: calc(100vh - 220px);
+}
+
+.onboarding-modal .onboarding-active-step-shell,
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell {
+  align-self: start !important;
+  display: grid;
+  grid-template-rows: auto auto !important;
+  overflow: visible !important;
+}
+
+.onboarding-modal .onboarding-flow-section,
+.app-shell-topnav .onboarding-modal .onboarding-flow-section {
+  overflow: visible !important;
+  padding: 12px !important;
+}
+
+.onboarding-modal .onboarding-step-body,
+.app-shell-topnav .onboarding-modal .onboarding-step-body,
+.onboarding-modal .onboarding-main-card,
+.app-shell-topnav .onboarding-modal .onboarding-main-card {
+  gap: 10px !important;
+}
+
+.onboarding-modal .onboarding-main-card,
+.app-shell-topnav .onboarding-modal .onboarding-main-card {
+  align-content: start;
+}
+
+.onboarding-modal .onboarding-inline-status,
+.app-shell-topnav .onboarding-modal .onboarding-inline-status {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.onboarding-modal .onboarding-inline-status > div,
+.app-shell-topnav .onboarding-modal .onboarding-inline-status > div {
+  min-height: 50px !important;
+  padding: 9px 12px !important;
+}
+
+.onboarding-modal .onboarding-section,
+.app-shell-topnav .onboarding-modal .onboarding-section {
+  gap: 12px !important;
+  padding: 14px !important;
+  border-radius: 10px;
+}
+
+.onboarding-modal .onboarding-field-grid,
+.app-shell-topnav .onboarding-modal .onboarding-field-grid {
+  gap: 12px 16px !important;
+  align-items: start;
+}
+
+.onboarding-modal .onboarding-field-grid label,
+.app-shell-topnav .onboarding-modal .onboarding-field-grid label {
+  gap: 6px;
+}
+
+/* Onboarding modal final layout guard. This block intentionally sits at the end
+   because older onboarding/customer theme rules are still coexisting. */
+.onboarding-modal .onboarding-task-shell,
+.app-shell-topnav .onboarding-modal .onboarding-task-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 14px;
+  height: min(68vh, 720px);
+}
+
+.onboarding-modal .onboarding-active-step-shell,
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.onboarding-modal .onboarding-step-strip,
+.app-shell-topnav .onboarding-modal .onboarding-step-strip {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+.onboarding-modal .onboarding-stage-list,
+.app-shell-topnav .onboarding-modal .onboarding-stage-list {
+  display: block !important;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.onboarding-modal .onboarding-stage-item,
+.app-shell-topnav .onboarding-modal .onboarding-stage-item {
+  display: grid !important;
+  grid-template-columns: 34px minmax(0, 1fr) auto !important;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 0 !important;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.onboarding-modal .onboarding-stage-item:last-child,
+.app-shell-topnav .onboarding-modal .onboarding-stage-item:last-child {
+  border-bottom: 0;
+}
+
+.onboarding-modal .onboarding-stage-item.is-current,
+.app-shell-topnav .onboarding-modal .onboarding-stage-item.is-current {
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.onboarding-modal .onboarding-stage-item.is-complete,
+.app-shell-topnav .onboarding-modal .onboarding-stage-item.is-complete {
+  background: #f0fdf4;
+}
+
+.onboarding-modal .onboarding-stage-copy,
+.app-shell-topnav .onboarding-modal .onboarding-stage-copy,
+.onboarding-modal .initial-onboarding-step-head,
+.app-shell-topnav .onboarding-modal .initial-onboarding-step-head {
+  min-width: 0;
+}
+
+.onboarding-modal .initial-onboarding-step-head strong,
+.app-shell-topnav .onboarding-modal .initial-onboarding-step-head strong,
+.onboarding-modal .onboarding-stage-copy p,
+.app-shell-topnav .onboarding-modal .onboarding-stage-copy p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+  .onboarding-modal .onboarding-task-shell,
+  .app-shell-topnav .onboarding-modal .onboarding-task-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-height: calc(100vh - 190px);
+    overflow: auto;
+  }
+
+  .onboarding-modal .onboarding-active-step-shell,
+  .app-shell-topnav .onboarding-modal .onboarding-active-step-shell,
+  .onboarding-modal .onboarding-step-strip,
+  .app-shell-topnav .onboarding-modal .onboarding-step-strip {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+/* Final onboarding guard: keep the registration sub-steps as a true vertical
+   checklist even when older onboarding option styles are still loaded. */
+.onboarding-modal .onboarding-stage-list,
+.app-shell-topnav .onboarding-modal .onboarding-stage-list {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.onboarding-modal .onboarding-stage-item,
+.app-shell-topnav .onboarding-modal .onboarding-stage-item {
+  grid-column: 1 / -1 !important;
+  width: 100%;
+}
+
+/* --- Logged-in app tone consolidation: extend customer console visual contract --- */
+.app-shell-topnav {
+  --console-bg: #f8fafc;
+  --console-bg-tint: rgba(239, 246, 255, 0.7);
+  --console-surface: #ffffff;
+  --console-surface-soft: #f8fafc;
+  --console-surface-muted: #f1f5f9;
+  --console-border: #dbe3ee;
+  --console-border-strong: #b8c6d8;
+  --console-text: #111827;
+  --console-muted: #64748b;
+  --console-faint: #94a3b8;
+  --console-primary: #2563eb;
+  --console-primary-strong: #1d4ed8;
+  --console-primary-soft: #eff6ff;
+  --console-success: #15803d;
+  --console-success-soft: #ecfdf3;
+  --console-warn: #b45309;
+  --console-warn-soft: #fffbeb;
+  --console-danger: #b91c1c;
+  --console-danger-soft: #fef2f2;
+  --console-radius-panel: 10px;
+  --console-radius-control: 8px;
+  --console-radius-inner: 6px;
+  --console-control-height: 42px;
+  --console-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px rgba(15, 23, 42, 0.04);
+  --console-shadow-pop: 0 20px 54px rgba(15, 23, 42, 0.18);
+}
+
+.app-shell-topnav .content-home,
+.app-shell-topnav .content-issuance,
+.app-shell-topnav .content-customers,
+.app-shell-topnav .content-certificates,
+.app-shell-topnav .content-settings {
+  background:
+    linear-gradient(180deg, var(--console-bg-tint) 0, rgba(248, 250, 252, 0.9) 220px, var(--console-bg) 100%);
+}
+
+.app-shell-topnav .panel,
+.app-shell-topnav .stat-card,
+.app-shell-topnav .helper-box,
+.app-shell-topnav .helper-box-stack,
+.app-shell-topnav .context-empty-state,
+.app-shell-topnav .empty-state,
+.app-shell-topnav .section-message,
+.app-shell-topnav .home-section,
+.app-shell-topnav .home-side-column,
+.app-shell-topnav .home-onboarding-banner,
+.app-shell-topnav .home-priority-card,
+.app-shell-topnav .home-metric-cell,
+.app-shell-topnav .home-flow-panel,
+.app-shell-topnav .home-flow-item,
+.app-shell-topnav .work-priority-empty,
+.app-shell-topnav .issuance-list-panel,
+.app-shell-topnav .issuance-detail-panel,
+.app-shell-topnav .issuance-detail-hero,
+.app-shell-topnav .issuance-detail-section,
+.app-shell-topnav .issuance-detail-grid,
+.app-shell-topnav .issuance-unmatched-candidates,
+.app-shell-topnav .issuance-unmatched-raw,
+.app-shell-topnav .certificate-hero-panel,
+.app-shell-topnav .certificate-ops-toolbar,
+.app-shell-topnav .certificate-ops-metric-card,
+.app-shell-topnav .certificate-helper-alert,
+.app-shell-topnav .certificate-main-panel,
+.app-shell-topnav .certificate-work-card,
+.app-shell-topnav .certificate-bottom-actionbar,
+.app-shell-topnav .settings-sidebar-panel,
+.app-shell-topnav .settings-inline-note,
+.app-shell-topnav .settings-option1-card,
+.app-shell-topnav .settings-detail > .setup-panel,
+.app-shell-topnav .settings-account-stack > .panel,
+.app-shell-topnav .onboarding-modal,
+.app-shell-topnav .onboarding-step-strip,
+.app-shell-topnav .onboarding-active-step-shell {
+  border-color: var(--console-border);
+  border-radius: var(--console-radius-panel);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--console-shadow);
+}
+
+.app-shell-topnav button,
+.app-shell-topnav .btn-secondary,
+.app-shell-topnav .btn-ghost,
+.app-shell-topnav .field-inline-action,
+.app-shell-topnav .issuance-filter-chip,
+.app-shell-topnav .issuance-console-actions button,
+.app-shell-topnav .issuance-detail-footer-actions button,
+.app-shell-topnav .issuance-console-more,
+.app-shell-topnav .home-priority-button,
+.app-shell-topnav .home-flow-action,
+.app-shell-topnav .certificate-ops-actions button,
+.app-shell-topnav .certificate-table-note button,
+.app-shell-topnav .certificate-unlinked-match-cell button,
+.app-shell-topnav .certificate-match-form button,
+.app-shell-topnav .certificate-bottom-actions button,
+.app-shell-topnav .settings-inline-actions button,
+.app-shell-topnav .settings-option1-reopen-card button,
+.app-shell-topnav .settings-option1-save-row button,
+.app-shell-topnav .settings-step-card,
+.app-shell-topnav .onboarding-modal-close,
+.app-shell-topnav .onboarding-step-chip {
+  min-height: var(--console-control-height);
+  border-radius: var(--console-radius-control);
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.app-shell-topnav .btn-secondary,
+.app-shell-topnav button.btn-secondary,
+.app-shell-topnav .issuance-console-actions button,
+.app-shell-topnav .issuance-detail-footer-actions button,
+.app-shell-topnav .issuance-console-more,
+.app-shell-topnav .home-priority-button,
+.app-shell-topnav .home-flow-action,
+.app-shell-topnav .certificate-ops-actions button,
+.app-shell-topnav .certificate-table-note button,
+.app-shell-topnav .certificate-unlinked-match-cell button,
+.app-shell-topnav .certificate-match-form button,
+.app-shell-topnav .certificate-bottom-actions button,
+.app-shell-topnav .settings-inline-actions button,
+.app-shell-topnav .settings-option1-reopen-card button,
+.app-shell-topnav .settings-option1-save-row button,
+.app-shell-topnav .onboarding-modal-close {
+  border: 1px solid var(--console-border);
+  background: var(--console-surface);
+  color: #334155;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+}
+
+.app-shell-topnav button:hover:not(:disabled),
+.app-shell-topnav .btn-secondary:hover:not(:disabled),
+.app-shell-topnav .issuance-console-actions button:hover:not(:disabled),
+.app-shell-topnav .issuance-detail-footer-actions button:hover:not(:disabled),
+.app-shell-topnav .home-priority-button:hover:not(:disabled),
+.app-shell-topnav .home-flow-action:hover:not(:disabled),
+.app-shell-topnav .certificate-ops-actions button:hover:not(:disabled),
+.app-shell-topnav .certificate-table-note button:hover:not(:disabled),
+.app-shell-topnav .certificate-unlinked-match-cell button:hover:not(:disabled),
+.app-shell-topnav .certificate-match-form button:hover:not(:disabled),
+.app-shell-topnav .certificate-bottom-actions button:hover:not(:disabled),
+.app-shell-topnav .settings-inline-actions button:hover:not(:disabled),
+.app-shell-topnav .settings-option1-reopen-card button:hover:not(:disabled),
+.app-shell-topnav .settings-option1-save-row button:hover:not(:disabled),
+.app-shell-topnav .onboarding-modal-close:hover:not(:disabled) {
+  border-color: var(--console-border-strong);
+  background: var(--console-surface-soft);
+  color: var(--console-text);
+  transform: none;
+}
+
+.app-shell-topnav button:disabled,
+.app-shell-topnav .btn-secondary:disabled {
+  border-color: #e2e8f0;
+  background: var(--console-surface-soft);
+  color: var(--console-faint);
+  opacity: 1;
+}
+
+.app-shell-topnav input,
+.app-shell-topnav select,
+.app-shell-topnav textarea,
+.app-shell-topnav .issuance-table-tools input,
+.app-shell-topnav .issuance-table-tools select,
+.app-shell-topnav .certificate-search input,
+.app-shell-topnav .certificate-match-form select,
+.app-shell-topnav .settings-option1-field input,
+.app-shell-topnav .settings-option1-field select,
+.app-shell-topnav .settings-option1-field textarea {
+  border-color: var(--console-border);
+  border-radius: var(--console-radius-control);
+  background: var(--console-surface);
+  color: var(--console-text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.app-shell-topnav input:focus,
+.app-shell-topnav select:focus,
+.app-shell-topnav textarea:focus,
+.app-shell-topnav .issuance-table-tools input:focus,
+.app-shell-topnav .issuance-table-tools select:focus,
+.app-shell-topnav .certificate-search input:focus,
+.app-shell-topnav .certificate-match-form select:focus,
+.app-shell-topnav .settings-option1-field input:focus,
+.app-shell-topnav .settings-option1-field select:focus,
+.app-shell-topnav .settings-option1-field textarea:focus {
+  border-color: rgba(37, 99, 235, 0.5);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.app-shell-topnav .chip,
+.app-shell-topnav .status,
+.app-shell-topnav .status-badge,
+.app-shell-topnav .home-header-chip,
+.app-shell-topnav .home-priority-tone,
+.app-shell-topnav .issuance-list-table .status,
+.app-shell-topnav .issuance-detail-mode,
+.app-shell-topnav .certificate-status-badge,
+.app-shell-topnav .settings-option1-save-indicator,
+.app-shell-topnav .onboarding-step-chip span:first-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid var(--console-border);
+  border-radius: 999px;
+  background: var(--console-surface-soft);
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.app-shell-topnav .chip-success,
+.app-shell-topnav .status-badge-success,
+.app-shell-topnav .status-issued,
+.app-shell-topnav .home-header-chip.tone-success,
+.app-shell-topnav .context-empty-state.tone-success {
+  border-color: rgba(22, 163, 74, 0.2);
+  background: var(--console-success-soft);
+  color: var(--console-success);
+}
+
+.app-shell-topnav .chip-warn,
+.app-shell-topnav .status-badge-warn,
+.app-shell-topnav .status-review,
+.app-shell-topnav .status-pending,
+.app-shell-topnav .home-header-chip.tone-warn,
+.app-shell-topnav .certificate-status-badge.warn,
+.app-shell-topnav .context-empty-state.tone-warn {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: var(--console-warn-soft);
+  color: var(--console-warn);
+}
+
+.app-shell-topnav .chip-danger,
+.app-shell-topnav .status-badge-danger,
+.app-shell-topnav .status-failed,
+.app-shell-topnav .status-unmatched,
+.app-shell-topnav .status-missing-mail,
+.app-shell-topnav .home-header-chip.tone-danger,
+.app-shell-topnav .certificate-status-badge.danger {
+  border-color: rgba(220, 38, 38, 0.2);
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+}
+
+.app-shell-topnav .status-badge-info,
+.app-shell-topnav .context-empty-state.tone-info {
+  border-color: rgba(37, 99, 235, 0.2);
+  background: var(--console-primary-soft);
+  color: var(--console-primary-strong);
+}
+
+.app-shell-topnav table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.app-shell-topnav th {
+  background: var(--console-surface-soft);
+  color: var(--console-muted);
+}
+
+.app-shell-topnav th,
+.app-shell-topnav td {
+  border-color: #e2e8f0;
+}
+
+.app-shell-topnav .queue-table-shell,
+.app-shell-topnav .issuance-table-shell,
+.app-shell-topnav .issuance-mail-preview,
+.app-shell-topnav .certificate-main-table-wrap,
+.app-shell-topnav .certificate-unlinked-table-wrap,
+.app-shell-topnav .settings-option1-member-table-wrap,
+.app-shell-topnav .settings-option1-account-facts {
+  border-color: var(--console-border);
+  border-radius: var(--console-radius-control);
+  background: var(--console-surface);
+  box-shadow: none;
+  overflow: auto;
+}
+
+.app-shell-topnav .queue-table-shell th:first-child,
+.app-shell-topnav .issuance-table-shell th:first-child,
+.app-shell-topnav .certificate-main-table-wrap th:first-child,
+.app-shell-topnav .certificate-unlinked-table-wrap th:first-child,
+.app-shell-topnav .settings-option1-member-table-wrap th:first-child {
+  border-top-left-radius: calc(var(--console-radius-control) - 1px);
+}
+
+.app-shell-topnav .queue-table-shell th:last-child,
+.app-shell-topnav .issuance-table-shell th:last-child,
+.app-shell-topnav .certificate-main-table-wrap th:last-child,
+.app-shell-topnav .certificate-unlinked-table-wrap th:last-child,
+.app-shell-topnav .settings-option1-member-table-wrap th:last-child {
+  border-top-right-radius: calc(var(--console-radius-control) - 1px);
+}
+
+.app-shell-topnav .context-empty-state,
+.app-shell-topnav .empty-state,
+.app-shell-topnav .issuance-empty-state,
+.app-shell-topnav .work-priority-empty {
+  min-height: 150px;
+  padding: 24px;
+  border-style: dashed;
+  background: rgba(248, 250, 252, 0.75);
+  color: var(--console-muted);
+}
+
+.app-shell-topnav .context-empty-state strong,
+.app-shell-topnav .empty-state strong,
+.app-shell-topnav .issuance-empty-state strong,
+.app-shell-topnav .work-priority-empty strong {
+  color: var(--console-text);
+}
+
+.app-shell-topnav .helper-box,
+.app-shell-topnav .helper-box-stack,
+.app-shell-topnav .section-message {
+  border-color: var(--console-border);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.app-shell-topnav .home-metric-cell,
+.app-shell-topnav .customer-summary-card,
+.app-shell-topnav .certificate-ops-metric-card {
+  background: linear-gradient(180deg, #ffffff 0%, var(--console-surface-soft) 100%);
+}
+
+.app-shell-topnav .home-metric-cell.tone-success,
+.app-shell-topnav .certificate-ops-metric-card.tone-success {
+  border-color: rgba(22, 163, 74, 0.24);
+  background: linear-gradient(180deg, #ffffff 0%, var(--console-success-soft) 100%);
+}
+
+.app-shell-topnav .home-metric-cell.tone-warn,
+.app-shell-topnav .home-priority-card.tone-warn,
+.app-shell-topnav .certificate-ops-metric-card.tone-warn {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: linear-gradient(180deg, #ffffff 0%, var(--console-warn-soft) 100%);
+}
+
+.app-shell-topnav .home-metric-cell.tone-danger,
+.app-shell-topnav .home-priority-card.tone-danger {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: linear-gradient(180deg, #ffffff 0%, var(--console-danger-soft) 100%);
+}
+
+.app-shell-topnav .home-priority-card,
+.app-shell-topnav .home-flow-item,
+.app-shell-topnav .certificate-ops-metric-card,
+.app-shell-topnav .settings-step-card {
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.app-shell-topnav .home-priority-card:hover,
+.app-shell-topnav .home-flow-item:hover,
+.app-shell-topnav .certificate-table-row:hover > td,
+.app-shell-topnav .certificate-unlinked-table tr:hover > td,
+.app-shell-topnav .settings-step-card:hover {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: var(--console-primary-soft);
+}
+
+.app-shell-topnav .issuance-filter-row,
+.app-shell-topnav .certificate-filter-strip,
+.app-shell-topnav .settings-step-list {
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--console-border);
+  border-radius: var(--console-radius-control);
+  background: var(--console-surface-muted);
+}
+
+.app-shell-topnav .settings-step-list {
+  border-bottom: 1px solid var(--console-border);
+}
+
+.app-shell-topnav .issuance-filter-chip,
+.app-shell-topnav .certificate-filter-strip .chip,
+.app-shell-topnav .settings-step-card {
+  border: 1px solid transparent;
+  border-radius: var(--console-radius-inner);
+  background: transparent;
+  color: var(--console-muted);
+}
+
+.app-shell-topnav .issuance-filter-chip.active,
+.app-shell-topnav .settings-step-card.active {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: var(--console-primary-soft);
+  color: var(--console-primary-strong);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+}
+
+.app-shell-topnav .settings-step-card {
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.app-shell-topnav .settings-step-card.active {
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+}
+
+.app-shell-topnav .issuance-list-panel,
+.app-shell-topnav .issuance-detail-panel,
+.app-shell-topnav .certificate-main-panel {
+  overflow: hidden;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-table-shell {
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+
+.app-shell-topnav .issuance-detail-panel-head::after {
+  background: var(--console-border);
+}
+
+.app-shell-topnav .issuance-detail-tabs button,
+.app-shell-topnav .issuance-detail-tabs span {
+  border-color: var(--console-border);
+  background: var(--console-surface-soft);
+  color: var(--console-muted);
+}
+
+.app-shell-topnav .issuance-detail-tabs button:first-child,
+.app-shell-topnav .issuance-detail-tabs span:first-child {
+  border-top-left-radius: var(--console-radius-control);
+}
+
+.app-shell-topnav .issuance-detail-tabs button:last-child,
+.app-shell-topnav .issuance-detail-tabs span:last-child {
+  border-top-right-radius: var(--console-radius-control);
+}
+
+.app-shell-topnav .issuance-detail-tabs button.active,
+.app-shell-topnav .issuance-detail-tabs span.active,
+.app-shell-topnav .issuance-detail-tabs [role="tab"][aria-selected="true"] {
+  background: var(--console-surface);
+  color: var(--console-primary-strong);
+}
+
+.app-shell-topnav .issuance-detail-grid {
+  border-radius: 0 0 var(--console-radius-control) var(--console-radius-control);
+}
+
+.app-shell-topnav .certificate-helper-alert {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: var(--console-warn-soft);
+}
+
+.app-shell-topnav .certificate-table-row.is-selected > td,
+.app-shell-topnav .certificate-unlinked-table tr.is-selected > td {
+  background: var(--console-primary-soft);
+  box-shadow: inset 3px 0 0 var(--console-primary);
+}
+
+.app-shell-topnav .settings-option1-progress-track,
+.app-shell-topnav .settings-option1-account-facts,
+.app-shell-topnav .settings-option1-account-facts > div,
+.app-shell-topnav .settings-option1-save-row {
+  border-color: var(--console-border);
+}
+
+.app-shell-topnav .settings-option1-progress-track span {
+  background: var(--console-primary);
+}
+
+.app-shell-topnav .settings-option1-save-indicator {
+  border-color: rgba(22, 163, 74, 0.18);
+  background: var(--console-success-soft);
+  color: var(--console-success);
+}
+
+.app-shell-topnav .settings-option1-account-facts dt {
+  background: var(--console-surface-soft);
+  color: var(--console-muted);
+}
+
+.app-shell-topnav .settings-advanced-panel,
+.app-shell-topnav .settings-advanced-panel.full {
+  border-color: var(--console-border);
+  border-radius: var(--console-radius-control);
+  background: var(--console-surface);
+}
+
+.app-shell-topnav .onboarding-modal-backdrop {
+  background: rgba(15, 23, 42, 0.24);
+  backdrop-filter: blur(2px);
+}
+
+.app-shell-topnav .onboarding-modal {
+  box-shadow: var(--console-shadow-pop);
+}
+
+.app-shell-topnav .onboarding-modal-head {
+  border-color: var(--console-border);
+  background: rgba(248, 250, 252, 0.78);
+}
+
+.app-shell-topnav .onboarding-step-chip {
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.app-shell-topnav .onboarding-step-chip.active {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: var(--console-primary-soft);
+}
+
+.app-dialog-backdrop {
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(2px);
+}
+
+.app-dialog {
+  border-color: var(--console-border);
+  border-radius: var(--console-radius-panel);
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow-pop);
+}
+
+.app-dialog-head {
+  border-color: var(--console-border);
+}
+
+.app-dialog-kicker {
+  border-color: rgba(37, 99, 235, 0.2);
+  background: var(--console-primary-soft);
+  color: var(--console-primary-strong);
+}
+
+.app-dialog-success .app-dialog-kicker {
+  border-color: rgba(22, 163, 74, 0.2);
+  background: var(--console-success-soft);
+  color: var(--console-success);
+}
+
+.app-dialog-warn .app-dialog-kicker {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: var(--console-warn-soft);
+  color: var(--console-warn);
+}
+
+.app-dialog-danger .app-dialog-kicker {
+  border-color: rgba(220, 38, 38, 0.2);
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+}
+
+.app-dialog-actions button {
+  min-height: var(--console-control-height);
+  border-radius: var(--console-radius-control);
+}
+
+/* Modal surfaces can render outside the topnav shell, so keep their tone global. */
+.onboarding-modal-backdrop {
+  background: rgba(15, 23, 42, 0.24);
+  backdrop-filter: blur(2px);
+}
+
+.onboarding-modal {
+  border-color: #dbe3ee;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 20px 54px rgba(15, 23, 42, 0.18);
+}
+
+.onboarding-modal-head {
+  border-color: #dbe3ee;
+  background: rgba(248, 250, 252, 0.78);
+}
+
+.onboarding-modal-close {
+  min-height: 42px;
+  border-radius: 8px;
+}
+
+.onboarding-task-shell {
+  gap: 12px;
+}
+
+.onboarding-step-strip,
+.onboarding-active-step-shell,
+.onboarding-main-card,
+.onboarding-inline-status > div,
+.onboarding-wizard-hero {
+  border-color: #dbe3ee;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.onboarding-flow-section {
+  padding: 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.onboarding-step-chip {
+  min-height: 64px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.onboarding-step-chip:hover {
+  border-color: #dbe3ee;
+  background: #f8fafc;
+}
+
+.onboarding-step-chip.active {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: #eff6ff;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+}
+
+.onboarding-step-chip.is-done {
+  background: #ecfdf3;
+}
+
+.onboarding-inline-warning {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 5px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  box-shadow: none;
+}
+
+.onboarding-active-step-head .onboarding-inline-warning {
+  margin-top: 2px;
+}
+
+.onboarding-active-step-shell .settings-advanced-panel {
+  margin-top: 8px;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  box-shadow: none;
+}
+
+.onboarding-active-step-shell .settings-advanced-panel summary {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 14px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.onboarding-active-step-shell .settings-advanced-panel summary::after {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 12px;
+  content: "펼치기";
+}
+
+.onboarding-active-step-shell .settings-advanced-panel[open] {
+  background: #ffffff;
+}
+
+.onboarding-active-step-shell .settings-advanced-panel[open] summary {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.onboarding-active-step-shell .settings-advanced-panel[open] summary::after {
+  content: "접기";
+}
+
+.onboarding-active-step-shell .settings-advanced-panel > :not(summary) {
+  margin: 0;
+  padding: 12px 14px;
+}
+
+.onboarding-step-chip-main .chip,
+.onboarding-modal-progress,
+.onboarding-active-step-order,
+.onboarding-stage-number {
+  border-color: #dbe3ee;
+  border-radius: 999px;
+}
+
+.onboarding-active-step-shell input,
+.onboarding-active-step-shell select,
+.onboarding-active-step-shell textarea,
+.onboarding-main-card input,
+.onboarding-main-card select,
+.onboarding-main-card textarea {
+  border-color: #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.onboarding-active-step-shell button,
+.onboarding-main-card button,
+.onboarding-primary-row button,
+.onboarding-primary-row-inline button,
+.onboarding-primary-row-focal button {
+  min-height: 42px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-dialog {
+  border-color: #dbe3ee;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 20px 54px rgba(15, 23, 42, 0.18);
+}
+
+.app-dialog-actions button {
+  min-height: 42px;
+  border-radius: 8px;
+}
+
+/* --- Onboarding UX restructure: task-first layout, slim progress rail --- */
+.onboarding-modal {
+  width: min(1420px, calc(100vw - 40px));
+  max-height: calc(100vh - 56px);
+  overflow: hidden;
+}
+
+.onboarding-modal-body {
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 16px 16px;
+}
+
+.onboarding-task-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 14px;
+  align-items: stretch;
+  min-height: 0;
+  height: min(720px, calc(100vh - 230px));
+}
+
+.onboarding-active-step-shell,
+.onboarding-step-strip {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.onboarding-active-step-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.onboarding-active-step-head {
+  padding: 16px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.onboarding-active-step-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 14px;
+  align-items: center;
+  min-width: 0;
+}
+
+.onboarding-active-step-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.onboarding-active-progress {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.onboarding-active-step-title-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.onboarding-active-step-title-row > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.onboarding-active-step-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.onboarding-active-step-copy strong {
+  overflow: hidden;
+  color: #111827;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-active-step-summary {
+  overflow: hidden;
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-active-next-row {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 8px 10px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.onboarding-active-next-row span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.onboarding-active-next-row strong {
+  min-width: 0;
+  color: #1d4ed8;
+  font-size: 12px;
+  text-align: right;
+}
+
+.onboarding-active-step-copy > .onboarding-inline-warning {
+  grid-column: 1 / -1;
+}
+
+.onboarding-flow-section {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.onboarding-step-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0;
+}
+
+.onboarding-step-strip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.onboarding-step-strip-head strong {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.onboarding-step-strip-head span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.onboarding-step-list {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+.onboarding-step-chip {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 54px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #111827;
+  text-align: left;
+  box-shadow: none;
+  font: inherit;
+}
+
+.onboarding-step-chip + .onboarding-step-chip {
+  margin-top: 4px;
+}
+
+.onboarding-step-chip > .onboarding-step-chip-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.onboarding-step-chip-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.onboarding-step-chip-copy strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.onboarding-step-chip-summary {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-step-chip .chip {
+  min-height: 22px;
+  padding: 3px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.onboarding-step-chip:hover {
+  border-color: #dbe3ee;
+  background: #f8fafc;
+}
+
+.onboarding-step-chip.active {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: #eff6ff;
+}
+
+.onboarding-step-chip.is-done:not(.active) {
+  background: #f0fdf4;
+}
+
+.onboarding-step-chip.active > .onboarding-step-chip-order {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: #ffffff;
+  color: #1d4ed8;
+}
+
+.onboarding-main-card.panel-initial-onboarding {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.onboarding-main-card.panel-initial-onboarding .onboarding-main-head {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+}
+
+.onboarding-main-copy-focal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.onboarding-main-copy-focal > strong,
+.onboarding-main-copy-focal > p,
+.onboarding-main-copy-focal > .onboarding-inline-warning,
+.onboarding-main-copy-focal > label {
+  grid-column: 1 / -1;
+}
+
+.onboarding-main-copy-focal > strong {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+.onboarding-main-copy-focal > p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
+.onboarding-primary-row-focal {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.onboarding-primary-row-focal button {
+  min-width: 180px;
+}
+
+.onboarding-main-copy-focal > label {
+  max-width: 460px;
+}
+
+.onboarding-stage-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.onboarding-stage-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.onboarding-stage-item:last-child {
+  border-bottom: 0;
+}
+
+.onboarding-stage-item.is-current {
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.onboarding-stage-item.is-complete {
+  background: #f0fdf4;
+}
+
+.onboarding-stage-item.is-locked {
+  background: #f8fafc;
+}
+
+.onboarding-stage-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.onboarding-stage-copy {
+  min-width: 0;
+}
+
+.initial-onboarding-step-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.initial-onboarding-step-head strong {
+  overflow: hidden;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-stage-copy p {
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-inline-status {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.onboarding-inline-status > div {
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.onboarding-assist-details,
+.onboarding-active-step-shell .settings-advanced-panel,
+.onboarding-active-step-shell .onboarding-advanced-details {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.onboarding-assist-details summary,
+.onboarding-active-step-shell .settings-advanced-panel summary,
+.onboarding-active-step-shell .onboarding-advanced-details summary {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.onboarding-assist-details summary::after,
+.onboarding-active-step-shell .settings-advanced-panel summary::after,
+.onboarding-active-step-shell .onboarding-advanced-details summary::after {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 11px;
+  content: "펼치기";
+}
+
+.onboarding-assist-details[open] summary::after,
+.onboarding-active-step-shell .settings-advanced-panel[open] summary::after,
+.onboarding-active-step-shell .onboarding-advanced-details[open] summary::after {
+  content: "접기";
+}
+
+.onboarding-assist-body,
+.onboarding-active-step-shell .settings-advanced-panel > :not(summary),
+.onboarding-active-step-shell .onboarding-advanced-details > :not(summary) {
+  margin: 0;
+  padding: 10px 0 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.onboarding-inline-warning {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: min(100%, 860px);
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.onboarding-active-step-shell button,
+.onboarding-main-card button,
+.onboarding-active-step-shell summary,
+.onboarding-main-card summary {
+  font: inherit;
+  font-weight: 800;
+}
+
+@media (max-width: 980px) {
+  .onboarding-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 32px);
+  }
+
+  .onboarding-task-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-height: calc(100vh - 190px);
+    overflow: auto;
+  }
+
+  .onboarding-step-strip {
+    order: -1;
+    max-height: 260px;
+  }
+
+  .onboarding-active-step-copy,
+  .onboarding-main-copy-focal {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-active-next-row {
+    max-width: none;
+  }
+
+  .onboarding-inline-status {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The onboarding dialog can be mounted under .app-shell-topnav, so keep the
+   task-first modal rules at the same specificity as the older console pass. */
+.app-shell-topnav .onboarding-modal {
+  width: min(1420px, calc(100vw - 40px));
+  max-height: calc(100vh - 56px);
+  overflow: hidden;
+  border-color: #dbe3ee;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 24px 72px rgba(15, 23, 42, 0.2);
+}
+
+.app-shell-topnav .onboarding-modal-body {
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 16px 16px;
+}
+
+.app-shell-topnav .onboarding-task-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 14px;
+  align-items: stretch;
+  min-height: 0;
+  height: min(720px, calc(100vh - 230px));
+}
+
+.app-shell-topnav .onboarding-active-step-shell,
+.app-shell-topnav .onboarding-step-strip {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.app-shell-topnav .onboarding-active-step-shell {
+  grid-column: 1;
+  grid-row: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-shell-topnav .onboarding-step-strip {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0;
+}
+
+.app-shell-topnav .onboarding-step-strip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.app-shell-topnav .onboarding-step-strip-head strong,
+.app-shell-topnav .onboarding-step-strip-head span {
+  writing-mode: horizontal-tb;
+  white-space: nowrap;
+}
+
+.app-shell-topnav .onboarding-step-list {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+.app-shell-topnav .onboarding-step-chip {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #111827;
+  text-align: left;
+  box-shadow: none;
+  font: inherit;
+  font-weight: 800;
+}
+
+.app-shell-topnav .onboarding-step-chip + .onboarding-step-chip {
+  margin-top: 0;
+}
+
+.app-shell-topnav .onboarding-step-chip:hover {
+  border-color: #dbe3ee;
+  background: #f8fafc;
+}
+
+.app-shell-topnav .onboarding-step-chip.active {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: #eff6ff;
+}
+
+.app-shell-topnav .onboarding-step-chip.is-done:not(.active) {
+  background: #f0fdf4;
+}
+
+.app-shell-topnav .onboarding-step-chip > .onboarding-step-chip-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  writing-mode: horizontal-tb;
+}
+
+.app-shell-topnav .onboarding-step-chip-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-shell-topnav .onboarding-step-chip-copy strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+  writing-mode: horizontal-tb;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.app-shell-topnav .onboarding-step-chip-summary {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+.app-shell-topnav .onboarding-step-chip .chip {
+  min-height: 22px;
+  padding: 3px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+.app-shell-topnav .onboarding-active-step-head {
+  padding: 16px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.app-shell-topnav .onboarding-active-step-order {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border: 1px solid #dbe3ee;
+  font-size: 14px;
+}
+
+.app-shell-topnav .onboarding-flow-section {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.app-shell-topnav .onboarding-main-card {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell-topnav .onboarding-main-copy,
+.app-shell-topnav .onboarding-task-copy,
+.app-shell-topnav .onboarding-main-copy-focal {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.app-shell-topnav .onboarding-main-copy strong,
+.app-shell-topnav .onboarding-main-copy-focal > strong {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.app-shell-topnav .onboarding-main-copy p,
+.app-shell-topnav .onboarding-main-copy-focal > p {
+  max-width: 720px;
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.app-shell-topnav .onboarding-main-copy-focal > .onboarding-primary-row-focal {
+  grid-column: 1;
+}
+
+.app-shell-topnav .onboarding-stage-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.app-shell-topnav .onboarding-stage-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.app-shell-topnav .onboarding-stage-item:last-child {
+  border-bottom: 0;
+}
+
+.app-shell-topnav .onboarding-stage-item.is-current {
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.app-shell-topnav .onboarding-stage-item.is-complete {
+  background: #f0fdf4;
+}
+
+.app-shell-topnav .onboarding-stage-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.app-shell-topnav .onboarding-stage-copy,
+.app-shell-topnav .initial-onboarding-step-head {
+  min-width: 0;
+}
+
+.app-shell-topnav .initial-onboarding-step-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.app-shell-topnav .initial-onboarding-step-head strong {
+  overflow: hidden;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell-topnav .onboarding-stage-copy p {
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell-topnav .onboarding-inline-status {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.app-shell-topnav .onboarding-inline-status > div {
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.app-shell-topnav .onboarding-inline-status span {
+  display: block;
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .onboarding-inline-status strong {
+  display: block;
+  overflow: hidden;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell-topnav .onboarding-inline-warning {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: min(100%, 860px);
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid rgba(217, 119, 6, 0.24);
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.app-shell-topnav .onboarding-active-step-shell .settings-advanced-panel,
+.app-shell-topnav .onboarding-active-step-shell .onboarding-advanced-details {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell-topnav .onboarding-active-step-shell .settings-advanced-panel summary,
+.app-shell-topnav .onboarding-active-step-shell .onboarding-advanced-details summary {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.app-shell-topnav .onboarding-active-step-shell .settings-advanced-panel > :not(summary),
+.app-shell-topnav .onboarding-active-step-shell .onboarding-advanced-details > :not(summary) {
+  margin: 0;
+  padding: 10px 0 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 980px) {
+  .app-shell-topnav .onboarding-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 32px);
+  }
+
+  .app-shell-topnav .onboarding-task-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-height: calc(100vh - 190px);
+    overflow: auto;
+  }
+
+  .app-shell-topnav .onboarding-step-strip {
+    grid-column: 1;
+    grid-row: auto;
+    order: -1;
+    max-height: 260px;
+  }
+
+  .app-shell-topnav .onboarding-active-step-shell {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .app-shell-topnav .onboarding-inline-status {
+    grid-template-columns: 1fr;
+  }
+}
+
+.app-shell-topnav .customer-console-table thead th {
+  background: #f8fafc;
+  color: #64748b;
+  border-bottom-color: #e2e8f0;
+}
+
+.app-shell-topnav .customer-console-table th,
+.app-shell-topnav .customer-console-table td {
+  border-color: #e8edf4;
+}
+
+.app-shell-topnav .customer-console-table tbody tr:hover,
+.app-shell-topnav .customer-console-table tbody tr:hover > td {
+  background: #f8fbff;
+}
+
+.app-shell-topnav .customer-console-table tbody tr.is-selected,
+.app-shell-topnav .customer-console-table tbody tr.is-selected > td {
+  background: #eff6ff;
+}
+
+.app-shell-topnav .customer-console-table tbody tr.is-selected > td:first-child {
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.app-shell-topnav .customer-console-mode-badge,
+.app-shell-topnav .customer-tone-badge,
+.app-shell-topnav .customer-create-progress-chip {
+  border-radius: 999px;
+  border-color: #dbe3ee;
+  background: #f8fafc;
+  color: #334155;
+}
+
+.app-shell-topnav .customer-tone-badge.tone-success {
+  border-color: rgba(22, 163, 74, 0.24);
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.app-shell-topnav .customer-tone-badge.tone-warn {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.app-shell-topnav .customer-tone-badge.tone-danger {
+  border-color: rgba(220, 38, 38, 0.22);
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.app-shell-topnav .customer-detail-panel {
+  background: rgba(255, 255, 255, 0.96);
+  overflow: hidden;
+}
+
+.app-shell-topnav .customer-detail-panel-head {
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.app-shell-topnav .customer-detail-section {
+  border-color: #dbe3ee;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.app-shell-topnav .customer-detail-section-head h3,
+.app-shell-topnav .customer-console-table-title strong,
+.app-shell-topnav .customer-detail-panel-copy strong {
+  color: #0f172a;
+}
+
+.app-shell-topnav .customer-detail-context-grid dt,
+.app-shell-topnav .customer-console-table-title span,
+.app-shell-topnav .customer-detail-panel-copy p {
+  color: #64748b;
+}
+
+.app-shell-topnav .customer-detail-context-grid dd,
+.app-shell-topnav .customer-console-primary-cell strong,
+.app-shell-topnav .customer-console-cell-stack strong {
+  color: #111827;
+}
+
+.app-shell-topnav .customer-detail-panel.is-detail .customer-report-profile-grid input,
+.app-shell-topnav .customer-detail-panel.is-detail .customer-report-history-section select,
+.app-shell-topnav .customer-detail-panel.is-detail .customer-report-table input,
+.app-shell-topnav .customer-detail-panel.is-detail .customer-contract-period-inputs input {
+  border-color: #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.app-shell-topnav .customer-detail-panel.is-detail .customer-report-profile-grid input:focus,
+.app-shell-topnav .customer-detail-panel.is-detail .customer-report-history-section select:focus,
+.app-shell-topnav .customer-detail-panel.is-detail .customer-report-table input:focus,
+.app-shell-topnav .customer-detail-panel.is-detail .customer-contract-period-inputs input:focus {
+  border-color: rgba(37, 99, 235, 0.5);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.app-shell-topnav .customer-report-totals {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.app-shell-topnav .customer-report-totals > div {
+  border-color: #e2e8f0;
+  background: transparent;
+}
+
+.app-shell-topnav .customer-report-table-wrap {
+  overflow: hidden;
+  border-color: #e2e8f0;
+  border-radius: 8px;
+}
+
+.app-shell-topnav .customer-report-table thead th {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.app-shell-topnav .customer-report-table thead tr:first-child th {
+  border-top: 0;
+}
+
+.app-shell-topnav .customer-report-save-actions button,
+.app-shell-topnav .customer-detail-action-buttons button {
+  min-height: 34px;
+}
+
+/* --- Customer UI normalization: one visual contract per control role --- */
+.app-shell-topnav .customer-console-screen {
+  --customer-control-height: 42px;
+  --customer-control-radius: 8px;
+  --customer-field-radius: 10px;
+  --customer-panel-radius: 10px;
+  --customer-border: #dbe3ee;
+  --customer-border-strong: #b8c6d8;
+  --customer-fill: #ffffff;
+  --customer-fill-muted: #f8fafc;
+  --customer-fill-soft: #eff6ff;
+  --customer-primary: #2563eb;
+  --customer-primary-strong: #1d4ed8;
+  --customer-text: #111827;
+  --customer-muted: #64748b;
+  --customer-disabled: #94a3b8;
+  --customer-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.app-shell-topnav .customer-summary-card,
+.app-shell-topnav .customer-console-panel,
+.app-shell-topnav .customer-detail-panel,
+.app-shell-topnav .customer-detail-section,
+.app-shell-topnav .customer-info-card,
+.app-shell-topnav .customer-report-table-wrap,
+.app-shell-topnav .customer-report-totals,
+.app-shell-topnav .customer-certificate-management-row {
+  border-color: var(--customer-border);
+  border-radius: var(--customer-panel-radius);
+}
+
+.app-shell-topnav .customer-console-page-search,
+.app-shell-topnav .customer-detail-panel.is-detail input,
+.app-shell-topnav .customer-detail-panel.is-detail select,
+.app-shell-topnav .customer-detail-panel.is-detail textarea,
+.app-shell-topnav .customer-onestop-form-grid input,
+.app-shell-topnav .customer-onestop-form-grid textarea,
+.app-shell-topnav .customer-onestop-password input {
+  border-color: var(--customer-border);
+  border-radius: var(--customer-field-radius);
+  background: var(--customer-fill);
+  color: var(--customer-text);
+}
+
+.app-shell-topnav .customer-console-page-search:focus-within,
+.app-shell-topnav .customer-detail-panel.is-detail input:focus,
+.app-shell-topnav .customer-detail-panel.is-detail select:focus,
+.app-shell-topnav .customer-detail-panel.is-detail textarea:focus,
+.app-shell-topnav .customer-onestop-form-grid input:focus,
+.app-shell-topnav .customer-onestop-form-grid textarea:focus,
+.app-shell-topnav .customer-onestop-password input:focus {
+  border-color: rgba(37, 99, 235, 0.52);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.app-shell-topnav .customer-console-page-search input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary,
+.app-shell-topnav .customer-summary-actions .customer-console-primary-cta,
+.app-shell-topnav .customer-console-table-actions .btn-secondary,
+.app-shell-topnav .customer-detail-panel-head-actions .btn-secondary,
+.app-shell-topnav .customer-detail-card-actions button,
+.app-shell-topnav .customer-detail-action-buttons button,
+.app-shell-topnav .customer-certificate-management-actions button,
+.app-shell-topnav .customer-onestop-source-actions > button,
+.app-shell-topnav .customer-onestop-file-button,
+.app-shell-topnav .customer-form-actions > button,
+.app-shell-topnav .customer-report-save-actions button {
+  box-sizing: border-box;
+  min-height: var(--customer-control-height);
+  border-radius: var(--customer-control-radius);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary,
+.app-shell-topnav .customer-console-table-actions .btn-secondary,
+.app-shell-topnav .customer-detail-panel-head-actions .btn-secondary,
+.app-shell-topnav .customer-detail-card-actions button,
+.app-shell-topnav .customer-certificate-management-actions button,
+.app-shell-topnav .customer-onestop-source-actions > button,
+.app-shell-topnav .customer-onestop-file-button,
+.app-shell-topnav .customer-form-actions > button {
+  border: 1px solid var(--customer-border);
+  background: var(--customer-fill);
+  color: #334155;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+}
+
+.app-shell-topnav .customer-summary-actions .customer-console-primary-cta {
+  border: 1px solid var(--customer-primary-strong);
+  background: var(--customer-primary);
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary:hover:not(:disabled),
+.app-shell-topnav .customer-console-table-actions .btn-secondary:hover:not(:disabled),
+.app-shell-topnav .customer-detail-panel-head-actions .btn-secondary:hover:not(:disabled),
+.app-shell-topnav .customer-detail-card-actions button:hover:not(:disabled),
+.app-shell-topnav .customer-certificate-management-actions button:hover:not(:disabled),
+.app-shell-topnav .customer-onestop-source-actions > button:hover:not(:disabled),
+.app-shell-topnav .customer-onestop-file-button:hover {
+  border-color: var(--customer-border-strong);
+  background: var(--customer-fill-muted);
+  color: var(--customer-text);
+}
+
+.app-shell-topnav .customer-summary-actions .customer-console-primary-cta:hover:not(:disabled) {
+  background: var(--customer-primary-strong);
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary:disabled,
+.app-shell-topnav .customer-console-table-actions .btn-secondary:disabled,
+.app-shell-topnav .customer-detail-panel-head-actions .btn-secondary:disabled,
+.app-shell-topnav .customer-detail-card-actions button:disabled,
+.app-shell-topnav .customer-certificate-management-actions button:disabled,
+.app-shell-topnav .customer-onestop-source-actions > button:disabled,
+.app-shell-topnav .customer-form-actions > button:disabled {
+  border-color: #e2e8f0;
+  background: var(--customer-fill-muted);
+  color: var(--customer-disabled);
+  opacity: 1;
+}
+
+.app-shell-topnav .customer-console-filter-strip,
+.app-shell-topnav .customer-issue-mode-segment {
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--customer-border);
+  border-radius: var(--customer-control-radius);
+  background: var(--customer-fill-muted);
+}
+
+.app-shell-topnav .customer-console-filter-strip .btn-secondary,
+.app-shell-topnav .customer-issue-mode-segment button {
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--customer-muted);
+  box-shadow: none;
+}
+
+.app-shell-topnav .customer-console-filter-strip .btn-secondary.active-filter,
+.app-shell-topnav .customer-issue-mode-segment button.is-active {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: var(--customer-fill-soft);
+  color: var(--customer-primary-strong);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+}
+
+.app-shell-topnav .customer-tone-badge,
+.app-shell-topnav .customer-console-mode-badge,
+.app-shell-topnav .customer-create-progress-chip {
+  min-height: 24px;
+  border: 1px solid var(--customer-border);
+  border-radius: 999px;
+  background: var(--customer-fill-muted);
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .customer-console-table-wrap {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* True final onboarding density override. Keep this after the customer theme
+   overrides so short onboarding steps do not stretch into empty panels. */
+.onboarding-modal .onboarding-task-shell,
+.app-shell-topnav .onboarding-modal .onboarding-task-shell {
+  align-items: start !important;
+  height: auto !important;
+  max-height: calc(100vh - 220px);
+}
+
+.onboarding-modal .onboarding-active-step-shell,
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell {
+  align-self: start !important;
+  display: grid;
+  grid-template-rows: auto auto !important;
+  overflow: visible !important;
+}
+
+.onboarding-modal .onboarding-flow-section,
+.app-shell-topnav .onboarding-modal .onboarding-flow-section {
+  overflow: visible !important;
+  padding: 12px !important;
+}
+
+.onboarding-modal .onboarding-step-body,
+.app-shell-topnav .onboarding-modal .onboarding-step-body,
+.onboarding-modal .onboarding-main-card,
+.app-shell-topnav .onboarding-modal .onboarding-main-card {
+  gap: 10px !important;
+}
+
+.onboarding-modal .onboarding-main-card,
+.app-shell-topnav .onboarding-modal .onboarding-main-card {
+  align-content: start;
+}
+
+.onboarding-modal .onboarding-inline-status,
+.app-shell-topnav .onboarding-modal .onboarding-inline-status {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.onboarding-modal .onboarding-inline-status > div,
+.app-shell-topnav .onboarding-modal .onboarding-inline-status > div {
+  min-height: 50px !important;
+  padding: 9px 12px !important;
+}
+
+.onboarding-modal .onboarding-section,
+.app-shell-topnav .onboarding-modal .onboarding-section {
+  gap: 12px !important;
+  padding: 14px !important;
+  border-radius: 10px;
+}
+
+.onboarding-modal .onboarding-field-grid,
+.app-shell-topnav .onboarding-modal .onboarding-field-grid {
+  gap: 12px 16px !important;
+  align-items: start;
+}
+
+.onboarding-modal .onboarding-field-grid label,
+.app-shell-topnav .onboarding-modal .onboarding-field-grid label {
+  gap: 6px;
+}
+/* Final exception-triage lock. This step still reuses older import/customer
+   classes, so keep the normalization after the broad onboarding overrides. */
+.onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout),
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  max-height: calc(100vh - 230px);
+  overflow: hidden !important;
+}
+
+.onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) .onboarding-flow-section,
+.app-shell-topnav .onboarding-modal .onboarding-active-step-shell:has(.exception-triage-layout) .onboarding-flow-section {
+  min-height: 0;
+  overflow: auto !important;
+  padding: 12px !important;
+}
+
+.onboarding-modal .exception-triage-layout,
+.app-shell-topnav .onboarding-modal .exception-triage-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.82fr) !important;
+  gap: 10px !important;
+  align-items: start !important;
+  min-width: 0;
+}
+
+.onboarding-modal .exception-triage-layout .panel,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  min-height: 0 !important;
+  padding: 12px !important;
+  overflow: hidden;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header {
+  display: grid;
+  gap: 3px;
+  margin: 0 !important;
+  padding: 0 0 10px !important;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header h2,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.onboarding-modal .exception-triage-layout .panel-header p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .panel-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.onboarding-modal .exception-triage-layout .initial-unmatched-list,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .initial-unmatched-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, calc(100vh - 490px)) !important;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary,
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected,
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box,
+.onboarding-modal .quick-register-compare-card,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card,
+.onboarding-modal .customer-form-lead.quick-register-lead,
+.app-shell-topnav .onboarding-modal .customer-form-lead.quick-register-lead {
+  min-width: 0;
+  padding: 11px 12px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary.selected,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary.selected {
+  border-color: rgba(37, 99, 235, 0.4) !important;
+  background: #eff6ff !important;
+  box-shadow: inset 3px 0 0 #2563eb !important;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-head,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-head,
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary-meta,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary-meta {
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+}
+
+.onboarding-modal .exception-triage-layout .status-badge,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .status-badge {
+  align-self: start;
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.onboarding-modal .quick-register-selected,
+.app-shell-topnav .onboarding-modal .quick-register-selected,
+.onboarding-modal .exception-triage-layout .helper-box,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .helper-box,
+.onboarding-modal .quick-register-compare-card,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card,
+.onboarding-modal .customer-form-lead.quick-register-lead,
+.app-shell-topnav .onboarding-modal .customer-form-lead.quick-register-lead {
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary strong,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary strong,
+.onboarding-modal .quick-register-selected strong,
+.app-shell-topnav .onboarding-modal .quick-register-selected strong,
+.onboarding-modal .quick-register-compare-card strong,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.onboarding-modal .exception-triage-layout .customer-summary p,
+.app-shell-topnav .onboarding-modal .exception-triage-layout .customer-summary p,
+.onboarding-modal .quick-register-meta,
+.app-shell-topnav .onboarding-modal .quick-register-meta,
+.onboarding-modal .quick-register-compare-card p,
+.app-shell-topnav .onboarding-modal .quick-register-compare-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.onboarding-modal .quick-register-compare-grid,
+.app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+.onboarding-modal .quick-register-grid,
+.app-shell-topnav .onboarding-modal .quick-register-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.onboarding-modal .quick-register-grid label,
+.app-shell-topnav .onboarding-modal .quick-register-grid label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.onboarding-modal .quick-register-grid input,
+.app-shell-topnav .onboarding-modal .quick-register-grid input {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+}
+
+.onboarding-modal .quick-register-grid .field-hint,
+.app-shell-topnav .onboarding-modal .quick-register-grid .field-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.onboarding-modal .quick-register-actions,
+.app-shell-topnav .onboarding-modal .quick-register-actions {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.onboarding-modal .quick-register-actions button,
+.app-shell-topnav .onboarding-modal .quick-register-actions button {
+  min-height: 40px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+@media (max-width: 1180px) {
+  .onboarding-modal .exception-triage-layout,
+  .app-shell-topnav .onboarding-modal .exception-triage-layout,
+  .onboarding-modal .quick-register-compare-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-compare-grid,
+  .onboarding-modal .quick-register-grid,
+  .app-shell-topnav .onboarding-modal .quick-register-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Issuance table header final lock: the list panel is already the rounded
+   container, so the inner table must stay square and flat. */
+.app-shell-topnav .issuance-list-panel .issuance-table-shell {
+  border-right: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead,
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead tr,
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead th {
+  border-radius: 0 !important;
+  background: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead th:first-child,
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead th:last-child {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table th,
+.app-shell-topnav .issuance-list-panel .issuance-list-table td {
+  border-right: 0;
+  border-left: 0;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table th:first-child,
+.app-shell-topnav .issuance-list-panel .issuance-list-table td:first-child {
+  padding-left: 14px;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table input[type="checkbox"] {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table thead input[type="checkbox"] {
+  background: #ffffff;
+}
+/* Settings account section final lock: the stack is layout-only. Individual
+   account panels carry the surface, so the outer wrapper must not look like
+   another nested card. */
+.app-shell-topnav .settings-detail > .settings-account-stack,
+.app-shell-topnav .settings-account-stack {
+  display: grid;
+  gap: 14px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-account-stack > .panel {
+  margin: 0;
+  border-radius: var(--console-radius-panel);
+}
+
+.app-shell-topnav .settings-account-stack > .panel + .panel {
+  margin-top: 0;
 }

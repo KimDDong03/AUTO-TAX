@@ -547,13 +547,24 @@ export function IssuanceTab(props: IssuanceTabProps) {
   const canIssueSelectedDraft = selectedDraft?.status === "review" || selectedDraft?.status === "failed";
   const isSelectedDraftIssued = selectedDraft?.status === "issued";
   const canShowPopbillInfo = Boolean(selectedDraft?.popbillMgtKey);
+  const visibleIssueableEntries = useMemo(
+    () => visibleEntries.filter(isIssueSelectableEntry),
+    [visibleEntries]
+  );
+  const checkedVisibleIssueableEntryCount = useMemo(
+    () => visibleIssueableEntries.filter((entry) => checkedEntryKeys.has(entry.key)).length,
+    [checkedEntryKeys, visibleIssueableEntries]
+  );
+  const allVisibleIssueableEntriesChecked =
+    visibleIssueableEntries.length > 0 && checkedVisibleIssueableEntryCount === visibleIssueableEntries.length;
+  const someVisibleIssueableEntriesChecked =
+    checkedVisibleIssueableEntryCount > 0 && !allVisibleIssueableEntriesChecked;
   const checkedIssueableDraftIds = useMemo(
     () =>
-      visibleEntries
-        .filter(isIssueSelectableEntry)
+      visibleIssueableEntries
         .filter((entry) => checkedEntryKeys.has(entry.key))
         .map((entry) => entry.draft.id),
-    [checkedEntryKeys, visibleEntries]
+    [checkedEntryKeys, visibleIssueableEntries]
   );
   const selectedIssueButtonLabel = checkedIssueableDraftIds.length > 0 ? `선택 발행 ${checkedIssueableDraftIds.length}` : "선택 발행";
   const canIssueCheckedDrafts = checkedIssueableDraftIds.length > 0;
@@ -693,6 +704,20 @@ export function IssuanceTab(props: IssuanceTabProps) {
     setEntryChecked(entry, !isChecked);
   };
 
+  const toggleVisibleIssueableEntriesChecked = () => {
+    setCheckedEntryKeys((prev) => {
+      const next = new Set(prev);
+
+      if (allVisibleIssueableEntriesChecked) {
+        visibleIssueableEntries.forEach((entry) => next.delete(entry.key));
+      } else {
+        visibleIssueableEntries.forEach((entry) => next.add(entry.key));
+      }
+
+      return next;
+    });
+  };
+
   const handleSelectedIssueClick = () => {
     if (checkedIssueableDraftIds.length > 0) {
       props.onIssueSelectedDrafts(checkedIssueableDraftIds);
@@ -716,10 +741,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
 
   return (
     <div className="issuance-screen">
-      <header className="issuance-console-head">
-        <h2>{props.screenTitle}</h2>
-      </header>
-
       <div className="issuance-main-column">
         {props.mailboxDataLoading ? (
           <div className="helper-box import-helper-box">
@@ -859,7 +880,24 @@ export function IssuanceTab(props: IssuanceTabProps) {
                 <table className="issuance-list-table">
                   <thead>
                     <tr>
-                      <th aria-label="선택" />
+                      <th aria-label="선택">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleIssueableEntriesChecked}
+                          readOnly
+                          disabled={visibleIssueableEntries.length === 0}
+                          aria-label="표시된 발행 가능 초안 전체 선택"
+                          ref={(element) => {
+                            if (element) {
+                              element.indeterminate = someVisibleIssueableEntriesChecked;
+                            }
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleVisibleIssueableEntriesChecked();
+                          }}
+                        />
+                      </th>
                       <th>상태</th>
                       <th>메일 날짜</th>
                       <th>고객명</th>

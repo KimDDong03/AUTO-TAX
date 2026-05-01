@@ -44,29 +44,28 @@ export function SettingsHelperOnboardingStep({
     : helperOnline
       ? undefined
       : "먼저 로컬 헬퍼를 실행한 뒤 상태를 다시 확인하세요.";
+  const headline = helperReady
+    ? "공동인증서 확인 완료"
+    : helperVersionMismatch
+      ? helperUpgradeRequired
+        ? "헬퍼 재설치 필요"
+        : "헬퍼 업데이트 권장"
+      : helperOnline
+        ? "공동인증서 읽기"
+        : "헬퍼 실행 필요";
 
   return (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
-          <strong>
-            {helperReady
-              ? "공동인증서 확인 완료"
-              : helperUpgradeRequired
-                ? "헬퍼를 다시 설치하세요."
-                : helperUpgradeAvailable
-                  ? "업데이트 후 다시 확인해 두세요."
-                  : helperOnline
-                    ? "공동인증서를 읽으세요."
-                    : "헬퍼를 먼저 실행하세요."}
-          </strong>
-          <p>{helperStatusLine}</p>
+        <div className="onboarding-main-copy onboarding-task-copy">
+          <strong>{headline}</strong>
+          {helperVersionMismatch && helperUpgradeMessage ? <p>{helperUpgradeMessage}</p> : null}
         </div>
 
         <div className="onboarding-inline-status">
           <div>
-            <span>헬퍼 상태</span>
-            <strong>{helperOnline ? "연결됨" : "연결 안 됨"}</strong>
+            <span>현재 상태</span>
+            <strong>{helperStatusLine}</strong>
           </div>
           <div>
             <span>읽은 공동인증서</span>
@@ -104,16 +103,13 @@ export function SettingsHelperOnboardingStep({
           </button>
         </div>
         {helperUpgradeRequired || helperUpgradeAvailable ? (
-          <div className="helper-box-stack settings-install-guide">
-            <strong>
-              {helperUpgradeRequired ? "헬퍼 재설치 필요" : "헬퍼 업데이트 권장"}
-            </strong>
-            <span>{helperUpgradeMessage}</span>
+          <details className="settings-advanced-panel">
+            <summary>버전 정보 보기</summary>
             {helperLatestVersion ? <span>최신 버전: v{helperLatestVersion}</span> : null}
             {helperMinSupportedVersion ? (
               <span>최소 지원 버전: v{helperMinSupportedVersion}</span>
             ) : null}
-          </div>
+          </details>
         ) : null}
       </section>
 

@@ -86,14 +86,12 @@ function getCustomerIssueTimeLabel(customer: Customer): string {
   return `${String(customer.issueHour).padStart(2, "0")}:${String(customer.issueMinute).padStart(2, "0")}`;
 }
 
-function getMonthTotalAmount(month: CustomerReportMonth | undefined): number {
+function getMonthSupplyAmount(month: CustomerReportMonth | undefined): number {
   if (!month) {
     return 0;
   }
 
-  const supplyAmount = Number.isFinite(month.supplyAmount) ? month.supplyAmount : 0;
-  const vatAmount = Number.isFinite(month.vatAmount) ? month.vatAmount : 0;
-  return supplyAmount + vatAmount;
+  return Number.isFinite(month.supplyAmount) ? month.supplyAmount : 0;
 }
 
 function getKstDateString(now: Date): string {
@@ -148,7 +146,7 @@ export function buildSelectedCustomerReportRows(items: SelectedCustomerExportIte
         index + 1,
         getCustomerRepresentativeName(customer),
         getCustomerCorpName(customer),
-        ...Array.from({ length: 12 }, (_, monthIndex) => getMonthTotalAmount(monthByNumber.get(monthIndex + 1)))
+        ...Array.from({ length: 12 }, (_, monthIndex) => getMonthSupplyAmount(monthByNumber.get(monthIndex + 1)))
       ];
     })
   ];
@@ -200,7 +198,7 @@ export function downloadSelectedCustomersWorkbook(
   applyReportAmountFormat(XLSX, reportWorksheet, reportRows.length);
 
   XLSX.utils.book_append_sheet(workbook, basicWorksheet, "고객 기본정보");
-  XLSX.utils.book_append_sheet(workbook, reportWorksheet, "신고이력(합계액)");
+  XLSX.utils.book_append_sheet(workbook, reportWorksheet, "신고이력(공급가액)");
   const fileName = buildSelectedCustomerExportFileName(options.reportYear, options.now);
   XLSX.writeFile(workbook, fileName);
   return fileName;

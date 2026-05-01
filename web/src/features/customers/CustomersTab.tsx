@@ -184,6 +184,7 @@ type CustomersTabProps = {
   onExportSelectedCustomers: (customers: Customer[], reportYear: number) => Promise<void>;
   onShowDraftPopbillInfo: (draftId: number) => Promise<void>;
   onOpenDraftPopbillUrl: (draftId: number, path: "view-url" | "print-url") => Promise<void>;
+  onCustomerReportDetailSaved: () => void | Promise<void>;
   resolveCustomerAddress: () => Promise<string>;
   runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
   formatCertificateExpireDate: (value: string | null) => string;
@@ -354,7 +355,9 @@ export function CustomersTab(props: CustomersTabProps) {
   const [bulkIssueModeMenuOpen, setBulkIssueModeMenuOpen] = useState(false);
   const [checkedCustomerIds, setCheckedCustomerIds] = useState<Set<number>>(() => new Set());
   const [customerReportYear, setCustomerReportYear] = useState(getCurrentCustomerReportYear);
-  const customerReportDetail = useCustomerReportDetail(selectedCustomer?.id ?? null, customerReportYear);
+  const customerReportDetail = useCustomerReportDetail(selectedCustomer?.id ?? null, customerReportYear, {
+    onSaved: props.onCustomerReportDetailSaved
+  });
   const [customerReportIssueDateDrafts, setCustomerReportIssueDateDrafts] = useState<Record<string, string>>({});
   const customerMainColumnRef = useRef<HTMLDivElement | null>(null);
   const customerTableWrapRef = useRef<HTMLDivElement | null>(null);
@@ -913,6 +916,34 @@ export function CustomersTab(props: CustomersTabProps) {
     });
   };
 
+  const flushCustomerReportDetailSave = () => {
+    if (!customerReportDetail.draft || customerReportDetail.loading || customerReportDetail.saving) {
+      return;
+    }
+    void customerReportDetail.save();
+  };
+
+  const checkOnlyCustomer = (customerId: number) => {
+    setCheckedCustomerIds((prev) => {
+      if (prev.size === 1 && prev.has(customerId)) {
+        return prev;
+      }
+      return new Set([customerId]);
+    });
+  };
+
+  const handleCustomerRowClick = (event: React.MouseEvent<HTMLTableRowElement>, customer: Customer) => {
+    if (selectedCustomer && selectedCustomer.id !== customer.id) {
+      flushCustomerReportDetailSave();
+    }
+    if (event.ctrlKey || event.metaKey) {
+      toggleCustomerChecked(customer.id);
+    } else {
+      checkOnlyCustomer(customer.id);
+    }
+    focusCustomer(customer);
+  };
+
   const exportSelectedCustomersWorkbook = () => {
     if (checkedVisibleCustomers.length === 0) {
       return;
@@ -1455,7 +1486,7 @@ export function CustomersTab(props: CustomersTabProps) {
           aria-selected={isSelected}
           className={isSelected ? "is-selected" : undefined}
           tabIndex={0}
-          onClick={() => focusCustomer(customer)}
+          onClick={(event) => handleCustomerRowClick(event, customer)}
           onKeyDown={(event) => handleCustomerRowKeyDown(event, customer)}
         >
           <td className="customer-console-col-check">
@@ -1505,6 +1536,9 @@ export function CustomersTab(props: CustomersTabProps) {
 
     const reportProfile = selectedReportDraft.profile;
     const reportYearOptions = Array.from({ length: 8 }, (_, index) => getCurrentCustomerReportYear() + 1 - index);
+    const customerReportSaveStatus = customerReportDetail.saving
+      ? "자동 저장 중..."
+      : customerReportDetail.notice || "변경하면 자동 저장됩니다.";
 
     return (
       <div className="customer-detail-panel-body customer-detail-option3-body">
@@ -1570,8 +1604,11 @@ export function CustomersTab(props: CustomersTabProps) {
           </section>
 
           <section className="customer-detail-section customer-info-card customer-info-contract-card">
-            <div className="customer-detail-section-head">
+            <div className="customer-detail-section-head customer-report-auto-save-head">
               <h3>계약/발행</h3>
+              <span className={customerReportDetail.error ? "customer-auto-save-status tone-danger" : customerReportDetail.saving ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
+                {customerReportDetail.error || customerReportSaveStatus}
+              </span>
             </div>
             <div className="customer-report-profile-grid customer-info-contract-grid">
               <label>
@@ -1581,7 +1618,9 @@ export function CustomersTab(props: CustomersTabProps) {
                   min="0"
                   step="0.001"
                   value={reportProfile.solarCapacityKw ?? ""}
+                  onInput={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.currentTarget.value))}
                   onChange={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.target.value))}
+                  onBlur={flushCustomerReportDetailSave}
                 />
               </label>
               <label className="customer-contract-period-field">
@@ -1591,7 +1630,9 @@ export function CustomersTab(props: CustomersTabProps) {
                     type="month"
                     aria-label="계약 시작 월"
                     value={reportProfile.contractStartMonth ?? ""}
+                    onInput={(event) => updateCustomerReportProfile("contractStartMonth", event.currentTarget.value || null)}
                     onChange={(event) => updateCustomerReportProfile("contractStartMonth", event.target.value || null)}
+                    onBlur={flushCustomerReportDetailSave}
                   />
                   <span aria-hidden="true">~</span>
                   <input
@@ -1674,6 +1715,9 @@ export function CustomersTab(props: CustomersTabProps) {
           <section className="customer-detail-section customer-report-history-section">
             <div className="customer-detail-section-head customer-report-history-head">
               <h3>신고 이력</h3>
+              <span className={customerReportDetail.error ? "customer-auto-save-status tone-danger" : customerReportDetail.saving ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
+                {customerReportDetail.error || customerReportSaveStatus}
+              </span>
               <select
                 className="customer-report-year-select"
                 aria-label="신고 연도"
@@ -1711,7 +1755,6 @@ export function CustomersTab(props: CustomersTabProps) {
             </div>
             {customerReportDetail.loading ? <p className="customer-detail-card-note">신고 상세를 불러오는 중입니다.</p> : null}
             {customerReportDetail.error ? <p className="customer-detail-card-note tone-danger">{customerReportDetail.error}</p> : null}
-            {customerReportDetail.notice ? <p className="customer-detail-card-note tone-success">{customerReportDetail.notice}</p> : null}
             <div className="customer-report-table-wrap">
               <table className="customer-report-table">
                 <thead>
@@ -1740,8 +1783,12 @@ export function CustomersTab(props: CustomersTabProps) {
                             aria-label={`${month.reportMonth}월 발행일`}
                             aria-invalid={issueDateInvalid}
                             value={issueDateInputValue}
+                            onInput={(event) => updateCustomerReportIssueDay(month.reportMonth, event.currentTarget.value)}
                             onChange={(event) => updateCustomerReportIssueDay(month.reportMonth, event.target.value)}
-                            onBlur={() => normalizeCustomerReportIssueDayDraft(month.reportMonth)}
+                            onBlur={() => {
+                              normalizeCustomerReportIssueDayDraft(month.reportMonth);
+                              flushCustomerReportDetailSave();
+                            }}
                           />
                         </td>
                         <td>
@@ -1750,6 +1797,18 @@ export function CustomersTab(props: CustomersTabProps) {
                             min="0"
                             step="1"
                             value={month.supplyAmount}
+                            onInput={(event) =>
+                              updateCustomerReportMonth(month.reportMonth, (current) => {
+                                const supplyAmount = parseMoneyInput(event.currentTarget.value);
+                                return {
+                                  ...current,
+                                  issueYear: customerReportYear,
+                                  supplyAmount,
+                                  totalAmount: supplyAmount + current.vatAmount
+                                };
+                              })
+                            }
+                            onBlur={flushCustomerReportDetailSave}
                             onChange={(event) =>
                               updateCustomerReportMonth(month.reportMonth, (current) => {
                                 const supplyAmount = parseMoneyInput(event.target.value);
@@ -1769,6 +1828,18 @@ export function CustomersTab(props: CustomersTabProps) {
                             min="0"
                             step="1"
                             value={month.vatAmount}
+                            onInput={(event) =>
+                              updateCustomerReportMonth(month.reportMonth, (current) => {
+                                const vatAmount = parseMoneyInput(event.currentTarget.value);
+                                return {
+                                  ...current,
+                                  issueYear: customerReportYear,
+                                  vatAmount,
+                                  totalAmount: current.supplyAmount + vatAmount
+                                };
+                              })
+                            }
+                            onBlur={flushCustomerReportDetailSave}
                             onChange={(event) =>
                               updateCustomerReportMonth(month.reportMonth, (current) => {
                                 const vatAmount = parseMoneyInput(event.target.value);
@@ -1792,20 +1863,6 @@ export function CustomersTab(props: CustomersTabProps) {
             {hasInvalidCustomerReportIssueDateDraft ? (
               <p className="customer-detail-card-note tone-danger">발행일은 해당 월에 맞는 숫자만 입력하세요.</p>
             ) : null}
-            <div className="customer-detail-card-actions customer-report-save-actions">
-              <button
-                type="button"
-                disabled={
-                  !customerReportDetail.draft ||
-                  customerReportDetail.loading ||
-                  customerReportDetail.saving ||
-                  hasInvalidCustomerReportIssueDateDraft
-                }
-                onClick={() => void customerReportDetail.save()}
-              >
-                {customerReportDetail.saving ? "신고 이력 저장 중..." : "신고 이력 저장"}
-              </button>
-            </div>
           </section>
 
           <section className="customer-detail-section customer-detail-action-strip" aria-label="고객 작업">

@@ -71,9 +71,8 @@ export function SettingsDefaultsOnboardingStep({
   return (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
-        <div className="onboarding-main-copy">
+        <div className="onboarding-main-copy onboarding-task-copy">
           <strong>{onboarding.headline}</strong>
-          <p>메일 주소와 앱 비밀번호는 운영팀 상담 중 별도로 설정합니다.</p>
         </div>
 
         <div className="onboarding-inline-status">

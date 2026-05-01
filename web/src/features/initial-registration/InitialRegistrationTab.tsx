@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type React from "react";
-import { Panel, RevealIcon } from "../../components/ui";
+import { Panel, RevealIcon, StatusBadge } from "../../components/ui";
 import type { BootstrapPayload } from "../../types";
 import type { CustomerOnboardingPreviewResponse } from "./customer-onboarding-workbook";
 
@@ -112,7 +112,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
         : needsUploadRetry
           ? `검토 ${input.blockedCount}건 수정 후 다시 업로드하세요.`
         : stage === "certificate" && input.certificatePendingJoinCount > 0
-          ? `등록 처리 ${input.certificatePendingJoinCount}건이 진행 중입니다. 완료되면 전자세금용 등록을 자동으로 이어서 처리합니다.`
+          ? `전자세금용 등록 대기 ${input.certificatePendingJoinCount}건`
           : stage === "certificate" && input.certificateFailedJoinCount > 0
             ? `등록 처리 확인이 필요한 고객 ${input.certificateFailedJoinCount}건이 있습니다.`
               : undefined;
@@ -155,7 +155,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
             : input.certificateAutoTargetCount > 0
               ? `전자세금용 자동 등록 ${input.certificateAutoTargetCount}건`
               : input.certificatePendingJoinCount > 0
-                ? `등록 처리 대기 ${input.certificatePendingJoinCount}건`
+                ? `등록 처리 완료 후 자동 진행`
                 : input.certificateFailedJoinCount > 0
                   ? `등록 처리 확인 필요 ${input.certificateFailedJoinCount}건`
                   : certificatePendingCount > 0
@@ -235,7 +235,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           : input.certificateAutoTargetCount > 0
             ? `자동 등록 ${input.certificateAutoTargetCount}건`
             : input.certificatePendingJoinCount > 0
-              ? `등록 처리 대기 ${input.certificatePendingJoinCount}건`
+              ? `대기 ${input.certificatePendingJoinCount}건`
               : input.certificateFailedJoinCount > 0
                 ? `가입 확인 ${input.certificateFailedJoinCount}건`
                 : certificatePendingCount > 0
@@ -344,6 +344,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     hasSelectedFile: Boolean(props.customerOnboardingFileName)
   });
   const registrationStage = props.registrationStage ?? registrationFlow.stage;
+  const registrationTaskTitle = registrationFlow.headline.replace("지금 할 일 · ", "");
   const billingMonthCompletionList = props.billingMonthSummaries.length > 0 ? (
     <div className="list month-completion-list">
       {props.billingMonthSummaries.map((summary) => (
@@ -358,7 +359,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               </p>
             </div>
             {summary.completed ? (
-              <span className="status status-ignored">완료 처리</span>
+              <StatusBadge tone="success">완료 처리</StatusBadge>
             ) : (
               <button
                 type="button"
@@ -494,11 +495,8 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           <section className="onboarding-main-card panel-initial-onboarding" data-stage={registrationStage}>
             <div className="onboarding-main-head">
               <div className="onboarding-main-copy onboarding-main-copy-focal">
-                <strong>{registrationFlow.headline}</strong>
+                <strong>{registrationTaskTitle}</strong>
                 <p>{registrationFlow.description}</p>
-                {props.registrationBlockedReason || registrationFlow.blockedReason ? (
-                  <p className="onboarding-inline-warning">{props.registrationBlockedReason ?? registrationFlow.blockedReason}</p>
-                ) : null}
                 {registrationPrimaryAction ? (
                   <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
                     <button
@@ -588,9 +586,9 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           </section>
 
           {!registrationFlow.commitCompleted ? (
-            <details className="onboarding-advanced-details">
+            <details className="onboarding-advanced-details onboarding-assist-details">
               <summary>보조 작업 보기</summary>
-              <div className="helper-box-stack">
+              <div className="helper-box-stack onboarding-assist-body">
                 <strong>보조 작업</strong>
                 <div className="button-row">
                   {registrationStage !== "download" ? (
@@ -630,28 +628,10 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             </details>
           ) : null}
 
-          {props.customerOnboardingNotice ? (
+          {props.customerOnboardingNotice && !registrationFlow.blockedReason ? (
             <div className="helper-box import-helper-box">
               <strong>안내</strong>
               <span className="helper-multiline-text helper-multiline-scroll">{props.customerOnboardingNotice}</span>
-            </div>
-          ) : null}
-          {props.pendingOnboardingCertificateRegistrationCount > 0 ||
-          (props.certificatePendingJoinCount ?? 0) > 0 ? (
-            <div className="helper-box import-helper-box">
-              <strong>다음</strong>
-              <span className="helper-multiline-text helper-multiline-scroll">
-                {(props.certificatePendingJoinCount ?? 0) > 0
-                  ? `등록 처리 대기 ${props.certificatePendingJoinCount ?? 0}건`
-                  : ""}
-                {(props.certificatePendingJoinCount ?? 0) > 0 &&
-                props.pendingOnboardingCertificateRegistrationCount > 0
-                  ? "\n"
-                  : ""}
-                {props.pendingOnboardingCertificateRegistrationCount > 0
-                  ? `전자세금용 인증서 등록 ${props.pendingOnboardingCertificateRegistrationCount}건`
-                  : ""}
-              </span>
             </div>
           ) : null}
           {showCertificatePasswordOverrides ? (
@@ -796,10 +776,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
         <>
           <div className="helper-box import-helper-box">
             <strong>미매칭 메일 예외 처리</strong>
-            <span>
-              첫 메일 동기화 뒤 자동 매칭에서 남은 주소 예외나 특수 케이스만 여기서 처리합니다.
-              메인 onboarding은 고객 등록과 인증서 준비를 먼저 끝낸 뒤 진행하는 것이 좋습니다.
-            </span>
+            <span>자동 매칭에서 남은 메일만 확인하고, 필요한 값만 보완합니다.</span>
             {exceptionStatusSummary ? <span>{exceptionStatusSummary}</span> : null}
           </div>
 
@@ -812,6 +789,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               <div className="list initial-unmatched-list">
                 {props.quickRegisterMessages.map((message) => {
                   const isSelected = props.quickRegisterForm.messageId === message.id;
+                  const messageStatus = props.getInboxDisplayParseStatus(message);
                   return (
                     <button
                       key={message.id}
@@ -824,9 +802,9 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                           <strong>{message.parsedData?.plantAddress || message.parsedData?.plantName || "주소/발전소 정보 없음"}</strong>
                           <p>{message.subject}</p>
                         </div>
-                        <span className={`status status-${props.getInboxDisplayParseStatus(message)}`}>
-                          {props.getParseStatusLabel(props.getInboxDisplayParseStatus(message))}
-                        </span>
+                        <StatusBadge tone={messageStatus === "failed" ? "danger" : messageStatus === "unmatched" ? "warn" : "info"}>
+                          {props.getParseStatusLabel(messageStatus)}
+                        </StatusBadge>
                       </div>
                       <div className="customer-summary-meta">
                         <span>{message.parsedData?.billingMonth || "-"}</span>
