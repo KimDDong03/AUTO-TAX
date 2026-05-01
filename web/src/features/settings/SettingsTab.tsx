@@ -1,5 +1,5 @@
 import React from "react";
-import { RevealIcon } from "../../components/ui";
+import { RevealIcon, StatusBadge, type StatusBadgeTone } from "../../components/ui";
 import { SettingsAccountSection } from "./SettingsAccountSection";
 import { SettingsDefaultsSection } from "./SettingsDefaultsSection";
 import { SettingsHelperSection } from "./SettingsHelperSection";
@@ -60,12 +60,12 @@ function getImapServer(mailAddress: string, providerLabel: string) {
   return domain ? `imap.${domain}` : "";
 }
 
-function getAutosaveChipClassName(state: SettingsSidebarModel["settingsAutosaveState"]) {
+function getAutosaveBadgeTone(state: SettingsSidebarModel["settingsAutosaveState"]): StatusBadgeTone {
   return state === "error"
-    ? "chip chip-danger"
+    ? "danger"
     : state === "saving" || state === "pending"
-      ? "chip chip-warn"
-      : "chip chip-success";
+      ? "warn"
+      : "success";
 }
 
 function SettingsReadinessSummary({ model }: SettingsTabProps) {
@@ -89,9 +89,9 @@ function SettingsReadinessSummary({ model }: SettingsTabProps) {
     <section className="settings-option1-card settings-option1-status-card">
       <div className="settings-option1-status-title">
         <strong>설정 준비 상태</strong>
-        <span className={getAutosaveChipClassName(sidebar.settingsAutosaveState)}>
+        <StatusBadge tone={getAutosaveBadgeTone(sidebar.settingsAutosaveState)}>
           {sidebar.settingsAutosaveLabel}
-        </span>
+        </StatusBadge>
       </div>
       <div className="settings-option1-progress-row">
         <div className="settings-option1-progress-copy">

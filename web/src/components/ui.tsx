@@ -181,6 +181,65 @@ export function RevealIcon(props: { open: boolean }) {
   );
 }
 
+export type StatusBadgeTone = "default" | "success" | "warn" | "danger" | "info";
+
+export function StatusBadge(props: {
+  children: React.ReactNode;
+  tone?: StatusBadgeTone;
+  className?: string;
+}) {
+  const tone = props.tone ?? "default";
+  const className = ["status-badge", `status-badge-${tone}`, props.className]
+    .filter(Boolean)
+    .join(" ");
+
+  return <span className={className}>{props.children}</span>;
+}
+
+export function EmptyState(props: {
+  title: React.ReactNode;
+  body?: React.ReactNode;
+  tone?: StatusBadgeTone;
+  actions?: React.ReactNode;
+  className?: string;
+}) {
+  const tone = props.tone ?? "default";
+  const className = ["empty-state", `empty-state-${tone}`, props.className]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className={className}>
+      <strong>{props.title}</strong>
+      {props.body ? <p>{props.body}</p> : null}
+      {props.actions ? <div className="empty-state-actions">{props.actions}</div> : null}
+    </div>
+  );
+}
+
+export function SectionMessage(props: {
+  title?: React.ReactNode;
+  children: React.ReactNode;
+  tone?: StatusBadgeTone;
+  actions?: React.ReactNode;
+  className?: string;
+}) {
+  const tone = props.tone ?? "info";
+  const className = ["section-message", `section-message-${tone}`, props.className]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className={className}>
+      <div className="section-message-copy">
+        {props.title ? <strong>{props.title}</strong> : null}
+        <p>{props.children}</p>
+      </div>
+      {props.actions ? <div className="section-message-actions">{props.actions}</div> : null}
+    </div>
+  );
+}
+
 export function StatCard(props: { label: string; value: number | string; tone?: "default" | "warn" | "error" }) {
   return (
     <div className={`stat-card stat-${props.tone ?? "default"}`}>
@@ -351,7 +410,7 @@ export function SetupPanel(props: {
           </div>
         </div>
         <div className="panel-actions">
-          <span className={`chip ${props.done ? "chip-success" : "chip-danger"}`}>{props.done ? "완료" : "설정 필요"}</span>
+          <StatusBadge tone={props.done ? "success" : "danger"}>{props.done ? "완료" : "설정 필요"}</StatusBadge>
           {props.actions}
         </div>
       </header>
