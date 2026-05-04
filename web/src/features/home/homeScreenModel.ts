@@ -69,12 +69,18 @@ export type BuildHomeScreenModelInput = {
   onboardingFirstSyncReady: boolean;
   reviewDraftCount: number;
   unmatchedMessageCount: number;
+  unmatchedMessageTotalCount: number;
   blockedCustomerCount: number;
-  readyNowCustomerCount: number;
+  certificateExpirationCustomerCount: number;
   certAttentionCount: number;
   recentInboxCount: number;
   recentIssuedCount: number;
 };
+
+function buildUnmatchedMessageValue(current: number, total: number): string {
+  const safeTotal = Math.max(total, current);
+  return safeTotal > 0 ? `${current}/${safeTotal}건` : `${current}건`;
+}
 
 function buildPrimaryAction(input: BuildHomeScreenModelInput): {
   title: string;
@@ -91,16 +97,16 @@ function buildPrimaryAction(input: BuildHomeScreenModelInput): {
 
   if (input.unmatchedMessageCount > 0) {
     return {
-      title: "예외 메일부터 정리",
-      label: `예외 메일 ${input.unmatchedMessageCount}건 확인`,
+      title: "발행현황 정리",
+      label: `발행현황 ${buildUnmatchedMessageValue(input.unmatchedMessageCount, input.unmatchedMessageTotalCount)} 확인`,
       actionKey: "exceptions"
     };
   }
 
   if (input.reviewDraftCount > 0) {
     return {
-      title: "초안 검토부터 시작",
-      label: `초안 ${input.reviewDraftCount}건 확인`,
+      title: "발행대기 처리",
+      label: `발행대기 ${input.reviewDraftCount}건 확인`,
       actionKey: "reviewQueue"
     };
   }
@@ -115,8 +121,8 @@ function buildPrimaryAction(input: BuildHomeScreenModelInput): {
 
   if (input.certAttentionCount > 0) {
     return {
-      title: "인증서 만료 주의",
-      label: `인증서 주의 ${input.certAttentionCount}건 확인`,
+      title: "계약만료고객",
+      label: `계약만료고객 ${input.certAttentionCount}건 확인`,
       actionKey: "certificates"
     };
   }
@@ -146,11 +152,11 @@ function buildPriorityCards(input: BuildHomeScreenModelInput): HomePriorityCard[
   if (input.unmatchedMessageCount > 0) {
     cards.push({
       key: "exceptions",
-      title: "예외 메일",
-      value: `${input.unmatchedMessageCount}건`,
-      description: "주소 예외를 처리해야 다음 발행이 계속 이어집니다.",
+      title: "발행현황",
+      value: buildUnmatchedMessageValue(input.unmatchedMessageCount, input.unmatchedMessageTotalCount),
+      description: "발행현황을 처리해야 다음 발행이 계속 이어집니다.",
       tone: "warn",
-      actionLabel: "예외 메일 확인",
+      actionLabel: "발행현황 확인",
       actionKey: "exceptions"
     });
   }
@@ -158,11 +164,11 @@ function buildPriorityCards(input: BuildHomeScreenModelInput): HomePriorityCard[
   if (input.reviewDraftCount > 0) {
     cards.push({
       key: "review",
-      title: "검토할 초안",
+      title: "발행대기",
       value: `${input.reviewDraftCount}건`,
-      description: "검수 후 직접 발행 대기 중인 초안부터 처리합니다.",
+      description: "검수 후 직접 발행 대기 중인 항목부터 처리합니다.",
       tone: "warn",
-      actionLabel: "초안 확인",
+      actionLabel: "발행대기 확인",
       actionKey: "reviewQueue"
     });
   }
@@ -182,11 +188,11 @@ function buildPriorityCards(input: BuildHomeScreenModelInput): HomePriorityCard[
   if (input.certAttentionCount > 0) {
     cards.push({
       key: "certificates",
-      title: "인증서 주의",
+      title: "계약만료고객",
       value: `${input.certAttentionCount}건`,
-      description: "만료되었거나 곧 만료될 인증서를 먼저 점검합니다.",
+      description: "계약 만료 위험 고객을 우선 점검합니다.",
       tone: "warn",
-      actionLabel: "인증서 확인",
+      actionLabel: "계약만료고객 확인",
       actionKey: "certificates"
     });
   }
@@ -204,22 +210,22 @@ export function buildHomeScreenModel(input: BuildHomeScreenModelInput): HomeScre
     primaryActionKey: primaryAction.actionKey,
     chips: [
       {
-        label: "검토 초안",
+        label: "발행대기",
         value: `${input.reviewDraftCount}건`,
         tone: input.reviewDraftCount > 0 ? "warn" : "success"
       },
       {
-        label: "예외 메일",
-        value: `${input.unmatchedMessageCount}건`,
+        label: "발행현황",
+        value: buildUnmatchedMessageValue(input.unmatchedMessageCount, input.unmatchedMessageTotalCount),
         tone: input.unmatchedMessageCount > 0 ? "warn" : "success"
       },
       {
-        label: "발행 가능 고객",
-        value: `${input.readyNowCustomerCount}명`,
-        tone: input.readyNowCustomerCount > 0 ? "success" : "default"
+        label: "인증서 만료 예정 고객",
+        value: `${input.certificateExpirationCustomerCount}명`,
+        tone: input.certificateExpirationCustomerCount > 0 ? "warn" : "success"
       },
       {
-        label: "인증서 주의",
+        label: "계약만료고객",
         value: `${input.certAttentionCount}건`,
         tone: input.certAttentionCount > 0 ? "warn" : "success"
       }
@@ -238,26 +244,22 @@ export function buildHomeScreenModel(input: BuildHomeScreenModelInput): HomeScre
         }
       : null,
     priorityTitle: "지금 먼저 처리",
-    prioritySubtitle:
-      priorityCards.length > 0 ? "우선순위 순서대로 처리" : "지금 바로 막힌 일 없음",
+    prioritySubtitle: priorityCards.length > 0 ? "우선순위 순서대로 처리" : "지금 바로 막힌 일 없음",
     priorityCards,
     priorityEmptyState: !input.onboardingFirstSyncReady
       ? {
           title: "아직 첫 메일 동기화를 시작하지 않았습니다.",
-          body: "첫 동기화를 실행하면 초안과 예외 메일이 이 화면에 바로 쌓입니다."
+          body: "첫 동기화를 실행하면 초안과 발행현황이 이 화면에 바로 쌓입니다."
         }
       : {
           title: "지금 바로 막힌 일은 없습니다.",
-          body: "오늘은 아래의 검토할 초안과 최근 흐름만 확인하면 됩니다."
+          body: "오늘은 아래의 발행대기와 최근 흐름만 확인하면 됩니다."
         },
-    reviewTitle: "검토할 초안",
-    reviewSubtitle:
-      input.reviewDraftCount > 0
-        ? `검수 후 직접 발행 대기 ${input.reviewDraftCount}건`
-        : "지금 바로 직접 발행할 초안 없음",
+    reviewTitle: "발행대기",
+    reviewSubtitle: input.reviewDraftCount > 0 ? `발행대기 ${input.reviewDraftCount}건` : "지금 바로 직접 발행할 초안 없음",
     reviewEmptyMessage: !input.onboardingFirstSyncReady
       ? "아직 첫 메일 동기화를 하지 않아 초안이 없습니다."
-      : "지금 검수 후 직접 발행할 초안이 없습니다.",
+      : "지금 검수 후 직접 발행할 항목이 없습니다.",
     recentTitle: "최근 흐름",
     recentSubtitle: "최근 수신 / 발행 결과",
     recentInboxEmptyMessage: !input.onboardingFirstSyncReady

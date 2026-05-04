@@ -24,7 +24,7 @@ export async function issueDraftNow(store: AppStore, settings: AppSettings, cust
   await assertWithinMonthlyIssueLimit(store);
   const writeDate = new Date();
   const response = await issueTaxInvoice(settings, customer, draft, writeDate);
-  return await store.updateDraftStatus(
+  const issuedDraft = await store.updateDraftStatus(
     draft.id,
     "issued",
     "",
@@ -32,4 +32,22 @@ export async function issueDraftNow(store: AppStore, settings: AppSettings, cust
     response,
     settings.popbillIsTest ? "test" : "production"
   );
+
+  try {
+    await store.upsertCustomerReportDetailFromIssuedDraft(issuedDraft);
+  } catch (error) {
+    await store.createLog(
+      "warn",
+      "drafts",
+      "발행 완료 후 신고 이력 자동 동기화에 실패했습니다.",
+      {
+        draftId: issuedDraft.id,
+        customerId: issuedDraft.customerId,
+        billingMonth: issuedDraft.billingMonth,
+        issueError: error instanceof Error ? error.message : String(error)
+      }
+    ).catch(() => {});
+  }
+
+  return issuedDraft;
 }

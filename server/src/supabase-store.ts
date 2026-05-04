@@ -112,6 +112,142 @@ function buildDashboardCounts(drafts: InvoiceDraft[], inbox: InboxMessage[], cus
   };
 }
 
+function parseDraftBillingMonth(billingMonth: string): { reportYear: number; reportMonth: number } {
+  const match = /^([0-9]{4})-([0-9]{2})$/.exec((billingMonth ?? "").trim());
+  if (!match) {
+    throw new Error(`유효하지 않은 정산월 형식입니다: ${billingMonth}`);
+  }
+
+  const reportYear = Number(match[1]);
+  const reportMonth = Number(match[2]);
+  if (!Number.isInteger(reportYear) || !Number.isInteger(reportMonth) || reportMonth < 1 || reportMonth > 12) {
+    throw new Error(`유효하지 않은 정산월 값입니다: ${billingMonth}`);
+  }
+
+  return { reportYear, reportMonth };
+}
+
+function parseBillingYearMonth(value: string): { reportYear: number; reportMonth: number } | null {
+  const trimmed = String(value).trim();
+  const strictMatch = /^([0-9]{4})-([0-9]{1,2})$/.exec(trimmed);
+  if (strictMatch) {
+    const reportYear = Number(strictMatch[1]);
+    const reportMonth = Number(strictMatch[2]);
+    if (Number.isInteger(reportMonth) && reportMonth >= 1 && reportMonth <= 12) {
+      return { reportYear, reportMonth };
+    }
+  }
+
+  const compactMonthMatch = /^([0-9]{4})-?([0-9]{1,2})(?:-[0-9]{1,2})?$/.exec(trimmed);
+  if (compactMonthMatch) {
+    const reportYear = Number(compactMonthMatch[1]);
+    const reportMonth = Number(compactMonthMatch[2]);
+    if (Number.isInteger(reportYear) && Number.isInteger(reportMonth) && reportMonth >= 1 && reportMonth <= 12) {
+      return { reportYear, reportMonth };
+    }
+  }
+
+  const compact = trimmed.replace(/\D/g, "");
+  if (compact.length >= 6) {
+    const candidateYear = Number(compact.slice(0, 4));
+    const candidateMonth = Number(compact.slice(4, 6));
+    if (Number.isInteger(candidateYear) && Number.isInteger(candidateMonth) && candidateMonth >= 1 && candidateMonth <= 12) {
+      return { reportYear: candidateYear, reportMonth: candidateMonth };
+    }
+  }
+
+  return null;
+}
+
+type DraftReportPeriod = {
+  reportYear: number;
+  reportMonth: number;
+  issueDate: string | null;
+};
+
+function resolveDraftReportPeriodFromIssuedDraft(
+  draft: Pick<InvoiceDraft, "billingMonth" | "issuedAt" | "writeDate" | "createdAt">
+): DraftReportPeriod | null {
+  let period: { reportYear: number; reportMonth: number } | null = null;
+  try {
+    period = parseDraftBillingMonth(draft.billingMonth);
+  } catch {
+    period = parseBillingYearMonth(draft.billingMonth) ??
+      parseIssuedDateMonth(draft.issuedAt ?? null) ??
+      parseIssuedDateMonth(draft.writeDate ?? null);
+  }
+
+  if (!period) {
+    return null;
+  }
+
+  const issueDate = parseIssuedDateFromDraft(draft);
+  return {
+    reportYear: period.reportYear,
+    reportMonth: period.reportMonth,
+    issueDate
+  };
+}
+
+function parseIssuedDateMonth(value: string | null | undefined): { reportYear: number; reportMonth: number } | null {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = String(value).trim();
+  const directMatch = /^([0-9]{4})-([0-9]{2})-[0-9]{2}$/.exec(trimmed);
+  if (directMatch) {
+    return { reportYear: Number(directMatch[1]), reportMonth: Number(directMatch[2]) };
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isFinite(parsed.getTime())) {
+    return { reportYear: parsed.getFullYear(), reportMonth: parsed.getMonth() + 1 };
+  }
+
+  const compact = trimmed.replace(/\D/g, "");
+  if (compact.length >= 6) {
+    const parsedFromCompact = parseBillingYearMonth(compact.slice(0, 6));
+    if (parsedFromCompact) {
+      return parsedFromCompact;
+    }
+  }
+
+  return null;
+}
+
+function parseIssuedDateFromDraft(draft: Pick<InvoiceDraft, "issuedAt" | "writeDate" | "createdAt">): string | null {
+  if (draft.issuedAt) {
+    const trimmed = String(draft.issuedAt).trim();
+    const issueDate = trimmed.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(issueDate)) {
+      return issueDate;
+    }
+
+    const compact = trimmed.replace(/\D/g, "");
+    if (compact.length >= 8) {
+      return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+    }
+  }
+
+  if (draft.writeDate) {
+    const trimmed = String(draft.writeDate).trim();
+    if (/^\d{8}$/.test(trimmed)) {
+      return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`;
+    }
+  }
+
+  if (draft.createdAt) {
+    const trimmed = String(draft.createdAt).trim();
+    const issueDate = trimmed.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(issueDate)) {
+      return issueDate;
+    }
+  }
+
+  return null;
+}
+
 function latestTimestamp(left: string, right: string): string {
   return new Date(left).getTime() >= new Date(right).getTime() ? left : right;
 }
@@ -1492,7 +1628,7 @@ export class SupabaseStore implements AppStore {
 
     const organizationId = this.requireOrganizationId();
     const managedCustomerId = asString(customerRow.id);
-    const [profileRow, monthRows] = await Promise.all([
+    const [profileRow, monthRowsResult] = await Promise.all([
       assertNoError(
         "고객 신고 상세 프로필 조회 실패",
         this.client
@@ -1513,6 +1649,26 @@ export class SupabaseStore implements AppStore {
           .order("report_month", { ascending: true })
       )
     ]);
+    let monthRows = ((monthRowsResult as Row[]) ?? []);
+    const synced = await this.synchronizeCustomerReportMonthsFromIssuedDrafts(
+      organizationId,
+      managedCustomerId,
+      reportYear,
+      monthRows
+    );
+
+    if (synced) {
+      monthRows = ((await assertNoError(
+        "고객 월별 신고 이력 조회 실패",
+        this.client
+          .from("customer_report_months")
+          .select("*")
+          .eq("organization_id", organizationId)
+          .eq("managed_customer_id", managedCustomerId)
+          .eq("report_year", reportYear)
+          .order("report_month", { ascending: true })
+      )) as Row[]) ?? [];
+    }
 
     return ensureCustomerReportDetailMonths({
       customerId,
@@ -1520,6 +1676,138 @@ export class SupabaseStore implements AppStore {
       profile: profileRow ? mapCustomerReportProfile(profileRow as Row, customerId) : createEmptyCustomerReportProfile(customerId),
       months: ((monthRows as Row[]) ?? []).map(mapCustomerReportMonth)
     });
+  }
+
+  async upsertCustomerReportDetailFromIssuedDraft(draft: InvoiceDraft): Promise<CustomerReportDetail> {
+    const customerRow = await this.getManagedCustomerRowByLegacyId(draft.customerId);
+    if (!customerRow) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const period = resolveDraftReportPeriodFromIssuedDraft(draft);
+    if (!period) {
+      throw new Error(`신고 월 계산에 필요한 발행 일/정산월 정보가 없습니다. billingMonth=${draft.billingMonth}, issuedAt=${draft.issuedAt}, writeDate=${draft.writeDate}`);
+    }
+
+    const { reportYear, reportMonth, issueDate } = period;
+    const organizationId = this.requireOrganizationId();
+    const managedCustomerId = asString(customerRow.id);
+
+    await assertNoError(
+      "고객 신고 월별 이력 동기화 실패",
+      this.client.from("customer_report_months").upsert(
+        {
+          organization_id: organizationId,
+          managed_customer_id: managedCustomerId,
+          report_year: reportYear,
+          report_month: reportMonth,
+          issue_year: issueDate ? Number(issueDate.slice(0, 4)) : reportYear,
+          issue_date: issueDate,
+          supply_amount: asNumber(draft.supplyCost),
+          vat_amount: asNumber(draft.taxTotal),
+          updated_at: nowIso()
+        },
+        { onConflict: "managed_customer_id,report_year,report_month" }
+      )
+    );
+
+    return this.getCustomerReportDetail(draft.customerId, reportYear);
+  }
+
+  private async synchronizeCustomerReportMonthsFromIssuedDrafts(
+    organizationId: string,
+    managedCustomerId: string,
+    reportYear: number,
+    monthRows: Row[]
+  ): Promise<boolean> {
+    const shouldAutoSyncMonth = (reportMonth: number): boolean => {
+      const existingRow = monthRows.find((row) => asNumber(row.report_month) === reportMonth);
+      if (!existingRow) {
+        return true;
+      }
+
+      const existingSupplyAmount = asNumber(existingRow.supply_amount);
+      const existingVatAmount = asNumber(existingRow.vat_amount);
+      const existingIssueDate = asNullableString(existingRow.issue_date);
+      return existingSupplyAmount === 0 && existingVatAmount === 0 && existingIssueDate === null;
+    };
+
+    const issuedDraftRows = await assertNoError(
+      "고객 월별 신고 이력 보정용 발행 이력 조회 실패",
+      this.client
+        .from("invoice_drafts")
+        .select("billing_month,issued_at,write_date,created_at,supply_cost,tax_total")
+        .eq("organization_id", organizationId)
+        .eq("managed_customer_id", managedCustomerId)
+        .eq("status", "issued")
+    );
+
+    const monthAggregation = new Map<
+      number,
+      {
+        issueDate: string | null;
+        supplyAmount: number;
+        vatAmount: number;
+      }
+    >();
+
+    for (const draft of ((issuedDraftRows as Row[]) ?? [])) {
+      const period = resolveDraftReportPeriodFromIssuedDraft({
+        billingMonth: asString(draft.billing_month),
+        issuedAt: asNullableString(draft.issued_at),
+        writeDate: asNullableString(draft.write_date),
+        createdAt: asNullableString(draft.created_at)
+      });
+
+      if (!period || period.reportYear !== reportYear || !shouldAutoSyncMonth(period.reportMonth)) {
+        continue;
+      }
+
+      const supplyAmount = asNumber(draft.supply_cost);
+      const vatAmount = asNumber(draft.tax_total);
+      const existing = monthAggregation.get(period.reportMonth);
+      if (!existing) {
+        monthAggregation.set(period.reportMonth, {
+          issueDate: period.issueDate,
+          supplyAmount,
+          vatAmount
+        });
+        continue;
+      }
+
+      existing.supplyAmount += supplyAmount;
+      existing.vatAmount += vatAmount;
+      if (
+        period.issueDate &&
+        (!existing.issueDate || period.issueDate > existing.issueDate)
+      ) {
+        existing.issueDate = period.issueDate;
+      }
+    }
+
+    if (monthAggregation.size === 0) {
+      return false;
+    }
+
+    await assertNoError(
+      "고객 신고 월별 이력 보정 동기화 실패",
+      this.client.from("customer_report_months").upsert(
+        [...monthAggregation.entries()].map(([reportMonth, monthAggregate]) => ({
+          organization_id: organizationId,
+          managed_customer_id: managedCustomerId,
+          report_year: reportYear,
+          report_month: reportMonth,
+          issue_year: monthAggregate.issueDate ? asNumber(monthAggregate.issueDate.slice(0, 4)) : reportYear,
+          issue_date: monthAggregate.issueDate,
+          supply_amount: monthAggregate.supplyAmount,
+          vat_amount: monthAggregate.vatAmount,
+          updated_at: nowIso()
+        })),
+        { onConflict: "managed_customer_id,report_year,report_month" }
+      )
+    );
+
+    return true;
   }
 
   async saveCustomerReportDetail(customerId: number, input: CustomerReportDetailInput): Promise<CustomerReportDetail> {

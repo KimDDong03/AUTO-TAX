@@ -14,8 +14,9 @@ test("buildHomeScreenModel keeps onboarding-first priority before first sync", (
     onboardingFirstSyncReady: false,
     reviewDraftCount: 0,
     unmatchedMessageCount: 0,
+    unmatchedMessageTotalCount: 0,
     blockedCustomerCount: 0,
-    readyNowCustomerCount: 0,
+    certificateExpirationCustomerCount: 0,
     certAttentionCount: 0,
     recentInboxCount: 0,
     recentIssuedCount: 0
@@ -47,15 +48,16 @@ test("buildHomeScreenModel orders priorities as exceptions then drafts then bloc
     onboardingFirstSyncReady: true,
     reviewDraftCount: 5,
     unmatchedMessageCount: 2,
+    unmatchedMessageTotalCount: 110,
     blockedCustomerCount: 3,
-    readyNowCustomerCount: 7,
+    certificateExpirationCustomerCount: 1,
     certAttentionCount: 1,
     recentInboxCount: 4,
     recentIssuedCount: 2
   });
 
   assert.equal(model.actionBarTitle, "홈");
-  assert.equal(model.primaryActionLabel, "예외 메일 2건 확인");
+  assert.equal(model.primaryActionLabel, "발행현황 2/110건 확인");
   assert.equal(model.primaryActionKey, "exceptions");
   assert.equal(model.priorityCards.length, 3);
   assert.deepEqual(
@@ -63,9 +65,11 @@ test("buildHomeScreenModel orders priorities as exceptions then drafts then bloc
     ["exceptions", "review", "blocked-customers"]
   );
   assert.deepEqual(model.chips, [
-    { label: "검토 초안", value: "5건", tone: "warn" },
-    { label: "예외 메일", value: "2건", tone: "warn" },
-    { label: "발행 가능 고객", value: "7명", tone: "success" },
-    { label: "인증서 주의", value: "1건", tone: "warn" }
+    { label: "발행대기", value: "5건", tone: "warn" },
+    { label: "발행현황", value: "2/110건", tone: "warn" },
+    { label: "인증서 만료 예정 고객", value: "1명", tone: "warn" },
+    { label: "계약만료고객", value: "1건", tone: "warn" }
   ]);
 });
+
+

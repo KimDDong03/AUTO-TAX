@@ -238,6 +238,49 @@ function getCurrentCustomerReportYear(): number {
   return new Date().getFullYear();
 }
 
+function getInvoiceDraftReportYear(draft: InvoiceDraft): number | null {
+  const billingMonthYearCandidate = Number(draft.billingMonth.replace(/[^0-9]/g, "").slice(0, 4));
+  if (Number.isInteger(billingMonthYearCandidate) && billingMonthYearCandidate >= 2000 && billingMonthYearCandidate <= 2200) {
+    return billingMonthYearCandidate;
+  }
+
+  const issuedDateTimestamp = draft.issuedAt ? Date.parse(draft.issuedAt) : NaN;
+  if (Number.isFinite(issuedDateTimestamp)) {
+    const issuedAtYear = new Date(issuedDateTimestamp).getFullYear();
+    if (Number.isInteger(issuedAtYear) && issuedAtYear >= 2000 && issuedAtYear <= 2200) {
+      return issuedAtYear;
+    }
+  }
+
+  const writeDateTimestamp = draft.writeDate ? Date.parse(draft.writeDate) : NaN;
+  if (Number.isFinite(writeDateTimestamp)) {
+    const writeDateYear = new Date(writeDateTimestamp).getFullYear();
+    if (Number.isInteger(writeDateYear) && writeDateYear >= 2000 && writeDateYear <= 2200) {
+      return writeDateYear;
+    }
+  }
+
+  return null;
+}
+
+function getCustomerReportIssuedDraftSyncKey(
+  customerId: number,
+  customerReportYear: number,
+  drafts: InvoiceDraft[]
+): string {
+  const issueDraftSignature = drafts
+    .filter((draft) => draft.customerId === customerId && draft.status === "issued")
+    .filter((draft) => {
+      const draftYear = getInvoiceDraftReportYear(draft);
+      return draftYear === null || draftYear === customerReportYear;
+    })
+    .sort((a, b) => a.id - b.id)
+    .map((draft) => `${draft.id}:${draft.issuedAt ?? draft.writeDate ?? ""}:${draft.billingMonth}`)
+    .join("|");
+
+  return `${customerId}|${customerReportYear}|${issueDraftSignature}`;
+}
+
 function createEmptyCustomerOnestopDraft(): CustomerCertificateOnestopDraft {
   return {
     customerName: "",
@@ -359,6 +402,14 @@ export function CustomersTab(props: CustomersTabProps) {
     onSaved: props.onCustomerReportDetailSaved
   });
   const [customerReportIssueDateDrafts, setCustomerReportIssueDateDrafts] = useState<Record<string, string>>({});
+  const selectedCustomerIssuedDraftsSyncKey = useMemo(() => {
+    if (!selectedCustomer) {
+      return "";
+    }
+    return getCustomerReportIssuedDraftSyncKey(selectedCustomer.id, customerReportYear, props.selectedCustomerIssuedDrafts);
+  }, [selectedCustomer?.id, customerReportYear, props.selectedCustomerIssuedDrafts]);
+  const selectedCustomerIssuedDraftsSyncKeyRef = useRef("");
+  const previousCustomerDetailTabRef = useRef<CustomerDetailTabId>("info");
   const customerMainColumnRef = useRef<HTMLDivElement | null>(null);
   const customerTableWrapRef = useRef<HTMLDivElement | null>(null);
   const [customerOnestopStep, setCustomerOnestopStep] = useState<CustomerOnestopStepId>("source");
@@ -417,6 +468,25 @@ export function CustomersTab(props: CustomersTabProps) {
   useEffect(() => {
     setCustomerReportIssueDateDrafts({});
   }, [selectedCustomer?.id, customerReportYear]);
+
+  useEffect(() => {
+    if (!selectedCustomer) {
+      selectedCustomerIssuedDraftsSyncKeyRef.current = "";
+      previousCustomerDetailTabRef.current = props.customerDetailTab;
+      return;
+    }
+
+    const isHistoryTab = props.customerDetailTab === "history";
+    const wasHistoryTab = previousCustomerDetailTabRef.current === "history";
+    const previousSyncKey = selectedCustomerIssuedDraftsSyncKeyRef.current;
+
+    if (isHistoryTab && (previousSyncKey !== selectedCustomerIssuedDraftsSyncKey || !wasHistoryTab)) {
+      void customerReportDetail.reload();
+    }
+
+    selectedCustomerIssuedDraftsSyncKeyRef.current = selectedCustomerIssuedDraftsSyncKey;
+    previousCustomerDetailTabRef.current = props.customerDetailTab;
+  }, [customerReportDetail, props.customerDetailTab, selectedCustomer?.id, selectedCustomerIssuedDraftsSyncKey]);
 
   useEffect(() => {
     const updateCustomerTableViewportHeight = () => {
@@ -1304,7 +1374,7 @@ export function CustomersTab(props: CustomersTabProps) {
       {
         key: "invoice-issued",
         filter: "unissued",
-        label: "세금계산서 발행",
+        label: "세금계산서 발행 현황",
         value: `${issuedThisMonthCustomerCount}/${props.customers.length}건`,
         tone:
           props.customers.length > 0 && issuedThisMonthCustomerCount < props.customers.length
@@ -1714,7 +1784,7 @@ export function CustomersTab(props: CustomersTabProps) {
 
           <section className="customer-detail-section customer-report-history-section">
             <div className="customer-detail-section-head customer-report-history-head">
-              <h3>신고 이력</h3>
+            <h3>발행 이력</h3>
               <span className={customerReportDetail.error ? "customer-auto-save-status tone-danger" : customerReportDetail.saving ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
                 {customerReportDetail.error || customerReportSaveStatus}
               </span>
@@ -1731,7 +1801,7 @@ export function CustomersTab(props: CustomersTabProps) {
                 ))}
               </select>
             </div>
-            <div className="customer-report-totals" aria-label="신고 이력 합계">
+            <div className="customer-report-totals" aria-label="발행 이력 합계">
               <div>
                 <span>1분기합계</span>
                 <strong>{props.formatMoney(selectedReportTotals.firstHalf)}원</strong>
@@ -1749,7 +1819,7 @@ export function CustomersTab(props: CustomersTabProps) {
                 <strong>{props.formatMoney(selectedReportTotals.vat)}원</strong>
               </div>
               <div>
-                <span>통계</span>
+                <span>총합계</span>
                 <strong>{props.formatMoney(selectedReportTotals.annual)}원</strong>
               </div>
             </div>
@@ -2269,11 +2339,11 @@ export function CustomersTab(props: CustomersTabProps) {
               disabled={props.busyKey !== null || checkedVisibleCustomers.length === 0}
               aria-label={
                 checkedVisibleCustomers.length > 0
-                  ? `선택한 고객 ${checkedVisibleCustomers.length}명 내보내기`
-                  : "선택한 고객 내보내기"
+                  ? `선택한 고객 ${checkedVisibleCustomers.length}명 데이터 내보내기`
+                  : "선택한 고객 데이터 내보내기"
               }
             >
-              내보내기
+              데이터 내보내기
             </button>
             <button type="button" className="customer-console-primary-cta" onClick={handleCreateCustomer}>
               고객 추가

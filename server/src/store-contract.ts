@@ -47,6 +47,7 @@ export interface AppStore {
   saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer>;
   getCustomerReportDetail(customerId: number, reportYear: number): Promise<CustomerReportDetail>;
   saveCustomerReportDetail(customerId: number, input: CustomerReportDetailInput): Promise<CustomerReportDetail>;
+  upsertCustomerReportDetailFromIssuedDraft(draft: InvoiceDraft): Promise<CustomerReportDetail>;
   listCustomerContractRenewalsDue(currentYearMonth: string): Promise<CustomerContractRenewalDueItem[]>;
   completeCustomerContractRenewal(
     customerId: number,

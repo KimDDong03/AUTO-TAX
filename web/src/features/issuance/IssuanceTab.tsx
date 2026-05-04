@@ -6,7 +6,6 @@ import type { Customer, InboxMessage, InvoiceDraft, MailPreviewImageResponse } f
 type IssuanceFilter = "pending" | "scheduled" | "issuing" | "issued" | "unmatched" | "missingMail" | "all";
 type IssuancePeriodFilter = "all" | "month" | "recent30";
 type IssuanceSortMode = "status" | "newest" | "oldest" | "amountDesc";
-type IssuanceDetailTab = "invoice" | "customer" | "failure" | "popbill";
 type UnmatchedDetailTab = "mail" | "extracted" | "exception";
 
 type IssuanceListEntry =
@@ -75,20 +74,11 @@ type IssuanceTabProps = {
 };
 
 const ISSUANCE_FILTERS: Array<{ id: IssuanceFilter; label: string }> = [
-  { id: "pending", label: "검수 대기" },
-  { id: "scheduled", label: "자동 대기" },
-  { id: "issuing", label: "발행 중" },
+  { id: "all", label: "전체" },
+  { id: "pending", label: "발행 대기" },
   { id: "issued", label: "발행 완료" },
   { id: "unmatched", label: "고객 미매칭" },
-  { id: "missingMail", label: "메일 미수신" },
-  { id: "all", label: "전체" }
-];
-
-const ISSUANCE_DETAIL_TABS: Array<{ id: IssuanceDetailTab; label: string }> = [
-  { id: "invoice", label: "발행 정보" },
-  { id: "customer", label: "고객 정보" },
-  { id: "failure", label: "실패 사유" },
-  { id: "popbill", label: "연동 정보" }
+  { id: "missingMail", label: "메일 미수신" }
 ];
 
 const UNMATCHED_DETAIL_TABS: Array<{ id: UnmatchedDetailTab; label: string }> = [
@@ -392,7 +382,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
   const [issuanceSearchQuery, setIssuanceSearchQuery] = useState("");
   const [periodFilter, setPeriodFilter] = useState<IssuancePeriodFilter>("all");
   const [sortMode, setSortMode] = useState<IssuanceSortMode>("status");
-  const [detailTab, setDetailTab] = useState<IssuanceDetailTab>("invoice");
   const [unmatchedDetailTab, setUnmatchedDetailTab] = useState<UnmatchedDetailTab>("mail");
   const [customerFinderOpen, setCustomerFinderOpen] = useState(false);
   const [customerFinderQuery, setCustomerFinderQuery] = useState("");
@@ -537,16 +526,9 @@ export function IssuanceTab(props: IssuanceTabProps) {
   const selectedDraft = selectedEntry?.kind === "draft" ? selectedEntry.draft : null;
   const selectedUnmatchedMessage = selectedEntry?.kind === "unmatched" ? selectedEntry.message : null;
   const selectedMissingMailEntry = selectedEntry?.kind === "missing-mail" ? selectedEntry : null;
-  const selectedCustomer = useMemo(
-    () => (selectedDraft ? props.customers.find((customer) => customer.id === selectedDraft.customerId) ?? null : null),
-    [props.customers, selectedDraft]
-  );
-  const selectedDraftConfirmNumber = selectedDraft ? props.getDraftConfirmNumber(selectedDraft) : null;
   const selectedDraftMailPreview = selectedDraft ? mailPreviewByDraftId[selectedDraft.id] ?? null : null;
 
-  const canIssueSelectedDraft = selectedDraft?.status === "review" || selectedDraft?.status === "failed";
   const isSelectedDraftIssued = selectedDraft?.status === "issued";
-  const canShowPopbillInfo = Boolean(selectedDraft?.popbillMgtKey);
   const visibleIssueableEntries = useMemo(
     () => visibleEntries.filter(isIssueSelectableEntry),
     [visibleEntries]
@@ -595,10 +577,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
     setCustomerFinderQuery("");
     setUnmatchedDetailTab("mail");
   }, [selectedUnmatchedMessage?.id]);
-
-  useEffect(() => {
-    setDetailTab("invoice");
-  }, [selectedEntry?.key]);
 
   useEffect(() => {
     if (!selectedDraft) {
@@ -770,7 +748,11 @@ export function IssuanceTab(props: IssuanceTabProps) {
                 <button
                   key={filter.id}
                   type="button"
-                  className={activeFilter === filter.id ? "issuance-filter-chip active" : "issuance-filter-chip"}
+                  className={
+                    activeFilter === filter.id
+                      ? "home-header-chip issuance-filter-chip active"
+                      : "home-header-chip issuance-filter-chip"
+                  }
                   onClick={() => setActiveFilter(filter.id)}
                 >
                   {filter.label} {count}
@@ -793,7 +775,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
         <section className="issuance-summary-grid">
           <article className="issuance-summary-card">
             <div className="issuance-summary-card-head">
-              <span>검수 대기</span>
+              <span>발행 대기</span>
               <Icon name="issue" className="issuance-summary-card-icon" />
             </div>
             <strong>{pendingManualCount}건</strong>
@@ -1056,36 +1038,17 @@ export function IssuanceTab(props: IssuanceTabProps) {
             {selectedDraft ? (
               <div className="issuance-detail-scroll">
                 <div className="issuance-detail-hero">
-                  <div className="issuance-detail-hero-copy">
-                    <div className="issuance-detail-hero-top">
-                      <span className={`status status-${selectedDraft.status}`}>{props.getDraftStatusLabel(selectedDraft.status)}</span>
-                      <span className="issuance-detail-mode">{props.getIssueModeLabel(selectedDraft.issueMode)}</span>
+                    <div className="issuance-detail-hero-copy">
+                      <h2>{selectedDraft.customerName}</h2>
+                      <p>
+                        {selectedDraft.itemName} · {selectedDraft.billingMonth || "정산월 미확인"} · 합계 {props.formatMoney(selectedDraft.totalAmount)}원
+                      </p>
                     </div>
-                    <h2>{selectedDraft.customerName}</h2>
-                    <p>
-                      {selectedDraft.itemName} · {selectedDraft.billingMonth || "정산월 미확인"} · 합계 {props.formatMoney(selectedDraft.totalAmount)}원
-                    </p>
                   </div>
-                </div>
 
                 <div className="issuance-detail-tabset">
-                  <div className="issuance-detail-tabs" role="tablist" aria-label="발행 상세 정보">
-                    {ISSUANCE_DETAIL_TABS.map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={detailTab === tab.id}
-                        className={detailTab === tab.id ? "active" : ""}
-                        onClick={() => setDetailTab(tab.id)}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-
                   <div className="issuance-detail-grid">
-                    <section className="issuance-detail-card" aria-label="발행 정보" hidden={detailTab !== "invoice"}>
+                    <section className="issuance-detail-card" aria-label="발행 정보">
                       <div className="issuance-invoice-compare">
                         <div className="issuance-mail-preview" aria-label="원본 메일 금액 이미지">
                           {selectedDraftMailPreview?.status === "ready" ? (
@@ -1138,137 +1101,23 @@ export function IssuanceTab(props: IssuanceTabProps) {
                         </dl>
                       </div>
                     </section>
-
-                    <section className="issuance-detail-card" aria-label="고객 정보" hidden={detailTab !== "customer"}>
-                      <dl className="issuance-detail-facts">
-                      <div>
-                        <dt>고객명</dt>
-                        <dd>{selectedDraft.customerName}</dd>
-                      </div>
-                      <div>
-                        <dt>법인명</dt>
-                        <dd>{selectedCustomer?.corpName || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>사업자번호</dt>
-                        <dd>{selectedCustomer?.businessNumber || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>주소</dt>
-                        <dd>{selectedCustomer?.addr || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>품목</dt>
-                        <dd>{selectedDraft.itemName}</dd>
-                      </div>
-                      <div>
-                        <dt>사업 유형</dt>
-                        <dd>{selectedCustomer ? `${selectedCustomer.bizType} / ${selectedCustomer.bizClass}` : "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>발전소명</dt>
-                        <dd>{selectedDraft.plantName || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>수신 이메일</dt>
-                        <dd>{selectedDraft.recipientEmail || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>연동 상태</dt>
-                        <dd>{selectedCustomer ? `${selectedCustomer.popbillState} / 인증서 ${selectedCustomer.popbillCertRegistered ? "등록" : "미등록"}` : "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>고객 발행 방식</dt>
-                        <dd>{selectedCustomer ? props.getIssueModeLabel(selectedCustomer.issueMode) : "-"}</dd>
-                      </div>
-                      </dl>
-                    </section>
-
-                    <section className="issuance-detail-card issuance-detail-card-danger" aria-label="실패 사유" hidden={detailTab !== "failure"}>
-                      <p className="issuance-detail-error">
-                        {selectedDraft.issueError ? props.simplifyIssueError(selectedDraft.issueError) : "현재 선택한 초안에는 실패 사유가 없습니다."}
-                      </p>
-                    </section>
-
-                    <section className="issuance-detail-card" aria-label="연동 정보" hidden={detailTab !== "popbill"}>
-                      <dl className="issuance-detail-facts">
-                      <div>
-                        <dt>관리번호</dt>
-                        <dd>{selectedDraft.popbillMgtKey || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>확인번호</dt>
-                        <dd>{selectedDraftConfirmNumber ?? "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>연동 상태</dt>
-                        <dd>{selectedCustomer ? `${selectedCustomer.popbillState} / 인증서 ${selectedCustomer.popbillCertRegistered ? "등록" : "미등록"}` : "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>발행 요청</dt>
-                        <dd>{props.formatDateTime(selectedDraft.issueRequestedAt)}</dd>
-                      </div>
-                      <div>
-                        <dt>발행 완료</dt>
-                        <dd>{props.formatDateTime(selectedDraft.issuedAt)}</dd>
-                      </div>
-                      </dl>
-                    </section>
                   </div>
                 </div>
-
-                <div className="issuance-detail-footer-actions">
-                  {isSelectedDraftIssued ? (
-                    <>
-                      <button type="button" className="btn-secondary" onClick={() => props.onViewDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
-                        보기
-                      </button>
-                      <button type="button" onClick={() => props.onPrintDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
-                        인쇄
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => props.onShowDraftPopbillInfo(selectedDraft.id)}
-                        disabled={!canShowPopbillInfo || props.busyKey !== null}
-                      >
-                        연동 정보
-                      </button>
-                      <button type="button" className="btn-secondary" onClick={() => props.onCancelDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
-                        발행 취소
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button type="button" className="btn-secondary" onClick={() => props.onViewDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
-                        보기
-                      </button>
-                      <button type="button" onClick={() => props.onIssueDraft(selectedDraft.id)} disabled={!canIssueSelectedDraft || props.busyKey !== null}>
-                        직접 발행
-                      </button>
-                      <button type="button" onClick={() => props.onPrintDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
-                        인쇄
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => props.onShowDraftPopbillInfo(selectedDraft.id)}
-                        disabled={!canShowPopbillInfo || props.busyKey !== null}
-                      >
-                        연동 정보
-                      </button>
-                    </>
-                  )}
-                </div>
+                {isSelectedDraftIssued ? (
+                  <div className="issuance-detail-footer-actions">
+                    <button type="button" className="btn-secondary" onClick={() => props.onViewDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
+                      보기
+                    </button>
+                    <button type="button" className="btn-secondary" onClick={() => props.onCancelDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
+                      발행 취소
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : selectedUnmatchedMessage ? (
               <div className="issuance-detail-scroll">
                 <div className="issuance-detail-hero">
                   <div className="issuance-detail-hero-copy">
-                    <div className="issuance-detail-hero-top">
-                      <span className="status status-unmatched">고객 미매칭</span>
-                      <span className="issuance-detail-mode">메일 예외</span>
-                    </div>
                     <h2>{selectedUnmatchedMessage.parsedData?.plantName || "미매칭 메일"}</h2>
                     <p>
                       {selectedUnmatchedMessage.subject || selectedUnmatchedMessage.fromAddress}
@@ -1387,10 +1236,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
               <div className="issuance-detail-scroll">
                 <div className="issuance-detail-hero">
                   <div className="issuance-detail-hero-copy">
-                    <div className="issuance-detail-hero-top">
-                      <span className="status status-missing-mail">메일 미수신</span>
-                      <span className="issuance-detail-mode">메일 대기</span>
-                    </div>
                     <h2>{selectedMissingMailEntry.customer.customerName}</h2>
                     <p>
                       {selectedMissingMailEntry.billingMonth} 정산월 메일이 아직 수신 목록에 없습니다.

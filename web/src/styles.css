@@ -5590,6 +5590,7 @@ body {
 .home-screen {
   display: grid;
   gap: 0.95rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .home-onboarding-banner {
@@ -10301,14 +10302,16 @@ body {
 }
 
 .issuance-filter-chip {
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid #d7dce5;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: #ffffff;
-  color: #546171;
+  background: #f2f3f7;
+  color: #232933;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .issuance-filter-chip.active {
@@ -12968,6 +12971,12 @@ button.issuance-list-item {
   min-width: 0;
 }
 
+.topnav-brand-logo {
+  display: block;
+  width: 132px;
+  height: auto;
+}
+
 .topnav-brand h1 {
   margin: 0;
   font-size: 18px;
@@ -13580,6 +13589,11 @@ button.issuance-list-item {
   display: none;
 }
 
+.app-shell-topnav .topnav-brand-logo {
+  width: 170px;
+  max-width: 100%;
+}
+
 .app-shell-topnav .topnav-brand h1 {
   font-size: 40px;
   font-weight: 800;
@@ -13736,7 +13750,7 @@ button.issuance-list-item {
 /* Home option B-3 */
 .app-shell-topnav .home-screen {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
   min-height: 0;
 }
@@ -14052,20 +14066,27 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .issuance-filter-chip {
-  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
   padding: 0 12px;
-  border: 1px solid var(--wf-border);
-  border-radius: 2px;
-  background: var(--wf-surface);
-  font-size: 12px;
-  font-weight: 700;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: #f2f3f7;
+  color: #232933;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
   white-space: nowrap;
+  box-shadow: none;
 }
 
 .app-shell-topnav .issuance-filter-chip.active {
-  border-color: var(--wf-text);
-  background: var(--wf-faint);
-  color: var(--wf-text);
+  border-color: #1d2530;
+  background: #f2f3f7;
+  color: #111419;
+  box-shadow: none;
 }
 
 .app-shell-topnav .issuance-table-tools {
@@ -14358,8 +14379,10 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .issuance-detail-hero-top {
+  align-items: center;
   flex-wrap: nowrap;
 }
+
 
 .app-shell-topnav .issuance-detail-mode {
   min-height: 22px;
@@ -20327,6 +20350,30 @@ button.issuance-list-item {
   opacity: 1;
 }
 
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: #f2f3f7;
+  color: #232933;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip.active {
+  border-color: #1d2530;
+  background: #f2f3f7;
+  color: #111419;
+  box-shadow: none;
+}
+
 .app-shell-topnav input,
 .app-shell-topnav select,
 .app-shell-topnav textarea,
@@ -20553,7 +20600,6 @@ button.issuance-list-item {
   border-bottom: 1px solid var(--console-border);
 }
 
-.app-shell-topnav .issuance-filter-chip,
 .app-shell-topnav .certificate-filter-strip .chip,
 .app-shell-topnav .settings-step-card {
   border: 1px solid transparent;
@@ -20562,7 +20608,6 @@ button.issuance-list-item {
   color: var(--console-muted);
 }
 
-.app-shell-topnav .issuance-filter-chip.active,
 .app-shell-topnav .settings-step-card.active {
   border-color: rgba(37, 99, 235, 0.34);
   background: var(--console-primary-soft);
@@ -22604,3 +22649,5 @@ button.issuance-list-item {
 .app-shell-topnav .settings-account-stack > .panel + .panel {
   margin-top: 0;
 }
+
+

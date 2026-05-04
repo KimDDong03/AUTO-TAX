@@ -5076,8 +5076,6 @@ export function App() {
   const issuedDrafts: InvoiceDraft[] = [];
   const issuedDraftsByCustomerId = new Map<number, InvoiceDraft[]>();
   let issuancePendingDraftCount = 0;
-  let issuanceScheduledDraftCount = 0;
-  let issuanceIssuingDraftCount = 0;
   let issuanceIssuedDraftCount = 0;
   for (const draft of data.drafts) {
     if (draft.status === "review" || draft.status === "failed" || draft.status === "issuing") {
@@ -5085,10 +5083,6 @@ export function App() {
     }
     if (draft.status === "review" || draft.status === "failed") {
       issuancePendingDraftCount += 1;
-    } else if (draft.status === "scheduled") {
-      issuanceScheduledDraftCount += 1;
-    } else if (draft.status === "issuing") {
-      issuanceIssuingDraftCount += 1;
     } else if (draft.status === "issued") {
       issuanceIssuedDraftCount += 1;
     }
@@ -6279,8 +6273,9 @@ export function App() {
     onboardingFirstSyncReady,
     reviewDraftCount: homeReviewDrafts.length,
     unmatchedMessageCount: exceptionMessages.length,
+    unmatchedMessageTotalCount: data.inbox.length,
     blockedCustomerCount,
-    readyNowCustomerCount: readyNowCustomers.length,
+    certificateExpirationCustomerCount: expiredCertCustomers.length + expiringSoonCustomers.length,
     certAttentionCount,
     recentInboxCount: homeRecentInboxMessages.length,
     recentIssuedCount: homeRecentIssuedDrafts.length
@@ -6386,9 +6381,7 @@ export function App() {
         void runAction("issue-all", issueAllReviewDrafts);
       },
       chips: [
-        { label: "검수 대기", value: `${issuancePendingDraftCount}건`, tone: issuancePendingDraftCount > 0 ? "warn" : "success" },
-        { label: "자동 대기", value: `${issuanceScheduledDraftCount}건`, tone: issuanceScheduledDraftCount > 0 ? "default" : "success" },
-        { label: "발행 중", value: `${issuanceIssuingDraftCount}건`, tone: issuanceIssuingDraftCount > 0 ? "warn" : "default" },
+        { label: "발행 대기", value: `${issuancePendingDraftCount}건`, tone: issuancePendingDraftCount > 0 ? "warn" : "success" },
         { label: "발행 완료", value: `${issuanceIssuedDraftCount}건`, tone: issuanceIssuedDraftCount > 0 ? "success" : "default" }
       ]
     },
@@ -6475,7 +6468,7 @@ export function App() {
           <div className="topnav-brand">
             <span className="brand-badge topnav-brand-badge">AT</span>
             <div className="brand-copy">
-              <h1>AUTO-TAX</h1>
+              <img src="/logo-O2APlXk3.png" alt="AUTO-TAX" className="topnav-brand-logo" />
             </div>
           </div>
 
@@ -7742,3 +7735,4 @@ export function App() {
     </>
   );
 }
+
