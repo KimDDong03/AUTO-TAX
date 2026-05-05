@@ -46,7 +46,7 @@ type SettingsOrganizationMembersState = {
 };
 
 function getWorkspaceMemberRoleLabel(role: OrganizationMemberSummary["role"]): string {
-  return role === "owner" ? "owner" : "member";
+  return role === "owner" ? "관리자" : "사용자";
 }
 
 function isAbortError(error: unknown): boolean {

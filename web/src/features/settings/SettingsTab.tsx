@@ -1,5 +1,5 @@
 import React from "react";
-import { RevealIcon, StatusBadge, type StatusBadgeTone } from "../../components/ui";
+import { CheckboxControl, RevealIcon, StatusBadge, type StatusBadgeTone } from "../../components/ui";
 import { SettingsAccountSection } from "./SettingsAccountSection";
 import { SettingsDefaultsSection } from "./SettingsDefaultsSection";
 import { SettingsHelperSection } from "./SettingsHelperSection";
@@ -36,28 +36,6 @@ function parseProgressText(progressText: string) {
     completed: Math.min(Math.max(completed, 0), total),
     total
   };
-}
-
-function getImapServer(mailAddress: string, providerLabel: string) {
-  const normalizedProvider = providerLabel.toLowerCase();
-  const domain = mailAddress.split("@")[1]?.trim().toLowerCase() ?? "";
-
-  if (normalizedProvider.includes("gmail") || domain === "gmail.com") {
-    return "imap.gmail.com";
-  }
-  if (normalizedProvider.includes("naver") || domain === "naver.com") {
-    return "imap.naver.com";
-  }
-  if (
-    normalizedProvider.includes("daum") ||
-    normalizedProvider.includes("kakao") ||
-    domain === "daum.net" ||
-    domain === "kakao.com"
-  ) {
-    return "imap.daum.net";
-  }
-
-  return domain ? `imap.${domain}` : "";
 }
 
 function getAutosaveBadgeTone(state: SettingsSidebarModel["settingsAutosaveState"]): StatusBadgeTone {
@@ -144,10 +122,6 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
   const mail = model.sections.mail;
   const sidebar = model.sidebar;
   const notificationEnabled = mail.fields.notificationEmailsText.trim().length > 0;
-  const imapServer = getImapServer(
-    mail.fields.mailAddress,
-    mail.detectedMailProviderLabel
-  );
 
   return (
     <div className="settings-option1-detail-grid">
@@ -155,7 +129,7 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
         <div className="settings-option1-card-head">
           <div>
             <strong>메일 연결 설정</strong>
-            <span>메일 계정과 읽기 기준을 확인합니다.</span>
+            <span>메일 주소와 앱 비밀번호만 입력합니다.</span>
           </div>
           <button
             type="button"
@@ -170,7 +144,7 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
         {mail.isMailTesting ? (
           <div className="settings-action-feedback">
             <span className="chip chip-warn">테스트 중</span>
-            <span>IMAP/SMTP 연결을 확인하고 있습니다.</span>
+            <span>메일 계정 연결을 확인하고 있습니다.</span>
           </div>
         ) : null}
 
@@ -210,50 +184,21 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
               </button>
             </div>
           </label>
-          <label className="settings-option1-field settings-option1-field-wide">
-            IMAP 서버
-            <input
-              readOnly
-              value={imapServer}
-              placeholder="메일 주소 입력 후 자동 판별"
-            />
-          </label>
-          <label className="settings-option1-field">
-            포트
-            <input readOnly value="993" />
-          </label>
-          <label className="settings-option1-field">
-            보안
-            <select value="SSL/TLS" disabled>
-              <option>SSL/TLS</option>
-            </select>
-          </label>
-          <label className="settings-option1-field settings-option1-field-wide">
-            읽을 폴더
-            <div className="settings-option1-inline-control">
-              <input readOnly value="INVOICE" />
-              <button type="button" className="btn-secondary" disabled>
-                폴더 선택
-              </button>
-            </div>
-          </label>
-          <label className="settings-option1-checkbox">
-            <input
-              type="checkbox"
-              checked={notificationEnabled}
-              onChange={(event) => {
-                if (event.target.checked) {
-                  mail.onNotificationEmailsTextChange(
-                    mail.fields.notificationEmailsText.trim() ||
-                      mail.fields.mailAddress
-                  );
-                } else {
-                  mail.onNotificationEmailsTextChange("");
-                }
-              }}
-            />
-            미매칭 메일 알림 받기
-          </label>
+          <CheckboxControl
+            checked={notificationEnabled}
+            containerClassName="settings-option1-checkbox"
+            label="미매칭 메일 알림 받기"
+            onChange={(event) => {
+              if (event.target.checked) {
+                mail.onNotificationEmailsTextChange(
+                  mail.fields.notificationEmailsText.trim() ||
+                    mail.fields.mailAddress
+                );
+              } else {
+                mail.onNotificationEmailsTextChange("");
+              }
+            }}
+          />
           {notificationEnabled ? (
             <label className="settings-option1-field settings-option1-field-wide">
               알림 수신 메일
@@ -285,25 +230,19 @@ function SettingsOption1AccountPanel({ model }: SettingsTabProps) {
   const currentMember = account.organizationMemberItems.find(
     (item) => item.isCurrentUser
   );
-  const ownerMember =
-    account.organizationMemberItems.find((item) => item.isOwner)?.member ?? null;
-  const memberRows = account.organizationMemberItems.slice(0, 3);
-  const roleLabel =
-    currentMember?.roleLabel ??
-    (account.canManageOrganizationMembers ? "owner" : "member");
-  const ownerLabel =
-    ownerMember?.displayName || ownerMember?.loginId || model.context.userLabel;
   const memberCount = Math.max(
     account.organizationMembers.length,
     account.canManageOrganizationMembers ? 1 : 0
   );
+  const userLabel = currentMember?.member.displayName || model.context.userLabel;
+  const loginLabel = currentMember?.member.loginId || model.context.userLabel;
 
   return (
     <section className="settings-option1-card settings-option1-account-card">
       <div className="settings-option1-card-head">
         <div>
-          <strong>계정 / 작업공간</strong>
-          <span>현재 작업공간과 멤버 상태입니다.</span>
+          <strong>내 계정</strong>
+          <span>현재 로그인 계정과 작업공간입니다.</span>
         </div>
       </div>
 
@@ -313,64 +252,32 @@ function SettingsOption1AccountPanel({ model }: SettingsTabProps) {
           <dd>{model.context.workspaceLabel}</dd>
         </div>
         <div>
-          <dt>역할</dt>
-          <dd>{roleLabel}</dd>
+          <dt>사용자</dt>
+          <dd>{userLabel}</dd>
         </div>
         <div>
-          <dt>소유자</dt>
-          <dd>{ownerLabel}</dd>
+          <dt>로그인 계정</dt>
+          <dd>{loginLabel}</dd>
         </div>
         <div>
-          <dt>내 역할</dt>
-          <dd>{currentMember?.member.displayName || model.context.userLabel}</dd>
+          <dt>사용자 수</dt>
+          <dd>{memberCount}명</dd>
         </div>
       </dl>
 
       <div className="settings-option1-member-head">
-        <strong>멤버 ({memberCount})</strong>
+        <strong>사용자 관리</strong>
         <button
           type="button"
           className="btn-secondary"
           onClick={() => model.sidebar.setActiveSettingsSection("account")}
         >
-          멤버 관리
+          사용자 관리
         </button>
       </div>
-      <div className="settings-option1-member-table-wrap">
-        <table className="settings-option1-member-table">
-          <thead>
-            <tr>
-              <th>이름</th>
-              <th>이메일</th>
-              <th>역할</th>
-              <th>상태</th>
-            </tr>
-          </thead>
-          <tbody>
-            {memberRows.length > 0 ? (
-              memberRows.map((item) => (
-                <tr key={item.member.membershipId}>
-                  <td>{item.member.displayName || "이름 없음"}</td>
-                  <td>{item.member.loginId || "-"}</td>
-                  <td>{item.roleLabel}</td>
-                  <td>활성</td>
-                </tr>
-              ))
-            ) : account.canManageOrganizationMembers ? (
-              <tr>
-                <td>{model.context.userLabel}</td>
-                <td>-</td>
-                <td>{roleLabel}</td>
-                <td>활성</td>
-              </tr>
-            ) : (
-              <tr>
-                <td colSpan={4}>등록된 작업공간 사용자가 없습니다.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <p className="settings-option1-account-note">
+        사용자 추가와 비밀번호 재설정은 필요한 경우에만 관리 화면에서 처리합니다.
+      </p>
     </section>
   );
 }

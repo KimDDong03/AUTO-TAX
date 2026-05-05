@@ -1,5 +1,6 @@
 import type { Request, RequestHandler, Response } from "express";
 import { HttpError } from "./http-errors.js";
+import { isOrganizationOwnerRole, isWorkspaceEditorRole } from "./access-policy.js";
 import { buildPilotLogContext } from "./pilot-issuance.js";
 import type { ActiveOrganizationSession } from "./route-types.js";
 import type { AppStore } from "./store-contract.js";
@@ -94,7 +95,7 @@ function requireActiveOrganization(res: Response): ActiveOrganizationSession {
 
 export function requireOrganizationOwner(res: Response): ActiveOrganizationSession {
   const authContext = requireActiveOrganization(res);
-  if (authContext.activeOrganizationRole !== "owner") {
+  if (!isOrganizationOwnerRole(authContext.activeOrganizationRole)) {
     throw new HttpError(403, "소유자만 사용자 관리를 할 수 있습니다.");
   }
   return authContext;
@@ -102,7 +103,7 @@ export function requireOrganizationOwner(res: Response): ActiveOrganizationSessi
 
 export function requireWorkspaceEditor(res: Response): ActiveOrganizationSession {
   const authContext = requireActiveOrganization(res);
-  if (authContext.activeOrganizationRole === "viewer") {
+  if (!isWorkspaceEditorRole(authContext.activeOrganizationRole)) {
     throw new HttpError(403, "이 작업은 작업공간 멤버만 실행할 수 있습니다.");
   }
   return authContext;

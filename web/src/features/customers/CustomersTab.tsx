@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
-import { Icon } from "../../components/ui";
+import { CheckboxControl, Icon } from "../../components/ui";
 import type { LocalCertificateUploadSessionResult } from "../../local-renewal-helper";
 import type {
   Customer,
@@ -19,6 +19,7 @@ import {
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
 import {
   buildCustomerCertificateOnestopDraftFromCertificate,
+  filterCustomerOnestopCertificates,
   findExistingCustomerByBusinessNumber,
   validateCustomerCertificateOnestopDraft,
   type CustomerCertificateOnestopDraft,
@@ -297,6 +298,33 @@ function getCustomerOnestopCertificateKey(certificate: RenewalAgentCertificate):
   ].join("|");
 }
 
+function formatCustomerOnestopHiddenCertificateSummary(
+  filterResult: ReturnType<typeof filterCustomerOnestopCertificates>
+): string {
+  return [
+    filterResult.hiddenExpiredCount > 0 ? `만료 ${filterResult.hiddenExpiredCount}건 제외` : "",
+    filterResult.hiddenRegisteredCount > 0 ? `이미 등록된 고객 ${filterResult.hiddenRegisteredCount}건 제외` : ""
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function buildCustomerOnestopCertificateNotice(
+  sourceLabel: string,
+  certificates: RenewalAgentCertificate[],
+  filterResult: ReturnType<typeof filterCustomerOnestopCertificates>
+): string {
+  const hiddenSummary = formatCustomerOnestopHiddenCertificateSummary(filterResult);
+  const suffix = hiddenSummary ? ` (${hiddenSummary})` : "";
+  if (filterResult.availableCertificates.length > 0) {
+    return `${sourceLabel} 전자세금용 공동인증서 ${filterResult.availableCertificates.length}건을 표시합니다.${suffix}`;
+  }
+  if (certificates.length > 0) {
+    return `${sourceLabel} 표시할 새 전자세금용 공동인증서가 없습니다.${suffix}`;
+  }
+  return `${sourceLabel} 전자세금용 공동인증서를 찾지 못했습니다.`;
+}
+
 function normalizeCustomerCertificateText(value: string | null | undefined): string {
   return String(value ?? "")
     .replace(/\s+/g, "")
@@ -394,6 +422,7 @@ export function CustomersTab(props: CustomersTabProps) {
   const customerTableWrapRef = useRef<HTMLDivElement | null>(null);
   const [customerOnestopStep, setCustomerOnestopStep] = useState<CustomerOnestopStepId>("source");
   const [customerOnestopCertificates, setCustomerOnestopCertificates] = useState<RenewalAgentCertificate[]>([]);
+  const [customerOnestopCertificateSearchQuery, setCustomerOnestopCertificateSearchQuery] = useState("");
   const [customerOnestopSelectedCertificate, setCustomerOnestopSelectedCertificate] = useState<RenewalAgentCertificate | null>(null);
   const [customerOnestopPassword, setCustomerOnestopPassword] = useState("");
   const [customerOnestopDraft, setCustomerOnestopDraft] = useState<CustomerCertificateOnestopDraft>(createEmptyCustomerOnestopDraft);
@@ -420,6 +449,7 @@ export function CustomersTab(props: CustomersTabProps) {
 
     setCustomerOnestopStep("source");
     setCustomerOnestopCertificates([]);
+    setCustomerOnestopCertificateSearchQuery("");
     setCustomerOnestopSelectedCertificate(null);
     setCustomerOnestopPassword("");
     setCustomerOnestopDraft(createEmptyCustomerOnestopDraft());
@@ -602,10 +632,29 @@ export function CustomersTab(props: CustomersTabProps) {
   const customerOnestopMissingFieldLabels = validateCustomerCertificateOnestopDraft(customerOnestopDraft);
   const customerOnestopRequiredCompletedCount = customerOnestopRequiredFieldChecks.filter((field) => field.done).length;
   const customerOnestopExistingCustomer = findExistingCustomerByBusinessNumber(props.customers, customerOnestopDraft.businessNumber);
+  const customerCertificateTodayDateKey = getCustomerCertificateTodayDateKey();
+  const customerOnestopCertificateFilter = useMemo(
+    () =>
+      filterCustomerOnestopCertificates({
+        certificates: customerOnestopCertificates,
+        customers: props.customers,
+        customerCertificates: props.customerCertificates,
+        searchQuery: customerOnestopCertificateSearchQuery,
+        todayDateKey: customerCertificateTodayDateKey
+      }),
+    [
+      customerOnestopCertificates,
+      props.customers,
+      props.customerCertificates,
+      customerOnestopCertificateSearchQuery,
+      customerCertificateTodayDateKey
+    ]
+  );
   const customerOnestopCanExecute =
     Boolean(customerOnestopSelectedCertificate) &&
     customerOnestopPassword.trim() !== "" &&
     customerOnestopMissingFieldLabels.length === 0 &&
+    !customerOnestopExistingCustomer &&
     props.busyKey === null;
   const getCustomerIssueHelpText = (issue: CustomerIssueChecklistItem) => {
     switch (issue.actionKind) {
@@ -654,14 +703,17 @@ export function CustomersTab(props: CustomersTabProps) {
           setCustomerOnestopError("");
           setCustomerOnestopUploadSummary(null);
           const certificates = await props.onLoadCustomerAddCertificates();
+          const filterResult = filterCustomerOnestopCertificates({
+            certificates,
+            customers: props.customers,
+            customerCertificates: props.customerCertificates,
+            todayDateKey: customerCertificateTodayDateKey
+          });
           setCustomerOnestopCertificates(certificates);
-          setCustomerOnestopNotice(
-            certificates.length > 0
-              ? `PC에서 전자세금용 공동인증서 ${certificates.length}건을 찾았습니다.`
-              : "PC에서 전자세금용 공동인증서를 찾지 못했습니다."
-          );
-          if (certificates.length === 1) {
-            selectCustomerOnestopCertificate(certificates[0]!);
+          setCustomerOnestopCertificateSearchQuery("");
+          setCustomerOnestopNotice(buildCustomerOnestopCertificateNotice("PC에서", certificates, filterResult));
+          if (filterResult.availableCertificates.length === 1) {
+            selectCustomerOnestopCertificate(filterResult.availableCertificates[0]!);
           }
         } catch (error) {
           setCustomerOnestopError(getCustomerOnestopErrorMessage(error, "공동인증서 목록을 읽지 못했습니다."));
@@ -683,15 +735,18 @@ export function CustomersTab(props: CustomersTabProps) {
           setCustomerOnestopError("");
           const result = await props.onUploadCustomerAddCertificateFiles(files);
           const certificates = result.certificates as RenewalAgentCertificate[];
+          const filterResult = filterCustomerOnestopCertificates({
+            certificates,
+            customers: props.customers,
+            customerCertificates: props.customerCertificates,
+            todayDateKey: customerCertificateTodayDateKey
+          });
           setCustomerOnestopUploadSummary(result);
           setCustomerOnestopCertificates(certificates);
-          setCustomerOnestopNotice(
-            certificates.length > 0
-              ? `업로드한 파일에서 전자세금용 공동인증서 ${certificates.length}건을 읽었습니다.`
-              : "업로드한 파일에서 전자세금용 공동인증서를 찾지 못했습니다."
-          );
-          if (certificates.length === 1) {
-            selectCustomerOnestopCertificate(certificates[0]!);
+          setCustomerOnestopCertificateSearchQuery("");
+          setCustomerOnestopNotice(buildCustomerOnestopCertificateNotice("업로드한 파일에서", certificates, filterResult));
+          if (filterResult.availableCertificates.length === 1) {
+            selectCustomerOnestopCertificate(filterResult.availableCertificates[0]!);
           }
         } catch (error) {
           setCustomerOnestopError(getCustomerOnestopErrorMessage(error, "인증서 파일을 읽지 못했습니다."));
@@ -716,6 +771,20 @@ export function CustomersTab(props: CustomersTabProps) {
             customerOnestopSelectedCertificate,
             customerOnestopPassword
           );
+          const existingCustomer = findExistingCustomerByBusinessNumber(props.customers, result.draft.businessNumber);
+          if (existingCustomer) {
+            const selectedCertificateKey = getCustomerOnestopCertificateKey(customerOnestopSelectedCertificate);
+            setCustomerOnestopCertificates((prev) =>
+              prev.filter((certificate) => getCustomerOnestopCertificateKey(certificate) !== selectedCertificateKey)
+            );
+            setCustomerOnestopSelectedCertificate(null);
+            setCustomerOnestopPassword("");
+            setCustomerOnestopNotice(
+              `이미 등록된 고객이라 목록에서 제외했습니다: ${existingCustomer.corpName || existingCustomer.customerName}`
+            );
+            setCustomerOnestopStep("source");
+            return;
+          }
           setCustomerOnestopDraft(result.draft);
           setCustomerOnestopNotice(result.message);
           setCustomerOnestopStep("confirm");
@@ -1028,7 +1097,6 @@ export function CustomersTab(props: CustomersTabProps) {
       : !props.customerRenewalAssistantOnline
         ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 로컬 헬퍼를 실행하세요."
         : "";
-  const customerCertificateTodayDateKey = getCustomerCertificateTodayDateKey();
   const unlinkedCustomerCertificateItems = props.customerCertificateItems.filter(
     (item) =>
       item.linkedCustomerId === null &&
@@ -1483,8 +1551,7 @@ export function CustomersTab(props: CustomersTabProps) {
           onKeyDown={(event) => handleCustomerRowKeyDown(event, customer)}
         >
           <td className="customer-console-col-check">
-            <input
-              type="checkbox"
+            <CheckboxControl
               checked={isChecked}
               readOnly
               aria-label={`${summaryTitle} 선택`}
@@ -1880,9 +1947,28 @@ export function CustomersTab(props: CustomersTabProps) {
       );
     }
 
+    if (customerOnestopCertificateFilter.availableCertificates.length === 0) {
+      const hiddenSummary = formatCustomerOnestopHiddenCertificateSummary(customerOnestopCertificateFilter);
+      return (
+        <div className="context-empty-state customer-onestop-empty">
+          <strong>표시할 인증서 없음</strong>
+          <p>{hiddenSummary || "만료되었거나 이미 등록된 고객의 인증서는 제외했습니다."}</p>
+        </div>
+      );
+    }
+
+    if (customerOnestopCertificateFilter.visibleCertificates.length === 0) {
+      return (
+        <div className="context-empty-state customer-onestop-empty">
+          <strong>검색 결과 없음</strong>
+          <p>인증서명, 발급기관, 만료일로 다시 검색하세요.</p>
+        </div>
+      );
+    }
+
     return (
       <div className="customer-onestop-certificate-list">
-        {customerOnestopCertificates.map((certificate) => {
+        {customerOnestopCertificateFilter.visibleCertificates.map((certificate) => {
           const selected =
             customerOnestopSelectedCertificate &&
             getCustomerOnestopCertificateKey(customerOnestopSelectedCertificate) ===
@@ -1953,6 +2039,17 @@ export function CustomersTab(props: CustomersTabProps) {
             <input {...directoryInputProps} />
           </label>
         </div>
+        {customerOnestopCertificateFilter.availableCertificates.length > 0 ? (
+          <label className="customer-onestop-certificate-search" aria-label="인증서 검색">
+            <Icon name="search" className="customer-onestop-certificate-search-icon" />
+            <input
+              type="search"
+              placeholder="인증서명, 발급기관, 만료일 검색"
+              value={customerOnestopCertificateSearchQuery}
+              onChange={(event) => setCustomerOnestopCertificateSearchQuery(event.target.value)}
+            />
+          </label>
+        ) : null}
         {renderCustomerOnestopCertificateList()}
         {customerOnestopUploadSummary ? (
           <div className="customer-onestop-upload-summary">
@@ -2009,7 +2106,7 @@ export function CustomersTab(props: CustomersTabProps) {
           <h3>고객 정보 확인</h3>
           <p>
             {customerOnestopExistingCustomer
-              ? `같은 사업자번호의 기존 고객을 사용합니다: ${customerOnestopExistingCustomer.corpName || customerOnestopExistingCustomer.customerName}`
+              ? `이미 등록된 사업자번호입니다: ${customerOnestopExistingCustomer.corpName || customerOnestopExistingCustomer.customerName}`
               : customerOnestopMissingFieldLabels.length > 0
                 ? `남은 항목: ${customerOnestopMissingFieldLabels.join(", ")}`
                 : "확인 후 한 번에 실행합니다."}
@@ -2246,8 +2343,7 @@ export function CustomersTab(props: CustomersTabProps) {
                 <thead>
                   <tr>
                     <th className="customer-console-col-check" aria-label="선택">
-                      <input
-                        type="checkbox"
+                      <CheckboxControl
                         checked={allVisibleCustomersChecked}
                         readOnly
                         disabled={visibleTableCustomers.length === 0}

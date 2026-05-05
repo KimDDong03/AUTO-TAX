@@ -1,7 +1,11 @@
 import type { Customer, CustomerCertificate } from "../../types";
 import {
   deriveCustomerCertificateKind,
-  findRenewalCertificatesByIdentity
+  findCandidateCustomersForCertificate,
+  findRenewalCertificatesByIdentity,
+  findStoredCustomerCertificateForLocalCertificate,
+  getCustomerCertificateTodayDateKey,
+  isCustomerCertificateExpired
 } from "../renewal/customerRenewalCertificateUtils";
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
 
@@ -75,6 +79,13 @@ export type RunCustomerCertificateOnestopRegistrationArgs = {
   refreshCertificateStatus: (customerId: number) => Promise<Customer>;
 };
 
+export type CustomerOnestopCertificateFilterResult = {
+  availableCertificates: RenewalAgentCertificate[];
+  visibleCertificates: RenewalAgentCertificate[];
+  hiddenExpiredCount: number;
+  hiddenRegisteredCount: number;
+};
+
 export const CUSTOMER_POPBILL_JOIN_SUPPORT_MESSAGE =
   "등록 처리를 완료하지 못했습니다. AUTO-TAX 운영팀에 문의해 주세요.";
 
@@ -92,6 +103,83 @@ export function findExistingCustomerByBusinessNumber(customers: Customer[], busi
     return null;
   }
   return customers.find((customer) => digitsOnly(customer.businessNumber) === normalizedBusinessNumber) ?? null;
+}
+
+function getCustomerOnestopCertificateExpireDate(certificate: RenewalAgentCertificate): string | null {
+  return certificate.todate ?? certificate.detailValidateTo ?? null;
+}
+
+function normalizeCustomerOnestopSearchText(value: string | number | null | undefined): string {
+  return String(value ?? "")
+    .replace(/\s+/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function matchesCustomerOnestopCertificateSearch(certificate: RenewalAgentCertificate, searchQuery: string): boolean {
+  const query = normalizeCustomerOnestopSearchText(searchQuery);
+  if (!query) {
+    return true;
+  }
+
+  return [
+    certificate.index,
+    certificate.cn,
+    certificate.issuerToName,
+    certificate.usageToName,
+    certificate.todate,
+    certificate.detailValidateTo,
+    certificate.serial,
+    certificate.userDN
+  ].some((value) => normalizeCustomerOnestopSearchText(value).includes(query));
+}
+
+export function isCustomerOnestopCertificateAlreadyRegistered(
+  certificate: RenewalAgentCertificate,
+  customers: Customer[],
+  customerCertificates: CustomerCertificate[]
+): boolean {
+  if (findStoredCustomerCertificateForLocalCertificate(certificate, customerCertificates)) {
+    return true;
+  }
+
+  return findCandidateCustomersForCertificate(certificate, customers).length > 0;
+}
+
+export function filterCustomerOnestopCertificates(options: {
+  certificates: RenewalAgentCertificate[];
+  customers: Customer[];
+  customerCertificates: CustomerCertificate[];
+  searchQuery?: string;
+  todayDateKey?: string;
+}): CustomerOnestopCertificateFilterResult {
+  const todayDateKey = options.todayDateKey ?? getCustomerCertificateTodayDateKey();
+  const availableCertificates: RenewalAgentCertificate[] = [];
+  let hiddenExpiredCount = 0;
+  let hiddenRegisteredCount = 0;
+
+  for (const certificate of options.certificates) {
+    if (isCustomerCertificateExpired(getCustomerOnestopCertificateExpireDate(certificate), todayDateKey)) {
+      hiddenExpiredCount += 1;
+      continue;
+    }
+
+    if (isCustomerOnestopCertificateAlreadyRegistered(certificate, options.customers, options.customerCertificates)) {
+      hiddenRegisteredCount += 1;
+      continue;
+    }
+
+    availableCertificates.push(certificate);
+  }
+
+  return {
+    availableCertificates,
+    visibleCertificates: availableCertificates.filter((certificate) =>
+      matchesCustomerOnestopCertificateSearch(certificate, options.searchQuery ?? "")
+    ),
+    hiddenExpiredCount,
+    hiddenRegisteredCount
+  };
 }
 
 export function validateCustomerCertificateOnestopDraft(draft: CustomerCertificateOnestopDraft): string[] {

@@ -181,6 +181,30 @@ export function RevealIcon(props: { open: boolean }) {
   );
 }
 
+export type CheckboxControlProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  containerClassName?: string;
+  label?: React.ReactNode;
+};
+
+export const CheckboxControl = React.forwardRef<HTMLInputElement, CheckboxControlProps>(
+  function CheckboxControl(props, ref) {
+    const { className, containerClassName, label, ...inputProps } = props;
+    const inputClassName = ["ui-checkbox-input", className].filter(Boolean).join(" ");
+    const input = <input {...inputProps} ref={ref} type="checkbox" className={inputClassName} />;
+
+    if (label === undefined || label === null) {
+      return input;
+    }
+
+    return (
+      <label className={["ui-checkbox", containerClassName].filter(Boolean).join(" ")}>
+        {input}
+        <span className="ui-checkbox-label">{label}</span>
+      </label>
+    );
+  }
+);
+
 export type StatusBadgeTone = "default" | "success" | "warn" | "danger" | "info";
 
 export function StatusBadge(props: {

@@ -109,6 +109,8 @@ When reviewing schema changes:
    - `POST /api/internal/jobs/run`
 4. Business work persists in `job_queue`.
 
+`job-tick` runs at most 10 queued jobs by default. Explicit run limits are clamped to 25 so cron or manual retries cannot flood the database after a backlog.
+
 `mail-sync` is dispatched at most once per workspace/month after the workspace's monthly schedule is reached. The default day is the 20th; there is no five-minute mail collection loop.
 
 ### Retention
@@ -232,8 +234,15 @@ Expected response:
 
 ```bash
 npm run test:e2e:smoke
+npm run smoke:ops
 node scripts/public-access-portal-smoke.mjs
 ```
+
+`npm run smoke:ops` checks the linked Supabase project for:
+
+- `job-tick` is active and deployed with JWT verification disabled.
+- remote migration history is up to date.
+- queue/log pressure snapshot, failing on stale claimed jobs by default.
 
 ## 9. Pilot Reporting
 

@@ -37,6 +37,15 @@
   --screen-gap: 0.9rem;
   --panel-pad: 1rem;
   --panel-pad-mobile: 0.88rem;
+  --color-control-bg: #ffffff;
+  --color-control-border: var(--border-strong);
+  --color-control-border-hover: #94a3b8;
+  --color-control-focus: rgba(37, 99, 235, 0.16);
+  --color-control-selected: var(--primary);
+  --color-control-selected-strong: var(--primary-strong);
+  --color-control-selected-mark: #ffffff;
+  --size-checkbox: 16px;
+  --radius-checkbox: 4px;
   font-family: "Pretendard Variable", "Pretendard", "Segoe UI Variable Text", "Segoe UI", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -222,6 +231,88 @@ textarea:focus {
 
 textarea {
   resize: vertical;
+}
+
+.ui-checkbox {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ui-checkbox-label {
+  min-width: 0;
+}
+
+.ui-checkbox-input {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-block;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: var(--size-checkbox);
+  min-width: var(--size-checkbox);
+  height: var(--size-checkbox);
+  min-height: var(--size-checkbox);
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-checkbox);
+  background-color: var(--color-control-bg);
+  background-image: none;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 11px 11px;
+  color: var(--color-control-selected-mark);
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.ui-checkbox-input:hover {
+  border-color: var(--color-control-border-hover);
+}
+
+.ui-checkbox-input:checked,
+.ui-checkbox-input:indeterminate {
+  border-color: var(--color-control-selected);
+  background-color: var(--color-control-selected);
+}
+
+.ui-checkbox-input:checked {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3.5 8.2 6.6 11.1 12.6 4.9' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.ui-checkbox-input:indeterminate {
+  background-image: linear-gradient(var(--color-control-selected-mark), var(--color-control-selected-mark));
+  background-size: 8px 2px;
+}
+
+.ui-checkbox-input:focus {
+  outline: none;
+  border-color: var(--color-control-selected);
+  box-shadow: none;
+}
+
+.ui-checkbox-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-control-focus);
+}
+
+.ui-checkbox-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-checkbox:has(.ui-checkbox-input:disabled) {
+  cursor: not-allowed;
 }
 
 .loading-shell {
@@ -4546,13 +4637,14 @@ tr + tr td {
 }
 
 .checkbox-row {
-  display: flex;
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.5rem;
 }
 
-.checkbox-row input {
-  width: auto;
+.checkbox-row .ui-checkbox-input {
+  width: var(--size-checkbox);
   margin-top: 0;
 }
 
@@ -4605,8 +4697,9 @@ tr + tr td {
   padding: 0.2rem 0;
 }
 
-.checkbox input {
-  width: auto;
+.checkbox input,
+.checkbox .ui-checkbox-input {
+  width: var(--size-checkbox);
   margin: 0;
   accent-color: var(--primary);
 }
@@ -8169,6 +8262,32 @@ textarea {
   font-size: 0.78rem;
   font-weight: 800;
   cursor: pointer;
+}
+
+.customer-onestop-certificate-search {
+  position: relative;
+  display: block;
+}
+
+.customer-onestop-certificate-search-icon {
+  position: absolute;
+  left: 0.78rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.customer-onestop-certificate-search input {
+  width: 100%;
+  min-height: 2.55rem;
+  padding: 0 0.75rem 0 2.3rem;
+  border: 1px solid rgba(32, 55, 94, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .customer-onestop-file-button input {
@@ -13540,6 +13659,14 @@ button.issuance-list-item {
   --wf-text: #151515;
   --wf-muted: #666666;
   --wf-faint: #eeeeee;
+  --color-control-bg: var(--wf-surface);
+  --color-control-border: #94a3b8;
+  --color-control-border-hover: var(--wf-text);
+  --color-control-focus: rgba(37, 99, 235, 0.16);
+  --color-control-selected: #2563eb;
+  --color-control-selected-strong: #1d4ed8;
+  --size-checkbox: 16px;
+  --radius-checkbox: 4px;
   color: var(--wf-text);
 }
 
@@ -14247,7 +14374,7 @@ button.issuance-list-item {
   box-shadow: inset 3px 0 0 var(--wf-text);
 }
 
-.app-shell-topnav .issuance-table-check-cell input:disabled {
+.app-shell-topnav .issuance-table-check-cell .ui-checkbox-input:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
@@ -15516,9 +15643,10 @@ button.issuance-list-item {
   align-self: center;
 }
 
-.app-shell-topnav .settings-option1-checkbox input {
-  width: 14px;
-  height: 14px;
+.app-shell-topnav .settings-option1-checkbox .ui-checkbox-input {
+  width: var(--size-checkbox);
+  height: var(--size-checkbox);
+  min-height: var(--size-checkbox);
 }
 
 .app-shell-topnav .settings-option1-save-row {
@@ -15578,6 +15706,17 @@ button.issuance-list-item {
   color: var(--wf-text);
   font-size: 13px;
   font-weight: 700;
+}
+
+.app-shell-topnav .settings-option1-account-note {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--wf-border);
+  border-radius: 3px;
+  background: var(--wf-faint);
+  color: var(--wf-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .app-shell-topnav .settings-option1-member-table-wrap {
@@ -16741,7 +16880,7 @@ button.issuance-list-item {
   text-align: center;
 }
 
-.app-shell-topnav .customer-console-col-check input {
+.app-shell-topnav .customer-console-col-check .ui-checkbox-input {
   display: block;
   margin: 0 auto;
 }
@@ -16865,10 +17004,12 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .customer-detail-panel-head-actions .btn-secondary {
-  min-width: 30px;
+  min-width: 56px;
   min-height: 30px;
-  padding: 0;
+  padding: 0 12px;
   border-radius: 3px;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .app-shell-topnav .customer-detail-panel-body.customer-detail-option3-body {
@@ -17224,9 +17365,9 @@ button.issuance-list-item {
   font-size: 11px;
 }
 
-.app-shell-topnav .customer-report-checkbox input {
-  width: 14px;
-  min-height: 14px;
+.app-shell-topnav .customer-report-checkbox .ui-checkbox-input {
+  width: var(--size-checkbox);
+  min-height: var(--size-checkbox);
   padding: 0;
 }
 
@@ -18022,6 +18163,7 @@ button.issuance-list-item {
 .app-shell-topnav .customer-onestop-source-actions > button,
 .app-shell-topnav .customer-onestop-file-button,
 .app-shell-topnav .customer-onestop-certificate,
+.app-shell-topnav .customer-onestop-certificate-search input,
 .app-shell-topnav .customer-onestop-result,
 .app-shell-topnav .customer-onestop-password input,
 .app-shell-topnav .customer-onestop-form-grid input,
@@ -18035,6 +18177,16 @@ button.issuance-list-item {
   min-height: 30px;
   padding: 0 8px;
   font-size: 12px;
+}
+
+.app-shell-topnav .customer-onestop-certificate-search input {
+  min-height: 30px;
+  padding: 0 8px 0 30px;
+  font-size: 12px;
+}
+
+.app-shell-topnav .customer-onestop-certificate-search-icon {
+  left: 9px;
 }
 
 .app-shell-topnav .customer-onestop-form-grid {
@@ -19089,19 +19241,14 @@ button.issuance-list-item {
   padding-left: 14px;
 }
 
-.app-shell-topnav .issuance-list-panel .issuance-list-table input[type="checkbox"] {
+.app-shell-topnav .issuance-list-panel .issuance-list-table .ui-checkbox-input {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: var(--size-checkbox);
+  height: var(--size-checkbox);
   margin: 0;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  background: #ffffff;
+  border-color: var(--color-control-border);
+  border-radius: var(--radius-checkbox);
   box-shadow: none;
-}
-
-.app-shell-topnav .issuance-list-panel .issuance-list-table thead input[type="checkbox"] {
-  background: #ffffff;
 }
 
 /* Settings account section final lock: the stack is layout-only. Individual
@@ -22613,20 +22760,16 @@ button.issuance-list-item {
   padding-left: 14px;
 }
 
-.app-shell-topnav .issuance-list-panel .issuance-list-table input[type="checkbox"] {
+.app-shell-topnav .issuance-list-panel .issuance-list-table .ui-checkbox-input {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: var(--size-checkbox);
+  height: var(--size-checkbox);
   margin: 0;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  background: #ffffff;
+  border-color: var(--color-control-border);
+  border-radius: var(--radius-checkbox);
   box-shadow: none;
 }
 
-.app-shell-topnav .issuance-list-panel .issuance-list-table thead input[type="checkbox"] {
-  background: #ffffff;
-}
 /* Settings account section final lock: the stack is layout-only. Individual
    account panels carry the surface, so the outer wrapper must not look like
    another nested card. */
@@ -22729,14 +22872,13 @@ button.issuance-list-item {
   vertical-align: middle;
 }
 
-.app-shell-topnav .customer-console-table .customer-console-col-check input[type="checkbox"] {
+.app-shell-topnav .customer-console-table .customer-console-col-check .ui-checkbox-input {
   display: block;
   box-sizing: border-box;
-  width: 16px !important;
-  height: 16px !important;
+  width: var(--size-checkbox) !important;
+  height: var(--size-checkbox) !important;
   margin: 0 auto !important;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  background: #ffffff;
+  border-color: var(--color-control-border);
+  border-radius: var(--radius-checkbox);
   box-shadow: none;
 }

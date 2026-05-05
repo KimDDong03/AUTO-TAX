@@ -76,6 +76,8 @@ export type StartServerOptions = {
   rootDir?: string;
   webDist?: string;
   startScheduler?: boolean;
+  storeInitializationTimeoutMs?: number;
+  allowStoreInitializationFailure?: boolean;
 };
 
 type ClientAppSettings = Pick<
@@ -1038,16 +1040,85 @@ function isNoOrganizationStoreError(error: unknown): boolean {
   return error instanceof Error && error.message === "사용 가능한 조직이 없습니다.";
 }
 
-export async function createConfiguredStore(options: { bootstrapOrganization?: boolean } = {}): Promise<AppStore | null> {
+class StoreInitializationTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Supabase 초기화가 ${timeoutMs}ms 안에 완료되지 않았습니다.`);
+  }
+}
+
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function parseBoolean(value: string | undefined): boolean | undefined {
+  if (value === "true" || value === "1") {
+    return true;
+  }
+  if (value === "false" || value === "0") {
+    return false;
+  }
+  return undefined;
+}
+
+function isDevServerLifecycle(value: string | undefined): boolean {
+  return value === "dev" || value === "dev:server";
+}
+
+export function resolveDirectStartServerOptions(env: NodeJS.ProcessEnv = process.env): StartServerOptions {
+  const configuredTimeoutMs = parsePositiveInteger(env.AUTO_TAX_STORE_INIT_TIMEOUT_MS);
+  const configuredAllowFailure = parseBoolean(env.AUTO_TAX_ALLOW_STORE_INIT_FAILURE);
+  const isDevServer = isDevServerLifecycle(env.npm_lifecycle_event);
+  return {
+    storeInitializationTimeoutMs: configuredTimeoutMs ?? (isDevServer ? 5000 : undefined),
+    allowStoreInitializationFailure: configuredAllowFailure ?? isDevServer
+  };
+}
+
+async function initializeStore(store: SupabaseStore, timeoutMs: number | undefined): Promise<void> {
+  if (!timeoutMs) {
+    await store.initialize();
+    return;
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const initializePromise = store.initialize();
+  initializePromise.catch(() => undefined);
+  try {
+    await Promise.race([
+      initializePromise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new StoreInitializationTimeoutError(timeoutMs)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+export async function createConfiguredStore(
+  options: {
+    bootstrapOrganization?: boolean;
+    initializationTimeoutMs?: number;
+    allowInitializationFailure?: boolean;
+  } = {}
+): Promise<AppStore | null> {
   const store = new SupabaseStore({
     bootstrapOrganization: options.bootstrapOrganization ?? false
   });
 
   try {
-    await store.initialize();
+    await initializeStore(store, options.initializationTimeoutMs);
     return store;
   } catch (error) {
     if (isNoOrganizationStoreError(error)) {
+      return null;
+    }
+    if (options.allowInitializationFailure) {
+      const message = error instanceof Error ? error.message : "Supabase 초기화 실패";
+      console.warn(`[AUTO-TAX] Supabase store initialization skipped: ${message}`);
       return null;
     }
     throw error;
@@ -1061,7 +1132,10 @@ export async function startServer(options: StartServerOptions = {}) {
     : path.join(rootDir, "dist", "web");
   const port = options.port ?? Number(process.env.PORT ?? 4300);
 
-  const store = await createConfiguredStore();
+  const store = await createConfiguredStore({
+    initializationTimeoutMs: options.storeInitializationTimeoutMs,
+    allowInitializationFailure: options.allowStoreInitializationFailure
+  });
   const scheduler = store ? new Scheduler(store) : null;
   const app = await createApp(store, webDist, rootDir);
   const server = app.listen(port, () => {
@@ -1130,5 +1204,5 @@ function isDirectExecution(): boolean {
 }
 
 if (isDirectExecution()) {
-  void startServer();
+  void startServer(resolveDirectStartServerOptions());
 }

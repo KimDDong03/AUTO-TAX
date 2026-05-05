@@ -253,7 +253,7 @@ test("SettingsTab keeps local helper details out of issue defaults", () => {
   assert.doesNotMatch(defaultsText, /헬퍼 다운로드/);
 });
 
-test("SettingsTab mail detail hides the legacy five-minute collection setting", () => {
+test("SettingsTab mail detail hides customer-unnecessary transport settings", () => {
   const mailTree = SettingsTab({
     model: createModel("gmail")
   });
@@ -262,5 +262,44 @@ test("SettingsTab mail detail hides the legacy five-minute collection setting", 
   assert.match(mailText, /메일 연결 설정/);
   assert.match(mailText, /메일 계정/);
   assert.doesNotMatch(mailText, /수집 주기/);
+  assert.doesNotMatch(mailText, /IMAP/);
+  assert.doesNotMatch(mailText, /SMTP/);
+  assert.doesNotMatch(mailText, /포트/);
+  assert.doesNotMatch(mailText, /보안/);
+  assert.doesNotMatch(mailText, /읽을 폴더/);
   assert.doesNotMatch(mailText, /5/);
+});
+
+test("SettingsTab account summary hides internal role labels", () => {
+  const model = createModel("gmail");
+  const currentMember = {
+    membershipId: "membership-1",
+    userId: "user-1",
+    loginId: "admin01",
+    displayName: "관리자",
+    role: "owner" as const,
+    createdAt: "2026-05-05T00:00:00.000Z"
+  };
+  model.sections.account.account.canManageOrganizationMembers = true;
+  model.sections.account.account.organizationMembers = [currentMember];
+  model.sections.account.account.organizationMemberItems = [
+    {
+      member: currentMember,
+      roleLabel: "owner",
+      isCurrentUser: true,
+      isOwner: true,
+      canRemove: false,
+      canResetPassword: false,
+      isResetTarget: false
+    }
+  ];
+
+  const text = collectText(SettingsTab({ model }));
+
+  assert.match(text, /내 계정/);
+  assert.match(text, /사용자 수/);
+  assert.doesNotMatch(text, /소유자/);
+  assert.doesNotMatch(text, /내 역할/);
+  assert.doesNotMatch(text, /owner/);
+  assert.doesNotMatch(text, /member/);
 });

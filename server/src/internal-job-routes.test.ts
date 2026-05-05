@@ -8,7 +8,8 @@ test("core internal job routes expose maintenance separately without changing di
   const calls = {
     maintenance: 0,
     dispatch: 0,
-    run: 0
+    run: 0,
+    runLimits: [] as Array<number | undefined>
   };
 
   const app = express();
@@ -86,8 +87,9 @@ test("core internal job routes expose maintenance separately without changing di
         details: []
       };
     },
-    runDueJobs: async ({ claimedBy }) => {
+    runDueJobs: async ({ claimedBy, limit }) => {
       calls.run += 1;
+      calls.runLimits.push(limit);
       assert.equal(claimedBy, "cron-runner");
       return {
         attempted: 1,
@@ -145,7 +147,7 @@ test("core internal job routes expose maintenance separately without changing di
       headers: {
         "content-type": "application/json"
       },
-      body: JSON.stringify({ limit: 25 })
+      body: JSON.stringify({ limit: 100 })
     });
     assert.equal(runResponse.status, 200);
     assert.deepEqual(await runResponse.json(), {
@@ -160,7 +162,8 @@ test("core internal job routes expose maintenance separately without changing di
     assert.deepEqual(calls, {
       maintenance: 1,
       dispatch: 1,
-      run: 1
+      run: 1,
+      runLimits: [25]
     });
   } finally {
     await new Promise<void>((resolve, reject) => {

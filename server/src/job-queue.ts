@@ -40,6 +40,7 @@ const JOB_CLAIM_TIMEOUT_MINUTES: Record<QueueJobType, number> = {
   "customer-onboarding-commit": 20,
   "customer-popbill-auto-join": 5
 };
+const MAX_JOB_RUN_LIMIT = 25;
 
 type DispatchDetail = {
   jobType: QueueJobType;
@@ -257,6 +258,9 @@ async function scheduleRetry(job: QueueJob, errorMessage: string): Promise<{ sch
 
 async function requeueStaleClaimedJobs(now: Date): Promise<number> {
   const client = createSupabaseAdminClient();
+  const earliestStaleClaimedAt = new Date(
+    now.getTime() - Math.min(...Object.values(JOB_CLAIM_TIMEOUT_MINUTES)) * 60_000
+  ).toISOString();
   const claimedRows = await assertNoError(
     "stale claimed job 조회 실패",
     client
@@ -264,6 +268,7 @@ async function requeueStaleClaimedJobs(now: Date): Promise<number> {
       .select("*")
       .eq("status", "claimed")
       .not("claimed_at", "is", null)
+      .lte("claimed_at", earliestStaleClaimedAt)
   );
   let requeuedCount = 0;
 
@@ -882,7 +887,7 @@ export async function runDueJobs(options: {
 } = {}): Promise<JobRunResult> {
   const client = createSupabaseAdminClient();
   const now = options.now ?? new Date();
-  const limit = Math.max(1, Math.min(options.limit ?? 10, 100));
+  const limit = Math.max(1, Math.min(options.limit ?? 10, MAX_JOB_RUN_LIMIT));
   const claimedBy = options.claimedBy ?? "job-runner";
   await requeueStaleClaimedJobs(now);
   const details: JobRunResult["details"] = [];

@@ -25,8 +25,12 @@
     "build:vercel": "npm run build:web:vercel",
     "start": "node dist/server/main.js",
     "check": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit && tsc -p tsconfig.vercel.json --noEmit",
+    "test": "npm run test:server && npm run test:web && npm run test:scripts",
     "test:server": "node --import tsx --test server/src/**/*.test.ts",
+    "test:web": "node --import tsx --test web/src/**/*.test.ts web/src/**/*.test.tsx",
+    "test:scripts": "node --import tsx --test scripts/*.test.ts",
     "test:e2e:smoke": "npm run build:web && node --env-file=.env scripts/e2e-smoke.mjs",
+    "smoke:ops": "node --env-file=.env scripts/ops-health-smoke.mjs",
     "rebuild:node": "node scripts/fix-popbill-package.mjs",
     "postinstall": "node scripts/fix-popbill-package.mjs"
   },
@@ -60,5 +64,19 @@
     "typescript": "^5.9.3",
     "vite": "^8.0.1",
     "wait-on": "^8.0.5"
-  }
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KimDDong03/AUTO-TAX.git"
+  },
+  "keywords": [],
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/KimDDong03/AUTO-TAX/issues"
+  },
+  "homepage": "https://github.com/KimDDong03/AUTO-TAX#readme"
 }

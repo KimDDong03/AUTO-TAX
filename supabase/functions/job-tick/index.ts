@@ -3,6 +3,9 @@ type JobApiPayload = {
   [key: string]: unknown;
 };
 
+const DEFAULT_RUN_LIMIT = 10;
+const MAX_RUN_LIMIT = 25;
+
 function toErrorPayload(error: unknown): JobApiPayload {
   return {
     ok: false,
@@ -94,12 +97,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    let limit = 100;
+    let limit = DEFAULT_RUN_LIMIT;
     if (req.method === "POST") {
       try {
         const payload = (await req.json()) as { limit?: unknown };
         if (typeof payload.limit === "number" && Number.isFinite(payload.limit)) {
-          limit = Math.max(1, Math.min(Math.trunc(payload.limit), 100));
+          limit = Math.max(1, Math.min(Math.trunc(payload.limit), MAX_RUN_LIMIT));
         }
       } catch {
         // empty body is acceptable

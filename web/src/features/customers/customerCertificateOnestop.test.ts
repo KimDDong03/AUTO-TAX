@@ -5,6 +5,7 @@ import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantStat
 import {
   buildCustomerCertificateOnestopCreatePayload,
   CUSTOMER_POPBILL_JOIN_SUPPORT_MESSAGE,
+  filterCustomerOnestopCertificates,
   findExistingCustomerByBusinessNumber,
   resolveExecutableCertificateForOnestopRegistration,
   runCustomerCertificateOnestopRegistration,
@@ -99,6 +100,45 @@ test("findExistingCustomerByBusinessNumber normalizes punctuation", () => {
 
 test("buildCustomerCertificateOnestopCreatePayload keeps address as match key", () => {
   assert.deepEqual(buildCustomerCertificateOnestopCreatePayload(createDraft()).matchAddresses, ["서울시 강남구"]);
+});
+
+test("filterCustomerOnestopCertificates hides expired and already registered customer certificates", () => {
+  const existing = createCustomer({ id: 1, customerName: "홍길동", corpName: "한빛태양광" });
+  const linkedCertificate = createLinkedCertificate(2);
+  const available = createCertificate({ index: "4", cn: "새 발전소", serial: "SERIAL-4", userDN: "USER-DN-4" });
+
+  const result = filterCustomerOnestopCertificates({
+    certificates: [
+      createCertificate({ index: "1", cn: "만료 인증서", todate: "2026-05-04" }),
+      createCertificate({ index: "2", cn: "이미 연결", serial: linkedCertificate.serial, userDN: linkedCertificate.userDN }),
+      createCertificate({ index: "3", cn: "한빛태양광", serial: "SERIAL-3", userDN: "USER-DN-3" }),
+      available
+    ],
+    customers: [existing],
+    customerCertificates: [linkedCertificate],
+    todayDateKey: "2026-05-05"
+  });
+
+  assert.deepEqual(result.availableCertificates.map((certificate) => certificate.index), ["4"]);
+  assert.deepEqual(result.visibleCertificates.map((certificate) => certificate.index), ["4"]);
+  assert.equal(result.hiddenExpiredCount, 1);
+  assert.equal(result.hiddenRegisteredCount, 2);
+});
+
+test("filterCustomerOnestopCertificates searches available certificates", () => {
+  const result = filterCustomerOnestopCertificates({
+    certificates: [
+      createCertificate({ index: "1", cn: "북부 발전소", issuerToName: "한국정보인증" }),
+      createCertificate({ index: "2", cn: "남부 발전소", issuerToName: "금융결제원" })
+    ],
+    customers: [],
+    customerCertificates: [],
+    searchQuery: "금융",
+    todayDateKey: "2026-05-05"
+  });
+
+  assert.deepEqual(result.availableCertificates.map((certificate) => certificate.index), ["1", "2"]);
+  assert.deepEqual(result.visibleCertificates.map((certificate) => certificate.index), ["2"]);
 });
 
 test("runCustomerCertificateOnestopRegistration uses existing customer without duplicate create", async () => {

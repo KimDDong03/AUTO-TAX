@@ -2,7 +2,8 @@ import type React from "react";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api, setActiveOrganizationId } from "./api";
-import { AppDialog, type AppDialogState, type AppDialogTone, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
+import { AppDialog, type AppDialogState, type AppDialogTone, CheckboxControl, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
+import { getOrganizationRoleLabel } from "./organizationRole";
 import { CertificatesScreen } from "./features/certificates/CertificatesScreen";
 import { useCertificatesScreenModel } from "./features/certificates/useCertificatesScreenModel";
 import { matchesCustomerSearchQuery } from "./features/customers/customerSearch";
@@ -118,7 +119,14 @@ import {
   requestLocalRenewalPreparePayment,
   requestLocalRenewalPreflight
 } from "./local-renewal-helper";
-import { getSessionSafely, supabase } from "./supabase";
+import {
+  clearSupabaseAuthHash,
+  getSupabaseAuthHashError,
+  getSupabaseAuthHashParams,
+  isSupabaseRecoveryHash
+} from "./features/auth/auth-hash";
+import { useAuthSessionBootstrap } from "./features/auth/useAuthSessionBootstrap";
+import { setSessionSafely, signOutSafely, updateUserSafely } from "./supabase";
 import type {
   BootstrapPayload,
   AppSettings,
@@ -986,15 +994,11 @@ function resolveWorkspaceTab(
   return "home";
 }
 
-function getHashParams(hash: string): URLSearchParams {
-  return new URLSearchParams(hash.replace(/^#/, ""));
-}
-
 function hasSupabaseAuthHash(hash: string): boolean {
   const raw = hash.replace(/^#/, "");
   if (!raw || getTabFromHash(hash)) return false;
 
-  const params = getHashParams(hash);
+  const params = getSupabaseAuthHashParams(hash);
   return (
     params.has("access_token") ||
     params.has("refresh_token") ||
@@ -1002,42 +1006,6 @@ function hasSupabaseAuthHash(hash: string): boolean {
     params.has("error_code") ||
     params.get("type") === "recovery"
   );
-}
-
-function isSupabaseRecoveryHash(hash: string): boolean {
-  const params = getHashParams(hash);
-  return params.get("type") === "recovery" || (params.has("access_token") && params.has("refresh_token"));
-}
-
-function decodeHashValue(value: string | null): string | null {
-  if (!value) return null;
-
-  try {
-    return decodeURIComponent(value.replace(/\+/g, " "));
-  } catch {
-    return value.replace(/\+/g, " ");
-  }
-}
-
-function getSupabaseAuthHashError(hash: string): string | null {
-  const params = getHashParams(hash);
-  const errorCode = params.get("error_code");
-  const description = decodeHashValue(params.get("error_description"));
-
-  if (!errorCode && !description) {
-    return null;
-  }
-
-  if (errorCode === "otp_expired") {
-    return "비밀번호 재설정 링크가 만료되었습니다. 새 메일을 다시 받아주세요.";
-  }
-
-  return description ?? "비밀번호 재설정 링크를 확인할 수 없습니다.";
-}
-
-function clearSupabaseAuthHash() {
-  if (typeof window === "undefined") return;
-  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
 }
 
 const baseCustomerForm: CustomerFormState = {
@@ -1105,22 +1073,6 @@ function getDraftStatusLabel(status: string): string {
       return "발행 완료";
     default:
       return status;
-  }
-}
-
-function getOrganizationRoleLabel(role: BootstrapPayload["auth"]["activeOrganizationRole"]): string {
-  switch (role) {
-    case "owner":
-      return "소유자";
-    case "admin":
-    case "operator":
-      return "멤버";
-    case "viewer":
-      return "조회전용";
-    case null:
-      return "플랫폼 관리자";
-    default:
-      return role ?? "플랫폼 관리자";
   }
 }
 
@@ -2516,83 +2468,23 @@ export function App() {
     customerRenewalAssistantAllCertificates
   });
 
-  useEffect(() => {
-    let mounted = true;
-
-    const applyAuthHashState = (hash: string) => {
-      const recoveryHash = isSupabaseRecoveryHash(hash);
-      const recoveryError = getSupabaseAuthHashError(hash);
-
-      if (!mounted) return;
-
-      if (recoveryHash) {
-        setRecoveryMode(true);
-        setError("");
-        setAuthNotice("");
-        return;
-      }
-
-      if (recoveryError) {
-        setRecoveryMode(false);
-        setError(recoveryError);
-        clearSupabaseAuthHash();
-      }
-    };
-
-    if (typeof window !== "undefined") {
-      applyAuthHashState(window.location.hash);
+  useAuthSessionBootstrap({
+    authSessionRef,
+    setAuthReady,
+    setAuthSession,
+    setRecoveryMode,
+    setError,
+    setAuthNotice,
+    onSignedOut: () => {
+      invalidateActiveLoads();
+      setData(null);
+      setOpsConsole(null);
+      setCustomerContractRenewalsDue([]);
+      setAppDialog(null);
+      appDialogResolverRef.current = null;
+      setActiveOrganizationId(null);
     }
-
-    void getSessionSafely()
-      .then(({ session, clearedInvalidRefreshToken }) => {
-        if (!mounted) return;
-        authSessionRef.current = session;
-        setAuthSession(session);
-        if (clearedInvalidRefreshToken) {
-          setAuthNotice("로그인 세션이 만료되어 다시 로그인해 주세요.");
-        }
-        setAuthReady(true);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        authSessionRef.current = null;
-        setAuthSession(null);
-        setAuthReady(true);
-      });
-
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      if (!mounted) return;
-      authSessionRef.current = nextSession;
-      setAuthSession(nextSession);
-
-      if (event === "PASSWORD_RECOVERY") {
-        setRecoveryMode(true);
-        setError("");
-        setAuthNotice("");
-      } else if (event === "SIGNED_OUT") {
-        setRecoveryMode(false);
-      } else if (nextSession) {
-        setError("");
-      }
-
-      if (!nextSession) {
-        invalidateActiveLoads();
-        setData(null);
-        setOpsConsole(null);
-        setCustomerContractRenewalsDue([]);
-        setAppDialog(null);
-        appDialogResolverRef.current = null;
-        setActiveOrganizationId(null);
-      }
-    });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, []);
+  });
 
   useEffect(() => {
     if (!authReady || !authSession || recoveryMode) return;
@@ -2921,7 +2813,7 @@ export function App() {
           password: signInPassword
         })
       });
-      const { error: sessionError } = await supabase.auth.setSession({
+      const { error: sessionError } = await setSessionSafely({
         access_token: result.session.access_token,
         refresh_token: result.session.refresh_token
       });
@@ -2975,7 +2867,10 @@ export function App() {
     setActiveOrganizationId(null);
     setCustomerContractRenewalsDue([]);
     clearSupabaseAuthHash();
-    await supabase.auth.signOut();
+    const { error: signOutError } = await signOutSafely();
+    if (signOutError) {
+      setError(signOutError.message);
+    }
   };
 
   const changeOrganization = async (organizationId: string) => {
@@ -3471,7 +3366,10 @@ export function App() {
     setError("");
 
     if (authSession) {
-      await supabase.auth.signOut();
+      const { error: signOutError } = await signOutSafely();
+      if (signOutError) {
+        setError(signOutError.message);
+      }
     }
   };
 
@@ -3498,7 +3396,7 @@ export function App() {
         throw new Error("새 비밀번호와 확인 값이 일치하지 않습니다.");
       }
 
-      const { error: updateError } = await supabase.auth.updateUser({
+      const { error: updateError } = await updateUserSafely({
         password: nextPassword
       });
 
@@ -3509,8 +3407,12 @@ export function App() {
       setRecoveryPasswordForm(createEmptyPasswordResetForm());
       setRecoveryMode(false);
       clearSupabaseAuthHash();
-      await supabase.auth.signOut();
-      setAuthNotice("비밀번호를 변경했습니다. 새 비밀번호로 다시 로그인하세요.");
+      const { error: signOutError } = await signOutSafely();
+      setAuthNotice(
+        signOutError
+          ? "비밀번호를 변경했습니다. 로그아웃 응답이 지연되어 새로고침 후 다시 로그인하세요."
+          : "비밀번호를 변경했습니다. 새 비밀번호로 다시 로그인하세요."
+      );
     } catch (recoveryError) {
       setError(recoveryError instanceof Error ? recoveryError.message : "비밀번호 변경에 실패했습니다.");
     } finally {
@@ -7361,19 +7263,17 @@ export function App() {
                               placeholder="operator@example.com"
                             />
                           </label>
-                          <label className="checkbox-row full">
-                            <input
-                              type="checkbox"
-                              checked={opsWorkspaceMailSettingsForm.testConnection}
-                              onChange={(event) =>
-                                setOpsWorkspaceMailSettingsForm((prev) => ({
-                                  ...prev,
-                                  testConnection: event.target.checked
-                                }))
-                              }
-                            />
-                            <span>저장 후 메일 연결 테스트 실행</span>
-                          </label>
+                          <CheckboxControl
+                            containerClassName="checkbox-row full"
+                            checked={opsWorkspaceMailSettingsForm.testConnection}
+                            label="저장 후 메일 연결 테스트 실행"
+                            onChange={(event) =>
+                              setOpsWorkspaceMailSettingsForm((prev) => ({
+                                ...prev,
+                                testConnection: event.target.checked
+                              }))
+                            }
+                          />
                         </div>
                         <div className="button-row">
                           <button

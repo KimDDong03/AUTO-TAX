@@ -26,19 +26,10 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
       {model.isMailTesting ? (
         <div className="settings-action-feedback">
           <span className="chip chip-warn">테스트 중</span>
-          <span>IMAP/SMTP 연결을 확인하고 있습니다.</span>
+          <span>메일 계정 연결을 확인하고 있습니다.</span>
         </div>
       ) : null}
       <div className="form-grid">
-        <div className="settings-detected-provider full">
-          <span>첫 동기화 시 읽는 기본 범위</span>
-          <strong>최근 메일 1000통</strong>
-          <p className="settings-inline-help">실제 메일 동기화는 준비 단계나 발행 화면에서 실행합니다.</p>
-        </div>
-        <div className="settings-detected-provider full">
-          <span>자동으로 찾은 메일 서비스</span>
-          <strong>{model.detectedMailProviderLabel}</strong>
-        </div>
         <label>
           메일 주소
           <input

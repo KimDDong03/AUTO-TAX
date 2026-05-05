@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { supabase } from "../../supabase";
+import { updateUserSafely } from "../../supabase";
 import type { OrganizationMemberRole } from "../../types";
 import {
   createEmptyPasswordChangeForm,
@@ -74,7 +74,7 @@ export function useSettingsAccountFacade({
       throw new Error("새 비밀번호와 확인 값이 일치하지 않습니다.");
     }
 
-    const { error: updateError } = await supabase.auth.updateUser({
+    const { error: updateError } = await updateUserSafely({
       password: nextPassword
     });
 

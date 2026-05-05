@@ -80,7 +80,7 @@ export function SettingsOrganizationMembersPanel({
         <>
           <div className="helper-box workspace-member-summary">
             <strong>현재 사용자 {account.organizationMembers.length}명</strong>
-            <span>owner는 제거할 수 없습니다.</span>
+            <span>대표 관리자는 제거할 수 없습니다.</span>
           </div>
 
           <div className="workspace-member-create-box">
@@ -189,7 +189,7 @@ export function SettingsOrganizationMembersPanel({
                       ) : (
                         <span className="field-hint">
                           {isOwner
-                            ? "owner 계정 비밀번호는 플랫폼 관리자 탭에서 재설정합니다."
+                            ? "대표 관리자 비밀번호는 운영 관리자에게 문의하세요."
                             : "현재 로그인한 계정입니다."}
                         </span>
                       )}
@@ -289,7 +289,7 @@ export function SettingsOrganizationMembersPanel({
       ) : (
         <div className="helper-box-stack">
           <strong>사용자 관리 권한 없음</strong>
-          <span>owner만 내부 사용자를 관리할 수 있습니다.</span>
+          <span>관리자만 사용자를 관리할 수 있습니다.</span>
         </div>
       )}
     </Panel>

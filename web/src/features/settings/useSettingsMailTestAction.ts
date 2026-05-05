@@ -81,13 +81,15 @@ export function useSettingsMailTestAction({
     }
 
     await showAlert(
-      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\nIMAP: ${
-        result.imapOk ? "성공" : "실패"
-      }\n${result.imapMessage}\n\nSMTP: ${result.smtpOk ? "성공" : "실패"}\n${
-        result.smtpMessage
-      }\n\n테스트 메일 발송: ${
-        result.testMailSent ? "예" : "아니오"
-      }\n\n설정 저장: ${testSucceeded ? "성공" : "실패로 저장 안 함"}`,
+      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\n메일 읽기: ${
+        result.imapOk ? "성공" : "확인 필요"
+      }\n알림 메일 발송: ${
+        result.smtpOk && result.testMailSent ? "성공" : "확인 필요"
+      }\n\n${
+        testSucceeded
+          ? "설정을 저장했습니다."
+          : "메일 주소와 앱 비밀번호를 다시 확인해 주세요. 설정은 저장하지 않았습니다."
+      }`,
       {
         title: "메일 연결 테스트 결과",
         tone: testSucceeded ? "success" : "warn"

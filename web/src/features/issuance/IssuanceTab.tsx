@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "../../components/ui";
+import { CheckboxControl, Icon } from "../../components/ui";
 import { matchesCustomerSearchQuery } from "../customers/customerSearch";
 import type { Customer, InboxMessage, InvoiceDraft, MailPreviewImageResponse } from "../../types";
 
@@ -862,8 +862,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                   <thead>
                     <tr>
                       <th aria-label="선택">
-                        <input
-                          type="checkbox"
+                        <CheckboxControl
                           checked={allVisibleIssueableEntriesChecked}
                           readOnly
                           disabled={visibleIssueableEntries.length === 0}
@@ -922,8 +921,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                             onKeyDown={handleRowKeyDown}
                           >
                             <td className="issuance-table-check-cell">
-                              <input
-                                type="checkbox"
+                              <CheckboxControl
                                 checked={isChecked}
                                 readOnly
                                 aria-label={`${draft.customerName} 행 선택`}
@@ -962,8 +960,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                             onKeyDown={handleRowKeyDown}
                           >
                             <td className="issuance-table-check-cell">
-                              <input
-                                type="checkbox"
+                              <CheckboxControl
                                 checked={isChecked}
                                 readOnly
                                 aria-label={`${customer.customerName} 행 선택`}
@@ -1001,8 +998,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                           onKeyDown={handleRowKeyDown}
                         >
                           <td className="issuance-table-check-cell">
-                            <input
-                              type="checkbox"
+                            <CheckboxControl
                               checked={isChecked}
                               readOnly
                               aria-label={`${message.subject || "미매칭 메일"} 행 선택`}

@@ -209,7 +209,7 @@ test("SettingsOrganizationMembersPanel hides member controls without owner permi
   const createButton = findButtonByText(tree, "사용자 추가");
 
   assert.match(collectText(tree), /사용자 관리 권한 없음/);
-  assert.match(collectText(tree), /owner만 내부 사용자를 관리할 수 있습니다\./);
+  assert.match(collectText(tree), /관리자만 사용자를 관리할 수 있습니다\./);
   assert.equal(createButton, null);
 });
 
@@ -235,7 +235,7 @@ test("SettingsOrganizationMembersPanel keeps owner restriction text and reset ac
       organizationMemberItems: [
         {
           member: ownerMember,
-          roleLabel: "owner",
+          roleLabel: "관리자",
           isCurrentUser: false,
           isOwner: true,
           canRemove: false,
@@ -244,7 +244,7 @@ test("SettingsOrganizationMembersPanel keeps owner restriction text and reset ac
         },
         {
           member: workspaceMember,
-          roleLabel: "member",
+          roleLabel: "사용자",
           isCurrentUser: false,
           isOwner: false,
           canRemove: true,
@@ -265,10 +265,10 @@ test("SettingsOrganizationMembersPanel keeps owner restriction text and reset ac
   });
   const resetButton = findButtonByText(tree, "임시 비밀번호 재설정");
 
-  assert.match(collectText(tree), /owner는 제거할 수 없습니다\./);
+  assert.match(collectText(tree), /대표 관리자는 제거할 수 없습니다\./);
   assert.match(
     collectText(tree),
-    /owner 계정 비밀번호는 플랫폼 관리자 탭에서 재설정합니다\./
+    /대표 관리자 비밀번호는 운영 관리자에게 문의하세요\./
   );
   assert.ok(resetButton);
 
@@ -312,7 +312,7 @@ test("SettingsOrganizationMembersPanel wires create form updates and inline rese
       organizationMemberItems: [
         {
           member,
-          roleLabel: "member",
+          roleLabel: "사용자",
           isCurrentUser: false,
           isOwner: false,
           canRemove: true,

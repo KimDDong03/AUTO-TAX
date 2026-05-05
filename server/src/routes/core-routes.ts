@@ -20,6 +20,9 @@ const publicLoginSchema = z.object({
   password: z.string().min(1).max(256)
 });
 
+const DEFAULT_PUBLIC_LOGIN_TIMEOUT_MS = 5000;
+const MAX_INTERNAL_JOB_RUN_LIMIT = 25;
+
 const publicConsultationRequestSchema = z.object({
   name: z.string().trim().min(1).max(80),
   phone: z
@@ -55,6 +58,47 @@ type RouteDeps = {
   runDueJobs: (args: { limit?: number; claimedBy: string }) => Promise<Record<string, unknown>>;
 };
 
+class PublicLoginTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`인증 서버 응답이 ${timeoutMs}ms 안에 완료되지 않았습니다.`);
+  }
+}
+
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getPublicLoginTimeoutMs(): number {
+  return parsePositiveInteger(process.env.AUTO_TAX_PUBLIC_LOGIN_TIMEOUT_MS) ?? DEFAULT_PUBLIC_LOGIN_TIMEOUT_MS;
+}
+
+async function withPublicLoginTimeout<T>(operation: Promise<T>): Promise<T> {
+  const timeoutMs = getPublicLoginTimeoutMs();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  operation.catch(() => undefined);
+
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new PublicLoginTimeoutError(timeoutMs)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function toPublicLoginError(error: unknown): unknown {
+  if (error instanceof PublicLoginTimeoutError) {
+    return new HttpError(503, "인증 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.");
+  }
+  return error;
+}
+
 export function registerCoreRoutes(deps: RouteDeps) {
   const {
     app,
@@ -88,7 +132,11 @@ export function registerCoreRoutes(deps: RouteDeps) {
     let email = account;
 
     if (!isEmailLikeAccount(account)) {
-      const matchedUser = await findAuthUserByLoginId(createSupabaseAdminClient(), account);
+      const matchedUser = await withPublicLoginTimeout(
+        findAuthUserByLoginId(createSupabaseAdminClient(), account)
+      ).catch((error) => {
+        throw toPublicLoginError(error);
+      });
       if (!matchedUser?.email) {
         throw new HttpError(401, "로그인 정보가 올바르지 않습니다.");
       }
@@ -96,9 +144,13 @@ export function registerCoreRoutes(deps: RouteDeps) {
     }
 
     const publicClient = createSupabasePublicClient();
-    const { data: signInResult, error: signInError } = await publicClient.auth.signInWithPassword({
-      email: normalizeEmail(email),
-      password: payload.password
+    const { data: signInResult, error: signInError } = await withPublicLoginTimeout(
+      publicClient.auth.signInWithPassword({
+        email: normalizeEmail(email),
+        password: payload.password
+      })
+    ).catch((error) => {
+      throw toPublicLoginError(error);
     });
 
     if (signInError || !signInResult.session) {
@@ -169,11 +221,11 @@ export function registerCoreRoutes(deps: RouteDeps) {
     const accessMode = requireInternalJobAccess(req, res);
     const payload = z
       .object({
-        limit: z.number().int().min(1).max(100).optional()
+        limit: z.number().int().min(1).optional()
       })
       .parse(req.body ?? {});
     const result = await runDueJobs({
-      limit: payload.limit,
+      limit: payload.limit === undefined ? undefined : Math.min(payload.limit, MAX_INTERNAL_JOB_RUN_LIMIT),
       claimedBy: accessMode === "secret" ? "cron-runner" : "ops-runner"
     });
     res.json({

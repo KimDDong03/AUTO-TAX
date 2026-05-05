@@ -209,7 +209,6 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on operator contac
       element.props["aria-describedby"] === "onboarding-operator-name-hint"
   );
 
-  assert.match(configuredText, /메일 주소와 앱 비밀번호는 운영팀 상담 중 별도로 설정합니다/);
   assert.match(configuredText, /담당자 이름/);
   assert.match(configuredText, /담당자 연락처/);
   assert.match(configuredText, /담당자 이메일/);
@@ -282,7 +281,7 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and upgrade 
   assert.match(collectText(readyTree), /헬퍼 다운로드/);
   assert.ok(versionMismatchButton);
   assert.equal(versionMismatchButton.props.disabled, true);
-  assert.match(collectText(offlineTree), /헬퍼를 먼저 실행하세요\./);
   assert.ok(offlineButton);
   assert.equal(offlineButton.props.disabled, true);
+  assert.match(String(offlineButton.props.title), /로컬 헬퍼를 실행/);
 });
