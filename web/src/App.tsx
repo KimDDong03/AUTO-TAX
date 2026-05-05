@@ -6330,12 +6330,12 @@ export function App() {
     <>
       <div className="app-shell app-shell-topnav">
         <header className="topnav-shell">
-          <div className="topnav-brand">
+          <button type="button" className="topnav-brand" aria-label="홈으로 이동" onClick={() => handleNavSelect("home")}>
             <span className="brand-badge topnav-brand-badge">AT</span>
             <div className="brand-copy">
               <img src="/logo-O2APlXk3.png" alt="AUTO-TAX" className="topnav-brand-logo" />
             </div>
-          </div>
+          </button>
 
           <nav className="topnav-list" aria-label="주 메뉴">
             {visibleNavItems.map((item) => (
@@ -6662,7 +6662,6 @@ export function App() {
             onPrepareCustomerCertificateRenewal={prepareLinkedCustomerCertificateRenewal}
             onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
             onRefreshCustomerCertificateStatus={refreshSingleCustomerCertificateStatus}
-            onRefreshAllCertificateStatuses={refreshAllCertificateStatuses}
             onResetPopbillLink={resetPopbillLink}
             onDeleteCustomer={deleteCustomer}
             onExportSelectedCustomers={downloadSelectedCustomers}

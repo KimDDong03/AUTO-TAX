@@ -13711,6 +13711,22 @@ button.issuance-list-item {
   z-index: auto;
 }
 
+.app-shell-topnav .topnav-brand {
+  justify-self: start;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.app-shell-topnav .topnav-brand:hover,
+.app-shell-topnav .topnav-brand:focus-visible {
+  background: transparent;
+}
+
 .app-shell-topnav .topnav-brand-badge,
 .app-shell-topnav .topnav-icon {
   display: none;
@@ -19088,6 +19104,41 @@ button.issuance-list-item {
   box-shadow: none;
 }
 
+/* Customer list fit lock: keep the left customer list inside the viewport on
+   shorter screens and scroll only the table body area. */
+.app-shell-topnav .content-customers {
+  overflow: hidden;
+}
+
+.app-shell-topnav .customers-screen.customer-console-screen {
+  height: calc(100vh - 154px);
+  height: calc(100dvh - 154px);
+  min-height: 0;
+}
+
+.app-shell-topnav .customer-console-shell,
+.app-shell-topnav .customer-console-main-column {
+  min-height: 0;
+}
+
+.app-shell-topnav .customer-console-main-column {
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.app-shell-topnav .customer-console-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell-topnav .customer-console-table-wrap {
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+
 /* True final onboarding density override. Keep this after the customer theme
    overrides so short onboarding steps do not stretch into empty panels. */
 .onboarding-modal .onboarding-task-shell,
@@ -23270,4 +23321,43 @@ button.issuance-list-item {
   .app-shell-topnav .home-side-column {
     margin-top: 16px;
   }
+}
+
+/* Final customer viewport fit lock. Keep this at the end so later customer
+   theme passes cannot let the left list grow past the visible page. */
+.app-shell-topnav .content-customers {
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .customers-screen.customer-console-screen {
+  height: calc(100vh - 154px) !important;
+  height: calc(100dvh - 154px) !important;
+  min-height: 0 !important;
+}
+
+.app-shell-topnav .customer-console-shell,
+.app-shell-topnav .customer-console-main-column {
+  min-height: 0 !important;
+}
+
+.app-shell-topnav .customer-console-main-column {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .customer-console-panel {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .customer-console-table-wrap {
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow: auto !important;
 }

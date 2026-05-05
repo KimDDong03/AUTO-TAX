@@ -175,7 +175,6 @@ type CustomersTabProps = {
   onPrepareCustomerCertificateRenewal: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
   onOpenCustomerCertificatePayment: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
   onRefreshCustomerCertificateStatus: (customerId: number) => Promise<void>;
-  onRefreshAllCertificateStatuses: () => Promise<void>;
   onResetPopbillLink: (customer: Customer) => Promise<void>;
   onDeleteCustomer: (customer: Customer) => Promise<void>;
   onExportSelectedCustomers: (customers: Customer[], reportYear: number) => Promise<void>;
@@ -2323,14 +2322,6 @@ export function CustomersTab(props: CustomersTabProps) {
                     필터 초기화
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={props.busyKey !== null}
-                  onClick={() => void props.runAction("customers-cert-refresh-all", props.onRefreshAllCertificateStatuses)}
-                >
-                  인증서 일괄 점검
-                </button>
               </div>
             </div>
 
