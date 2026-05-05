@@ -5,7 +5,6 @@ import {
   buildCustomerListFilterContext,
   buildIssuedDraftsByCustomerId,
   getCurrentSeoulBillingMonth,
-  matchesCustomerIssueModeFilter,
   matchesCustomerListFilter
 } from "./customerListFilters";
 
@@ -139,14 +138,4 @@ test("matchesCustomerListFilter uses certificate and contract due customer sets"
   assert.equal(matchesCustomerListFilter(createCustomer(4), "certificate-expiration", context), true);
   assert.equal(matchesCustomerListFilter(createCustomer(1), "contract-expiration", context), false);
   assert.equal(matchesCustomerListFilter(createCustomer(1), "certificate-expiration", context), false);
-});
-
-test("matchesCustomerIssueModeFilter applies the secondary issue mode segment", () => {
-  const reviewCustomer = createCustomer(1, { issueMode: "review" });
-  const autoCustomer = createCustomer(2, { issueMode: "auto" });
-
-  assert.equal(matchesCustomerIssueModeFilter(reviewCustomer, "all"), true);
-  assert.equal(matchesCustomerIssueModeFilter(reviewCustomer, "review"), true);
-  assert.equal(matchesCustomerIssueModeFilter(reviewCustomer, "auto"), false);
-  assert.equal(matchesCustomerIssueModeFilter(autoCustomer, "auto"), true);
 });

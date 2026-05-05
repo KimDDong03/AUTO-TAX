@@ -99,7 +99,6 @@ async function withCustomerRoutes(
     getCustomer?: (customerId: number) => Promise<Customer | null> | Customer | null;
     afterDelete?: () => Promise<void> | void;
     afterReset?: () => Promise<Customer> | Customer;
-    canEnableAutoIssueForCustomer?: (customerId: number) => Promise<boolean> | boolean;
     saveCustomer?: (input: CustomerInput, customerId?: number) => Promise<Customer> | Customer;
     getCustomerReportDetail?: (customerId: number, reportYear: number) => Promise<CustomerReportDetail> | CustomerReportDetail;
     saveCustomerReportDetail?: (customerId: number, input: CustomerReportDetailInput) => Promise<CustomerReportDetail> | CustomerReportDetail;
@@ -135,15 +134,6 @@ async function withCustomerRoutes(
       assert.equal(customerId, options.customer.id);
       calls.events.push("reset");
       return (await options.afterReset?.()) ?? buildCustomer({ ...options.customer, popbillState: "pending", popbillCertRegistered: false });
-    },
-    canEnableAutoIssueForCustomer: async (customerId: number) => {
-      calls.events.push("guard-check");
-      return (
-        (await options.canEnableAutoIssueForCustomer?.(customerId)) ??
-        (() => {
-          throw new Error("canEnableAutoIssueForCustomer should not be used in this test");
-        })()
-      );
     },
     saveCustomer: async (input: CustomerInput, customerId?: number) => {
       calls.events.push("save");
@@ -638,59 +628,22 @@ test("explicit Popbill quit route resets local state even in production when mem
   );
 });
 
-test("update customer blocks review to auto without successful issue evidence", async () => {
+test("update customer ignores auto issue mode requests and saves review mode", async () => {
   const customer = buildCustomer();
 
   await withCustomerRoutes(
     {
       customer,
       settings: buildSettings(false),
-      canEnableAutoIssueForCustomer: async (customerId) => {
-        assert.equal(customerId, customer.id);
-        return false;
-      },
-      customerSchema: z.any(),
-      normalizeCustomerInput: (input) => input as CustomerInput
-    },
-    async (baseUrl, calls) => {
-      const response = await fetch(`${baseUrl}/api/customers/${customer.id}`, {
-        method: "PUT",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify(buildCustomerInput(customer, { issueMode: "auto" }))
-      });
-      assert.equal(response.status, 409);
-      assert.deepEqual(await response.json(), {
-        error: "자동 발행은 이 고객으로 최소 1회 이상 정상 발행을 확인한 뒤 활성화할 수 있습니다."
-      });
-      assert.deepEqual(calls.events, ["guard-check"]);
-      assert.equal(calls.logs.length, 0);
-    }
-  );
-});
-
-test("update customer logs issue mode changes with audit context", async () => {
-  const customer = buildCustomer();
-  const updatedCustomer = buildCustomer({
-    issueMode: "auto",
-    updatedAt: "2026-04-17T01:02:03.000Z"
-  });
-
-  await withCustomerRoutes(
-    {
-      customer,
-      settings: buildSettings(false),
-      canEnableAutoIssueForCustomer: async (customerId) => {
-        assert.equal(customerId, customer.id);
-        return true;
-      },
       customerSchema: z.any(),
       normalizeCustomerInput: (input) => input as CustomerInput,
       saveCustomer: async (input, customerId) => {
         assert.equal(customerId, customer.id);
-        assert.equal(input.issueMode, "auto");
-        return updatedCustomer;
+        assert.equal(input.issueMode, "review");
+        assert.equal(input.issueDay, null);
+        assert.equal(input.issueHour, null);
+        assert.equal(input.issueMinute, null);
+        return buildCustomer({ issueMode: "review" });
       }
     },
     async (baseUrl, calls) => {
@@ -703,19 +656,10 @@ test("update customer logs issue mode changes with audit context", async () => {
       });
       assert.equal(response.status, 200);
       const responseBody = (await response.json()) as Customer;
-      assert.equal(responseBody.issueMode, "auto");
-      assert.deepEqual(calls.events, ["guard-check", "save"]);
+      assert.equal(responseBody.issueMode, "review");
+      assert.deepEqual(calls.events, ["save"]);
       assert.equal(calls.logs.some((entry) => entry.message.includes("고객 정보를 수정했습니다.")), true);
-      const issueModeLog = calls.logs.find((entry) => entry.message.includes("고객 자동 발행 설정을 변경했습니다."));
-      assert.deepEqual(issueModeLog?.context, {
-        eventType: "issue-mode-changed",
-        actorUserId: "user-1",
-        organizationId: "org-1",
-        customerId: customer.id,
-        changedAt: updatedCustomer.updatedAt,
-        previousIssueMode: "review",
-        nextIssueMode: "auto"
-      });
+      assert.equal(calls.logs.some((entry) => entry.message.includes("발행 설정을 변경했습니다.")), false);
     }
   );
 });
@@ -748,12 +692,12 @@ test("update customer skips issue mode audit log when issue mode is unchanged", 
       assert.equal(response.status, 200);
       assert.deepEqual(calls.events, ["save"]);
       assert.equal(calls.logs.some((entry) => entry.message.includes("고객 정보를 수정했습니다.")), true);
-      assert.equal(calls.logs.some((entry) => entry.message.includes("고객 자동 발행 설정을 변경했습니다.")), false);
+      assert.equal(calls.logs.some((entry) => entry.message.includes("발행 설정을 변경했습니다.")), false);
     }
   );
 });
 
-test("update customer allows auto to review without hard guard", async () => {
+test("update customer normalizes legacy auto customers to review without audit log", async () => {
   const customer = buildCustomer({
     issueMode: "auto"
   });
@@ -784,16 +728,7 @@ test("update customer allows auto to review without hard guard", async () => {
       assert.equal(response.status, 200);
       assert.deepEqual(calls.events, ["save"]);
       assert.equal(calls.logs.some((entry) => entry.message.includes("고객 정보를 수정했습니다.")), true);
-      const issueModeLog = calls.logs.find((entry) => entry.message.includes("고객 자동 발행 설정을 변경했습니다."));
-      assert.deepEqual(issueModeLog?.context, {
-        eventType: "issue-mode-changed",
-        actorUserId: "user-1",
-        organizationId: "org-1",
-        customerId: customer.id,
-        changedAt: "2026-04-17T03:04:05.000Z",
-        previousIssueMode: "auto",
-        nextIssueMode: "review"
-      });
+      assert.equal(calls.logs.some((entry) => entry.message.includes("발행 설정을 변경했습니다.")), false);
     }
   );
 });

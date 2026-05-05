@@ -1,7 +1,6 @@
 import type { Customer, CustomerContractRenewalDueItem, InvoiceDraft } from "../../types";
 
 export type CustomerListFilter = "all" | "unissued" | "certificate-expiration" | "contract-expiration";
-export type CustomerIssueModeFilter = "all" | Customer["issueMode"];
 
 export type CustomerListFilterContext = {
   currentBillingMonth: string;
@@ -92,8 +91,4 @@ export function matchesCustomerListFilter(
   }
 
   return true;
-}
-
-export function matchesCustomerIssueModeFilter(customer: Customer, filter: CustomerIssueModeFilter): boolean {
-  return filter === "all" || customer.issueMode === filter;
 }

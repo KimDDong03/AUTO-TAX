@@ -266,8 +266,8 @@ Main files:
 1. A draft is created from matched mail.
 2. The issuance screen can render a source-derived mail preview image through `GET /api/drafts/:id/mail-preview-image` using the draft's stored `inbox_messages.raw_source`.
 3. The issuance screen also synthesizes current-month `메일 미수신` rows for managed customers that have no draft or matched mail for the current billing month.
-4. The draft is issued manually or scheduled for auto issue.
-5. Route and job code call the Popbill client.
+4. The draft stays in review until a logged-in user issues it from the issuance screen.
+5. Route code calls the Popbill client for user-triggered issuance.
 6. Draft state, result payloads, and audit signals are persisted.
 7. Pilot reporting reads `app_logs` and `invoice_drafts` without a separate metrics table.
 8. Customer Popbill join failures shown to workspace users use support-contact copy, while raw Popbill cause, code, and operation stay in `app_logs.context_json` for the platform-admin `ops` screen.
@@ -312,7 +312,7 @@ Security boundary for this flow:
 ### Business jobs
 
 - Storage: `job_queue`
-- Purpose: mail sync, auto issue, certificate checks, other recurring business work
+- Purpose: monthly mail sync, certificate checks, onboarding commit batches, and other recurring business work
 - Trigger path: `supabase/functions/job-tick` -> internal API endpoints
 - `mail-sync` dispatch is monthly, defaulting to the 20th, and is separate from the manual **메일 동기화** button.
 

@@ -1266,26 +1266,10 @@ try {
     await page.locator(".panel-customer-list").waitFor({ timeout: 15000 });
 
     const targetRow = page.locator(".customer-console-table tbody tr").filter({ hasText: onboardingCorpName }).first();
-    const bulkIssueModeTrigger = page.getByRole("button", { name: "선택한 고객 발행모드 변경", exact: true });
-    await bulkIssueModeTrigger.waitFor({ timeout: 15000 });
-    assert.equal(await bulkIssueModeTrigger.isDisabled(), true);
-
     const targetRowCheckbox = targetRow.getByRole("checkbox", { name: `${onboardingCorpName} 선택`, exact: true });
     await targetRowCheckbox.check();
-    const selectedBulkIssueModeTrigger = page.getByRole("button", {
-      name: "선택한 고객 1명 발행모드 변경",
-      exact: true
-    });
-    await selectedBulkIssueModeTrigger.waitFor({ timeout: 15000 });
-    assert.equal(await selectedBulkIssueModeTrigger.isDisabled(), false);
-    await selectedBulkIssueModeTrigger.click();
-    await page.getByRole("menuitem", { name: "직접 발행으로 변경", exact: true }).waitFor();
-    await page.getByRole("menuitem", { name: "자동 발행으로 변경", exact: true }).waitFor();
-    assert.equal(await page.locator(".customer-bulk-issue-mode-menu").count(), 1);
+    assert.equal(await page.locator(".customer-bulk-issue-mode-menu").count(), 0);
     await targetRowCheckbox.uncheck();
-    await page.waitForFunction(() => document.querySelectorAll(".customer-bulk-issue-mode-menu").length === 0, null, {
-      timeout: 15000
-    });
 
     const widthsBefore = await page.evaluate(() => {
       const readWidth = (selector) => {
@@ -1348,8 +1332,7 @@ try {
     await detailPanel.getByText("계약/발행", { exact: true }).waitFor();
     await detailPanel.locator(".customer-contract-period-field").waitFor();
     await detailPanel.getByText("인증서", { exact: true }).waitFor();
-    await detailPanel.locator(".customer-issue-mode-editor").getByRole("button", { name: "직접 발행", exact: true }).waitFor();
-    await detailPanel.locator(".customer-issue-mode-editor").getByRole("button", { name: "자동 발행", exact: true }).waitFor();
+    assert.equal(await detailPanel.locator(".customer-issue-mode-editor").count(), 0);
     assert.equal(await detailPanel.getByText("인증서/연결", { exact: true }).count(), 0);
     assert.equal(await detailPanel.getByText("계약기간 시작", { exact: true }).count(), 0);
     assert.equal(await detailPanel.getByText("계약기간 종료", { exact: true }).count(), 0);
@@ -1414,11 +1397,6 @@ try {
           Math.round(card.getBoundingClientRect().height)
         ),
         issueModeEditorCount: document.querySelectorAll(".customer-info-card .customer-issue-mode-editor").length,
-        issueModeHeaderCount: document.querySelectorAll(".customer-info-card-head .customer-issue-mode-editor").length,
-        issueModeBasicCardCount: document.querySelectorAll(".customer-info-basic-card .customer-issue-mode-editor").length,
-        issueModeButtons: Array.from(document.querySelectorAll(".customer-info-card .customer-issue-mode-editor button")).map(
-          (button) => button.textContent?.trim() ?? ""
-        ),
         contractGridText: document.querySelector(".customer-info-contract-card .customer-info-contract-grid")?.textContent?.trim() ?? "",
         contractPeriodInputCount: document.querySelectorAll(".customer-info-contract-card .customer-contract-period-inputs input[type='month']").length,
         contractPeriodGridColumns: (() => {
@@ -1514,11 +1492,7 @@ try {
       detailViewportProbe.infoCardHeadings.join("|") !== "기본 정보|계약/발행|인증서" ||
       detailViewportProbe.infoCardHeights.length !== 3 ||
       Math.max(...detailViewportProbe.infoCardHeights) - Math.min(...detailViewportProbe.infoCardHeights) > 1 ||
-      detailViewportProbe.issueModeEditorCount !== 1 ||
-      detailViewportProbe.issueModeHeaderCount !== 0 ||
-      detailViewportProbe.issueModeBasicCardCount !== 1 ||
-      detailViewportProbe.issueModeButtons[0] !== "직접 발행" ||
-      detailViewportProbe.issueModeButtons[1] !== "자동 발행" ||
+      detailViewportProbe.issueModeEditorCount !== 0 ||
       new Set(detailViewportProbe.infoCardHeadingFontSizes).size !== 1 ||
       !detailViewportProbe.contractGridText.includes("계약기간") ||
       detailViewportProbe.contractGridText.includes("계약기간 시작") ||

@@ -75,13 +75,9 @@ const exportItems: SelectedCustomerExportItem[] = [
       addr: "강원 원주시",
       bizType: "전기업",
       bizClass: "태양광발전",
-      issueMode: "auto",
-      issueDay: 20,
-      issueHour: 9,
-      issueMinute: 5,
       plantNames: ["홍성철 1호기", "홍성철 2호기"],
       matchAddresses: ["강원 원주시 신림면"],
-      memo: "월 자동 발행"
+      memo: "검수 후 발행"
     }),
     reportDetail: firstReport
   },
@@ -111,9 +107,6 @@ test("selected customer export builds the basic info sheet in selected order", (
       "사업장 주소",
       "업태",
       "업종",
-      "발행 모드",
-      "발행일",
-      "발행 시간",
       "태양광 용량 KW",
       "계약기간 시작",
       "계약기간 종료",
@@ -130,15 +123,12 @@ test("selected customer export builds the basic info sheet in selected order", (
       "강원 원주시",
       "전기업",
       "태양광발전",
-      "자동 발행",
-      "20일",
-      "09:05",
       99.5,
       "2025-04",
       "2026-04",
       "홍성철 1호기, 홍성철 2호기",
       "강원 원주시 신림면",
-      "월 자동 발행"
+      "검수 후 발행"
     ],
     [
       2,

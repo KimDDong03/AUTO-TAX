@@ -523,7 +523,7 @@ export async function issueTaxInvoice(
       taxinvoice,
       false,
       false,
-      "AUTO-TAX 자동 발행",
+      "AUTO-TAX 세금계산서 발행",
       "",
       "",
       customer.popbillUserId || "",

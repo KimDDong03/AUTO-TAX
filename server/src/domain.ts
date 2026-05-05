@@ -317,11 +317,7 @@ export const PILOT_ISSUANCE_EVENT_TYPES = [
   "draft-preview-opened",
   "manual-issue-clicked",
   "manual-issue-succeeded",
-  "manual-issue-failed",
-  "auto-issue-scheduled",
-  "auto-issue-started",
-  "auto-issue-succeeded",
-  "auto-issue-failed"
+  "manual-issue-failed"
 ] as const;
 
 export type PilotIssuanceEventType = (typeof PILOT_ISSUANCE_EVENT_TYPES)[number];
@@ -333,7 +329,6 @@ export const PILOT_ERROR_CATEGORIES = [
   "customer-match",
   "draft-create",
   "manual-issue",
-  "auto-issue",
   "certificate/local-helper",
   "external-api"
 ] as const;

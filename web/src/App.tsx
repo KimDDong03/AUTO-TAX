@@ -260,7 +260,7 @@ function buildHomeMockIssuedDraft(index: number): InvoiceDraft {
     customerId: -3100 - index,
     customerName,
     sourceMessageId: -4100 - index,
-    issueMode: "auto",
+    issueMode: "review",
     status: "issued",
     scheduledFor: null,
     issueRequestedAt: issuedAt,
@@ -640,7 +640,6 @@ type CustomerFormState = {
   addr: string;
   bizType: string;
   bizClass: string;
-  issueMode: "review" | "auto";
   popbillUserId: string;
   popbillPassword: string;
   renewalContactMobile: string;
@@ -1049,7 +1048,6 @@ const baseCustomerForm: CustomerFormState = {
   addr: "",
   bizType: "전기업",
   bizClass: "태양광발전(자가용PPA)",
-  issueMode: "review",
   popbillUserId: "",
   popbillPassword: "",
   renewalContactMobile: "",
@@ -1071,7 +1069,6 @@ function isPristineCustomerForm(form: CustomerFormState): boolean {
     form.addr === "" &&
     form.bizType === baseCustomerForm.bizType &&
     form.bizClass === baseCustomerForm.bizClass &&
-    form.issueMode === "review" &&
     form.renewalContactMobile === "" &&
     form.memo === ""
   );
@@ -1087,7 +1084,6 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
     addr: customer.addr,
     bizType: customer.bizType,
     bizClass: customer.bizClass,
-    issueMode: customer.issueMode,
     popbillUserId: customer.popbillUserId,
     popbillPassword: customer.popbillPassword,
     renewalContactMobile: customer.renewalContactMobile,
@@ -1100,7 +1096,7 @@ function getDraftStatusLabel(status: string): string {
     case "review":
       return "직접 발행 대기";
     case "scheduled":
-      return "자동 발행 대기";
+      return "발행 대기";
     case "failed":
       return "발행 실패";
     case "issuing":
@@ -1110,10 +1106,6 @@ function getDraftStatusLabel(status: string): string {
     default:
       return status;
   }
-}
-
-function getIssueModeLabel(issueMode: "review" | "auto"): string {
-  return issueMode === "auto" ? "월 자동 발행" : "검수 후 직접 발행";
 }
 
 function getOrganizationRoleLabel(role: BootstrapPayload["auth"]["activeOrganizationRole"]): string {
@@ -3056,7 +3048,7 @@ export function App() {
       addr: resolvedAddress || customerForm.addr,
       bizType: customerForm.bizType,
       bizClass: customerForm.bizClass,
-      issueMode: isEditing ? customerForm.issueMode : "review",
+      issueMode: "review",
       issueDay: null,
       issueHour: null,
       issueMinute: null,
@@ -3089,35 +3081,6 @@ export function App() {
       customerAddressLookupRef.current = "";
       return;
     }
-  };
-
-  const saveCustomerIssueMode = async (customer: Customer, issueMode: Customer["issueMode"]) => {
-    if (customer.issueMode === issueMode) {
-      return;
-    }
-
-    const savedCustomer = await api<CustomerSaveResponse>(`/api/customers/${customer.id}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        customerName: customer.customerName,
-        businessNumber: customer.businessNumber,
-        corpName: customer.corpName,
-        ceoName: customer.customerName,
-        addr: customer.addr,
-        bizType: customer.bizType,
-        bizClass: customer.bizClass,
-        issueMode,
-        issueDay: customer.issueDay,
-        issueHour: customer.issueHour,
-        issueMinute: customer.issueMinute,
-        renewalContactMobile: customer.renewalContactMobile,
-        memo: customer.memo,
-        plantNames: customer.plantNames,
-        matchAddresses: customer.matchAddresses
-      })
-    });
-
-    setCustomerForm((prev) => (prev.id === customer.id ? customerToForm(savedCustomer) : prev));
   };
 
   const applyCustomerImportHeaderRow = (nextHeaderRowIndex: number) => {
@@ -6726,7 +6689,6 @@ export function App() {
             formatDateTime={formatDateTime}
             getDraftStatusLabel={getDraftStatusLabel}
             getDraftConfirmNumber={getDraftConfirmNumber}
-            getIssueModeLabel={getIssueModeLabel}
             simplifyIssueError={simplifyIssueError}
           />
         ) : null}
@@ -6791,7 +6753,6 @@ export function App() {
             onStartCustomerRenewal={startCustomerRenewal}
             onSelectCustomer={selectCustomerForEdit}
             onSaveCustomer={saveCustomer}
-            onSaveCustomerIssueMode={saveCustomerIssueMode}
             onJoinCustomerPopbill={joinCustomerPopbill}
             onOpenCustomerCertRegistration={openCustomerCertRegistration}
             onLinkCustomerCertificate={linkLocalCertificateToCustomer}
@@ -6812,7 +6773,6 @@ export function App() {
             getCustomerIssueReadiness={getCachedCustomerIssueReadiness}
             getCustomerCertificateSummary={getCustomerCertificateSummary}
             getCustomerPopbillSummary={getCustomerPopbillSummary}
-            getIssueModeLabel={getIssueModeLabel}
             getDraftConfirmNumber={getDraftConfirmNumber}
             formatDateTime={formatDateTime}
             formatMoney={formatMoney}

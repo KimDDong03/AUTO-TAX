@@ -32,14 +32,14 @@ type PilotActivity = PilotDraftTimelineEntry & {
 type PilotCustomerCatalogEntry = Pick<Customer, "id" | "customerName" | "issueMode">;
 
 type PilotSummary = Pick<PilotIssuanceReport, "metrics" | "eventCounts" | "errorCategoryCounts" | "totals"> & {
-  autoIssueSuccessCount: number;
+  timeSavingsSuccessCount: number;
 };
 
 type FailureDescriptor = Omit<PilotFailureTypeSummary, "rank" | "count" | "lastSeenAt" | "latestDraftId" | "latestCustomerId" | "latestTimelinePath">;
 
 const pilotEventTypeSet = new Set<string>(PILOT_ISSUANCE_EVENT_TYPES);
 const pilotErrorCategorySet = new Set<string>(PILOT_ERROR_CATEGORIES);
-const AUTO_SUCCESS_SAVED_MINUTES = 10;
+const ISSUANCE_SUCCESS_SAVED_MINUTES = 0;
 const FAILURE_TOP_N = 5;
 const TIMELINE_PATH_TEMPLATE = "/api/drafts/:id/pilot-timeline";
 
@@ -125,10 +125,7 @@ function normalizePilotTimelineContext(
     normalized.clickedAt = createdAt;
   }
 
-  if (
-    (eventType === "manual-issue-succeeded" || eventType === "auto-issue-succeeded") &&
-    !asNullableString(normalized.issuedAt)
-  ) {
+  if (eventType === "manual-issue-succeeded" && !asNullableString(normalized.issuedAt)) {
     normalized.issuedAt = createdAt;
   }
 
@@ -146,9 +143,6 @@ export function inferPilotErrorCategory(input: Pick<PilotLogLike, "level" | "sco
   if (isPilotEventType(eventType)) {
     if (eventType === "manual-issue-failed") {
       return "manual-issue";
-    }
-    if (eventType === "auto-issue-failed") {
-      return "auto-issue";
     }
     return null;
   }
@@ -172,10 +166,6 @@ export function inferPilotErrorCategory(input: Pick<PilotLogLike, "level" | "sco
 
   if (scope === "drafts" && message.includes("발행") && input.level === "error") {
     return "manual-issue";
-  }
-
-  if (scope === "job-runner" && message.includes("자동 발행") && input.level === "error") {
-    return "auto-issue";
   }
 
   if (scope === "renewal-agent" && (input.level === "warn" || input.level === "error")) {
@@ -284,11 +274,8 @@ function buildPilotSummary(activities: PilotActivity[]): PilotSummary {
         activity.errorCategory === "customer-match" ||
         activity.errorCategory === "draft-create")
   ).length;
-  const finalIssueSuccessCount =
-    countByEventType(activities, "manual-issue-succeeded") + countByEventType(activities, "auto-issue-succeeded");
-  const finalIssueFailureCount =
-    countByEventType(activities, "manual-issue-failed") + countByEventType(activities, "auto-issue-failed");
-  const autoIssueSuccessCount = countByEventType(activities, "auto-issue-succeeded");
+  const finalIssueSuccessCount = countByEventType(activities, "manual-issue-succeeded");
+  const finalIssueFailureCount = countByEventType(activities, "manual-issue-failed");
 
   const draftCreationAttempts = draftCreatedCount + draftCreationExceptionCount;
   const finalIssueAttempts = finalIssueSuccessCount + finalIssueFailureCount;
@@ -315,18 +302,18 @@ function buildPilotSummary(activities: PilotActivity[]): PilotSummary {
       finalIssueAttempts,
       exceptionCount
     },
-    autoIssueSuccessCount
+    timeSavingsSuccessCount: 0
   };
 }
 
-function buildTimeSavingsEstimate(autoIssueSuccessCount: number): PilotTimeSavingsEstimate {
-  const estimatedSavedMinutes = autoIssueSuccessCount * AUTO_SUCCESS_SAVED_MINUTES;
+function buildTimeSavingsEstimate(successCount: number): PilotTimeSavingsEstimate {
+  const estimatedSavedMinutes = successCount * ISSUANCE_SUCCESS_SAVED_MINUTES;
   return {
-    assumedMinutesSavedPerAutoSuccess: AUTO_SUCCESS_SAVED_MINUTES,
-    autoIssueSuccessCount,
+    assumedMinutesSavedPerAutoSuccess: ISSUANCE_SUCCESS_SAVED_MINUTES,
+    autoIssueSuccessCount: successCount,
     estimatedSavedMinutes,
     estimatedSavedHours: Number((estimatedSavedMinutes / 60).toFixed(1)),
-    note: `자동 발행 성공 1건당 운영자의 수동 발행 처리 ${AUTO_SUCCESS_SAVED_MINUTES}분을 절감한다고 가정합니다.`
+    note: "절감 시간은 산정하지 않습니다."
   };
 }
 
@@ -408,7 +395,7 @@ function buildPeriodBuckets(
         eventCounts: summary.eventCounts,
         errorCategoryCounts: summary.errorCategoryCounts,
         totals: summary.totals,
-        timeSavings: buildTimeSavingsEstimate(summary.autoIssueSuccessCount)
+        timeSavings: buildTimeSavingsEstimate(summary.timeSavingsSuccessCount)
       };
     });
 }
@@ -512,17 +499,13 @@ function buildCustomerTransitionNote(
   manualIssueSuccessCount: number,
   autoIssueSuccessCount: number
 ): { status: "already-auto" | "eligible" | "needs-review"; note: string } {
-  if (currentIssueMode === "auto") {
-    return {
-      status: "already-auto",
-      note: "현재 auto 모드로 운영 중입니다."
-    };
-  }
-
+  void currentIssueMode;
+  void manualIssueSuccessCount;
+  void autoIssueSuccessCount;
   if (successCount > 0) {
     return {
       status: "eligible",
-      note: `성공 발행 이력 ${successCount}건(수동 ${manualIssueSuccessCount} / 자동 ${autoIssueSuccessCount})으로 review -> auto 판단 근거가 있습니다.`
+      note: `성공 발행 이력 ${successCount}건이 있습니다.`
     };
   }
 
@@ -554,8 +537,7 @@ function buildCustomerSummaries(
   }
 
   const customerIds = new Set<number>([
-    ...customerActivityMap.keys(),
-    ...customers.filter((customer) => customer.issueMode === "auto").map((customer) => customer.id)
+    ...customerActivityMap.keys()
   ]);
 
   return [...customerIds]
@@ -568,12 +550,8 @@ function buildCustomerSummaries(
       const manualIssueFailureCount = customerActivities.filter(
         (activity) => activity.eventType === "manual-issue-failed"
       ).length;
-      const autoIssueSuccessCount = customerActivities.filter(
-        (activity) => activity.eventType === "auto-issue-succeeded"
-      ).length;
-      const autoIssueFailureCount = customerActivities.filter(
-        (activity) => activity.eventType === "auto-issue-failed"
-      ).length;
+      const autoIssueSuccessCount = 0;
+      const autoIssueFailureCount = 0;
       const finalIssueSuccessCount = manualIssueSuccessCount + autoIssueSuccessCount;
       const finalIssueFailureCount = manualIssueFailureCount + autoIssueFailureCount;
       const finalIssueAttempts = finalIssueSuccessCount + finalIssueFailureCount;
@@ -592,7 +570,7 @@ function buildCustomerSummaries(
           asNullableString(activity.context.nextIssueMode) === "review"
       ).length;
       const latestFailure = customerActivities
-        .filter((activity) => activity.eventType === "manual-issue-failed" || activity.eventType === "auto-issue-failed")
+        .filter((activity) => activity.eventType === "manual-issue-failed")
         .sort(compareByCreatedAtDesc)[0] ?? null;
       const latestFailureDescriptor = latestFailure ? buildFailureDescriptor(latestFailure) : null;
       const transition = buildCustomerTransitionNote(
@@ -627,7 +605,7 @@ function buildCustomerSummaries(
         latestFailureType: latestFailureDescriptor?.label ?? null,
         latestFailureDraftId: latestFailure && latestFailure.draftId > 0 ? latestFailure.draftId : null,
         latestFailureTimelinePath: latestFailure ? buildTimelinePath(latestFailure.draftId > 0 ? latestFailure.draftId : null) : null,
-        estimatedSavedMinutes: autoIssueSuccessCount * AUTO_SUCCESS_SAVED_MINUTES
+        estimatedSavedMinutes: 0
       };
     })
     .sort((left, right) => {
@@ -919,7 +897,7 @@ export function buildPilotIssuanceReport(args: {
     },
     customerSummaries: buildCustomerSummaries(activities, args.customers ?? []),
     topFailureTypes: buildTopFailureTypes(activities),
-    timeSavings: buildTimeSavingsEstimate(summary.autoIssueSuccessCount),
+    timeSavings: buildTimeSavingsEstimate(summary.timeSavingsSuccessCount),
     drilldown: {
       timelinePathTemplate: TIMELINE_PATH_TEMPLATE,
       memoComparisonProcedure:
@@ -930,17 +908,17 @@ export function buildPilotIssuanceReport(args: {
       autoDraftCreationSuccessRate:
         "메일 동기화(mail-sync) 경로에서 기록된 draft-created 성공 수 / (draft-created + parse/customer-match/draft-create 예외 수)입니다.",
       finalIssueSuccessRate:
-        "manual-issue-succeeded + auto-issue-succeeded / (manual-issue-succeeded + manual-issue-failed + auto-issue-succeeded + auto-issue-failed)입니다.",
+        "manual-issue-succeeded / (manual-issue-succeeded + manual-issue-failed)입니다.",
       exceptionRate:
-        "메일 동기화 기반 초안 생성 예외(parse/customer-match/draft-create)와 최종 발행 실패(manual/auto)를 전체 초안 생성·최종 발행 시도 대비로 계산합니다.",
+        "메일 동기화 기반 초안 생성 예외(parse/customer-match/draft-create)와 최종 발행 실패를 전체 초안 생성·최종 발행 시도 대비로 계산합니다.",
       draftPreviewOpened:
         "draft-preview-opened는 웹 UI의 미리보기 버튼 클릭 시 POST /api/drafts/:id/pilot-preview-opened가 남기는 명시적 이벤트이며, Popbill 문서가 실제 렌더링되었는지까지는 보장하지 않습니다.",
       customerSummaries:
-        "고객별 성공률/예외율은 같은 기간의 manual/auto 최종 발행 성공·실패 로그 기준이며, auto 전환 근거는 성공 발행 이력과 현재 issueMode를 함께 보여줍니다.",
+        "고객별 성공률/예외율은 같은 기간의 최종 발행 성공·실패 로그 기준입니다.",
       topFailureTypes:
         `실패 유형 Top N은 errorCategory -> errorOperation -> errorCode -> 제한된 message bucket 순으로 묶은 상위 ${FAILURE_TOP_N}개입니다.`,
       timeSavings:
-        `자동 발행 성공 1건당 ${AUTO_SUCCESS_SAVED_MINUTES}분 절감 가정으로 누적 절감 시간을 계산합니다.`,
+        "절감 시간은 산정하지 않습니다.",
       memoComparison:
         "리포트의 latestFailureDraftId/latestFailureTimelinePath와 draft timeline drill-down을 이용해 운영 메모와 app_logs 실제 이벤트를 대조합니다."
     }

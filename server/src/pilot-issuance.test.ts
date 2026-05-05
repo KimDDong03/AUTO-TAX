@@ -31,7 +31,7 @@ test("buildPilotIssuanceReport calculates Phase 1 pilot metrics from structured 
         eventType: "draft-created",
         draftId: 102,
         customerId: 12,
-        issueMode: "auto",
+        issueMode: "review",
         draftSource: "mail-sync",
         pipeline: "mail-sync"
       }
@@ -102,34 +102,6 @@ test("buildPilotIssuanceReport calculates Phase 1 pilot metrics from structured 
     },
     {
       organizationId: "org-1",
-      actorUserId: null,
-      createdAt: "2026-04-16T00:07:00.000Z",
-      level: "info" as const,
-      scope: "job-runner",
-      message: "자동 발행 실행이 시작되었습니다.",
-      contextJson: {
-        eventType: "auto-issue-started",
-        draftId: 102,
-        customerId: 12,
-        issueMode: "auto"
-      }
-    },
-    {
-      organizationId: "org-1",
-      actorUserId: null,
-      createdAt: "2026-04-16T00:08:00.000Z",
-      level: "info" as const,
-      scope: "job-runner",
-      message: "자동 발행 큐 작업을 완료했습니다.",
-      contextJson: {
-        eventType: "auto-issue-succeeded",
-        draftId: 102,
-        customerId: 12,
-        issueMode: "auto"
-      }
-    },
-    {
-      organizationId: "org-1",
       actorUserId: "user-2",
       createdAt: "2026-04-16T00:09:00.000Z",
       level: "error" as const,
@@ -158,18 +130,18 @@ test("buildPilotIssuanceReport calculates Phase 1 pilot metrics from structured 
     rate: 0.4
   });
   assert.deepEqual(report.metrics.finalIssueSuccessRate, {
-    numerator: 2,
-    denominator: 3,
-    rate: 2 / 3
+    numerator: 1,
+    denominator: 2,
+    rate: 0.5
   });
   assert.deepEqual(report.metrics.exceptionRate, {
     numerator: 4,
-    denominator: 8,
-    rate: 0.5
+    denominator: 7,
+    rate: 4 / 7
   });
   assert.equal(report.totals.trackedDrafts, 3);
   assert.equal(report.totals.draftCreationAttempts, 5);
-  assert.equal(report.totals.finalIssueAttempts, 3);
+  assert.equal(report.totals.finalIssueAttempts, 2);
   assert.equal(report.totals.exceptionCount, 4);
   assert.equal(report.eventCounts.find((entry) => entry.eventType === "draft-created")?.count, 2);
   assert.equal(report.eventCounts.find((entry) => entry.eventType === "manual-issue-failed")?.count, 1);
@@ -177,7 +149,7 @@ test("buildPilotIssuanceReport calculates Phase 1 pilot metrics from structured 
   assert.match(report.notes.draftPreviewOpened, /pilot-preview-opened/);
 });
 
-test("buildPilotIssuanceReport adds weekly/monthly buckets, customer transition evidence, failure Top N, and time savings", () => {
+test("buildPilotIssuanceReport adds weekly/monthly buckets, customer summaries, failure Top N, and time savings", () => {
   const report = buildPilotIssuanceReport({
     organizationId: "org-1",
     from: "2026-04-01T00:00:00.000Z",
@@ -186,7 +158,7 @@ test("buildPilotIssuanceReport adds weekly/monthly buckets, customer transition 
       {
         id: 11,
         customerName: "알파 상사",
-        issueMode: "auto"
+        issueMode: "review"
       },
       {
         id: 12,
@@ -211,46 +183,17 @@ test("buildPilotIssuanceReport adds weekly/monthly buckets, customer transition 
       },
       {
         organizationId: "org-1",
-        actorUserId: "user-9",
-        createdAt: "2026-04-18T01:00:00.000Z",
-        level: "info" as const,
-        scope: "customers",
-        message: "고객 자동 발행 설정을 변경했습니다.",
-        contextJson: {
-          eventType: "issue-mode-changed",
-          customerId: 11,
-          previousIssueMode: "review",
-          nextIssueMode: "auto",
-          changedAt: "2026-04-18T01:00:00.000Z"
-        }
-      },
-      {
-        organizationId: "org-1",
-        actorUserId: null,
-        createdAt: "2026-05-02T00:10:00.000Z",
-        level: "info" as const,
-        scope: "job-runner",
-        message: "자동 발행 큐 작업을 완료했습니다.",
-        contextJson: {
-          eventType: "auto-issue-succeeded",
-          draftId: 202,
-          customerId: 11,
-          issueMode: "auto"
-        }
-      },
-      {
-        organizationId: "org-1",
         actorUserId: null,
         createdAt: "2026-05-03T00:10:00.000Z",
         level: "error" as const,
-        scope: "job-runner",
-        message: "자동 발행 큐 작업에 실패했습니다.",
+        scope: "drafts",
+        message: "수동 발행에 실패했습니다.",
         contextJson: {
-          eventType: "auto-issue-failed",
+          eventType: "manual-issue-failed",
           draftId: 203,
           customerId: 12,
-          issueMode: "auto",
-          errorCategory: "auto-issue",
+          issueMode: "review",
+          errorCategory: "manual-issue",
           errorOperation: "popbill.issueTaxInvoice",
           errorCode: "PB-401"
         }
@@ -260,14 +203,14 @@ test("buildPilotIssuanceReport adds weekly/monthly buckets, customer transition 
         actorUserId: null,
         createdAt: "2026-05-03T00:20:00.000Z",
         level: "error" as const,
-        scope: "job-runner",
-        message: "자동 발행 큐 작업에 실패했습니다.",
+        scope: "drafts",
+        message: "수동 발행에 실패했습니다.",
         contextJson: {
-          eventType: "auto-issue-failed",
+          eventType: "manual-issue-failed",
           draftId: 204,
           customerId: 12,
-          issueMode: "auto",
-          errorCategory: "auto-issue",
+          issueMode: "review",
+          errorCategory: "manual-issue",
           errorOperation: "popbill.issueTaxInvoice",
           errorCode: "PB-401"
         }
@@ -297,26 +240,26 @@ test("buildPilotIssuanceReport adds weekly/monthly buckets, customer transition 
   );
 
   const alpha = report.customerSummaries.find((entry) => entry.customerId === 11);
-  assert.equal(alpha?.currentIssueMode, "auto");
+  assert.equal(alpha?.currentIssueMode, "review");
   assert.equal(alpha?.manualIssueSuccessCount, 1);
-  assert.equal(alpha?.autoIssueSuccessCount, 1);
-  assert.equal(alpha?.reviewToAutoTransitionCount, 1);
-  assert.equal(alpha?.autoTransitionEvidenceStatus, "already-auto");
-  assert.equal(alpha?.estimatedSavedMinutes, 10);
+  assert.equal(alpha?.autoIssueSuccessCount, 0);
+  assert.equal(alpha?.reviewToAutoTransitionCount, 0);
+  assert.equal(alpha?.autoTransitionEvidenceStatus, "eligible");
+  assert.equal(alpha?.estimatedSavedMinutes, 0);
 
   const beta = report.customerSummaries.find((entry) => entry.customerId === 12);
   assert.equal(beta?.currentIssueMode, "review");
-  assert.equal(beta?.autoIssueFailureCount, 2);
+  assert.equal(beta?.autoIssueFailureCount, 0);
   assert.equal(beta?.autoTransitionEvidenceStatus, "needs-review");
   assert.equal(beta?.latestFailureDraftId, 204);
   assert.equal(beta?.latestFailureTimelinePath, "/api/drafts/204/pilot-timeline");
 
-  assert.equal(report.topFailureTypes[0]?.errorCategory, "auto-issue");
+  assert.equal(report.topFailureTypes[0]?.errorCategory, "manual-issue");
   assert.equal(report.topFailureTypes[0]?.errorOperation, "popbill.issueTaxInvoice");
   assert.equal(report.topFailureTypes[0]?.count, 2);
-  assert.equal(report.timeSavings.estimatedSavedMinutes, 10);
+  assert.equal(report.timeSavings.estimatedSavedMinutes, 0);
   assert.match(report.notes.topFailureTypes, /errorCategory/);
-  assert.match(report.notes.timeSavings, /10분/);
+  assert.match(report.notes.timeSavings, /절감 시간/);
   assert.match(report.drilldown.memoComparisonProcedure, /pilot-timeline/);
 });
 

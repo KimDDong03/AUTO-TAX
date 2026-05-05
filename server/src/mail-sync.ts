@@ -108,7 +108,6 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
 
   const mode = options.mode ?? "manual";
   const now = options.now ?? new Date();
-  const scheduledAt = toIso(now);
   const receivedMonth = resolveMailSyncReceivedMonth(options.receivedMonth, now);
   const currentReceivedMonth = getSeoulYearMonth(now);
   const useCheckpoint = receivedMonth === currentReceivedMonth && !options.receivedMonth;
@@ -319,15 +318,12 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
         customerId: customer.id
       });
 
-      const shouldAutoSchedule = mode === "scheduled" && customer.issueMode === "auto";
-      const status: InvoiceDraft["status"] = shouldAutoSchedule ? "scheduled" : "review";
-
       try {
         await store.createDraft({
           customer,
           sourceMessageId: inbox.id,
-          status,
-          scheduledFor: shouldAutoSchedule ? scheduledAt : null,
+          status: "review",
+          scheduledFor: null,
           parsedMail,
           draftSource: "mail-sync"
         });
@@ -370,9 +366,6 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
       }
 
       result.createdDrafts += 1;
-      if (shouldAutoSchedule) {
-        result.scheduledDrafts += 1;
-      }
       result.imported += 1;
     }
 

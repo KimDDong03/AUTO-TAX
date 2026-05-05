@@ -51,8 +51,7 @@ test("dispatchRecurringJobs skips certificate-check when the organization has no
       enqueueJob: async (args) => {
         queuedJobTypes.push(args.jobType);
         return {} as never;
-      },
-      enqueueDueAutoIssueJobs: async () => []
+      }
     }
   );
 
@@ -83,8 +82,7 @@ test("dispatchRecurringJobs skips mail-sync before the monthly 20th schedule", a
       enqueueJob: async (args) => {
         queuedJobTypes.push(args.jobType);
         return {} as never;
-      },
-      enqueueDueAutoIssueJobs: async () => []
+      }
     }
   );
 
@@ -114,8 +112,7 @@ test("dispatchRecurringJobs queues mail-sync on the monthly 20th schedule", asyn
       enqueueJob: async (args) => {
         queuedJobTypes.push(args.jobType);
         return {} as never;
-      },
-      enqueueDueAutoIssueJobs: async () => []
+      }
     }
   );
 
@@ -145,8 +142,7 @@ test("dispatchRecurringJobs does not queue a second mail-sync after this month a
       enqueueJob: async (args) => {
         queuedJobTypes.push(args.jobType);
         return {} as never;
-      },
-      enqueueDueAutoIssueJobs: async () => []
+      }
     }
   );
 
@@ -179,8 +175,7 @@ test("dispatchRecurringJobs queues certificate-check for eligible organizations 
       enqueueJob: async (args) => {
         queuedJobTypes.push(args.jobType);
         return {} as never;
-      },
-      enqueueDueAutoIssueJobs: async () => []
+      }
     }
   );
 

@@ -18,9 +18,6 @@ export const SELECTED_CUSTOMER_BASIC_EXPORT_COLUMNS = [
   "사업장 주소",
   "업태",
   "업종",
-  "발행 모드",
-  "발행일",
-  "발행 시간",
   "태양광 용량 KW",
   "계약기간 시작",
   "계약기간 종료",
@@ -70,22 +67,6 @@ function joinCustomerValues(values: string[]): string {
   return normalizedValues.length > 0 ? normalizedValues.join(", ") : "-";
 }
 
-function getCustomerIssueModeLabel(customer: Customer): string {
-  return customer.issueMode === "auto" ? "자동 발행" : "직접 발행";
-}
-
-function getCustomerIssueDayLabel(customer: Customer): string {
-  return typeof customer.issueDay === "number" ? `${customer.issueDay}일` : "-";
-}
-
-function getCustomerIssueTimeLabel(customer: Customer): string {
-  if (typeof customer.issueHour !== "number" || typeof customer.issueMinute !== "number") {
-    return "-";
-  }
-
-  return `${String(customer.issueHour).padStart(2, "0")}:${String(customer.issueMinute).padStart(2, "0")}`;
-}
-
 function getMonthSupplyAmount(month: CustomerReportMonth | undefined): number {
   if (!month) {
     return 0;
@@ -124,9 +105,6 @@ export function buildSelectedCustomerBasicInfoRows(items: SelectedCustomerExport
       getCustomerText(customer.addr),
       getCustomerText(customer.bizType),
       getCustomerText(customer.bizClass),
-      getCustomerIssueModeLabel(customer),
-      getCustomerIssueDayLabel(customer),
-      getCustomerIssueTimeLabel(customer),
       reportDetail.profile.solarCapacityKw ?? "-",
       getCustomerText(reportDetail.profile.contractStartMonth),
       getCustomerText(reportDetail.profile.contractEndMonth ?? deriveContractEndMonth(reportDetail.profile.contractStartMonth)),

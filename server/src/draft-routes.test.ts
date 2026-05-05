@@ -116,11 +116,11 @@ test("draft pilot report route can export the Phase 5 report as csv", async () =
               exceptionCount: 0
             },
             timeSavings: {
-              assumedMinutesSavedPerAutoSuccess: 10,
-              autoIssueSuccessCount: 1,
-              estimatedSavedMinutes: 10,
-              estimatedSavedHours: 0.2,
-              note: "자동 발행 성공 1건당 운영자의 수동 발행 처리 10분을 절감한다고 가정합니다."
+              assumedMinutesSavedPerAutoSuccess: 0,
+              autoIssueSuccessCount: 0,
+              estimatedSavedMinutes: 0,
+              estimatedSavedHours: 0,
+              note: "절감 시간은 산정하지 않습니다."
             }
           }
         ],
@@ -130,34 +130,34 @@ test("draft pilot report route can export the Phase 5 report as csv", async () =
         {
           customerId: 11,
           customerName: "알파 상사",
-          currentIssueMode: "auto",
+          currentIssueMode: "review",
           manualIssueSuccessCount: 1,
           manualIssueFailureCount: 0,
-          autoIssueSuccessCount: 1,
+          autoIssueSuccessCount: 0,
           autoIssueFailureCount: 0,
-          finalIssueAttempts: 2,
-          finalIssueSuccessRate: { numerator: 2, denominator: 2, rate: 1 },
-          exceptionRate: { numerator: 0, denominator: 2, rate: 0 },
-          reviewToAutoTransitionCount: 1,
+          finalIssueAttempts: 1,
+          finalIssueSuccessRate: { numerator: 1, denominator: 1, rate: 1 },
+          exceptionRate: { numerator: 0, denominator: 1, rate: 0 },
+          reviewToAutoTransitionCount: 0,
           autoToReviewTransitionCount: 0,
-          lastIssueModeChangedAt: "2026-04-17T00:00:00.000Z",
-          lastIssueModeChangedTo: "auto",
+          lastIssueModeChangedAt: null,
+          lastIssueModeChangedTo: null,
           hasSuccessfulIssuanceEvidence: true,
-          autoTransitionEvidenceStatus: "already-auto",
-          autoTransitionEvidenceNote: "현재 auto 모드로 운영 중입니다.",
+          autoTransitionEvidenceStatus: "eligible",
+          autoTransitionEvidenceNote: "성공 발행 이력 1건이 있습니다.",
           latestFailureAt: null,
           latestFailureType: null,
           latestFailureDraftId: null,
           latestFailureTimelinePath: null,
-          estimatedSavedMinutes: 10
+          estimatedSavedMinutes: 0
         }
       ],
       topFailureTypes: [
         {
           rank: 1,
-          key: "auto-issue::popbill.issueTaxInvoice::PB-401::",
-          label: "auto-issue / popbill.issueTaxInvoice / PB-401",
-          errorCategory: "auto-issue",
+          key: "manual-issue::popbill.issueTaxInvoice::PB-401::",
+          label: "manual-issue / popbill.issueTaxInvoice / PB-401",
+          errorCategory: "manual-issue",
           errorOperation: "popbill.issueTaxInvoice",
           errorCode: "PB-401",
           messageBucket: null,
@@ -169,11 +169,11 @@ test("draft pilot report route can export the Phase 5 report as csv", async () =
         }
       ],
       timeSavings: {
-        assumedMinutesSavedPerAutoSuccess: 10,
-        autoIssueSuccessCount: 1,
-        estimatedSavedMinutes: 10,
-        estimatedSavedHours: 0.2,
-        note: "자동 발행 성공 1건당 운영자의 수동 발행 처리 10분을 절감한다고 가정합니다."
+        assumedMinutesSavedPerAutoSuccess: 0,
+        autoIssueSuccessCount: 0,
+        estimatedSavedMinutes: 0,
+        estimatedSavedHours: 0,
+        note: "절감 시간은 산정하지 않습니다."
       },
       drilldown: {
         timelinePathTemplate: "/api/drafts/:id/pilot-timeline",
@@ -193,7 +193,7 @@ test("draft pilot report route can export the Phase 5 report as csv", async () =
         draftPreviewOpened: "미리보기 이벤트",
         customerSummaries: "고객별 성공률",
         topFailureTypes: "실패 유형 Top N",
-        timeSavings: "자동 성공 1건당 10분",
+        timeSavings: "절감 시간 미산정",
         memoComparison: "draft timeline drill-down"
       }
     }),
@@ -228,7 +228,7 @@ test("draft pilot report route can export the Phase 5 report as csv", async () =
     assert.match(body, /^section,group,label,/);
     assert.match(body, /summary,overall,overall/);
     assert.match(body, /customer,customer,알파 상사/);
-    assert.match(body, /failure,top-failure,auto-issue \/ popbill.issueTaxInvoice \/ PB-401/);
+    assert.match(body, /failure,top-failure,manual-issue \/ popbill.issueTaxInvoice \/ PB-401/);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {

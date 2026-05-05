@@ -1,10 +1,8 @@
 import { z } from "zod";
-import { issueDraftNow } from "./automation.js";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
 import { getErrorMessage } from "./http-errors.js";
 import { syncMailbox } from "./mail-sync.js";
 import { sendNotification } from "./notifier.js";
-import { buildPilotLogContext } from "./pilot-issuance.js";
 import { getServerManagedSettings } from "./server-managed-settings.js";
 import { runCustomerOnboardingCommitBatch } from "./services/customer-onboarding-batch-service.js";
 import { autoJoinCustomerPopbill } from "./services/popbill-customer-service.js";
@@ -15,7 +13,6 @@ import { nowIso } from "./utils.js";
 type Row = Record<string, unknown>;
 type QueueJobType =
   | "mail-sync"
-  | "auto-issue"
   | "certificate-check"
   | "customer-onboarding-commit"
   | "customer-popbill-auto-join";
@@ -39,7 +36,6 @@ type QueueJob = {
 
 const JOB_CLAIM_TIMEOUT_MINUTES: Record<QueueJobType, number> = {
   "mail-sync": 15,
-  "auto-issue": 10,
   "certificate-check": 15,
   "customer-onboarding-commit": 20,
   "customer-popbill-auto-join": 5
@@ -64,7 +60,6 @@ type DispatchRecurringJobsDependencies = {
   hasOpenJob: typeof hasOpenJob;
   getLatestJobReferenceAt: typeof getLatestJobReferenceAt;
   enqueueJob: typeof enqueueJob;
-  enqueueDueAutoIssueJobs: typeof enqueueDueAutoIssueJobs;
 };
 
 export type JobDispatchResult = {
@@ -87,10 +82,6 @@ export type JobRunResult = {
     message: string;
   }>;
 };
-
-const autoIssuePayloadSchema = z.object({
-  draftId: z.number().int().positive()
-});
 
 const customerPopbillAutoJoinPayloadSchema = z.object({
   customerId: z.number().int().positive()
@@ -208,8 +199,6 @@ function getRetryPolicy(jobType: QueueJobType): { maxRetries: number; delayMinut
   switch (jobType) {
     case "mail-sync":
       return { maxRetries: 2, delayMinutes: 10 };
-    case "auto-issue":
-      return { maxRetries: 3, delayMinutes: 5 };
     case "certificate-check":
       return { maxRetries: 1, delayMinutes: 30 };
     case "customer-onboarding-commit":
@@ -378,16 +367,7 @@ async function maybeSendBatchSummary(organizationId: string, batchKey: string): 
 
   const jobs = (rows ?? []) as Row[];
   const mailSyncJob = jobs.find((row) => asString(row.job_type) === "mail-sync") ?? null;
-  const autoIssueJobs = jobs.filter((row) => asString(row.job_type) === "auto-issue");
-
   const mailSyncResult = (mailSyncJob?.result as Record<string, unknown> | null) ?? {};
-  const completedIssues = autoIssueJobs.filter(
-    (row) => asString(row.status) === "completed" && asBoolean((row.result as Record<string, unknown> | null)?.skipped, false) === false
-  );
-  const skippedIssues = autoIssueJobs.filter(
-    (row) => asString(row.status) === "completed" && asBoolean((row.result as Record<string, unknown> | null)?.skipped, false) === true
-  );
-  const failedIssues = autoIssueJobs.filter((row) => asString(row.status) === "failed");
 
   const monthLabel = parseBatchMonthLabel(batchKey);
   const lines = [
@@ -399,24 +379,9 @@ async function maybeSendBatchSummary(organizationId: string, batchKey: string): 
     `- 읽은 메일: ${asNumber(mailSyncResult.scanned, 0)}건`,
     `- 가져온 메일: ${asNumber(mailSyncResult.imported, 0)}건`,
     `- 생성된 초안: ${asNumber(mailSyncResult.createdDrafts, 0)}건`,
-    `- 자동 발행 예약: ${asNumber(mailSyncResult.scheduledDrafts, 0)}건`,
     `- 고객 미매칭: ${asNumber(mailSyncResult.unmatched, 0)}건`,
-    `- 파싱 실패: ${asNumber(mailSyncResult.failures, 0)}건`,
-    ``,
-    `자동 발행`,
-    `- 성공: ${completedIssues.length}건`,
-    `- 건너뜀: ${skippedIssues.length}건`,
-    `- 실패: ${failedIssues.length}건`
+    `- 파싱 실패: ${asNumber(mailSyncResult.failures, 0)}건`
   ];
-
-  if (failedIssues.length > 0) {
-    lines.push("", "실패 건");
-    for (const row of failedIssues.slice(0, 10)) {
-      const result = (row.result as Record<string, unknown> | null) ?? {};
-      const draftId = asNumber((row.payload as Record<string, unknown> | null)?.draftId, 0);
-      lines.push(`- draftId=${draftId}: ${asString(row.error || result.lastError, "오류 확인 필요")}`);
-    }
-  }
 
   const store = new SupabaseStore({
     organizationId,
@@ -429,8 +394,6 @@ async function maybeSendBatchSummary(organizationId: string, batchKey: string): 
   await store.createLog("info", "job-batch-summary", "월 자동 처리 요약을 정리했습니다.", {
     batchKey,
     sent,
-    autoIssueCompleted: completedIssues.length,
-    autoIssueFailed: failedIssues.length,
     unmatched: asNumber(mailSyncResult.unmatched, 0),
     parseFailures: asNumber(mailSyncResult.failures, 0)
   });
@@ -646,81 +609,6 @@ async function claimQueuedJob(jobId: string, claimedBy: string): Promise<QueueJo
   return claimed ? mapQueueJob(claimed as Row) : null;
 }
 
-async function enqueueDueAutoIssueJobs(options: {
-  organizationId?: string;
-  now?: Date;
-  batchKey?: string | null;
-} = {}): Promise<DispatchDetail[]> {
-  const client = createSupabaseAdminClient();
-  const now = options.now ?? new Date();
-  const nowIsoString = now.toISOString();
-  let query = client
-    .from("invoice_drafts")
-    .select("organization_id, managed_customer_id, legacy_id")
-    .eq("status", "scheduled")
-    .lte("scheduled_for", nowIsoString)
-    .order("scheduled_for", { ascending: true });
-
-  if (options.organizationId) {
-    query = query.eq("organization_id", options.organizationId);
-  }
-
-  const rows = await assertNoError("자동 발행 대상 초안 조회 실패", query);
-  const details: DispatchDetail[] = [];
-
-  for (const row of (rows ?? []) as Row[]) {
-    const organizationId = asString(row.organization_id);
-    const draftId = asNumber(row.legacy_id);
-    const managedCustomerId = asNullableString(row.managed_customer_id);
-    const openJob = await hasOpenJob(organizationId, "auto-issue", {
-      draftId
-    });
-
-    if (openJob) {
-      details.push({
-        jobType: "auto-issue",
-        organizationId,
-        action: "skipped",
-        reason: "open-job-exists",
-        draftId
-      });
-      continue;
-    }
-
-    const queuedJob = await enqueueJob({
-      organizationId,
-      managedCustomerId,
-      jobType: "auto-issue",
-      runAfter: nowIsoString,
-      payload: {
-        draftId,
-        dispatchedAt: nowIsoString,
-        ...(options.batchKey ? { batchKey: options.batchKey } : {})
-      }
-    });
-
-    details.push(
-      queuedJob
-        ? {
-            jobType: "auto-issue",
-            organizationId,
-            action: "queued",
-            reason: "due",
-            draftId
-          }
-        : {
-            jobType: "auto-issue",
-            organizationId,
-            action: "skipped",
-            reason: "open-job-raced",
-            draftId
-          }
-    );
-  }
-
-  return details;
-}
-
 async function executeMailSyncJob(job: QueueJob): Promise<Record<string, unknown>> {
   const store = new SupabaseStore({
     organizationId: job.organizationId,
@@ -731,15 +619,9 @@ async function executeMailSyncJob(job: QueueJob): Promise<Record<string, unknown
   const result = await syncMailbox(store, {
     mode: "scheduled"
   });
-  const autoIssueQueueDetails = await enqueueDueAutoIssueJobs({
-    organizationId: job.organizationId,
-    batchKey
-  });
   return {
     ...result,
-    batchKey,
-    autoIssueQueued: autoIssueQueueDetails.filter((detail) => detail.action === "queued").length,
-    autoIssueSkipped: autoIssueQueueDetails.filter((detail) => detail.action === "skipped").length
+    batchKey
   };
 }
 
@@ -753,109 +635,6 @@ async function executeCertificateCheckJob(job: QueueJob): Promise<Record<string,
   return {
     ...result
   };
-}
-
-async function executeAutoIssueJob(job: QueueJob): Promise<Record<string, unknown>> {
-  const payload = autoIssuePayloadSchema.parse(job.payload ?? {});
-  const store = new SupabaseStore({
-    organizationId: job.organizationId,
-    bootstrapOrganization: false
-  });
-  await store.initialize();
-
-  const draft = await store.getDraft(payload.draftId);
-  if (!draft) {
-    return {
-      skipped: true,
-      reason: "draft-not-found",
-      draftId: payload.draftId
-    };
-  }
-
-  const claimedDraft = await store.claimDraftForIssue(payload.draftId);
-  if (!claimedDraft) {
-    return {
-      skipped: true,
-      reason: "draft-not-claimable",
-      draftId: payload.draftId
-    };
-  }
-
-  const autoIssueContext = {
-    draftId: payload.draftId,
-    customerId: claimedDraft.customerId,
-    issueMode: claimedDraft.issueMode,
-    jobId: job.id,
-    jobType: job.jobType
-  };
-  await store.createLog(
-    "info",
-    "job-runner",
-    "자동 발행 실행이 시작되었습니다.",
-    buildPilotLogContext(autoIssueContext, {
-      eventType: "auto-issue-started"
-    })
-  );
-
-  const customer = await store.getCustomer(claimedDraft.customerId);
-  if (!customer) {
-    const message = `자동 발행 대상 고객을 찾지 못했습니다. draftId=${payload.draftId}`;
-    await store.updateDraftStatus(payload.draftId, "failed", message);
-    await store.createLog(
-      "error",
-      "job-runner",
-      "자동 발행 큐 작업이 실패했습니다.",
-      buildPilotLogContext(autoIssueContext, {
-        eventType: "auto-issue-failed",
-        errorCategory: "auto-issue",
-        error: message
-      })
-    );
-    await sendNotification(
-      await store.getSettings(),
-      "[AUTO-TAX] 자동 발행 실패",
-      `자동 발행 대상 고객을 찾지 못했습니다.\n초안 번호: ${payload.draftId}\n오류: ${message}`
-    );
-    throw new Error(message);
-  }
-
-  try {
-    const issuedDraft = await issueDraftNow(store, await getServerManagedSettings(store), customer, claimedDraft);
-    await store.createLog(
-      "info",
-      "job-runner",
-      "자동 발행 큐 작업을 완료했습니다.",
-      buildPilotLogContext(autoIssueContext, {
-        eventType: "auto-issue-succeeded"
-      })
-    );
-
-    return {
-      skipped: false,
-      draftId: payload.draftId,
-      status: issuedDraft.status,
-      issuedAt: issuedDraft.issuedAt
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "자동 발행 실패";
-    await store.updateDraftStatus(payload.draftId, "failed", message);
-    await store.createLog(
-      "error",
-      "job-runner",
-      "자동 발행 큐 작업이 실패했습니다.",
-      buildPilotLogContext(autoIssueContext, {
-        eventType: "auto-issue-failed",
-        errorCategory: "auto-issue",
-        error: message
-      })
-    );
-    await sendNotification(
-      await store.getSettings(),
-      "[AUTO-TAX] 자동 발행 실패",
-      `자동 발행에 실패했습니다.\n고객: ${customer.customerName}\n초안 번호: ${payload.draftId}\n오류: ${message}`
-    );
-    throw error;
-  }
 }
 
 async function executeCustomerOnboardingCommitJob(job: QueueJob): Promise<Record<string, unknown>> {
@@ -920,9 +699,6 @@ async function executeJob(job: QueueJob): Promise<Record<string, unknown>> {
   if (job.jobType === "certificate-check") {
     return executeCertificateCheckJob(job);
   }
-  if (job.jobType === "auto-issue") {
-    return executeAutoIssueJob(job);
-  }
   if (job.jobType === "customer-onboarding-commit") {
     return executeCustomerOnboardingCommitJob(job);
   }
@@ -943,7 +719,6 @@ export async function dispatchRecurringJobs(
   const hasOpenJobImpl = dependencies.hasOpenJob ?? hasOpenJob;
   const getLatestJobReferenceAtImpl = dependencies.getLatestJobReferenceAt ?? getLatestJobReferenceAt;
   const enqueueJobImpl = dependencies.enqueueJob ?? enqueueJob;
-  const enqueueDueAutoIssueJobsImpl = dependencies.enqueueDueAutoIssueJobs ?? enqueueDueAutoIssueJobs;
   const { settingsRows, integrationRows, joinedCustomerOrganizationIds } = await loadRecurringDispatchContextImpl();
 
   const integrationByOrganizationId = new Map<string, Row>();
@@ -1091,8 +866,6 @@ export async function dispatchRecurringJobs(
       );
     }
   }
-
-  details.push(...(await enqueueDueAutoIssueJobsImpl({ now })));
 
   return {
     checkedOrganizations: settingsRows.length,

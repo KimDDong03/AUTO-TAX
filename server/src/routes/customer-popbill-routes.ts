@@ -15,9 +15,6 @@ import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";
 import type { AutoJoinCustomerResult } from "../services/popbill-customer-service.js";
 
-const AUTO_ISSUE_ENABLEMENT_EVIDENCE_REQUIRED_MESSAGE =
-  "자동 발행은 이 고객으로 최소 1회 이상 정상 발행을 확인한 뒤 활성화할 수 있습니다.";
-
 type RouteDeps = {
   app: Express;
   store: AppStore | null;
@@ -368,31 +365,18 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
   });
 
   app.put("/api/customers/:id", async (req, res) => {
-    const authContext = requireWorkspaceEditor(res);
+    requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const customerId = Number(req.params.id);
-    const payload = normalizeCustomerInput(customerSchema.parse(req.body));
-    const currentCustomer = await requestStore.getCustomer(customerId);
-    if (currentCustomer?.issueMode === "review" && payload.issueMode === "auto") {
-      const canEnableAutoIssue = await requestStore.canEnableAutoIssueForCustomer(customerId);
-      if (!canEnableAutoIssue) {
-        res.status(409).json({ error: AUTO_ISSUE_ENABLEMENT_EVIDENCE_REQUIRED_MESSAGE });
-        return;
-      }
-    }
+    const payload = {
+      ...normalizeCustomerInput(customerSchema.parse(req.body)),
+      issueMode: "review" as const,
+      issueDay: null,
+      issueHour: null,
+      issueMinute: null
+    };
     const customer = await requestStore.saveCustomer(payload, customerId);
     await requestStore.createLog("info", "customers", "고객 정보를 수정했습니다.", { customerId });
-    if (currentCustomer && currentCustomer.issueMode !== customer.issueMode) {
-      await requestStore.createLog("info", "customers", "고객 자동 발행 설정을 변경했습니다.", {
-        eventType: "issue-mode-changed",
-        actorUserId: authContext.userId,
-        organizationId: authContext.activeOrganizationId,
-        customerId,
-        changedAt: customer.updatedAt,
-        previousIssueMode: currentCustomer.issueMode,
-        nextIssueMode: customer.issueMode
-      });
-    }
     res.json(toClientCustomer(customer));
   });
 

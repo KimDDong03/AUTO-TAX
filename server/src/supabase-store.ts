@@ -465,7 +465,7 @@ function mapCustomer(row: Row, plantNames: string[], matchAddresses: string[]): 
     popbillState: asString(row.popbill_state, "pending") as PopbillState,
     popbillCertRegistered: asBoolean(row.popbill_cert_registered, false),
     popbillCertExpireDate: asNullableString(row.popbill_cert_expire_date),
-    issueMode: asString(row.issue_mode, "review") as Customer["issueMode"],
+    issueMode: "review",
     issueDay: row.issue_day === null ? null : asNumber(row.issue_day),
     issueHour: row.issue_hour === null ? null : asNumber(row.issue_hour),
     issueMinute: row.issue_minute === null ? null : asNumber(row.issue_minute),
@@ -556,7 +556,7 @@ function mapDraft(row: Row): InvoiceDraft {
     customerId: asNumber(row.managed_customer_legacy_id),
     customerName: asString(row.customer_name),
     sourceMessageId: asNumber(row.source_message_legacy_id),
-    issueMode: asString(row.issue_mode, "review") as InvoiceDraft["issueMode"],
+    issueMode: "review",
     status: asString(row.status, "review") as DraftStatus,
     scheduledFor: asNullableString(row.scheduled_for),
     issueRequestedAt: asNullableString(row.issue_requested_at),
@@ -1357,44 +1357,6 @@ export class SupabaseStore implements AppStore {
     return this.mapCustomerRow(row);
   }
 
-  async canEnableAutoIssueForCustomer(customerId: number): Promise<boolean> {
-    const customerRow = await this.getManagedCustomerRowByLegacyId(customerId);
-    if (!customerRow) {
-      throw new Error("고객을 찾지 못했습니다.");
-    }
-
-    const organizationId = this.requireOrganizationId();
-    const manualIssueEvidenceRows = await assertNoError(
-      "고객 수동 발행 성공 이력 조회 실패",
-      this.client
-        .from("app_logs")
-        .select("id")
-        .eq("organization_id", organizationId)
-        .contains("context_json", {
-          eventType: "manual-issue-succeeded",
-          customerId
-        })
-        .limit(1)
-    );
-
-    if (((manualIssueEvidenceRows as Row[] | null) ?? []).length > 0) {
-      return true;
-    }
-
-    const issuedDraftRows = await assertNoError(
-      "고객 발행 초안 이력 조회 실패",
-      this.client
-        .from("invoice_drafts")
-        .select("id")
-        .eq("organization_id", organizationId)
-        .eq("managed_customer_id", asString(customerRow.id))
-        .eq("status", "issued")
-        .limit(1)
-    );
-
-    return ((issuedDraftRows as Row[] | null) ?? []).length > 0;
-  }
-
   async findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null> {
     await this.initialize();
     const normalized = digitsOnly(businessNumber);
@@ -1496,7 +1458,7 @@ export class SupabaseStore implements AppStore {
         biz_class: input.bizClass,
         popbill_user_id: popbillUserId,
         popbill_password_encrypted: encryptSecret(popbillPassword),
-        issue_mode: input.issueMode,
+          issue_mode: "review",
         issue_day: input.issueDay,
         issue_hour: input.issueHour,
         issue_minute: input.issueMinute,
@@ -1549,7 +1511,7 @@ export class SupabaseStore implements AppStore {
         addr: roadAddress,
         biz_type: input.bizType,
         biz_class: input.bizClass,
-        issue_mode: input.issueMode,
+        issue_mode: "review",
         issue_day: input.issueDay,
         issue_hour: input.issueHour,
         issue_minute: input.issueMinute,
@@ -1756,7 +1718,7 @@ export class SupabaseStore implements AppStore {
         billingMonth: asString(draft.billing_month),
         issuedAt: asNullableString(draft.issued_at),
         writeDate: asNullableString(draft.write_date),
-        createdAt: asNullableString(draft.created_at)
+        createdAt: asString(draft.created_at)
       });
 
       if (!period || period.reportYear !== reportYear || !shouldAutoSyncMonth(period.reportMonth)) {
@@ -2352,7 +2314,7 @@ export class SupabaseStore implements AppStore {
           managed_customer_id: asString(customerRow.id),
           source_message_id: asString(sourceMessageRow.id),
           created_by: this.actorUserId,
-          issue_mode: args.customer.issueMode,
+          issue_mode: "review",
           status: args.status,
           scheduled_for: args.scheduledFor,
           billing_month: args.parsedMail.billingMonth,
@@ -2403,13 +2365,6 @@ export class SupabaseStore implements AppStore {
     await this.createLog("info", "drafts", "초안을 생성했습니다.", buildPilotLogContext(draftContext, {
       eventType: "draft-created"
     }));
-
-    if (draft.status === "scheduled") {
-      await this.createLog("info", "drafts", "자동 발행 대기 상태로 초안을 예약했습니다.", buildPilotLogContext(draftContext, {
-        eventType: "auto-issue-scheduled",
-        scheduledFor: draft.scheduledFor
-      }));
-    }
 
     return draft;
   }
@@ -2767,18 +2722,8 @@ export class SupabaseStore implements AppStore {
   }
 
   async getDueAutoDrafts(now: Date): Promise<InvoiceDraft[]> {
-    await this.initialize();
-    const rows = await assertNoError(
-      "자동 발행 대상 조회 실패",
-      this.client
-        .from("invoice_drafts")
-        .select("*")
-        .eq("organization_id", this.requireOrganizationId())
-        .eq("status", "scheduled")
-        .lte("scheduled_for", now.toISOString())
-        .order("scheduled_for", { ascending: true })
-    );
-    return Promise.all((rows as Row[]).map((row) => this.buildDraftPayload(row)));
+    void now;
+    return [];
   }
 
   async createLog(level: LogEntry["level"], scope: string, message: string, context?: unknown): Promise<void> {

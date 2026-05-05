@@ -36,8 +36,6 @@ import {
 import { useCustomerReportDetail } from "./useCustomerReportDetail";
 import {
   getCurrentSeoulBillingMonth,
-  matchesCustomerIssueModeFilter,
-  type CustomerIssueModeFilter,
   type CustomerListFilter
 } from "./customerListFilters";
 
@@ -49,7 +47,6 @@ type CustomerFormState = {
   addr: string;
   bizType: string;
   bizClass: string;
-  issueMode: "review" | "auto";
   popbillUserId: string;
   popbillPassword: string;
   renewalContactMobile: string;
@@ -170,7 +167,6 @@ type CustomersTabProps = {
   onStartCustomerRenewal: (customerId: number) => Promise<void>;
   onSelectCustomer: (customer: Customer) => void;
   onSaveCustomer: () => Promise<void>;
-  onSaveCustomerIssueMode: (customer: Customer, issueMode: Customer["issueMode"]) => Promise<void>;
   onJoinCustomerPopbill: (customerId: number) => Promise<void>;
   onOpenCustomerCertRegistration: (customerId: number) => Promise<void>;
   onLinkCustomerCertificate: (certificateIndex: string, customerId: number) => Promise<void>;
@@ -191,7 +187,6 @@ type CustomersTabProps = {
   getCustomerIssueReadiness: (customer: Customer) => CustomerIssueReadiness;
   getCustomerCertificateSummary: (customer: Customer) => string;
   getCustomerPopbillSummary: (customer: Customer) => string;
-  getIssueModeLabel: (issueMode: "review" | "auto") => string;
   getDraftConfirmNumber: (draft: InvoiceDraft) => string | null;
   formatDateTime: (value: string | null) => string;
   formatMoney: (value: number) => string;
@@ -208,18 +203,6 @@ function getToneBadgeClass(tone: CustomerConsoleTone) {
           ? "tone-danger"
           : "tone-default"
   ].join(" ");
-}
-
-function getIssueModeGuide(issueMode: Customer["issueMode"]): string {
-  return issueMode === "auto"
-    ? "설정된 고객만 월 자동 발행합니다. 실패 시 실패 초안이 남아 검수 후 직접 발행으로 복구할 수 있습니다."
-    : "초안 검수 뒤 로그인 사용자가 직접 발행합니다. 최소 1회 이상 정상 발행 경험 후 자동 전환을 권장합니다.";
-}
-
-function getIssueModeListHint(issueMode: Customer["issueMode"]): string {
-  return issueMode === "auto"
-    ? "설정 기반 자동 발행 · 실패 시 직접 발행 복구"
-    : "로그인 사용자가 직접 발행 · 정상 발행 후 자동 전환 권장";
 }
 
 function parseCustomerTimestamp(value: string | null | undefined): number | null {
@@ -393,9 +376,6 @@ export function CustomersTab(props: CustomersTabProps) {
   const visibleCustomerIssues = props.selectedCustomerIssues.filter((issue) => issue.tone !== "success" || Boolean(issue.actionLabel));
   const [customerDetailPanelOpen, setCustomerDetailPanelOpen] = useState(false);
   const [customerTableViewportHeight, setCustomerTableViewportHeight] = useState<number | null>(null);
-  const [customerIssueModeFilter, setCustomerIssueModeFilter] = useState<CustomerIssueModeFilter>("all");
-  const [customerIssueModeDraft, setCustomerIssueModeDraft] = useState<Customer["issueMode"]>("review");
-  const [bulkIssueModeMenuOpen, setBulkIssueModeMenuOpen] = useState(false);
   const [checkedCustomerIds, setCheckedCustomerIds] = useState<Set<number>>(() => new Set());
   const [customerReportYear, setCustomerReportYear] = useState(getCurrentCustomerReportYear);
   const customerReportDetail = useCustomerReportDetail(selectedCustomer?.id ?? null, customerReportYear, {
@@ -457,13 +437,12 @@ export function CustomersTab(props: CustomersTabProps) {
 
   useEffect(() => {
     if (selectedCustomer) {
-      setCustomerIssueModeDraft(selectedCustomer.issueMode);
       setCustomerCertificateSelectorOpen(false);
       setCustomerCertificateSearchQuery("");
       setCustomerCertificateSelectedKey(null);
       setCustomerCertificateActionNotice("");
     }
-  }, [selectedCustomer?.id, selectedCustomer?.issueMode]);
+  }, [selectedCustomer?.id]);
 
   useEffect(() => {
     setCustomerReportIssueDateDrafts({});
@@ -921,11 +900,7 @@ export function CustomersTab(props: CustomersTabProps) {
     return count;
   })();
   const certificateExpirationCustomerCount = props.expiredCertCustomers.length + props.expiringSoonCustomerCount;
-  const visibleTableCustomers = useMemo(
-    () =>
-      props.filteredCustomers.filter((customer) => matchesCustomerIssueModeFilter(customer, customerIssueModeFilter)),
-    [customerIssueModeFilter, props.filteredCustomers]
-  );
+  const visibleTableCustomers = props.filteredCustomers;
   const visibleCustomerIdSet = useMemo(() => new Set(visibleTableCustomers.map((customer) => customer.id)), [visibleTableCustomers]);
   const checkedVisibleCustomers = useMemo(
     () => visibleTableCustomers.filter((customer) => checkedCustomerIds.has(customer.id)),
@@ -934,12 +909,6 @@ export function CustomersTab(props: CustomersTabProps) {
   const checkedVisibleCustomerCount = checkedVisibleCustomers.length;
   const allVisibleCustomersChecked = visibleTableCustomers.length > 0 && checkedVisibleCustomerCount === visibleTableCustomers.length;
   const someVisibleCustomersChecked = checkedVisibleCustomerCount > 0 && !allVisibleCustomersChecked;
-
-  useEffect(() => {
-    if (checkedVisibleCustomerCount === 0) {
-      setBulkIssueModeMenuOpen(false);
-    }
-  }, [checkedVisibleCustomerCount]);
 
   useEffect(() => {
     setCheckedCustomerIds((prev) => {
@@ -1023,42 +992,6 @@ export function CustomersTab(props: CustomersTabProps) {
       "customers-export-selected",
       async () => props.onExportSelectedCustomers(checkedVisibleCustomers, customerReportYear),
       { reload: false }
-    );
-  };
-
-  const changeSelectedCustomersIssueMode = (issueMode: Customer["issueMode"]) => {
-    const targetCustomers = checkedVisibleCustomers.filter((customer) => customer.issueMode !== issueMode);
-    if (targetCustomers.length === 0) {
-      setBulkIssueModeMenuOpen(false);
-      return;
-    }
-
-    const issueModeLabel = props.getIssueModeLabel(issueMode);
-    const confirmed = window.confirm(`선택한 고객 ${targetCustomers.length}명을 ${issueModeLabel}으로 변경할까요?`);
-    if (!confirmed) {
-      return;
-    }
-
-    void props.runAction(
-      `customers-issue-mode-${issueMode}`,
-      async () => {
-        for (const customer of targetCustomers) {
-          await props.onSaveCustomerIssueMode(customer, issueMode);
-        }
-        setBulkIssueModeMenuOpen(false);
-        setCheckedCustomerIds(new Set());
-      }
-    );
-  };
-
-  const saveSelectedCustomerIssueMode = () => {
-    if (!selectedCustomer || customerIssueModeDraft === selectedCustomer.issueMode) {
-      return;
-    }
-
-    void props.runAction(
-      `customer-issue-mode-${selectedCustomer.id}`,
-      async () => props.onSaveCustomerIssueMode(selectedCustomer, customerIssueModeDraft)
     );
   };
 
@@ -1405,15 +1338,7 @@ export function CustomersTab(props: CustomersTabProps) {
   );
   const hasActiveFilter =
     props.customerListFilter !== "all" ||
-    props.customerSearchQuery.trim() !== "" ||
-    customerIssueModeFilter !== "all";
-  const customerIssueModeOptions: Array<{ key: CustomerIssueModeFilter; label: string }> = [
-    { key: "all", label: "전체" },
-    { key: "review", label: "직접 발행" },
-    { key: "auto", label: "자동 발행" }
-  ];
-  const checkedReviewTargetCount = checkedVisibleCustomers.filter((customer) => customer.issueMode !== "review").length;
-  const checkedAutoTargetCount = checkedVisibleCustomers.filter((customer) => customer.issueMode !== "auto").length;
+    props.customerSearchQuery.trim() !== "";
   const detailPanelOpen = props.creatingCustomer || Boolean(selectedCustomer);
   const selectedRecentIssuedDraft = props.selectedCustomerIssuedDrafts[0] ?? null;
   const selectedReportDraft = useMemo(() => {
@@ -1548,8 +1473,6 @@ export function CustomersTab(props: CustomersTabProps) {
       const isSelected = !props.creatingCustomer && detailPanelOpen && props.selectedCustomer?.id === customer.id;
       const isChecked = checkedCustomerIds.has(customer.id);
       const summaryTitle = customer.corpName || customer.customerName;
-      const issueModeLabel = customer.issueMode === "auto" ? "자동 발행" : "직접 발행";
-
       return (
         <tr
           key={customer.id}
@@ -1580,14 +1503,6 @@ export function CustomersTab(props: CustomersTabProps) {
             <div className="customer-console-cell-stack">
               <strong>{customer.customerName || "-"}</strong>
             </div>
-          </td>
-          <td className="customer-console-col-mode">
-            <span
-              className={`customer-console-mode-badge mode-${customer.issueMode}`}
-              title={getIssueModeListHint(customer.issueMode)}
-            >
-              {issueModeLabel}
-            </span>
           </td>
         </tr>
       );
@@ -1638,39 +1553,6 @@ export function CustomersTab(props: CustomersTabProps) {
                 <dd>{selectedCustomer.addr || "-"}</dd>
               </div>
             </dl>
-            <div className="customer-issue-mode-editor" aria-label="발행 모드 변경">
-              <span>발행 모드</span>
-              <div className="customer-issue-mode-segment">
-                <button
-                  type="button"
-                  className={customerIssueModeDraft === "review" ? "is-active" : undefined}
-                  aria-pressed={customerIssueModeDraft === "review"}
-                  disabled={props.busyKey !== null}
-                  onClick={() => setCustomerIssueModeDraft("review")}
-                >
-                  직접 발행
-                </button>
-                <button
-                  type="button"
-                  className={customerIssueModeDraft === "auto" ? "is-active" : undefined}
-                  aria-pressed={customerIssueModeDraft === "auto"}
-                  disabled={props.busyKey !== null}
-                  onClick={() => setCustomerIssueModeDraft("auto")}
-                >
-                  자동 발행
-                </button>
-              </div>
-              {customerIssueModeDraft !== selectedCustomer.issueMode ? (
-                <button
-                  type="button"
-                  className="btn-secondary customer-issue-mode-save"
-                  disabled={props.busyKey !== null}
-                  onClick={saveSelectedCustomerIssueMode}
-                >
-                  변경 저장
-                </button>
-              ) : null}
-            </div>
           </section>
 
           <section className="customer-detail-section customer-info-card customer-info-contract-card">
@@ -2294,44 +2176,6 @@ export function CustomersTab(props: CustomersTabProps) {
             </button>
           ))}
           <div className="customer-summary-actions">
-            <div className="customer-bulk-issue-mode">
-              <button
-                type="button"
-                className="btn-secondary customer-bulk-issue-mode-trigger"
-                disabled={props.busyKey !== null || checkedVisibleCustomers.length === 0}
-                aria-haspopup="menu"
-                aria-expanded={bulkIssueModeMenuOpen}
-                aria-label={
-                  checkedVisibleCustomers.length > 0
-                    ? `선택한 고객 ${checkedVisibleCustomers.length}명 발행모드 변경`
-                    : "선택한 고객 발행모드 변경"
-                }
-                onClick={() => setBulkIssueModeMenuOpen((prev) => !prev)}
-              >
-                {checkedVisibleCustomers.length > 0 ? <span>선택 {checkedVisibleCustomers.length}명</span> : null}
-                발행모드 변경
-              </button>
-              {bulkIssueModeMenuOpen ? (
-                <div className="customer-bulk-issue-mode-menu" role="menu" aria-label="선택 고객 발행모드 변경">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={props.busyKey !== null || checkedReviewTargetCount === 0}
-                    onClick={() => changeSelectedCustomersIssueMode("review")}
-                  >
-                    직접 발행으로 변경
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={props.busyKey !== null || checkedAutoTargetCount === 0}
-                    onClick={() => changeSelectedCustomersIssueMode("auto")}
-                  >
-                    자동 발행으로 변경
-                  </button>
-                </div>
-              ) : null}
-            </div>
             <button
               type="button"
               className="btn-secondary"
@@ -2361,19 +2205,6 @@ export function CustomersTab(props: CustomersTabProps) {
                 onChange={(event) => props.setCustomerSearchQuery(event.target.value)}
               />
             </label>
-            <div className="customer-console-filter-strip customer-console-mode-filter" aria-label="발행 모드 필터">
-              {customerIssueModeOptions.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  className={customerIssueModeFilter === option.key ? "btn-secondary active-filter" : "btn-secondary"}
-                  aria-pressed={customerIssueModeFilter === option.key}
-                  onClick={() => setCustomerIssueModeFilter(option.key)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
           </header>
 
           <section className="panel panel-customer-list customer-console-panel">
@@ -2390,7 +2221,6 @@ export function CustomersTab(props: CustomersTabProps) {
                     onClick={() => {
                       props.setCustomerListFilter("all");
                       props.setCustomerSearchQuery("");
-                      setCustomerIssueModeFilter("all");
                     }}
                   >
                     필터 초기화
@@ -2435,7 +2265,6 @@ export function CustomersTab(props: CustomersTabProps) {
                     </th>
                     <th>상호명</th>
                     <th>대표자명</th>
-                    <th className="customer-console-col-mode">발행 모드</th>
                   </tr>
                 </thead>
                 <tbody>{renderCustomerTableRows()}</tbody>

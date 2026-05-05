@@ -286,7 +286,7 @@ When mail sync looks wrong:
 - inspect `server/src/parser.ts`
 - inspect `mail_sync_checkpoints`
 
-When auto-issue or recurring jobs look wrong:
+When recurring business jobs look wrong:
 
 - inspect `server/src/job-queue.ts`
 - inspect `server/src/maintenance-retention.ts`

@@ -94,9 +94,9 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
           <span className="field-hint">실패 알림 수신 주소</span>
         </label>
         <details className="settings-advanced-panel full">
-          <summary>자동 발행 일정</summary>
+          <summary>월간 메일 동기화 일정</summary>
           <div className="helper-box">
-            <strong>매달 자동 실행 일정</strong>
+            <strong>매달 메일 읽기 일정</strong>
             <div className="fields three-column">
               <label>
                 자동 실행

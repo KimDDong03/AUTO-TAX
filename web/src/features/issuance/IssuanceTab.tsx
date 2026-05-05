@@ -69,7 +69,6 @@ type IssuanceTabProps = {
   formatDateTime: (value: string | null) => string;
   getDraftStatusLabel: (status: string) => string;
   getDraftConfirmNumber: (draft: InvoiceDraft) => string | null;
-  getIssueModeLabel: (mode: "review" | "auto") => string;
   simplifyIssueError: (value: string) => string;
 };
 
@@ -1277,10 +1276,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
                           ? selectedMissingMailEntry.customer.plantNames.join(", ")
                           : "-"}
                       </dd>
-                    </div>
-                    <div>
-                      <dt>고객 발행 방식</dt>
-                      <dd>{props.getIssueModeLabel(selectedMissingMailEntry.customer.issueMode)}</dd>
                     </div>
                     <div>
                       <dt>연동 상태</dt>

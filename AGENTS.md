@@ -1,176 +1,128 @@
-# AUTO-TAX Agent Guide
+# AGENTS.md
 
-This file is the primary entrypoint for Codex work. Read it before opening other docs.
+Behavioral guidelines for AI coding agents.
 
-## Canonical Docs
+These rules are project-agnostic. Merge with project-specific instructions when needed, but do not let stale, contradictory, or overly rigid context block a better repository-local solution.
 
-The active documentation set is intentionally small:
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-- `AGENTS.md`: repo briefing, commands, invariants, and change map
-- `README.md`: short repo entrypoint
-- `docs/IMPLEMENTATION.md`: architecture, flows, module ownership
-- `docs/SUPABASE_SCHEMA_PLAN.md`: database model and invariants
-- `docs/OPERATIONS.md`: env, runbook, deploy, jobs, smoke checks
-- `docs/IMPLEMENTATION_STATUS.md`: current backlog and refactor pressure
+## 1. Think Before Coding
 
-If a non-canonical note or plan conflicts with one of the files above, trust the canonical doc.
-There is intentionally no canonical UI/UX rulebook. Existing layout, styling, and interaction patterns are changeable implementation details unless the user asks to preserve them.
+**Do not assume silently. Do not hide uncertainty. Surface tradeoffs.**
 
-## Read Order
+Before implementing:
+- Restate the task goal briefly.
+- Inspect the relevant code, tests, and documentation.
+- State assumptions that affect behavior, interfaces, data, security, performance, or user experience.
+- If uncertainty is small and local, make the smallest reasonable assumption, state it, and proceed.
+- If uncertainty affects architecture, public interfaces, data formats, persistence, security, performance, or user-visible behavior, stop and ask.
+- If multiple reasonable interpretations exist, present them. Do not pick silently.
+- If a simpler or better approach exists, say so before coding.
 
-Use the shortest path that fits the task:
+## 2. Simplicity First
 
-- First-pass orientation: `README.md` -> `docs/IMPLEMENTATION.md`
-- Data or persistence work: `docs/SUPABASE_SCHEMA_PLAN.md` -> `docs/IMPLEMENTATION.md`
-- Runtime, deploy, or cron work: `docs/OPERATIONS.md`
-- Current priorities: `docs/IMPLEMENTATION_STATUS.md`
+**Minimum code that solves the problem. Nothing speculative.**
 
-## Repo Map
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No speculative flexibility, configurability, or future-proofing.
+- No new dependencies unless clearly necessary.
+- No error handling for impossible scenarios.
+- Prefer boring, readable code over clever code.
+- If a smaller solution solves the same problem, use the smaller solution.
 
-- `web/`: Vite React app
-- `server/`: Express API and Supabase-backed services
-- `api/index.ts`: Vercel entrypoint
-- `scripts/`: Windows helper scripts, renewal agent, packaging, utilities
-- `supabase/`: migrations, config, Edge Function `job-tick`
-- `docs/`: active developer docs only
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-## Fast Start
+## 3. Surgical Changes
 
-```bash
-npm install
-npm run dev
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Do not improve adjacent code, comments, or formatting.
+- Do not refactor unrelated code.
+- Do not rename things unless required.
+- Do not change public APIs, schemas, config formats, storage formats, or external behavior unless the task requires it.
+- Match existing style, even if you would do it differently.
+- If you notice unrelated dead code or bugs, mention them separately. Do not fix them silently.
+
+When your changes create orphans:
+- Remove imports, variables, functions, or files made unused by your own changes.
+- Do not remove pre-existing dead code unless asked.
+
+The test: every changed line should trace directly to the user's request.
+
+## 4. Better Options Are Allowed
+
+**Do not blindly follow a requested implementation if there is a clearly better option.**
+
+When the user proposes an approach:
+- Check whether it solves the actual problem.
+- If a simpler, safer, faster, or more maintainable option exists, explain the tradeoff.
+- Small improvement within the same scope: proceed and mention it.
+- Significant scope change: ask before implementing.
+- Pure preference difference: follow the requested approach.
+
+Do not use this rule as permission for an unrelated redesign. Better options must still respect scope control.
+
+## 5. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Define invalid cases, implement validation, verify valid and invalid cases"
+- "Fix the bug" → "Reproduce or explain the failure, patch it, verify the fix"
+- "Refactor X" → "Verify behavior before and after"
+- "Improve performance" → "Identify the bottleneck, change one thing, compare results when possible"
+
+For multi-step tasks, state a brief plan:
+
+```text
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
 ```
 
-- Web: `http://localhost:5173`
-- API: `http://localhost:4300`
+Do not start broad work without clear success criteria.
 
-Core validation:
+## 6. Verification
 
-```bash
-npm run check
-npm run test:server
-npm run test:e2e:smoke
+**Do not claim success without verification.**
+
+Use the most relevant available checks:
+- Targeted tests
+- Existing test suite
+- Type checks
+- Lint checks
+- Build checks
+- Smoke tests
+- Manual reasoning when automated checks are unavailable
+
+If verification cannot be run:
+- Say exactly what could not be run.
+- Explain why.
+- Describe the best alternative check performed.
+
+## 7. Final Response
+
+**Be concise, explicit, and factual.**
+
+After completing a task, report:
+
+```text
+Summary:
+- ...
+
+Changed:
+- ...
+
+Verified:
+- ...
+
+Notes:
+- ...
 ```
 
-Useful build/runtime commands:
+If nothing changed, say so clearly and explain why.
 
-```bash
-npm run build
-npm run build:vercel
-npm run dev:vercel
-npm run renewal-helper:install
-npm run renewal-helper:start
-npm run renewal-helper:status
-npm run renewal-helper:stop
-npm run renewal-agent:dev
-```
-
-## Runtime Truths
-
-1. Customer auto-matching is address-first.
-   `managed_customer_match_addresses` is the real matching key. `plantNames` is supplemental only.
-2. Current code routes public root to a customer access portal.
-   That is current implementation state, not a frozen design requirement.
-3. Current role behavior is effectively `owner` and non-owner member.
-   DB roles still include `admin`, `operator`, and `viewer`, but current workflows mostly expose owner versus member behavior.
-4. Popbill runtime values are server-managed.
-   Runtime env overrides workspace-level values for `AUTO_TAX_POPBILL_*`, including customer ID prefix and shared new-customer password defaults.
-5. There are two job systems.
-   `job_queue` handles mail and issuance work. `renewal_automation_jobs` handles local certificate diagnostics and preflight.
-6. Local certificate support is Windows-only and not fully autonomous.
-   The current scope is read/connect/preflight/prepare/payment-open assistance, not unattended renewal completion.
-7. Certificate and Hometax secrets stay off the server wherever possible.
-   Do not persist or re-display raw certificate files, certificate passwords, or Hometax credentials.
-8. `data/` is potentially user state.
-   Do not delete local DB files casually during cleanup.
-
-## High-Value Files
-
-- `web/src/App.tsx`: shell, auth/workspace bootstrap, tab orchestration, remaining cross-feature state
-- `web/src/features/*`: feature screens and client state
-- `server/src/main.ts`: app creation and route registration
-- `server/src/routes/*.ts`: HTTP surface area
-- `server/src/supabase-store.ts`: main persistence boundary
-- `server/src/mail-sync.ts`: IMAP ingestion and matching path
-- `server/src/job-queue.ts`: recurring business job dispatch and execution
-- `server/src/renewal-automation.ts`: local renewal queue persistence and agent coordination
-- `server/src/services/customer-onboarding-batch-service.ts`: workbook preview and commit batches
-- `scripts/renewal-local-helper.ts`: browser-facing Windows helper
-- `scripts/renewal-agent.ts`: server-facing Windows renewal worker
-
-## Change Map
-
-When changing customer matching:
-
-- check `server/src/parser.ts`
-- check `server/src/mail-sync.ts`
-- check `server/src/mail-reprocess.ts`
-- check `server/src/supabase-store.ts`
-- check `web/src/features/customers/*`
-- check `docs/IMPLEMENTATION.md`
-- check `docs/SUPABASE_SCHEMA_PLAN.md`
-
-When changing onboarding or import:
-
-- check `web/src/features/onboarding/*`
-- check `web/src/features/initial-registration/*`
-- check `server/src/routes/settings-routes.ts`
-- check `server/src/services/customer-import-service.ts`
-- check `server/src/services/customer-onboarding-import-service.ts`
-- check `server/src/services/customer-onboarding-batch-service.ts`
-- check `docs/IMPLEMENTATION.md`
-- check `docs/SUPABASE_SCHEMA_PLAN.md`
-
-When changing draft issuance or pilot reporting:
-
-- check `server/src/routes/draft-routes.ts`
-- check `server/src/services/draft-service.ts`
-- check `server/src/job-queue.ts`
-- check `server/src/pilot-issuance.ts`
-- check `docs/IMPLEMENTATION.md`
-- check `docs/OPERATIONS.md`
-
-When changing roles or workspace management:
-
-- check `server/src/api-access.ts`
-- check `server/src/routes/organization-member-routes.ts`
-- check `server/src/routes/ops-routes.ts`
-- check `server/src/workspace-admin-service.ts`
-- check `web/src/App.tsx`
-- check `docs/SUPABASE_SCHEMA_PLAN.md`
-
-When changing renewal helper behavior:
-
-- check `web/src/local-renewal-helper.ts`
-- check `web/src/features/certificates/*`
-- check `web/src/features/renewal/*`
-- check `server/src/routes/renewal-routes.ts`
-- check `server/src/services/renewal-*`
-- check `server/src/renewal-automation.ts`
-- check `scripts/renewal-local-helper.ts`
-- check `scripts/renewal-agent.ts`
-- check `docs/IMPLEMENTATION.md`
-- check `docs/OPERATIONS.md`
-
-When changing cron, retention, or internal jobs:
-
-- check `supabase/functions/job-tick`
-- check `server/src/job-queue.ts`
-- check `server/src/maintenance-retention.ts`
-- check `docs/OPERATIONS.md`
-- check `docs/SUPABASE_SCHEMA_PLAN.md`
-
-## Doc Hygiene
-
-- Keep docs only if they help implementation, debugging, or safe operations.
-- Prefer updating the canonical docs over creating new long-lived plan files.
-- Do not create or preserve house style rules for UI/UX unless the user explicitly asks for them.
-- Delete stale wireframes, checklists, and one-off plans instead of letting them become false sources of truth.
-- When behavior or invariants change, update the relevant canonical doc in the same change.
-
-## Hygiene
-
-- Safe-to-delete generated directories: `dist/`, `public/`, `tmp/`, `supabase/.temp/`, `supabase/supabase/.temp/`
-- Safe-to-delete generated files: `tmp-*.log`, `.tmp-*.cjs`
-- Keep `node_modules/` unless there is a specific cleanup reason; deleting it slows iteration.
-- Keep `.env` and `data/` unless the task explicitly asks to remove local state.
+Do not hide uncertainty.
+Do not end with generic follow-up offers.

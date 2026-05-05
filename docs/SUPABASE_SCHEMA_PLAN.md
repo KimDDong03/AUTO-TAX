@@ -178,6 +178,7 @@ Important fields:
 Important invariant:
 
 - Uniqueness is effectively `(organization_id, business_number)`.
+- `issue_mode` and issue schedule columns are legacy compatibility fields. Current product behavior treats customers as review/manual issuance only.
 
 ### managed_customer_plants
 
@@ -531,7 +532,6 @@ Business recurring work queue.
 Typical job types:
 
 - `mail-sync`
-- `auto-issue`
 - `certificate-check`
 
 Important fields:

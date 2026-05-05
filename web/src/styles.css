@@ -22650,4 +22650,93 @@ button.issuance-list-item {
   margin-top: 0;
 }
 
+/* Settings option detail wrapper is layout-only; inner cards carry the surface. */
+.app-shell-topnav .settings-option1-main > .settings-detail,
+.app-shell-topnav .settings-option1-main > .settings-detail > .settings-option1-detail-grid {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
 
+/* Final issuance filter lock: match the customer summary chip treatment. */
+.app-shell-topnav .issuance-filter-row {
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip:hover {
+  border-color: rgba(245, 158, 11, 0.36);
+  background: linear-gradient(180deg, #ffffff 0%, #fff7db 100%);
+}
+
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip.active {
+  border-color: rgba(37, 99, 235, 0.36);
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  color: #0f172a;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.08), 0 8px 20px rgba(37, 99, 235, 0.08);
+}
+
+/* Settings sidebar cleanup: keep one outer panel and make the step list flat. */
+.app-shell-topnav .settings-sidebar-panel .settings-step-list {
+  gap: 2px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-sidebar-panel .settings-step-card {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0 !important;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-sidebar-panel .settings-step-card:hover {
+  background: #f8fafc;
+}
+
+.app-shell-topnav .settings-sidebar-panel .settings-step-card.active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: inset 3px 0 0 #2563eb !important;
+}
+
+/* Customer checkboxes mirror the issuance list treatment. */
+.app-shell-topnav .customer-console-table thead th.customer-console-col-check {
+  padding: 7px 8px !important;
+  overflow: visible !important;
+  vertical-align: middle;
+}
+
+.app-shell-topnav .customer-console-table .customer-console-col-check input[type="checkbox"] {
+  display: block;
+  box-sizing: border-box;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 auto !important;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: none;
+}

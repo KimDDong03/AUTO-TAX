@@ -166,7 +166,6 @@ function renderIssuanceTab(options: RenderIssuanceTabOptions = {}) {
         formatDateTime={(value) => value ?? "-"}
         getDraftStatusLabel={(status) => status}
         getDraftConfirmNumber={() => null}
-        getIssueModeLabel={(mode) => mode}
         simplifyIssueError={(value) => value}
       />
     );
