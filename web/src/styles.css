@@ -15876,30 +15876,46 @@ button.issuance-list-item {
 
 /* Public consultation option */
 .portal-shell {
+  --portal-bg: #f5f7fb;
+  --portal-surface: #ffffff;
+  --portal-surface-subtle: #f8fafc;
+  --portal-border: #d7dde8;
+  --portal-border-strong: #b8c2d2;
+  --portal-text: #101828;
+  --portal-muted: #4b5565;
+  --portal-faint: #eef2f7;
+  --portal-primary: #2563eb;
+  --portal-primary-strong: #1d4ed8;
+  --portal-primary-soft: #eef4ff;
+  --portal-radius: 8px;
+  --portal-radius-control: 6px;
+  --portal-card-pad: 24px;
   min-height: 100vh;
   padding: 0;
-  background: var(--wf-surface);
+  background: var(--portal-bg);
+  color: var(--portal-text);
 }
 
 .portal-page {
   width: 100%;
-  max-width: none;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 0;
+  background: transparent;
 }
 
 .portal-header {
-  min-height: 96px;
-  padding: 24px 40px;
+  min-height: 92px;
+  padding: 22px 40px;
   border: 0;
-  border-bottom: 1px solid var(--wf-border);
+  border-bottom: 1px solid var(--portal-border);
   border-radius: 0;
-  background: var(--wf-surface);
+  background: var(--portal-surface);
   box-shadow: none;
 }
 
 .portal-brand {
-  gap: 12px;
+  gap: 14px;
 }
 
 .portal-brand-logo {
@@ -15908,106 +15924,148 @@ button.issuance-list-item {
   height: auto;
 }
 
+.portal-brand-copy {
+  gap: 2px;
+}
+
+.portal-brand-copy strong {
+  color: var(--portal-text);
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.portal-brand-copy span {
+  color: var(--portal-text);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 .portal-layout {
   grid-template-columns: minmax(360px, 460px) minmax(0, 1fr);
-  gap: 0;
-  align-items: stretch;
-  min-height: calc(100vh - 97px);
+  gap: 24px;
+  align-items: start;
+  min-height: calc(100vh - 93px);
+  padding: 32px 40px 48px;
   border: 0;
-  background: var(--wf-surface);
+  background: var(--portal-bg);
 }
 
 .portal-guide-stack {
   align-content: start;
-  padding: 32px 40px;
-  border-left: 1px solid var(--wf-border);
-  background: var(--wf-surface);
+  gap: 16px;
+  padding: 0;
+  border-left: 0;
+  background: transparent;
 }
 
 .portal-action-stack {
   align-self: stretch;
   align-content: start;
-  padding: 32px;
-  background: var(--wf-bg);
+  gap: 16px;
+  padding: 0;
+  background: transparent;
 }
 
 .portal-card {
-  padding: 18px;
+  gap: 10px;
+  padding: var(--portal-card-pad);
 }
 
 .portal-consult-card,
 .portal-login-card {
   position: static;
   margin: 0;
-  padding: 22px;
+  gap: 20px;
+  padding: var(--portal-card-pad);
 }
 
 .portal-login-primary-card {
-  border-color: var(--wf-border-strong);
-  background: var(--wf-surface);
+  border-color: var(--portal-border-strong);
+  background: var(--portal-surface);
 }
 
 .portal-secondary-login-card {
-  background: var(--wf-surface-soft);
+  background: var(--portal-surface);
 }
 
 .portal-shell .auth-copy {
-  gap: 8px;
+  gap: 10px;
 }
 
 .portal-shell .auth-copy h1 {
-  font-size: 24px;
-  line-height: 1.2;
+  color: var(--portal-text);
+  font-size: 28px;
+  font-weight: 850;
+  line-height: 1.18;
 }
 
 .portal-shell .auth-copy h2 {
-  font-size: 16px;
+  color: var(--portal-text);
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1.25;
 }
 
 .portal-shell .auth-copy p,
 .portal-shell .portal-card p,
 .portal-shell .portal-header-note {
-  color: var(--wf-muted);
-  font-size: 13px;
-  line-height: 1.55;
+  color: var(--portal-muted);
+  font-size: 15px;
+  line-height: 1.62;
 }
 
 .portal-shell .auth-form label {
-  gap: 6px;
-  color: var(--wf-text);
-  font-size: 12px;
+  gap: 8px;
+  color: var(--portal-text);
+  font-size: 14px;
   font-weight: 800;
 }
 
 .portal-shell .auth-form input {
-  min-height: 38px;
+  min-height: 46px;
   margin-top: 0;
-  padding: 0 10px;
-  border-color: var(--wf-border);
-  background: var(--wf-surface);
-  font-size: 13px;
-  font-weight: 700;
+  padding: 0 14px;
+  border-color: var(--portal-border);
+  border-radius: var(--portal-radius-control);
+  background: var(--portal-surface);
+  color: var(--portal-text);
+  font-size: 15px;
+  font-weight: 650;
 }
 
 .portal-shell .auth-form input:focus {
-  border-color: var(--wf-text);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: var(--portal-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
 }
 
 .portal-shell .auth-actions button {
   width: 100%;
-  min-height: 40px;
+  min-height: 48px;
+  border-radius: var(--portal-radius-control);
+  font-size: 15px;
 }
 
 .portal-shell .portal-login-primary-card .auth-actions button {
-  border-color: #1d4ed8;
-  background: #2563eb;
+  border-color: var(--portal-primary-strong);
+  background: var(--portal-primary);
   color: #ffffff;
 }
 
 .portal-shell .portal-login-primary-card .auth-actions button:not(:disabled):hover {
-  background: #1d4ed8;
+  background: var(--portal-primary-strong);
   color: #ffffff;
+}
+
+.portal-shell .portal-secondary-login-card .auth-actions button {
+  border-color: var(--portal-border-strong);
+  background: var(--portal-surface-subtle);
+  color: var(--portal-text);
+}
+
+.portal-shell .portal-secondary-login-card .auth-actions button:not(:disabled):hover {
+  background: var(--portal-faint);
 }
 
 .portal-shell .auth-badge,
@@ -16016,31 +16074,71 @@ button.issuance-list-item {
   padding: 0;
   border-radius: 0;
   background: transparent;
-  color: #2563eb;
-  font-size: 11px;
+  color: var(--portal-primary);
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0;
 }
 
 .portal-shell .portal-card strong {
-  color: var(--wf-text);
-  font-size: 15px;
+  color: var(--portal-text);
+  font-size: 19px;
+  font-weight: 850;
+  line-height: 1.3;
 }
 
 .portal-shell .portal-checklist {
   gap: 12px;
+  margin-top: 4px;
+}
+
+.portal-shell .portal-card,
+.portal-shell .portal-login-card,
+.portal-shell .portal-consult-card {
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius);
+  background: var(--portal-surface);
+  box-shadow: none;
+}
+
+.portal-shell .portal-checklist li {
+  gap: 14px;
+  align-items: center;
+  min-height: 72px;
+  padding: 14px 16px;
+  border-color: var(--portal-border);
+  border-radius: var(--portal-radius);
+  background: var(--portal-surface-subtle);
 }
 
 .portal-shell .portal-checklist-step {
-  border-radius: 3px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--portal-radius-control);
+  background: var(--portal-primary-soft);
+  color: var(--portal-primary-strong);
+  font-size: 15px;
+}
+
+.portal-shell .portal-checklist-copy {
+  gap: 4px;
+}
+
+.portal-shell .portal-checklist-copy strong {
+  font-size: 17px;
+}
+
+.portal-shell .portal-checklist-copy p,
+.portal-shell .portal-help-note {
+  color: var(--portal-muted);
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 /* Admin option 3 */
 .content-ops .ops-layout {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr) 340px;
+  grid-template-columns: 230px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
 }
@@ -16072,6 +16170,132 @@ button.issuance-list-item {
 .content-ops .panel-ops-workspace-create {
   grid-column: 2;
   grid-row: 3;
+}
+
+.content-ops .ops-section-main {
+  grid-column: 2;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.content-ops .ops-section-main .panel,
+.content-ops .ops-section-main .ops-mode-banner,
+.content-ops .ops-section-main .ops-stats,
+.content-ops .ops-section-main .ops-grid {
+  grid-column: auto;
+  grid-row: auto;
+  min-width: 0;
+}
+
+.content-ops .panel-ops-workspace-create {
+  overflow: hidden;
+  border-color: #b8c2d2;
+  background:
+    linear-gradient(180deg, #fbfcff 0%, #ffffff 38%),
+    var(--wf-surface);
+}
+
+.content-ops .panel-ops-workspace-create .panel-header {
+  align-items: start;
+  gap: 16px;
+  margin: -1px -1px 0;
+  padding: 18px 20px 16px;
+  border: 1px solid #d7deea;
+  border-width: 0 0 1px;
+  background: #f6f8fb;
+}
+
+.content-ops .panel-ops-workspace-create .panel-header h2 {
+  font-size: 21px;
+  line-height: 1.2;
+}
+
+.content-ops .panel-ops-workspace-create .panel-header p {
+  max-width: 560px;
+  color: #526173;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.content-ops .panel-ops-workspace-create .panel-actions button {
+  min-height: 38px;
+  padding: 0 16px;
+  border-color: #111827;
+  border-radius: 6px;
+  background: #111827;
+  color: #ffffff;
+}
+
+.content-ops .panel-ops-workspace-create .panel-actions button:not(:disabled):hover {
+  background: #243043;
+  color: #ffffff;
+}
+
+.content-ops .ops-workspace-create-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 16px 20px 0;
+}
+
+.content-ops .ops-workspace-create-summary span {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid #d7deea;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #263244;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.content-ops .ops-workspace-create-form {
+  gap: 12px;
+  padding: 16px 20px 20px;
+}
+
+.content-ops .ops-create-field {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #d7deea;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f2937;
+}
+
+.content-ops .ops-create-field input {
+  min-height: 38px;
+  margin-top: 8px;
+  border-color: #c6cfdd;
+  border-radius: 5px;
+  background: #fbfcfe;
+}
+
+.content-ops .ops-create-field input:focus {
+  border-color: #3b82f6;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+.content-ops .ops-create-field-limit input {
+  max-width: 180px;
+}
+
+.content-ops .ops-create-password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.content-ops .ops-create-password-field .password-field {
+  max-width: 440px;
+}
+
+.content-ops .ops-create-password-field .field-hint,
+.content-ops .ops-create-field .field-hint {
+  color: #66758a;
 }
 
 .content-ops .ops-mode-banner,
@@ -16120,6 +16344,34 @@ button.issuance-list-item {
   background: var(--wf-faint);
 }
 
+.content-ops .ops-admin-menu-list a.active {
+  background: #111827;
+  color: #ffffff;
+}
+
+.content-ops .ops-admin-menu-list a.active:first-child {
+  background: #111827;
+}
+
+.content-ops .panel-ops-subscription {
+  grid-column: auto;
+}
+
+.content-ops .ops-subscription-kpis {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.content-ops .ops-subscription-fee-cell {
+  display: grid;
+  gap: 2px;
+}
+
+.content-ops .ops-subscription-fee-cell span {
+  color: var(--wf-muted);
+  font-size: 11px;
+}
+
 .content-ops .ops-workspace-table-wrap {
   overflow: auto;
   border: 1px solid var(--wf-border);
@@ -16128,7 +16380,7 @@ button.issuance-list-item {
 
 .content-ops .ops-workspace-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1120px;
   font-size: 12px;
 }
 
@@ -16232,6 +16484,7 @@ button.issuance-list-item {
 
   .content-ops .ops-admin-rail,
   .content-ops .ops-layout > :nth-child(1),
+  .content-ops .ops-section-main,
   .content-ops .panel-ops-consultation,
   .content-ops .panel-ops-workspaces,
   .content-ops .panel-ops-workspace-create,
@@ -16245,7 +16498,7 @@ button.issuance-list-item {
 
   .portal-guide-stack {
     border-left: 0;
-    border-top: 1px solid var(--wf-border);
+    border-top: 0;
   }
 }
 
@@ -16253,6 +16506,10 @@ button.issuance-list-item {
   .app-shell-topnav .topnav-shell {
     min-height: 0;
     padding: 12px 10px;
+  }
+
+  .content-ops .ops-subscription-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .app-shell-topnav .content {
@@ -16328,11 +16585,20 @@ button.issuance-list-item {
   }
 
   .portal-shell {
-    padding: 10px;
+    padding: 0;
+  }
+
+  .portal-header {
+    padding: 18px 20px;
+  }
+
+  .portal-layout {
+    gap: 16px;
+    padding: 20px;
   }
 
   .portal-login-card {
-    margin: 16px;
+    margin: 0;
   }
 }
 
@@ -23360,4 +23626,19 @@ button.issuance-list-item {
   min-height: 0 !important;
   max-height: 100% !important;
   overflow: auto !important;
+}
+
+/* The certificate rows are inline details, not nested cards. */
+.app-shell-topnav .customer-info-certificate-card .customer-certificate-management-row {
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-info-certificate-card .customer-certificate-management-row:last-child {
+  border-bottom: 0 !important;
+}
+
+.app-shell-topnav .customer-info-certificate-card .customer-certificate-management-actions button {
+  box-shadow: none !important;
 }

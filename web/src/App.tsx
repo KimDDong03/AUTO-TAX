@@ -120,6 +120,14 @@ import {
   requestLocalRenewalPreflight
 } from "./local-renewal-helper";
 import {
+  buildOpsSubscriptionMetrics,
+  getOpsSubscriptionCustomerBlocks,
+  getOpsWorkspaceExpectedMonthlyRevenue,
+  isOpsSubscriptionWorkspace,
+  OPS_SUBSCRIPTION_CUSTOMER_BLOCK_SIZE,
+  OPS_SUBSCRIPTION_MONTHLY_BLOCK_PRICE
+} from "./features/ops/opsSubscriptionMetrics";
+import {
   clearSupabaseAuthHash,
   getSupabaseAuthHashError,
   getSupabaseAuthHashParams,
@@ -153,6 +161,27 @@ import type {
 } from "./types";
 
 type TabId = "onboarding" | "home" | "issuance" | "customers" | "certificates" | "settings" | "ops";
+type OpsSectionId =
+  | "subscription"
+  | "consultation"
+  | "workspaces"
+  | "workspace-create"
+  | "owner-security"
+  | "agent-status"
+  | "logs"
+  | "account-security";
+
+const OPS_DEFAULT_SECTION: OpsSectionId = "subscription";
+const OPS_SECTION_HASH_BY_ID = {
+  subscription: "ops",
+  consultation: "ops-consultation-requests",
+  workspaces: "ops-workspaces",
+  "workspace-create": "ops-workspace-create",
+  "owner-security": "ops-owner-security",
+  "agent-status": "ops-agent-status",
+  logs: "ops-logs",
+  "account-security": "ops-account-security"
+} satisfies Record<OpsSectionId, string>;
 
 const HELPER_SETUP_STORAGE_KEY_PREFIX = "auto-tax:helper-setup:";
 const CUSTOMER_ONBOARDING_STORAGE_KEY_PREFIX = "auto-tax:customer-onboarding:";
@@ -933,8 +962,30 @@ const baseOpsWorkspaceMailSettingsForm: OpsWorkspaceMailSettingsFormState = {
   testConnection: true
 };
 
+function getOpsSectionFromHash(hash: string): OpsSectionId | null {
+  const value = hash.replace(/^#/, "");
+
+  if (value === "ops-consultation") {
+    return "consultation";
+  }
+
+  const match = (Object.entries(OPS_SECTION_HASH_BY_ID) as Array<[OpsSectionId, string]>).find(
+    ([, sectionHash]) => sectionHash === value
+  );
+
+  return match?.[0] ?? null;
+}
+
+function getOpsSectionHash(section: OpsSectionId): string {
+  return `#${OPS_SECTION_HASH_BY_ID[section]}`;
+}
+
 function getTabFromHash(hash: string): TabId | null {
   const value = hash.replace(/^#/, "");
+
+  if (getOpsSectionFromHash(hash)) {
+    return "ops";
+  }
 
   if (value === "initial" || value === "onboarding") {
     return "onboarding";
@@ -956,7 +1007,7 @@ function getTabFromHash(hash: string): TabId | null {
     return "settings";
   }
 
-  if (value === "customers" || value === "ops") {
+  if (value === "customers") {
     return value;
   }
 
@@ -1785,6 +1836,10 @@ export function App() {
     const hashTab = getTabFromHash(hash);
     return hashTab === "onboarding" ? "home" : hashTab ?? "home";
   });
+  const [activeOpsSection, setActiveOpsSection] = useState<OpsSectionId>(() => {
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    return getOpsSectionFromHash(hash) ?? OPS_DEFAULT_SECTION;
+  });
   const [onboardingModalOpen, setOnboardingModalOpen] = useState(() => {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     return getTabFromHash(hash) === "onboarding";
@@ -1808,6 +1863,19 @@ export function App() {
   const [opsWorkspaceMailSettingsForm, setOpsWorkspaceMailSettingsForm] =
     useState<OpsWorkspaceMailSettingsFormState>(baseOpsWorkspaceMailSettingsForm);
   const [workspaceLimitEdits, setWorkspaceLimitEdits] = useState<Record<string, string>>({});
+  const navigateToOpsSection = useCallback((section: OpsSectionId) => {
+    setActiveTab("ops");
+    setActiveOpsSection(section);
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const nextHash = getOpsSectionHash(section);
+    if (window.location.hash !== nextHash) {
+      window.history.pushState(null, "", nextHash);
+    }
+  }, []);
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
   const [appDialog, setAppDialog] = useState<AppDialogState | null>(null);
   const [customerAddressResolveMessage, setCustomerAddressResolveMessage] = useState("");
@@ -2499,6 +2567,7 @@ export function App() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash;
+      const nextOpsSection = getOpsSectionFromHash(hash);
       const nextTab = getTabFromHash(hash);
 
       if (nextTab) {
@@ -2506,6 +2575,9 @@ export function App() {
         if (nextTab === "onboarding" && tabRoutingStateRef.current.hasActiveWorkspace) {
           setRequestedOnboardingStepId(null);
           setOnboardingModalOpen(true);
+        }
+        if (nextOpsSection) {
+          setActiveOpsSection(nextOpsSection);
         }
         setActiveTab(resolvedTab);
         if (resolvedTab !== nextTab) {
@@ -2538,10 +2610,11 @@ export function App() {
       return;
     }
 
-    if (window.location.hash !== `#${activeTab}`) {
-      window.history.replaceState(null, "", `#${activeTab}`);
+    const activeHash = activeTab === "ops" ? getOpsSectionHash(activeOpsSection) : `#${activeTab}`;
+    if (window.location.hash !== activeHash) {
+      window.history.replaceState(null, "", activeHash);
     }
-  }, [activeTab, recoveryMode]);
+  }, [activeTab, activeOpsSection, recoveryMode]);
 
   useEffect(() => {
     if (!activeOrganizationId) {
@@ -3427,11 +3500,13 @@ export function App() {
       loginId: workspace.ownerLoginId
     });
     setOwnerPasswordResetForm(createEmptyPasswordResetForm());
+    navigateToOpsSection("owner-security");
   };
 
   const cancelOwnerPasswordReset = () => {
     setOwnerPasswordResetTarget(null);
     setOwnerPasswordResetForm(createEmptyPasswordResetForm());
+    navigateToOpsSection("workspaces");
   };
 
   const submitOwnerPasswordReset = async () => {
@@ -5185,6 +5260,17 @@ export function App() {
     partnerTaxInvoiceUnitCost === null ? null : totalWorkspaceIssuedDraftCount * partnerTaxInvoiceUnitCost;
   const totalWorkspaceCurrentMonthEstimatedPointUsage =
     partnerTaxInvoiceUnitCost === null ? null : totalWorkspaceCurrentMonthIssuedDraftCount * partnerTaxInvoiceUnitCost;
+  const opsSubscriptionMetrics = buildOpsSubscriptionMetrics(opsWorkspaces);
+  const opsMenuItems: Array<{ section: OpsSectionId; label: string }> = [
+    { section: "subscription", label: "구독/매출" },
+    { section: "consultation", label: "상담 신청" },
+    { section: "workspaces", label: "작업공간 관리" },
+    { section: "workspace-create", label: "작업공간 생성" },
+    { section: "owner-security", label: "owner 비밀번호 재설정" },
+    { section: "agent-status", label: "renewal agent 상태" },
+    { section: "logs", label: "운영 로그" },
+    { section: "account-security", label: "내 계정 보안" }
+  ];
   const opsAgentStatusMeta = opsAgent ? getRenewalAgentStatusMeta(opsAgent) : null;
   const opsCertificates = opsAgent?.bridge.storageProbe.certificates ?? [];
   const issueSetupPendingCount = popbillPendingCustomers.length;
@@ -6117,6 +6203,11 @@ export function App() {
   ];
   const visibleNavItems = navItems.filter((item) => item.id !== "certificates");
   const handleNavSelect = (nextTab: TabId) => {
+    if (nextTab === "ops") {
+      navigateToOpsSection(OPS_DEFAULT_SECTION);
+      return;
+    }
+
     setActiveTab(nextTab);
     if (nextTab === "settings") {
       openSettingsSection(settingsActionBar.primarySection);
@@ -6291,7 +6382,7 @@ export function App() {
     ops: {
       title: "플랫폼 운영 상태",
       primaryActionLabel: "새 작업공간",
-      onPrimaryAction: () => scrollToElementById("ops-workspace-create"),
+      onPrimaryAction: () => navigateToOpsSection("workspace-create"),
       chips: [
         { label: "상담 신청", value: `${opsConsultationRequests.filter((request) => request.status === "new").length}건`, tone: opsConsultationRequests.some((request) => request.status === "new") ? "warn" : "default" },
         { label: "작업공간", value: `${opsWorkspaces.length}개`, tone: opsWorkspaces.length > 0 ? "default" : "warn" },
@@ -6753,13 +6844,16 @@ export function App() {
                   <span>{data.auth.email ?? "admin"}</span>
                 </div>
                 <nav className="ops-admin-menu-list" aria-label="관리자 로컬 메뉴">
-                  <a href="#ops-consultation-requests">상담 신청</a>
-                  <a href="#ops-workspaces">작업공간 관리</a>
-                  <a href="#ops-workspace-create">작업공간 생성</a>
-                  <a href="#ops-owner-security">owner 비밀번호 재설정</a>
-                  <a href="#ops-agent-status">renewal agent 상태</a>
-                  <a href="#ops-logs">운영 로그</a>
-                  <a href="#ops-account-security">내 계정 보안</a>
+                  {opsMenuItems.map((item) => (
+                    <a
+                      key={item.section}
+                      href={getOpsSectionHash(item.section)}
+                      className={activeOpsSection === item.section ? "active" : undefined}
+                      onClick={() => setActiveOpsSection(item.section)}
+                    >
+                      {item.label}
+                    </a>
+                  ))}
                 </nav>
                 <div className="ops-admin-session">
                   <span>세션</span>
@@ -6767,24 +6861,11 @@ export function App() {
                   <small>{formatDateTime(new Date().toISOString())}</small>
                 </div>
               </section>
-              <div id="ops-account-security">
-                <AccountPasswordPanel
-                  title="플랫폼 관리자 계정 보안"
-                  subtitle={`현재 로그인한 플랫폼 관리자 계정(${data.auth.email ?? "이메일 없음"})의 비밀번호를 바꿉니다.`}
-                  hintText="플랫폼 운영 계정도 여기서 직접 새 비밀번호를 저장할 수 있습니다."
-                  account={settingsScreenState.account}
-                  reveals={settingsFeatureOrchestration.reveals.accountPassword}
-                  onSubmit={() =>
-                    settingsFeatureOrchestration.actions.changePassword(
-                      settingsScreenState.account.changePassword
-                    )
-                  }
-                />
-              </div>
             </aside>
             {opsConsole ? (
-              <>
-                <Panel
+              <div className="ops-section-main">
+                {activeOpsSection === "consultation" ? (
+                  <Panel
                   className="panel-ops-consultation"
                   id="ops-consultation-requests"
                   title="상담 신청"
@@ -6857,9 +6938,11 @@ export function App() {
                       <div className="empty">접수된 상담 신청이 없습니다.</div>
                     )}
                   </div>
-                </Panel>
+                  </Panel>
+                ) : null}
 
-                <Panel
+                {activeOpsSection === "workspace-create" ? (
+                  <Panel
                   className="panel-ops-workspace-create"
                   id="ops-workspace-create"
                   title="고객사 작업공간 개통"
@@ -6876,8 +6959,13 @@ export function App() {
                       <span>계정 확인, 작업공간 생성, 첫 owner 연결을 순서대로 처리하고 있습니다. 완료될 때까지 창을 닫지 말고 잠시 기다려주세요.</span>
                     </div>
                   ) : null}
-                  <div className="form-grid">
-                    <label>
+                  <div className="ops-workspace-create-summary" aria-label="작업공간 개통 순서">
+                    <span>1. 고객사 정보</span>
+                    <span>2. owner 계정</span>
+                    <span>3. 개통 후 전달</span>
+                  </div>
+                  <div className="form-grid ops-workspace-create-form">
+                    <label className="ops-create-field">
                       고객사명
                       <input
                         disabled={busyKey !== null}
@@ -6886,7 +6974,7 @@ export function App() {
                         placeholder="예: 해성태양광"
                       />
                     </label>
-                    <label>
+                    <label className="ops-create-field">
                       사업자번호 (선택)
                       <input
                         disabled={busyKey !== null}
@@ -6896,7 +6984,7 @@ export function App() {
                       />
                       <span className="field-hint">이 작업공간을 쓰는 운영 주체의 선택 정보입니다. 관리 고객의 사업자번호와는 별개입니다.</span>
                     </label>
-                    <label>
+                    <label className="ops-create-field ops-create-field-limit">
                       월 발행 한도
                       <input
                         disabled={busyKey !== null}
@@ -6909,7 +6997,7 @@ export function App() {
                       />
                       <span className="field-hint">이번 달에 발행할 수 있는 최대 세금계산서 건수입니다. 다음 달이 되면 다시 0건부터 집계됩니다.</span>
                     </label>
-                    <label>
+                    <label className="ops-create-field">
                       첫 owner 로그인 아이디
                       <input
                         disabled={busyKey !== null}
@@ -6918,7 +7006,7 @@ export function App() {
                         placeholder="예: admin01"
                       />
                     </label>
-                    <label>
+                    <label className="ops-create-field">
                       owner 이름
                       <input
                         disabled={busyKey !== null}
@@ -6927,7 +7015,7 @@ export function App() {
                         placeholder="담당자 이름"
                       />
                     </label>
-                    <label className="full">
+                    <label className="full ops-create-field ops-create-password-field">
                       임시 비밀번호
                       <div className="password-field">
                         <input
@@ -6950,8 +7038,11 @@ export function App() {
                       <span className="field-hint">이미 존재하는 로그인 아이디면 기존 계정을 owner로 연결하고, 처음 만드는 로그인 아이디면 임시 비밀번호가 필요합니다.</span>
                     </label>
                   </div>
-                </Panel>
+                  </Panel>
+                ) : null}
 
+                {activeOpsSection === "subscription" ? (
+                  <>
                 <section className={`alert ${opsPartnerIsTest ? "warn" : "success"} ops-mode-banner`}>
                   <div className="ops-mode-banner-head">
                     <strong>팝빌 현재 연결 모드</strong>
@@ -6979,8 +7070,43 @@ export function App() {
                   <StatCard label="운영 로그" value={opsLogs.length} tone={opsLogs.some((log) => log.level === "error") ? "error" : "default"} />
                   <StatCard label="진단 작업" value={opsJobs.length} tone={opsJobs.some((job) => job.status === "failed") ? "warn" : "default"} />
                 </section>
+                <Panel
+                  className="panel-ops-subscription"
+                  id="ops-subscription"
+                  title="구독/매출"
+                  subtitle={`등록 고객 ${OPS_SUBSCRIPTION_CUSTOMER_BLOCK_SIZE}명당 월 ${formatMoney(OPS_SUBSCRIPTION_MONTHLY_BLOCK_PRICE)}원 기준의 예상 지표입니다. 실제 결제 수납액은 아닙니다.`}
+                >
+                  <section className="stats-grid stats-grid-compact ops-subscription-kpis">
+                    <StatCard
+                      label="총 구독 중인 사용자수"
+                      value={opsSubscriptionMetrics.subscribedWorkspaceCount}
+                      tone={opsSubscriptionMetrics.subscribedWorkspaceCount > 0 ? "default" : "warn"}
+                    />
+                    <StatCard
+                      label="총 등록 고객 수"
+                      value={opsSubscriptionMetrics.registeredCustomerCount}
+                      tone={opsSubscriptionMetrics.registeredCustomerCount > 0 ? "default" : "warn"}
+                    />
+                    <StatCard
+                      label="예상 월 매출"
+                      value={`${formatMoney(opsSubscriptionMetrics.expectedMonthlyRevenue)}원`}
+                      tone={opsSubscriptionMetrics.expectedMonthlyRevenue > 0 ? "default" : "warn"}
+                    />
+                    <StatCard
+                      label="예상 연 매출"
+                      value={`${formatMoney(opsSubscriptionMetrics.expectedAnnualRevenue)}원`}
+                      tone={opsSubscriptionMetrics.expectedAnnualRevenue > 0 ? "default" : "warn"}
+                    />
+                  </section>
+                  <p className="ops-helper-text">
+                    구독 대상은 active/trial 작업공간입니다. suspended/churned 작업공간은 예상 매출에서 제외합니다.
+                  </p>
+                </Panel>
+                  </>
+                ) : null}
 
-                <Panel className="panel-ops-workspaces" id="ops-workspaces" title="개통된 고객사 작업공간">
+                {activeOpsSection === "workspaces" ? (
+                  <Panel className="panel-ops-workspaces" id="ops-workspaces" title="개통된 고객사 작업공간">
                   <p className="ops-helper-text">
                     고객사별 발행 완료 건수를 기준으로 사용량을 집계합니다.
                     {partnerTaxInvoiceUnitCost !== null
@@ -6997,6 +7123,8 @@ export function App() {
                             <th>도메인</th>
                             <th>owner</th>
                             <th>상태</th>
+                            <th>등록 고객</th>
+                            <th>예상 월 구독료</th>
                             <th>이번 달</th>
                             <th>포인트</th>
                             <th>최근 발행</th>
@@ -7010,6 +7138,11 @@ export function App() {
                               workspace,
                               partnerTaxInvoiceUnitCost
                             );
+                            const workspaceSubscriptionEligible = isOpsSubscriptionWorkspace(workspace);
+                            const workspaceSubscriptionBlocks = getOpsSubscriptionCustomerBlocks(workspace.managedCustomerCount);
+                            const workspaceExpectedMonthlyRevenue = workspaceSubscriptionEligible
+                              ? getOpsWorkspaceExpectedMonthlyRevenue(workspace)
+                              : 0;
                             const workspaceCode = `WS-${String(index + 1).padStart(4, "0")}`;
 
                             return (
@@ -7028,6 +7161,17 @@ export function App() {
                                   <span className={`chip ${workspace.organizationStatus === "active" ? "chip-success" : workspace.organizationStatus === "trial" ? "chip-warn" : "chip-danger"}`}>
                                     {getOrganizationStatusLabel(workspace.organizationStatus)}
                                   </span>
+                                </td>
+                                <td>{formatMoney(workspace.managedCustomerCount)}명</td>
+                                <td>
+                                  {workspaceSubscriptionEligible ? (
+                                    <span className="ops-subscription-fee-cell">
+                                      <strong>{formatMoney(workspaceExpectedMonthlyRevenue)}원</strong>
+                                      <span>{workspaceSubscriptionBlocks}구간</span>
+                                    </span>
+                                  ) : (
+                                    <span className="muted">구독 제외</span>
+                                  )}
                                 </td>
                                 <td>
                                   <div className="ops-limit-cell">
@@ -7092,88 +7236,6 @@ export function App() {
                       <div className="empty">아직 개통된 고객사 작업공간이 없습니다.</div>
                     )}
                   </div>
-                  {ownerPasswordResetTarget ? (() => {
-                    const workspace = opsWorkspaces.find((item) => item.organizationId === ownerPasswordResetTarget.organizationId);
-                    if (!workspace) {
-                      return null;
-                    }
-
-                    return (
-                      <div id="ops-owner-security" className="helper-box-stack inline-password-reset ops-owner-reset-panel">
-                        <strong>{workspace.organizationName} owner 임시 비밀번호 재설정</strong>
-                        <div className="form-grid">
-                          <label>
-                            새 임시 비밀번호
-                            <div className="password-field">
-                              <input
-                                type={revealedFields.ownerResetNextPassword ? "text" : "password"}
-                                value={ownerPasswordResetForm.nextPassword}
-                                onChange={(event) =>
-                                  setOwnerPasswordResetForm((prev) => ({
-                                    ...prev,
-                                    nextPassword: event.target.value
-                                  }))
-                                }
-                                placeholder="8자 이상 입력"
-                              />
-                              <button
-                                type="button"
-                                className="password-toggle"
-                                aria-label={revealedFields.ownerResetNextPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
-                                onClick={() => toggleRevealField("ownerResetNextPassword")}
-                              >
-                                <RevealIcon open={Boolean(revealedFields.ownerResetNextPassword)} />
-                              </button>
-                            </div>
-                          </label>
-                          <label>
-                            새 임시 비밀번호 확인
-                            <div className="password-field">
-                              <input
-                                type={revealedFields.ownerResetConfirmPassword ? "text" : "password"}
-                                value={ownerPasswordResetForm.confirmPassword}
-                                onChange={(event) =>
-                                  setOwnerPasswordResetForm((prev) => ({
-                                    ...prev,
-                                    confirmPassword: event.target.value
-                                  }))
-                                }
-                                placeholder="한 번 더 입력"
-                              />
-                              <button
-                                type="button"
-                                className="password-toggle"
-                                aria-label={revealedFields.ownerResetConfirmPassword ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"}
-                                onClick={() => toggleRevealField("ownerResetConfirmPassword")}
-                              >
-                                <RevealIcon open={Boolean(revealedFields.ownerResetConfirmPassword)} />
-                              </button>
-                            </div>
-                          </label>
-                        </div>
-                        <div className="button-row">
-                          <button
-                            onClick={() =>
-                              void runAction(
-                                `reset-owner-password-${workspace.organizationId}`,
-                                submitOwnerPasswordReset,
-                                { reload: false }
-                              )
-                            }
-                          >
-                            임시 비밀번호 저장
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            onClick={cancelOwnerPasswordReset}
-                          >
-                            취소
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })() : null}
                   {opsWorkspaceMailSettingsTarget ? (() => {
                     const workspace = opsWorkspaces.find((item) => item.organizationId === opsWorkspaceMailSettingsTarget.organizationId);
                     if (!workspace) {
@@ -7299,9 +7361,104 @@ export function App() {
                       </div>
                     );
                   })() : null}
-                </Panel>
+                  </Panel>
+                ) : null}
 
-                <div className="ops-grid">
+                {activeOpsSection === "owner-security" ? (() => {
+                  const workspace = ownerPasswordResetTarget
+                    ? opsWorkspaces.find((item) => item.organizationId === ownerPasswordResetTarget.organizationId) ?? null
+                    : null;
+
+                  return (
+                    <Panel
+                      className="panel-ops-owner-security"
+                      id="ops-owner-security"
+                      title="owner 비밀번호 재설정"
+                      subtitle="작업공간 관리에서 대상을 선택하면 해당 owner 계정의 임시 비밀번호를 저장할 수 있습니다."
+                    >
+                      {workspace ? (
+                        <div className="helper-box-stack inline-password-reset ops-owner-reset-panel">
+                          <strong>{workspace.organizationName} owner 임시 비밀번호 재설정</strong>
+                          <div className="form-grid">
+                            <label>
+                              새 임시 비밀번호
+                              <div className="password-field">
+                                <input
+                                  type={revealedFields.ownerResetNextPassword ? "text" : "password"}
+                                  value={ownerPasswordResetForm.nextPassword}
+                                  onChange={(event) =>
+                                    setOwnerPasswordResetForm((prev) => ({
+                                      ...prev,
+                                      nextPassword: event.target.value
+                                    }))
+                                  }
+                                  placeholder="8자 이상 입력"
+                                />
+                                <button
+                                  type="button"
+                                  className="password-toggle"
+                                  aria-label={revealedFields.ownerResetNextPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
+                                  onClick={() => toggleRevealField("ownerResetNextPassword")}
+                                >
+                                  <RevealIcon open={Boolean(revealedFields.ownerResetNextPassword)} />
+                                </button>
+                              </div>
+                            </label>
+                            <label>
+                              새 임시 비밀번호 확인
+                              <div className="password-field">
+                                <input
+                                  type={revealedFields.ownerResetConfirmPassword ? "text" : "password"}
+                                  value={ownerPasswordResetForm.confirmPassword}
+                                  onChange={(event) =>
+                                    setOwnerPasswordResetForm((prev) => ({
+                                      ...prev,
+                                      confirmPassword: event.target.value
+                                    }))
+                                  }
+                                  placeholder="한 번 더 입력"
+                                />
+                                <button
+                                  type="button"
+                                  className="password-toggle"
+                                  aria-label={revealedFields.ownerResetConfirmPassword ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"}
+                                  onClick={() => toggleRevealField("ownerResetConfirmPassword")}
+                                >
+                                  <RevealIcon open={Boolean(revealedFields.ownerResetConfirmPassword)} />
+                                </button>
+                              </div>
+                            </label>
+                          </div>
+                          <div className="button-row">
+                            <button
+                              onClick={() =>
+                                void runAction(
+                                  `reset-owner-password-${workspace.organizationId}`,
+                                  submitOwnerPasswordReset,
+                                  { reload: false }
+                                )
+                              }
+                            >
+                              임시 비밀번호 저장
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={cancelOwnerPasswordReset}
+                            >
+                              취소
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="empty">작업공간 관리에서 owner 재설정 대상을 먼저 선택하세요.</div>
+                      )}
+                    </Panel>
+                  );
+                })() : null}
+
+                {activeOpsSection === "agent-status" ? (
+                <div className="ops-grid" id="ops-agent-status">
                   <Panel
                     title="배치 작업"
                     subtitle="Supabase cron 없이도 플랫폼 관리자가 큐 생성과 실행을 수동으로 점검할 수 있습니다."
@@ -7480,6 +7637,9 @@ export function App() {
                   </Panel>
                 </div>
 
+                ) : null}
+
+                {activeOpsSection === "agent-status" ? (
                 <div className="ops-grid">
                   <Panel className="panel-ops-jobs" title="최근 진단 작업">
                     <div className="ops-list">
@@ -7507,7 +7667,11 @@ export function App() {
                       )}
                     </div>
                   </Panel>
+                </div>
+                ) : null}
 
+                {activeOpsSection === "logs" ? (
+                <div className="ops-grid" id="ops-logs">
                   <Panel className="panel-ops-logs" title="최근 운영 로그">
                     <div className="ops-list">
                       {opsLogs.length > 0 ? (
@@ -7550,7 +7714,25 @@ export function App() {
                     </div>
                   </Panel>
                 </div>
-              </>
+                ) : null}
+
+                {activeOpsSection === "account-security" ? (
+                  <div id="ops-account-security">
+                    <AccountPasswordPanel
+                      title="플랫폼 관리자 계정 보안"
+                      subtitle={`현재 로그인한 플랫폼 관리자 계정(${data.auth.email ?? "이메일 없음"})의 비밀번호를 바꿉니다.`}
+                      hintText="플랫폼 운영 계정도 여기서 직접 새 비밀번호를 저장할 수 있습니다."
+                      account={settingsScreenState.account}
+                      reveals={settingsFeatureOrchestration.reveals.accountPassword}
+                      onSubmit={() =>
+                        settingsFeatureOrchestration.actions.changePassword(
+                          settingsScreenState.account.changePassword
+                        )
+                      }
+                    />
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <div className="empty">플랫폼 관리자 데이터를 불러오는 중입니다.</div>
             )}
