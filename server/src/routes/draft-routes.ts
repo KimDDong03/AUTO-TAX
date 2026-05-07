@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { issueDraftNow } from "../automation.js";
-import type { AppSettings, Customer, DraftStatus, InvoiceDraft } from "../domain.js";
+import type { AppSettings, Customer, DraftStatus, InvoiceDraft, ParsedMail } from "../domain.js";
 import type { ApiErrorBody } from "../http-errors.js";
 import { renderMailPreviewImage } from "../mail-preview-image.js";
 import { buildPilotIssuanceReportCsv, buildPilotLogContext } from "../pilot-issuance.js";
@@ -51,6 +51,85 @@ function parsePilotReportFormat(value: unknown): "json" | "csv" {
 
   const normalized = value.trim().toLowerCase();
   return normalized === "csv" ? "csv" : "json";
+}
+
+function parseDraftTextField(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${label}을 입력해주세요.`);
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`${label}을 입력해주세요.`);
+  }
+
+  return trimmed;
+}
+
+function parseDraftOptionalTextField(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseDraftOptionalTextFieldWithFallback(value: unknown, fallback: string): string {
+  return value === undefined ? fallback : parseDraftOptionalTextField(value);
+}
+
+function parseDraftMoneyField(value: unknown, label: string): number {
+  const rawValue = typeof value === "number" ? String(value) : typeof value === "string" ? value : "";
+  const normalized = rawValue.replace(/[,\s₩원]/g, "");
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`${label}은 0 이상의 정수로 입력해주세요.`);
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${label}은 0 이상의 정수로 입력해주세요.`);
+  }
+
+  return parsed;
+}
+
+function parseDraftBusinessNumber(value: unknown): string {
+  const trimmed = parseDraftTextField(value, "사업자번호");
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length !== 10) {
+    throw new Error("사업자번호는 숫자 10자리로 입력해주세요.");
+  }
+  return trimmed;
+}
+
+function parseDraftRecipientEmail(value: unknown): string {
+  const trimmed = parseDraftOptionalTextField(value);
+  if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    throw new Error("수신 이메일 형식이 올바르지 않습니다.");
+  }
+  return trimmed;
+}
+
+function buildEditedParsedMail(draft: InvoiceDraft, body: unknown): ParsedMail {
+  const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const supplyCost = parseDraftMoneyField(payload.supplyCost, "공급가액");
+  const taxTotal = parseDraftMoneyField(payload.taxTotal, "부가세");
+
+  return {
+    originalFrom: "",
+    plantName: parseDraftOptionalTextFieldWithFallback(payload.plantName, draft.plantName),
+    plantAddress: draft.kepcoAddr,
+    billingMonth: draft.billingMonth,
+    supplyCost,
+    taxTotal,
+    totalAmount: supplyCost + taxTotal,
+    itemName: parseDraftTextField(payload.itemName, "품목"),
+    kepcoCorpNum: parseDraftBusinessNumber(payload.kepcoCorpNum),
+    kepcoBranchId: parseDraftOptionalTextFieldWithFallback(payload.kepcoBranchId, draft.kepcoBranchId),
+    kepcoCorpName: parseDraftTextField(payload.kepcoCorpName, "공급받는자"),
+    kepcoCeoName: parseDraftOptionalTextFieldWithFallback(payload.kepcoCeoName, draft.kepcoCeoName),
+    kepcoAddr: parseDraftOptionalTextFieldWithFallback(payload.kepcoAddr, draft.kepcoAddr),
+    kepcoBizType: parseDraftOptionalTextFieldWithFallback(payload.kepcoBizType, draft.kepcoBizType),
+    kepcoBizClass: parseDraftOptionalTextFieldWithFallback(payload.kepcoBizClass, draft.kepcoBizClass),
+    recipientEmail: parseDraftRecipientEmail(payload.recipientEmail),
+    rawText: ""
+  };
 }
 
 type ManualIssueExecutionPath = "single" | "bulk-manual";
@@ -370,6 +449,33 @@ export function registerDraftRoutes(deps: RouteDeps) {
       nextMgtKey: reopened.popbillMgtKey
     });
     res.json({ ok: true, response, draft: reopened });
+  });
+
+  app.patch("/api/drafts/:id/tax-invoice-info", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const draftId = Number(req.params.id);
+    const draft = await requestStore.getDraft(draftId);
+    if (!draft) {
+      res.status(404).json({ error: "발행 건을 찾지 못했습니다." });
+      return;
+    }
+
+    if (draft.status === "issued" || draft.status === "issuing") {
+      res.status(400).json({ error: "발행 중이거나 발행 완료된 문서는 수정할 수 없습니다." });
+      return;
+    }
+
+    let parsedMail: ParsedMail;
+    try {
+      parsedMail = buildEditedParsedMail(draft, req.body);
+    } catch (error) {
+      res.status(400).json({ error: getErrorMessage(error, "세금계산서 정보가 올바르지 않습니다.") });
+      return;
+    }
+
+    const updated = await requestStore.refreshDraftFromParsedMail(draftId, parsedMail);
+    res.json(updated);
   });
 
   app.get("/api/drafts/:id/popbill/info", async (req, res) => {

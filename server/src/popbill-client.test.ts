@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import test from "node:test";
 import type { AppSettings, Customer, InvoiceDraft } from "./domain.js";
-import { issueTaxInvoice } from "./popbill-client.js";
+import {
+  buildIssueCompleteMessageContent,
+  issueTaxInvoice,
+  sendIssueCompleteMessage
+} from "./popbill-client.js";
 
 const require = createRequire(import.meta.url);
 
@@ -146,5 +150,54 @@ test("issueTaxInvoice uses billing settings operator contact instead of customer
   } finally {
     popbill.config = originalConfig;
     popbill.TaxinvoiceService = originalTaxinvoiceService;
+  }
+});
+
+test("issue complete message is sent as the workspace company without AUTO-TAX branding", async () => {
+  const content = buildIssueCompleteMessageContent(
+    { organizationName: "해성태양광" },
+    buildCustomer(),
+    buildDraft()
+  );
+  assert.equal(content, "해성태양광에서 하예리 발전소 세금계산서 202,400원 발행이 완료되었습니다.");
+  assert.equal(content.includes("AUTO-TAX"), false);
+
+  const popbill = require("popbill") as {
+    config: (...args: unknown[]) => unknown;
+    MessageService: () => unknown;
+  };
+  const originalConfig = popbill.config;
+  const originalMessageService = popbill.MessageService;
+  let capturedArgs: unknown[] | null = null;
+
+  popbill.config = () => undefined;
+  popbill.MessageService = () => ({
+    sendXMS: (...args: unknown[]) => {
+      capturedArgs = args;
+      const onSuccess = args[11] as (response: unknown) => void;
+      onSuccess({ receiptNum: "R-1" });
+    }
+  });
+
+  try {
+    const settings = buildSettings();
+    const customer = {
+      ...buildCustomer(),
+      renewalContactMobile: "010-1234-5678"
+    };
+    await sendIssueCompleteMessage(settings, customer, buildDraft(), {
+      organizationName: "해성태양광",
+      receiverMobile: customer.renewalContactMobile
+    });
+
+    assert.ok(capturedArgs);
+    assert.equal(capturedArgs[0], "1208200052");
+    assert.equal(capturedArgs[1], "0212345678");
+    assert.equal(capturedArgs[2], "01012345678");
+    assert.equal(capturedArgs[5], content);
+    assert.equal(capturedArgs[10], customer.popbillUserId);
+  } finally {
+    popbill.config = originalConfig;
+    popbill.MessageService = originalMessageService;
   }
 });

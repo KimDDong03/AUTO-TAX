@@ -6,6 +6,7 @@ export type OrganizationStatus = "trial" | "active" | "suspended" | "churned";
 export type CustomerCertificateKind = "electronic_tax" | "general_personal" | "general_business" | "unknown";
 export type CustomerCertificateLinkSource = "auto" | "manual";
 export type PublicConsultationRequestStatus = "new" | "contacted" | "workspace_opened" | "closed";
+export type PublicSignupRequestStatus = "pending" | "approved" | "rejected";
 
 export interface AppSettings {
   id: number;
@@ -58,6 +59,32 @@ export interface PublicConsultationRequest {
   status: PublicConsultationRequestStatus;
   note: string;
   handledBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicSignupRequest {
+  id: string;
+  userId: string;
+  loginId: string;
+  authEmail: string;
+  organizationName: string;
+  name: string;
+  phone: string;
+  kepcoEmail: string;
+  status: PublicSignupRequestStatus;
+  marketingConsent: boolean;
+  termsVersion: string;
+  privacyVersion: string;
+  thirdPartyVersion: string;
+  marketingVersion: string | null;
+  termsAcceptedAt: string;
+  privacyAcceptedAt: string;
+  thirdPartyAcceptedAt: string;
+  marketingAcceptedAt: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNote: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -504,10 +531,9 @@ export interface DashboardPayload {
 export interface AuthenticatedOrganizationMembership {
   organizationId: string;
   organizationName: string;
-  organizationBusinessNumber: string | null;
   organizationPlanCode: string;
   organizationStatus: OrganizationStatus;
-  managedCustomerLimit: number | null;
+  monthlyIssueLimit: number;
   role: OrganizationMemberRole;
   displayName: string | null;
 }
@@ -539,10 +565,9 @@ export interface PartnerPointsPayload {
 export interface OpsWorkspaceSummary {
   organizationId: string;
   organizationName: string;
-  organizationBusinessNumber: string | null;
   organizationPlanCode: string;
   organizationStatus: OrganizationStatus;
-  managedCustomerLimit: number | null;
+  monthlyIssueLimit: number;
   managedCustomerCount: number;
   ownerLoginId: string | null;
   ownerDisplayName: string | null;
@@ -553,14 +578,15 @@ export interface OpsWorkspaceSummary {
   createdAt: string;
 }
 
-export interface OpsWorkspaceCreateResponse {
+export interface OpsWorkspaceSubscriptionUpdateResponse {
+  workspace: OpsWorkspaceSummary;
+}
+
+export interface OpsSignupApproveResponse {
+  request: PublicSignupRequest;
   workspace: OpsWorkspaceSummary;
   ownerAction: "linked-existing-user" | "created-user";
   workspaceAction: "created" | "reused-existing";
-}
-
-export interface OpsWorkspaceLimitUpdateResponse {
-  workspace: OpsWorkspaceSummary;
 }
 
 export interface OrganizationMemberSummary {

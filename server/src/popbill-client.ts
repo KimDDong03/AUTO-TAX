@@ -20,7 +20,8 @@ export type PopbillOperation =
   | "invoice-view-url"
   | "invoice-print-url"
   | "invoice-cancel"
-  | "invoice-issue";
+  | "invoice-issue"
+  | "message-send";
 
 type CallbackResult<T> = {
   response?: T;
@@ -109,7 +110,8 @@ function mapPopbillError(operation: PopbillOperation, code: string, rawMessage: 
     "invoice-view-url": "발행 문서 보기 URL을 가져오지 못했습니다.",
     "invoice-print-url": "발행 문서 인쇄 URL을 가져오지 못했습니다.",
     "invoice-cancel": "발행 문서 취소에 실패했습니다.",
-    "invoice-issue": "전자세금계산서 발행에 실패했습니다."
+    "invoice-issue": "전자세금계산서 발행에 실패했습니다.",
+    "message-send": "발행 완료 문자 전송에 실패했습니다."
   };
 
   return {
@@ -182,6 +184,23 @@ function getService(settings: AppSettings): any {
   delete popbill._TaxinvoiceService;
 
   return popbill.TaxinvoiceService();
+}
+
+function getMessageService(settings: AppSettings): any {
+  if (!settings.popbillLinkId || !settings.popbillSecretKey) {
+    throw new Error("발행 연동 서버 운영값이 설정되지 않았습니다.");
+  }
+
+  popbill.config({
+    LinkID: settings.popbillLinkId,
+    SecretKey: settings.popbillSecretKey,
+    IsTest: settings.popbillIsTest,
+    defaultErrorHandler: () => undefined
+  });
+
+  delete popbill._MessageService;
+
+  return popbill.MessageService();
 }
 
 function promisify<T>(
@@ -523,9 +542,69 @@ export async function issueTaxInvoice(
       taxinvoice,
       false,
       false,
-      "AUTO-TAX 세금계산서 발행",
+      "세금계산서 발행",
       "",
       "",
+      customer.popbillUserId || "",
+      (response: unknown) => done({ response }),
+      (error: CallbackResult<never>["error"]) => done({ error })
+    );
+  });
+}
+
+export type IssueCompleteMessageInput = {
+  organizationName: string;
+  receiverMobile: string;
+};
+
+export function buildIssueCompleteMessageContent(
+  input: Pick<IssueCompleteMessageInput, "organizationName">,
+  customer: Pick<Customer, "customerName">,
+  draft: Pick<InvoiceDraft, "plantName" | "totalAmount">
+): string {
+  const senderName = input.organizationName.trim();
+  const targetName = draft.plantName.trim() || customer.customerName.trim();
+  const totalAmount = new Intl.NumberFormat("ko-KR").format(draft.totalAmount);
+  return `${senderName}에서 ${targetName} 세금계산서 ${totalAmount}원 발행이 완료되었습니다.`;
+}
+
+export function normalizeIssueMessageReceiver(value: string): string | null {
+  const normalized = digitsOnly(value);
+  return /^01[016789]\d{7,8}$/.test(normalized) ? normalized : null;
+}
+
+export async function sendIssueCompleteMessage(
+  settings: AppSettings,
+  customer: Customer,
+  draft: InvoiceDraft,
+  input: IssueCompleteMessageInput
+): Promise<unknown> {
+  assertCustomerPopbillIdentity(customer);
+  const receiver = normalizeIssueMessageReceiver(input.receiverMobile);
+  if (!receiver) {
+    throw new Error("수신 가능한 고객 휴대폰 번호가 없습니다.");
+  }
+
+  const sender = digitsOnly(settings.operatorContactTel);
+  if (!sender) {
+    throw new Error("문자 발신번호가 설정되지 않았습니다.");
+  }
+
+  const service = getMessageService(settings);
+  const content = buildIssueCompleteMessageContent(input, customer, draft);
+
+  return promisify("message-send", (done) => {
+    service.sendXMS(
+      digitsOnly(customer.businessNumber),
+      sender,
+      receiver,
+      customer.customerName,
+      "세금계산서 발행 완료",
+      content,
+      "",
+      false,
+      settings.operatorContactName || "",
+      `issue-${draft.id}`,
       customer.popbillUserId || "",
       (response: unknown) => done({ response }),
       (error: CallbackResult<never>["error"]) => done({ error })

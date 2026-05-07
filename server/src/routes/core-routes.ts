@@ -5,6 +5,11 @@ import type { AppStore } from "../store-contract.js";
 import type { AuthenticatedAppSession } from "../supabase.js";
 import type { AuthUserSummary } from "../admin-types.js";
 import { createPublicConsultationRequest } from "../consultation-requests.js";
+import {
+  createPublicSignupRequest,
+  findPublicSignupRequestByLoginId,
+  findPublicSignupRequestByUserId
+} from "../signup-requests.js";
 import type {
   AppRateLimiter,
   CreateEmptyBootstrapWorkspace,
@@ -20,6 +25,44 @@ const publicLoginSchema = z.object({
   password: z.string().min(1).max(256)
 });
 
+const publicSignupSchema = z.object({
+  loginId: z
+    .string()
+    .trim()
+    .min(3)
+    .max(32)
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/, "로그인 ID는 영문/숫자로 시작하고 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있습니다."),
+  password: z
+    .string()
+    .min(8, "비밀번호는 8자 이상으로 입력하세요.")
+    .max(128)
+    .refine((value) => /[A-Za-z]/.test(value) && /\d/.test(value), "비밀번호는 영문과 숫자를 모두 포함해야 합니다."),
+  organizationName: z
+    .string()
+    .trim()
+    .min(2)
+    .max(60)
+    .refine(isReasonableOrganizationName, "고객사명은 한글을 포함한 실제 상호명으로 입력하세요."),
+  name: z
+    .string()
+    .trim()
+    .min(2)
+    .max(20)
+    .refine(isKoreanPersonName, "이름은 한글 실명 2~20자로 입력하세요."),
+  phone: z
+    .string()
+    .trim()
+    .min(7)
+    .max(32)
+    .regex(/^[0-9+\-()\s.]+$/, "전화번호 형식이 올바르지 않습니다.")
+    .refine((value) => isKoreanMobilePhone(value), "휴대폰 번호는 010, 011, 016, 017, 018, 019로 시작하는 10~11자리 번호로 입력하세요."),
+  kepcoEmail: z.string().trim().email().max(160),
+  termsAccepted: z.boolean().refine((value) => value, "서비스 이용약관에 동의해야 합니다."),
+  privacyAccepted: z.boolean().refine((value) => value, "개인정보 수집/이용에 동의해야 합니다."),
+  thirdPartyAccepted: z.boolean().refine((value) => value, "제3자 정보제공에 동의해야 합니다."),
+  marketingConsent: z.boolean().default(false)
+});
+
 const DEFAULT_PUBLIC_LOGIN_TIMEOUT_MS = 5000;
 const MAX_INTERNAL_JOB_RUN_LIMIT = 25;
 
@@ -33,6 +76,24 @@ const publicConsultationRequestSchema = z.object({
     .regex(/^[0-9+\-()\s.]+$/, "전화번호 형식이 올바르지 않습니다.")
 });
 
+function isKoreanMobilePhone(value: string): boolean {
+  const digits = value.replace(/\D/g, "");
+  return /^01[016789]\d{7,8}$/.test(digits);
+}
+
+function isKoreanPersonName(value: string): boolean {
+  return /^[가-힣]{2,20}$/.test(value.trim());
+}
+
+function isReasonableOrganizationName(value: string): boolean {
+  const normalized = value.trim();
+  return (
+    /[가-힣]/.test(normalized) &&
+    /^[가-힣A-Za-z0-9\s().,&·_\-]+$/.test(normalized) &&
+    normalized.replace(/\s+/g, "").length >= 2
+  );
+}
+
 type RouteDeps = {
   app: Express;
   store: AppStore | null;
@@ -40,15 +101,26 @@ type RouteDeps = {
   requireAuthContext: RequireAuthContext;
   requireInternalJobAccess: RequireInternalJobAccess;
   publicLoginLimiter: AppRateLimiter;
+  publicSignupLimiter: AppRateLimiter;
   publicConsultationLimiter: AppRateLimiter;
   createSupabaseAdminClient: () => ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>;
   createSupabasePublicClient: () => ReturnType<typeof import("../supabase.js").createSupabasePublicClient>;
+  resolveAuthenticatedAppSession: (
+    accessToken: string,
+    preferredOrganizationId?: string | null
+  ) => Promise<AuthenticatedAppSession>;
   findAuthUserByLoginId: (
     adminClient: ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>,
     loginId: string
   ) => Promise<AuthUserSummary | null>;
   isEmailLikeAccount: (value: string) => boolean;
+  normalizeLoginId: (value: string) => string;
   normalizeEmail: (value: string) => string;
+  createWorkspaceLoginEmail: (loginId: string) => string;
+  upsertAuthUserLoginIndex: (
+    adminClient: ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>,
+    input: { userId: string; loginId: string; email: string; displayName?: string | null }
+  ) => Promise<void>;
   createEmptyBootstrapWorkspace: CreateEmptyBootstrapWorkspace;
   createEmptySettings: CreateEmptySettings;
   toClientSettings: (settings: AppSettings) => unknown;
@@ -107,12 +179,17 @@ export function registerCoreRoutes(deps: RouteDeps) {
     requireAuthContext,
     requireInternalJobAccess,
     publicLoginLimiter,
+    publicSignupLimiter,
     publicConsultationLimiter,
     createSupabaseAdminClient,
     createSupabasePublicClient,
+    resolveAuthenticatedAppSession,
     findAuthUserByLoginId,
     isEmailLikeAccount,
+    normalizeLoginId,
     normalizeEmail,
+    createWorkspaceLoginEmail,
+    upsertAuthUserLoginIndex,
     createEmptyBootstrapWorkspace,
     createEmptySettings,
     toClientSettings,
@@ -130,10 +207,12 @@ export function registerCoreRoutes(deps: RouteDeps) {
     const payload = publicLoginSchema.parse(req.body ?? {});
     const account = payload.account.trim();
     let email = account;
+    let adminClient: ReturnType<typeof createSupabaseAdminClient> | null = null;
 
     if (!isEmailLikeAccount(account)) {
+      adminClient = createSupabaseAdminClient();
       const matchedUser = await withPublicLoginTimeout(
-        findAuthUserByLoginId(createSupabaseAdminClient(), account)
+        findAuthUserByLoginId(adminClient, account)
       ).catch((error) => {
         throw toPublicLoginError(error);
       });
@@ -157,9 +236,90 @@ export function registerCoreRoutes(deps: RouteDeps) {
       throw new HttpError(401, "로그인 정보가 올바르지 않습니다.");
     }
 
+    try {
+      await resolveAuthenticatedAppSession(signInResult.session.access_token, null);
+    } catch (sessionError) {
+      const message = sessionError instanceof Error ? sessionError.message : "";
+      if (message !== "접속 가능한 작업공간이 없습니다.") {
+        throw sessionError;
+      }
+
+      const signupRequest = await findPublicSignupRequestByUserId(adminClient ?? createSupabaseAdminClient(), signInResult.user.id);
+      if (signupRequest?.status === "pending") {
+        throw new HttpError(403, "회원가입 승인 대기 중입니다.");
+      }
+      if (signupRequest?.status === "rejected") {
+        throw new HttpError(403, "회원가입이 반려되었습니다. 관리자에게 문의하세요.");
+      }
+
+      throw new HttpError(403, "접속 가능한 작업공간이 없습니다.");
+    }
+
     res.json({
       session: signInResult.session
     });
+  });
+
+  app.post("/api/public/signup", publicSignupLimiter, async (req, res) => {
+    const payload = publicSignupSchema.parse(req.body ?? {});
+    const adminClient = createSupabaseAdminClient();
+    const loginId = normalizeLoginId(payload.loginId);
+    const authEmail = createWorkspaceLoginEmail(loginId);
+
+    const [existingAuthUser, existingSignupRequest] = await Promise.all([
+      findAuthUserByLoginId(adminClient, loginId),
+      findPublicSignupRequestByLoginId(adminClient, loginId)
+    ]);
+    if (existingAuthUser || existingSignupRequest) {
+      throw new HttpError(409, "이미 사용 중인 로그인 ID입니다.");
+    }
+
+    const { data: createdUserResult, error: createUserError } = await adminClient.auth.admin.createUser({
+      email: authEmail,
+      password: payload.password,
+      email_confirm: true,
+      user_metadata: {
+        login_id: loginId,
+        display_name: payload.name,
+        organization_name: payload.organizationName,
+        kepco_email: payload.kepcoEmail
+      }
+    });
+
+    if (createUserError || !createdUserResult.user) {
+      const message = createUserError?.message ?? "사용자 생성 실패";
+      if (message.toLowerCase().includes("already")) {
+        throw new HttpError(409, "이미 사용 중인 로그인 ID입니다.");
+      }
+      throw new Error(`회원가입 계정 생성에 실패했습니다: ${message}`);
+    }
+
+    try {
+      await upsertAuthUserLoginIndex(adminClient, {
+        userId: createdUserResult.user.id,
+        loginId,
+        email: createdUserResult.user.email ?? authEmail,
+        displayName: payload.name
+      });
+
+      const request = await createPublicSignupRequest(adminClient, {
+        userId: createdUserResult.user.id,
+        loginId,
+        authEmail: createdUserResult.user.email ?? authEmail,
+        organizationName: payload.organizationName,
+        name: payload.name,
+        phone: payload.phone,
+        kepcoEmail: payload.kepcoEmail,
+        marketingConsent: payload.marketingConsent,
+        requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+        requestUserAgent: req.header("user-agent") ?? ""
+      });
+
+      res.status(201).json({ request });
+    } catch (error) {
+      await adminClient.auth.admin.deleteUser(createdUserResult.user.id).catch(() => undefined);
+      throw error;
+    }
   });
 
   app.post("/api/public/consultation-requests", publicConsultationLimiter, async (req, res) => {

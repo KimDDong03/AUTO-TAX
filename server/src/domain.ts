@@ -6,6 +6,7 @@ export type DraftStatus = "review" | "scheduled" | "issuing" | "issued" | "faile
 export type CustomerCertificateKind = "electronic_tax" | "general_personal" | "general_business" | "unknown";
 export type CustomerCertificateLinkSource = "auto" | "manual";
 export type PublicConsultationRequestStatus = "new" | "contacted" | "workspace_opened" | "closed";
+export type PublicSignupRequestStatus = "pending" | "approved" | "rejected";
 
 export interface AppSettings {
   id: number;
@@ -101,6 +102,32 @@ export interface PublicConsultationRequest {
   status: PublicConsultationRequestStatus;
   note: string;
   handledBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicSignupRequest {
+  id: string;
+  userId: string;
+  loginId: string;
+  authEmail: string;
+  organizationName: string;
+  name: string;
+  phone: string;
+  kepcoEmail: string;
+  status: PublicSignupRequestStatus;
+  marketingConsent: boolean;
+  termsVersion: string;
+  privacyVersion: string;
+  thirdPartyVersion: string;
+  marketingVersion: string | null;
+  termsAcceptedAt: string;
+  privacyAcceptedAt: string;
+  thirdPartyAcceptedAt: string;
+  marketingAcceptedAt: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNote: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,10 +1,9 @@
 export type OpsWorkspaceSummary = {
   organizationId: string;
   organizationName: string;
-  organizationBusinessNumber: string | null;
   organizationPlanCode: string;
   organizationStatus: "trial" | "active" | "suspended" | "churned";
-  managedCustomerLimit: number | null;
+  monthlyIssueLimit: number;
   managedCustomerCount: number;
   ownerLoginId: string | null;
   ownerDisplayName: string | null;

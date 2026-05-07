@@ -28,6 +28,7 @@ test("core internal job routes expose maintenance separately without changing di
       }) as never,
     requireInternalJobAccess: () => "secret",
     publicLoginLimiter: (_req, _res, next) => next(),
+    publicSignupLimiter: (_req, _res, next) => next(),
     publicConsultationLimiter: (_req, _res, next) => next(),
     createSupabaseAdminClient: () => ({}) as never,
     createSupabasePublicClient: () =>
@@ -39,9 +40,15 @@ test("core internal job routes expose maintenance separately without changing di
           })
         }
       }) as never,
+    resolveAuthenticatedAppSession: async () => {
+      throw new Error("unused");
+    },
     findAuthUserByLoginId: async () => null,
     isEmailLikeAccount: () => true,
+    normalizeLoginId: (value) => value.trim().toLowerCase(),
     normalizeEmail: (value) => value,
+    createWorkspaceLoginEmail: (loginId) => `${loginId}@workspace.auto-tax.local`,
+    upsertAuthUserLoginIndex: async () => undefined,
     createEmptyBootstrapWorkspace: () => ({
       settings: {} as never,
       customers: [],

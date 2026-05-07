@@ -1,4 +1,34 @@
 import React from "react";
+import {
+  AlertTriangle,
+  Bell,
+  CheckCircle2,
+  CircleX,
+  CircleHelp,
+  ClipboardCheck,
+  Download,
+  Eye,
+  EyeOff,
+  FileCheck2,
+  FilePenLine,
+  FileText,
+  Filter,
+  Home,
+  LoaderCircle,
+  Mail,
+  MailX,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Send,
+  Settings,
+  ShieldCheck,
+  Trash2,
+  User,
+  Users,
+  type LucideIcon
+} from "lucide-react";
 
 function getStatIcon(label: string): string {
   if (label.includes("고객")) return "group";
@@ -9,176 +39,61 @@ function getStatIcon(label: string): string {
   return "dashboard";
 }
 
+const ICON_BY_NAME: Record<string, LucideIcon> = {
+  "alert-triangle": AlertTriangle,
+  bell: Bell,
+  "circle-x": CircleX,
+  certificate: FileCheck2,
+  cert: FileCheck2,
+  complete: CheckCircle2,
+  dashboard: Home,
+  document: FileText,
+  download: Download,
+  edit: Pencil,
+  "file-text": FileText,
+  filter: Filter,
+  group: Users,
+  help: CircleHelp,
+  initial: ClipboardCheck,
+  issue: FilePenLine,
+  loading: LoaderCircle,
+  "loader-circle": LoaderCircle,
+  mail: Mail,
+  "mail-x": MailX,
+  ops: ShieldCheck,
+  pencil: Pencil,
+  plus: Plus,
+  refresh: RefreshCw,
+  review: FilePenLine,
+  search: Search,
+  send: Send,
+  settings: Settings,
+  sync: RefreshCw,
+  trash: Trash2,
+  unmatched: Mail,
+  user: User,
+  warning: AlertTriangle
+};
+
 export function Icon(props: { name: string; className?: string }) {
   const iconClassName = props.className ? `glyph ${props.className}` : "glyph";
+  const IconComponent = ICON_BY_NAME[props.name];
 
-  switch (props.name) {
-    case "dashboard":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M4 10.5L12 4L20 10.5V19A1 1 0 0 1 19 20H5A1 1 0 0 1 4 19V10.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M9 20V13H15V20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      );
-    case "group":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="9" cy="8" r="3" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M4 19C4 15.9 6.4 14 9 14C11.6 14 14 15.9 14 19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            <path d="M16.5 11.5C18.4 11.5 20 9.9 20 8C20 6.1 18.4 4.5 16.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            <path d="M16.5 14C18.8 14 21 15.5 21 19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </span>
-      );
-    case "certificate":
-    case "cert":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <rect x="4" y="5" width="16" height="14" rx="3" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M8 10H16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            <path d="M8 14H13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </span>
-      );
-    case "initial":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <rect x="6" y="4.5" width="12" height="15" rx="2.2" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M9 4.5V3.5H15V4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M9.2 9.2L10.7 10.7L13.8 7.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M9.2 14.2L10.7 15.7L13.8 12.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      );
-    case "settings":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M19 12A7 7 0 0 0 18.9 10.9L21 9.3L19.2 6.2L16.7 7A7 7 0 0 0 14.8 5.9L14.4 3H9.6L9.2 5.9A7 7 0 0 0 7.3 7L4.8 6.2L3 9.3L5.1 10.9A7 7 0 0 0 5 12C5 12.4 5 12.8 5.1 13.1L3 14.7L4.8 17.8L7.3 17A7 7 0 0 0 9.2 18.1L9.6 21H14.4L14.8 18.1A7 7 0 0 0 16.7 17L19.2 17.8L21 14.7L18.9 13.1C19 12.8 19 12.4 19 12Z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      );
-    case "review":
-    case "issue":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <rect x="5" y="4" width="12" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M9 9H13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            <path d="M9 13H13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            <path d="M17 8L19.5 10.5L15.5 14.5L13 15L13.5 12.5L17 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      );
-    case "unmatched":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <rect x="3.5" y="6" width="17" height="12" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M5 8L12 13L19 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      );
-    case "complete":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M8.5 12L11 14.5L15.5 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      );
-    case "ops":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M12 3L19 6V11C19 15.4 16 18.9 12 20C8 18.9 5 15.4 5 11V6L12 3Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M9.5 12L11.2 13.7L14.8 10.1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      );
-    case "refresh":
-    case "sync":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M20 7V11H16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M4 17V13H8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M6.5 10C7.4 7.7 9.5 6 12 6C14.2 6 16.2 7.2 17.2 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            <path d="M17.5 14C16.6 16.3 14.5 18 12 18C9.8 18 7.8 16.8 6.8 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </span>
-      );
-    case "search":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="11" cy="11" r="6.2" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M16 16L20 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </span>
-      );
-    case "bell":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M7.5 10.2C7.5 7.6 9.5 5.5 12 5.5C14.5 5.5 16.5 7.6 16.5 10.2V13.2L18.2 16.1H5.8L7.5 13.2V10.2Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M10.2 18C10.6 19 11.2 19.5 12 19.5C12.8 19.5 13.4 19 13.8 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </span>
-      );
-    case "help":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M9.6 9.5C9.8 8.1 10.9 7.2 12.2 7.2C13.6 7.2 14.8 8.2 14.8 9.7C14.8 10.9 14.1 11.5 13.2 12.1C12.3 12.7 11.8 13.1 11.8 14.1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="12" cy="16.8" r="0.9" fill="currentColor" />
-          </svg>
-        </span>
-      );
-    case "user":
-      return (
-        <span className={iconClassName} aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="8.2" r="3.2" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M6 19C6 15.9 8.7 14 12 14C15.3 14 18 15.9 18 19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </span>
-      );
-    default:
-      return <span className={iconClassName}>{props.name.slice(0, 2).toUpperCase()}</span>;
+  if (!IconComponent) {
+    return <span className={iconClassName}>{props.name.slice(0, 2).toUpperCase()}</span>;
   }
+
+  return (
+    <span className={iconClassName} aria-hidden="true">
+      <IconComponent size={18} strokeWidth={2} />
+    </span>
+  );
 }
 
 export function RevealIcon(props: { open: boolean }) {
-  return (
-    <svg className="reveal-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M2 12C3.9 8.8 7.4 6.5 12 6.5C16.6 6.5 20.1 8.8 22 12C20.1 15.2 16.6 17.5 12 17.5C7.4 17.5 3.9 15.2 2 12Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="12" r="3.1" stroke="currentColor" strokeWidth="1.8" />
-      {props.open ? null : (
-        <path
-          d="M4 4L20 20"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      )}
-    </svg>
-  );
+  const IconComponent = props.open ? Eye : EyeOff;
+
+  return <IconComponent className="reveal-icon" size={20} strokeWidth={2} aria-hidden="true" />;
 }
 
 export type CheckboxControlProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> & {

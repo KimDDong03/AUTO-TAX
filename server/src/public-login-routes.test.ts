@@ -14,6 +14,7 @@ function registerPublicLoginTestRoutes(app: express.Express) {
     requireAuthContext: () => ({ isPlatformAdmin: false }) as never,
     requireInternalJobAccess: () => "secret",
     publicLoginLimiter: (_req, _res, next) => next(),
+    publicSignupLimiter: (_req, _res, next) => next(),
     publicConsultationLimiter: (_req, _res, next) => next(),
     createSupabaseAdminClient: () => {
       throw new Error("admin client should not be used for email login");
@@ -24,9 +25,15 @@ function registerPublicLoginTestRoutes(app: express.Express) {
           signInWithPassword: async () => new Promise(() => undefined)
         }
       }) as never,
+    resolveAuthenticatedAppSession: async () => {
+      throw new Error("session should not resolve during timeout test");
+    },
     findAuthUserByLoginId: async () => null,
     isEmailLikeAccount: () => true,
+    normalizeLoginId: (value) => value.trim().toLowerCase(),
     normalizeEmail: (value) => value.trim().toLowerCase(),
+    createWorkspaceLoginEmail: (loginId) => `${loginId}@workspace.auto-tax.local`,
+    upsertAuthUserLoginIndex: async () => undefined,
     createEmptyBootstrapWorkspace: () => ({
       settings: {} as never,
       customers: [],

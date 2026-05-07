@@ -6,7 +6,7 @@ import { AppDialog, type AppDialogState, type AppDialogTone, CheckboxControl, Ic
 import { getOrganizationRoleLabel } from "./organizationRole";
 import { CertificatesScreen } from "./features/certificates/CertificatesScreen";
 import { useCertificatesScreenModel } from "./features/certificates/useCertificatesScreenModel";
-import { matchesCustomerSearchQuery } from "./features/customers/customerSearch";
+import { matchesCustomerSearchQuery, type CustomerSearchField } from "./features/customers/customerSearch";
 import {
   buildCustomerListFilterContext,
   buildIssuedDraftsByCustomerId,
@@ -25,11 +25,11 @@ import { downloadSelectedCustomersWorkbook } from "./features/customers/customer
 import { CustomersTab } from "./features/customers/CustomersTab";
 import { HomeTab } from "./features/home/HomeTab";
 import { downloadCustomerContractRenewalsWorkbook } from "./features/home/customerContractRenewals";
-import { IssuanceTab } from "./features/issuance/IssuanceTab";
+import { IssuanceTab, type DraftTaxInvoiceInfoUpdateInput } from "./features/issuance/IssuanceTab";
 import { buildHomeScreenModel, type HomeActionKey } from "./features/home/homeScreenModel";
 import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
 import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
-import { PublicLanding } from "./features/public/PublicLanding";
+import { PublicLanding, type PublicSignupInput } from "./features/public/PublicLanding";
 import {
   downloadCustomerOnboardingTemplate,
   parseCustomerOnboardingWorkbook,
@@ -121,10 +121,10 @@ import {
 } from "./local-renewal-helper";
 import {
   buildOpsSubscriptionMetrics,
-  getOpsSubscriptionCustomerBlocks,
+  getOpsSubscriptionIssueBlocks,
   getOpsWorkspaceExpectedMonthlyRevenue,
   isOpsSubscriptionWorkspace,
-  OPS_SUBSCRIPTION_CUSTOMER_BLOCK_SIZE,
+  OPS_SUBSCRIPTION_ISSUE_BLOCK_SIZE,
   OPS_SUBSCRIPTION_MONTHLY_BLOCK_PRICE
 } from "./features/ops/opsSubscriptionMetrics";
 import {
@@ -150,12 +150,14 @@ import type {
   InvoiceDraft,
   LogEntry,
   MailPreviewImageResponse,
-  OpsWorkspaceCreateResponse,
-  OpsWorkspaceLimitUpdateResponse,
+  OpsWorkspaceSubscriptionUpdateResponse,
+  OpsSignupApproveResponse,
   OpsWorkspaceSummary,
   PartnerPointsPayload,
   PublicConsultationRequest,
   PublicConsultationRequestStatus,
+  PublicSignupRequest,
+  PublicSignupRequestStatus,
   RenewalInfoSnapshot,
   RenewalAutomationPayload
 } from "./types";
@@ -163,9 +165,9 @@ import type {
 type TabId = "onboarding" | "home" | "issuance" | "customers" | "certificates" | "settings" | "ops";
 type OpsSectionId =
   | "subscription"
+  | "signup-requests"
   | "consultation"
   | "workspaces"
-  | "workspace-create"
   | "owner-security"
   | "agent-status"
   | "logs"
@@ -174,9 +176,9 @@ type OpsSectionId =
 const OPS_DEFAULT_SECTION: OpsSectionId = "subscription";
 const OPS_SECTION_HASH_BY_ID = {
   subscription: "ops",
+  "signup-requests": "ops-signup-requests",
   consultation: "ops-consultation-requests",
   workspaces: "ops-workspaces",
-  "workspace-create": "ops-workspace-create",
   "owner-security": "ops-owner-security",
   "agent-status": "ops-agent-status",
   logs: "ops-logs",
@@ -614,6 +616,7 @@ type OpsConsoleData = {
   renewalAutomation: RenewalAutomationPayload;
   logs: LogEntry[];
   workspaces: OpsWorkspaceSummary[];
+  signupRequests: PublicSignupRequest[];
   consultationRequests: PublicConsultationRequest[];
 };
 type OpsLogDiagnosticRow = {
@@ -645,15 +648,6 @@ type InternalJobRunResponse = {
 function shouldLoadMailboxData(activeTab: TabId, _customerDetailTab: CustomerDetailTabId): boolean {
   return activeTab === "home" || activeTab === "issuance" || activeTab === "customers";
 }
-
-type OpsWorkspaceFormState = {
-  organizationName: string;
-  organizationBusinessNumber: string;
-  managedCustomerLimit: string;
-  ownerLoginId: string;
-  ownerDisplayName: string;
-  ownerPassword: string;
-};
 
 type OpsWorkspaceMailSettingsTarget = {
   organizationId: string;
@@ -944,15 +938,6 @@ function createQuickRegisterForm(message?: BootstrapPayload["inbox"][number] | n
   };
 }
 
-const baseOpsWorkspaceForm: OpsWorkspaceFormState = {
-  organizationName: "",
-  organizationBusinessNumber: "",
-  managedCustomerLimit: "50",
-  ownerLoginId: "",
-  ownerDisplayName: "",
-  ownerPassword: ""
-};
-
 const baseOpsWorkspaceMailSettingsForm: OpsWorkspaceMailSettingsFormState = {
   mailAddress: "",
   mailPassword: "",
@@ -967,6 +952,10 @@ function getOpsSectionFromHash(hash: string): OpsSectionId | null {
 
   if (value === "ops-consultation") {
     return "consultation";
+  }
+
+  if (value === "ops-workspace-create") {
+    return "signup-requests";
   }
 
   const match = (Object.entries(OPS_SECTION_HASH_BY_ID) as Array<[OpsSectionId, string]>).find(
@@ -1113,7 +1102,7 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
 function getDraftStatusLabel(status: string): string {
   switch (status) {
     case "review":
-      return "직접 발행 대기";
+      return "발행 대기";
     case "scheduled":
       return "발행 대기";
     case "failed":
@@ -1142,6 +1131,18 @@ function getOrganizationStatusLabel(status: OpsWorkspaceSummary["organizationSta
   }
 }
 
+function getOrganizationPlanLabel(planCode: string): string {
+  switch (planCode) {
+    case "free_trial":
+    case "starter":
+      return "무료 체험";
+    case "paid":
+      return "유료 구독";
+    default:
+      return planCode || "-";
+  }
+}
+
 function getConsultationStatusLabel(status: PublicConsultationRequestStatus): string {
   switch (status) {
     case "new":
@@ -1166,6 +1167,32 @@ function getConsultationStatusChipClass(status: PublicConsultationRequestStatus)
     case "closed":
       return "chip-danger";
     case "contacted":
+    default:
+      return "";
+  }
+}
+
+function getSignupStatusLabel(status: PublicSignupRequestStatus): string {
+  switch (status) {
+    case "pending":
+      return "승인 대기";
+    case "approved":
+      return "승인 완료";
+    case "rejected":
+      return "반려";
+    default:
+      return status;
+  }
+}
+
+function getSignupStatusChipClass(status: PublicSignupRequestStatus): string {
+  switch (status) {
+    case "pending":
+      return "chip-warn";
+    case "approved":
+      return "chip-success";
+    case "rejected":
+      return "chip-danger";
     default:
       return "";
   }
@@ -1816,11 +1843,6 @@ export function App() {
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
-  const [consultationName, setConsultationName] = useState("");
-  const [consultationPhone, setConsultationPhone] = useState("");
-  const [consultationNotice, setConsultationNotice] = useState("");
-  const [consultationError, setConsultationError] = useState("");
-  const [consultationBusy, setConsultationBusy] = useState(false);
   const [signInAccount, setSignInAccount] = useState("");
   const [signInPassword, setSignInPassword] = useState("");
   const [recoveryMode, setRecoveryMode] = useState(() =>
@@ -1849,6 +1871,7 @@ export function App() {
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
   const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [customerListFilter, setCustomerListFilter] = useState<CustomerListFilter>("all");
+  const [customerSearchField, setCustomerSearchField] = useState<CustomerSearchField>("all");
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [customerDetailTab, setCustomerDetailTab] = useState<CustomerDetailTabId>("info");
   const [workFeedTab, setWorkFeedTab] = useState<"inbox" | "issued">("inbox");
@@ -1857,7 +1880,6 @@ export function App() {
   );
   const [ownerPasswordResetTarget, setOwnerPasswordResetTarget] =
     useState<OwnerPasswordResetTarget | null>(null);
-  const [opsWorkspaceForm, setOpsWorkspaceForm] = useState<OpsWorkspaceFormState>(baseOpsWorkspaceForm);
   const [opsWorkspaceMailSettingsTarget, setOpsWorkspaceMailSettingsTarget] =
     useState<OpsWorkspaceMailSettingsTarget | null>(null);
   const [opsWorkspaceMailSettingsForm, setOpsWorkspaceMailSettingsForm] =
@@ -1930,6 +1952,7 @@ export function App() {
     isPlatformAdmin: false
   });
   const deferredCustomerSearchQuery = useDeferredValue(customerSearchQuery);
+  const deferredCustomerSearchField = useDeferredValue(customerSearchField);
   const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
   useEffect(() => {
     setCustomerOnboardingSharedPassword("");
@@ -2067,11 +2090,12 @@ export function App() {
   };
 
   const loadOpsConsole = async (): Promise<OpsConsoleData> => {
-    const [partnerPoints, renewalAutomation, logs, workspaces, consultationRequests] = await Promise.all([
+    const [partnerPoints, renewalAutomation, logs, workspaces, signupRequests, consultationRequests] = await Promise.all([
       api<PartnerPointsPayload>("/api/popbill/partner-points"),
       api<RenewalAutomationPayload>("/api/automation/renewal-agent/snapshot"),
       api<LogEntry[]>("/api/logs"),
       api<OpsWorkspaceSummary[]>("/api/ops/workspaces"),
+      api<PublicSignupRequest[]>("/api/ops/signup-requests"),
       api<PublicConsultationRequest[]>("/api/ops/consultation-requests")
     ]);
 
@@ -2080,6 +2104,7 @@ export function App() {
       renewalAutomation,
       logs,
       workspaces,
+      signupRequests,
       consultationRequests
     };
   };
@@ -2170,7 +2195,7 @@ export function App() {
         ? Object.fromEntries(
             nextOpsConsole.workspaces.map((workspace) => [
               workspace.organizationId,
-              String(workspace.managedCustomerLimit ?? "")
+              String(workspace.monthlyIssueLimit)
             ])
           )
         : {}
@@ -2674,9 +2699,11 @@ export function App() {
       data.drafts,
       customerContractRenewalsDue
     );
+    const issuedDraftsByCustomerId = buildIssuedDraftsByCustomerId(data.drafts);
     const visibleCustomers = data.customers.filter((customer) => {
       const matchesFilter = matchesCustomerListFilter(customer, customerListFilter, customerListFilterContext);
-      const matchesSearch = matchesCustomerSearchQuery(customer, customerSearchQuery);
+      const customerIssueMonths = (issuedDraftsByCustomerId.get(customer.id) ?? []).map((draft) => draft.billingMonth);
+      const matchesSearch = matchesCustomerSearchQuery(customer, customerSearchQuery, customerSearchField, customerIssueMonths);
       return matchesFilter && matchesSearch;
     }).sort(compareCustomersForList);
 
@@ -2696,7 +2723,7 @@ export function App() {
     if (!visibleCustomers.some((customer) => customer.id === customerForm.id)) {
       setCustomerForm(customerToForm(visibleCustomers[0]));
     }
-  }, [activeTab, creatingCustomer, customerContractRenewalsDue, customerForm, customerListFilter, customerSearchQuery, data]);
+  }, [activeTab, creatingCustomer, customerContractRenewalsDue, customerForm, customerListFilter, customerSearchField, customerSearchQuery, data]);
 
   useEffect(() => {
     if (!data?.auth.activeOrganizationId) {
@@ -2898,26 +2925,22 @@ export function App() {
     }
   };
 
-  const submitConsultationRequest = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const signUp = async (input: PublicSignupInput): Promise<boolean> => {
     try {
-      setConsultationError("");
-      setConsultationNotice("");
-      setConsultationBusy(true);
-      await api("/api/public/consultation-requests", {
+      setError("");
+      setAuthNotice("");
+      setAuthBusy(true);
+      await api<{ request: PublicSignupRequest }>("/api/public/signup", {
         method: "POST",
-        body: JSON.stringify({
-          name: consultationName.trim(),
-          phone: consultationPhone.trim()
-        })
+        body: JSON.stringify(input)
       });
-      setConsultationName("");
-      setConsultationPhone("");
-      setConsultationNotice("상담 신청이 접수되었습니다. 운영팀이 연락드리겠습니다.");
-    } catch (requestError) {
-      setConsultationError(getDisplayErrorMessage(requestError, "상담 신청 접수에 실패했습니다."));
+      setAuthNotice("회원가입 신청이 접수되었습니다. 운영자 승인 후 로그인할 수 있습니다.");
+      return true;
+    } catch (signupError) {
+      setError(signupError instanceof Error ? signupError.message : "회원가입 신청에 실패했습니다.");
+      return false;
     } finally {
-      setConsultationBusy(false);
+      setAuthBusy(false);
     }
   };
 
@@ -3049,6 +3072,22 @@ export function App() {
       customerAddressLookupRef.current = "";
       return;
     }
+  };
+
+  const saveCustomerMemo = async (customerId: number, memo: string) => {
+    const savedCustomer = await api<CustomerSaveResponse>(`/api/customers/${customerId}/memo`, {
+      method: "PATCH",
+      body: JSON.stringify({ memo })
+    });
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            customers: prev.customers.map((customer) => (customer.id === savedCustomer.id ? savedCustomer : customer))
+          }
+        : prev
+    );
+    setCustomerForm((prev) => (prev.id === savedCustomer.id ? customerToForm(savedCustomer) : prev));
   };
 
   const applyCustomerImportHeaderRow = (nextHeaderRowIndex: number) => {
@@ -3579,53 +3618,23 @@ export function App() {
     );
   };
 
-  const createWorkspace = async () => {
-    const managedCustomerLimit = Number(opsWorkspaceForm.managedCustomerLimit);
-    if (!Number.isInteger(managedCustomerLimit) || managedCustomerLimit < 1) {
+  const updateWorkspaceSubscription = async (workspace: OpsWorkspaceSummary) => {
+    const rawValue = workspaceLimitEdits[workspace.organizationId] ?? String(workspace.monthlyIssueLimit);
+    const monthlyIssueLimit = Number(rawValue);
+    const planCode = monthlyIssueLimit === 10 ? "free_trial" : "paid";
+
+    if (!Number.isInteger(monthlyIssueLimit) || monthlyIssueLimit < 1) {
       throw new Error("월 발행 한도는 1 이상 숫자로 입력하세요.");
     }
-
-    const payload = {
-      organizationName: opsWorkspaceForm.organizationName.trim(),
-      organizationBusinessNumber: opsWorkspaceForm.organizationBusinessNumber.trim(),
-      managedCustomerLimit,
-      ownerLoginId: opsWorkspaceForm.ownerLoginId.trim(),
-      ownerDisplayName: opsWorkspaceForm.ownerDisplayName.trim(),
-      ownerPassword: opsWorkspaceForm.ownerPassword
-    };
-
-    const result = await api<OpsWorkspaceCreateResponse>("/api/ops/workspaces", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-
-    setOpsWorkspaceForm(baseOpsWorkspaceForm);
-    await showAppAlert(
-      result.workspaceAction === "reused-existing"
-        ? `이미 개통된 고객사 작업공간을 다시 불러왔습니다.\n작업공간: ${result.workspace.organizationName}\nowner 로그인 아이디: ${result.workspace.ownerLoginId}`
-        : result.ownerAction === "created-user"
-          ? `고객사 작업공간을 개통했습니다.\n작업공간: ${result.workspace.organizationName}\nowner 로그인 아이디: ${result.workspace.ownerLoginId}\n새 계정이 생성되었습니다. 전달한 임시 비밀번호로 첫 로그인하면 됩니다.`
-          : `고객사 작업공간을 개통했습니다.\n작업공간: ${result.workspace.organizationName}\nowner 로그인 아이디: ${result.workspace.ownerLoginId}\n기존 사용자 계정을 owner로 연결했습니다.`,
-      {
-        title: "고객사 작업공간 개통",
-        tone: "success"
-      }
-    );
-  };
-
-  const updateWorkspaceManagedCustomerLimit = async (workspace: OpsWorkspaceSummary) => {
-    const rawValue = workspaceLimitEdits[workspace.organizationId] ?? String(workspace.managedCustomerLimit ?? "");
-    const managedCustomerLimit = Number(rawValue);
-
-    if (!Number.isInteger(managedCustomerLimit) || managedCustomerLimit < 1) {
-      throw new Error("월 발행 한도는 1 이상 숫자로 입력하세요.");
+    if (planCode === "paid" && (monthlyIssueLimit < 100 || monthlyIssueLimit % 100 !== 0)) {
+      throw new Error("유료 구독 월 발행 한도는 100건 이상, 100건 단위로 입력하세요.");
     }
 
-    const result = await api<OpsWorkspaceLimitUpdateResponse>(
-      `/api/ops/workspaces/${workspace.organizationId}/managed-customer-limit`,
+    const result = await api<OpsWorkspaceSubscriptionUpdateResponse>(
+      `/api/ops/workspaces/${workspace.organizationId}/subscription`,
       {
         method: "PUT",
-        body: JSON.stringify({ managedCustomerLimit })
+        body: JSON.stringify({ planCode, monthlyIssueLimit })
       }
     );
 
@@ -3641,12 +3650,12 @@ export function App() {
     );
     setWorkspaceLimitEdits((prev) => ({
       ...prev,
-      [workspace.organizationId]: String(result.workspace.managedCustomerLimit ?? "")
+      [workspace.organizationId]: String(result.workspace.monthlyIssueLimit)
     }));
     await showAppAlert(
-      `${result.workspace.organizationName} 작업공간의 월 발행 한도를 ${result.workspace.managedCustomerLimit ?? "-"}건으로 저장했습니다.`,
+      `${result.workspace.organizationName} 작업공간의 구독 상태를 ${getOrganizationPlanLabel(result.workspace.organizationPlanCode)} / 월 ${result.workspace.monthlyIssueLimit}건으로 저장했습니다.`,
       {
-        title: "월 발행 한도 저장",
+        title: "구독 상태 저장",
         tone: "success"
       }
     );
@@ -3669,6 +3678,75 @@ export function App() {
         ? {
             ...prev,
             consultationRequests: prev.consultationRequests.map((item) =>
+              item.id === result.request.id ? result.request : item
+            )
+          }
+        : prev
+    );
+  };
+
+  const approveSignupRequest = async (request: PublicSignupRequest) => {
+    const confirmed = await showAppConfirm(
+      `${request.organizationName} 작업공간을 만들고 ${request.loginId} 계정을 owner로 승인합니다.`,
+      {
+        title: "회원가입 승인",
+        tone: "success",
+        confirmLabel: "승인"
+      }
+    );
+    if (!confirmed) return;
+
+    const result = await api<OpsSignupApproveResponse>(`/api/ops/signup-requests/${request.id}/approve`, {
+      method: "POST"
+    });
+
+    setOpsConsole((prev) => {
+      if (!prev) return prev;
+      const nextWorkspaces = prev.workspaces.some((workspace) => workspace.organizationId === result.workspace.organizationId)
+        ? prev.workspaces.map((workspace) =>
+            workspace.organizationId === result.workspace.organizationId ? result.workspace : workspace
+          )
+        : [result.workspace, ...prev.workspaces];
+
+      return {
+        ...prev,
+        signupRequests: prev.signupRequests.map((item) =>
+          item.id === result.request.id ? result.request : item
+        ),
+        workspaces: nextWorkspaces
+      };
+    });
+
+    await showAppAlert(
+      `${result.workspace.organizationName} 작업공간을 개통했습니다.\nowner 로그인 ID: ${result.workspace.ownerLoginId ?? request.loginId}`,
+      {
+        title: "회원가입 승인 완료",
+        tone: "success"
+      }
+    );
+  };
+
+  const rejectSignupRequest = async (request: PublicSignupRequest) => {
+    const confirmed = await showAppConfirm(
+      `${request.organizationName} / ${request.loginId} 회원가입 신청을 반려합니다. 반려 후 이 계정은 로그인할 수 없습니다.`,
+      {
+        title: "회원가입 반려",
+        tone: "warn",
+        confirmLabel: "반려"
+      }
+    );
+    if (!confirmed) return;
+
+    const result = await api<{ request: PublicSignupRequest }>(`/api/ops/signup-requests/${request.id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+
+    setOpsConsole((prev) =>
+      prev
+        ? {
+            ...prev,
+            signupRequests: prev.signupRequests.map((item) =>
               item.id === result.request.id ? result.request : item
             )
           }
@@ -4708,6 +4786,31 @@ export function App() {
     });
   };
 
+  const updateDraftTaxInvoiceInfo = async (draftId: number, input: DraftTaxInvoiceInfoUpdateInput) => {
+    try {
+      setError("");
+      setBusyKey(`draft-tax-info-${draftId}`);
+      const updatedDraft = await api<InvoiceDraft>(`/api/drafts/${draftId}/tax-invoice-info`, {
+        method: "PATCH",
+        body: JSON.stringify(input)
+      });
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              drafts: prev.drafts.map((draft) => (draft.id === draftId ? updatedDraft : draft))
+            }
+          : prev
+      );
+    } catch (updateError) {
+      const message = getDisplayErrorMessage(updateError, "세금계산서 정보 저장에 실패했습니다.");
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   const openDraftPopbillUrl = async (draftId: number, type: "view-url" | "print-url") => {
     if (type === "view-url") {
       void api(`/api/drafts/${draftId}/pilot-preview-opened`, {
@@ -4753,15 +4856,15 @@ export function App() {
 
     if (targets.length === 0) {
       await showAppAlert("선택한 항목 중 직접 발행할 검수 대기/실패 건이 없습니다.", {
-        title: "선택 발행"
+        title: "선택 일괄 발행"
       });
       return;
     }
 
     const confirmed = await showAppConfirm(`선택한 검수 대기/실패 ${targets.length}건을 직접 발행합니다.\n계속할까요?`, {
-      title: "선택 발행 확인",
+      title: "선택 일괄 발행 확인",
       tone: "warn",
-      confirmLabel: "선택 발행"
+      confirmLabel: "선택 일괄 발행"
     });
     if (!confirmed) return;
 
@@ -4781,8 +4884,8 @@ export function App() {
     }
 
     const detailLines = failedDetails.length > 0 ? `\n실패 상세:\n${failedDetails.slice(0, 5).join("\n")}` : "";
-    await showAppAlert(`선택 발행 완료\n대상: ${targets.length}건\n성공: ${issued}건\n실패: ${failed}건${detailLines}`, {
-      title: "선택 발행 완료",
+    await showAppAlert(`선택 일괄 발행 완료\n대상: ${targets.length}건\n성공: ${issued}건\n실패: ${failed}건${detailLines}`, {
+      title: "선택 일괄 발행 완료",
       tone: failed > 0 ? "warn" : "success"
     });
   };
@@ -4977,13 +5080,6 @@ export function App() {
     return (
       <>
         <PublicLanding
-          consultationName={consultationName}
-          setConsultationName={setConsultationName}
-          consultationPhone={consultationPhone}
-          setConsultationPhone={setConsultationPhone}
-          consultationNotice={consultationNotice}
-          consultationError={consultationError}
-          consultationBusy={consultationBusy}
           signInAccount={signInAccount}
           setSignInAccount={setSignInAccount}
           signInPassword={signInPassword}
@@ -4991,8 +5087,8 @@ export function App() {
           authNotice={authNotice}
           error={error}
           authBusy={authBusy}
-          onConsultationSubmit={submitConsultationRequest}
           onSignIn={signIn}
+          onSignUp={signUp}
         />
         {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
       </>
@@ -5106,13 +5202,25 @@ export function App() {
   const recentInboxMessages = [...data.inbox]
     .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime())
     .slice(0, HOME_MOCK_RECENT_INBOX_TARGET_COUNT);
-  const recentIssuedDrafts = issuedDrafts.slice(0, HOME_MOCK_RECENT_ISSUED_TARGET_COUNT);
-  const homeReviewDrafts = padHomeCollection(reviewDrafts, HOME_MOCK_REVIEW_TARGET_COUNT, buildHomeMockReviewDraft);
-  const homeRecentInboxMessages = padHomeCollection(recentInboxMessages, HOME_MOCK_RECENT_INBOX_TARGET_COUNT, buildHomeMockInboxMessage);
-  const homeRecentIssuedDrafts = padHomeCollection(recentIssuedDrafts, HOME_MOCK_RECENT_ISSUED_TARGET_COUNT, buildHomeMockIssuedDraft);
+  const recentIssuedDrafts = [...issuedDrafts]
+    .sort((left, right) => {
+      const rightTimestamp = new Date(right.issuedAt ?? right.updatedAt ?? right.createdAt).getTime();
+      const leftTimestamp = new Date(left.issuedAt ?? left.updatedAt ?? left.createdAt).getTime();
+      return (Number.isFinite(rightTimestamp) ? rightTimestamp : 0) - (Number.isFinite(leftTimestamp) ? leftTimestamp : 0);
+    })
+    .slice(0, HOME_MOCK_RECENT_ISSUED_TARGET_COUNT);
+  const currentHomeBillingMonth = getCurrentSeoulBillingMonth();
+  const currentMonthIssuedDraftCount = issuedDrafts.filter((draft) => draft.billingMonth === currentHomeBillingMonth).length;
+  const homeMonthlyIssueLimit = currentMembership?.monthlyIssueLimit ?? 0;
+  const homeReviewDrafts = reviewDrafts.slice(0, HOME_MOCK_REVIEW_TARGET_COUNT);
+  const homeRecentInboxMessages = recentInboxMessages;
+  const homeRecentIssuedDrafts = recentIssuedDrafts;
   const filteredCustomers = data.customers
     .filter((customer) => matchesCustomerListFilter(customer, customerListFilter, customerListFilterContext))
-    .filter((customer) => matchesCustomerSearchQuery(customer, deferredCustomerSearchQuery))
+    .filter((customer) => {
+      const customerIssueMonths = (issuedDraftsByCustomerId.get(customer.id) ?? []).map((draft) => draft.billingMonth);
+      return matchesCustomerSearchQuery(customer, deferredCustomerSearchQuery, deferredCustomerSearchField, customerIssueMonths);
+    })
     .sort(compareCustomersForList);
   const customerImportHeaderCandidates = customerImportFile
     ? customerImportFile.rows.slice(0, Math.min(customerImportFile.rows.length, 5)).map((row, index) => ({
@@ -5201,7 +5309,9 @@ export function App() {
   const opsJobs = opsConsole?.renewalAutomation.jobs ?? [];
   const opsLogs = opsConsole?.logs ?? [];
   const opsWorkspaces = opsConsole?.workspaces ?? [];
+  const opsSignupRequests = opsConsole?.signupRequests ?? [];
   const opsConsultationRequests = opsConsole?.consultationRequests ?? [];
+  const pendingSignupRequestCount = opsSignupRequests.filter((request) => request.status === "pending").length;
   const customerRenewalCandidates: CustomerRenewalCandidateView[] = data.customers
     .filter((customer) => customer.popbillState === "joined" && customer.popbillCertRegistered)
     .map((customer) => {
@@ -5237,7 +5347,6 @@ export function App() {
       return leftTime - rightTime || left.customerName.localeCompare(right.customerName, "ko");
     });
   const latestCustomerRenewalJob = customerRenewalAssistantJobs[0] ?? null;
-  const isCreatingWorkspace = busyKey === "ops-create-workspace";
   const isSavingCustomer =
     busyKey === "save-customer" ||
     busyKey === "save-customer-top" ||
@@ -5263,9 +5372,9 @@ export function App() {
   const opsSubscriptionMetrics = buildOpsSubscriptionMetrics(opsWorkspaces);
   const opsMenuItems: Array<{ section: OpsSectionId; label: string }> = [
     { section: "subscription", label: "구독/매출" },
+    { section: "signup-requests", label: `가입 승인${pendingSignupRequestCount > 0 ? ` ${pendingSignupRequestCount}` : ""}` },
     { section: "consultation", label: "상담 신청" },
     { section: "workspaces", label: "작업공간 관리" },
-    { section: "workspace-create", label: "작업공간 생성" },
     { section: "owner-security", label: "owner 비밀번호 재설정" },
     { section: "agent-status", label: "renewal agent 상태" },
     { section: "logs", label: "운영 로그" },
@@ -6194,7 +6303,7 @@ export function App() {
         ? [
             { id: "home" as const, label: "홈", icon: "dashboard" },
             { id: "issuance" as const, label: "세금계산서 발행", icon: "issue" },
-            { id: "customers" as const, label: "고객", icon: "group" },
+            { id: "customers" as const, label: "고객 관리", icon: "group" },
             { id: "certificates" as const, label: "인증서", icon: "certificate" },
             { id: "settings" as const, label: "설정", icon: "settings" }
           ]
@@ -6381,8 +6490,8 @@ export function App() {
     },
     ops: {
       title: "플랫폼 운영 상태",
-      primaryActionLabel: "새 작업공간",
-      onPrimaryAction: () => navigateToOpsSection("workspace-create"),
+      primaryActionLabel: "가입 승인",
+      onPrimaryAction: () => navigateToOpsSection("signup-requests"),
       chips: [
         { label: "상담 신청", value: `${opsConsultationRequests.filter((request) => request.status === "new").length}건`, tone: opsConsultationRequests.some((request) => request.status === "new") ? "warn" : "default" },
         { label: "작업공간", value: `${opsWorkspaces.length}개`, tone: opsWorkspaces.length > 0 ? "default" : "warn" },
@@ -6408,6 +6517,12 @@ export function App() {
   const activeScreenBar = screenActionBar[visibleActiveTab];
   const activeNavLabel = navItems.find((item) => item.id === visibleActiveTab)?.label ?? "AUTO-TAX";
   const isNavItemActive = (itemId: TabId) => visibleActiveTab === itemId;
+  const topnavUserLabel = currentMembership?.displayName || data.auth.activeDisplayName || data.auth.email || "로그인 사용자";
+  const topnavProfileInitial = (activeWorkspaceName.trim()[0] || topnavUserLabel.trim()[0] || "A").toLocaleUpperCase("ko-KR");
+  const handleTopnavSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setActiveTab("customers");
+  };
   const showHomeSyncButton = false;
   const showScreenPrimaryAction = visibleActiveTab === "ops" || visibleActiveTab === "certificates" || visibleActiveTab === "issuance";
   const showActionBarActions = showHomeSyncButton || showScreenPrimaryAction;
@@ -6424,7 +6539,7 @@ export function App() {
           <button type="button" className="topnav-brand" aria-label="홈으로 이동" onClick={() => handleNavSelect("home")}>
             <span className="brand-badge topnav-brand-badge">AT</span>
             <div className="brand-copy">
-              <img src="/logo-O2APlXk3.png" alt="AUTO-TAX" className="topnav-brand-logo" />
+              <img src="/header-icon.png" alt="AUTO-TAX" className="topnav-brand-logo" />
             </div>
           </button>
 
@@ -6443,37 +6558,67 @@ export function App() {
           </nav>
 
           <div className="topnav-context">
-            <div className="topnav-user">
-              <span className="topnav-user-badge" aria-hidden="true">
-                <Icon name="user" />
-              </span>
-              <div className="topnav-user-copy">
-                <strong>{currentMembership?.displayName || data.auth.email || "로그인 사용자"}</strong>
-              </div>
-            </div>
-            {hasActiveWorkspace && data.auth.organizations.length > 1 ? (
-              <select
-                className="workspace-select topnav-workspace-select"
-                value={data.auth.activeOrganizationId ?? ""}
-                onChange={(event) => void changeOrganization(event.target.value)}
-                disabled={busyKey !== null}
-                aria-label="작업공간 선택"
-              >
-                {data.auth.organizations.map((organization) => (
-                  <option key={organization.organizationId} value={organization.organizationId}>
-                    {organization.organizationName}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            <button
-              className="btn-secondary topnav-logout"
-              aria-label="로그아웃"
-              onClick={() => void signOut()}
-              disabled={busyKey !== null}
-            >
-              로그아웃
+            <form className="topnav-search" role="search" onSubmit={handleTopnavSearchSubmit}>
+              <Icon name="search" className="topnav-search-icon" />
+              <input
+                type="search"
+                value={customerSearchQuery}
+                onChange={(event) => {
+                  setCustomerSearchField("all");
+                  setCustomerSearchQuery(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    setActiveTab("customers");
+                  }
+                }}
+                placeholder="고객명, 사업자번호 검색"
+                aria-label="고객명 또는 고객 사업자번호 검색"
+              />
+            </form>
+            <button type="button" className="topnav-notification" aria-label="알림">
+              <Icon name="bell" className="topnav-notification-icon" />
             </button>
+            <details className="topnav-profile">
+              <summary className="topnav-profile-summary">
+                <span className="topnav-profile-avatar" aria-hidden="true">
+                  {topnavProfileInitial}
+                </span>
+                <span className="topnav-profile-copy">
+                  <strong>{topnavUserLabel}</strong>
+                  <span>{activeWorkspaceName}</span>
+                </span>
+              </summary>
+              <div className="topnav-profile-menu">
+                {hasActiveWorkspace && data.auth.organizations.length > 1 ? (
+                  <label>
+                    작업공간
+                    <select
+                      className="workspace-select topnav-workspace-select"
+                      value={data.auth.activeOrganizationId ?? ""}
+                      onChange={(event) => void changeOrganization(event.target.value)}
+                      disabled={busyKey !== null}
+                      aria-label="작업공간 선택"
+                    >
+                      {data.auth.organizations.map((organization) => (
+                        <option key={organization.organizationId} value={organization.organizationId}>
+                          {organization.organizationName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                <button
+                  className="btn-secondary topnav-logout"
+                  aria-label="로그아웃"
+                  onClick={() => void signOut()}
+                  disabled={busyKey !== null}
+                >
+                  로그아웃
+                </button>
+              </div>
+            </details>
           </div>
         </header>
 
@@ -6603,14 +6748,19 @@ export function App() {
             userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
             workspaceLabel={activeWorkspaceName}
             popbillModeLabel={workspacePopbillModeLabel}
+            customers={data.customers}
             reviewDrafts={homeReviewDrafts}
             recentInboxMessages={homeRecentInboxMessages}
             recentIssuedDrafts={homeRecentIssuedDrafts}
+            issuedDraftsByCustomerId={issuedDraftsByCustomerId}
             contractRenewalDueItems={customerContractRenewalsDue}
+            currentMonthIssuedDraftCount={currentMonthIssuedDraftCount}
+            monthlyIssueLimit={homeMonthlyIssueLimit}
             workFeedTab={workFeedTab}
             reprocessableMessageCount={reprocessableMessages.length}
             busyKey={busyKey}
             onOpenAction={handleHomeAction}
+            onOpenCustomers={() => setActiveTab("customers")}
             onSelectFeedTab={setWorkFeedTab}
             onIssueAllReviewDrafts={() => void runAction("issue-all", issueAllReviewDrafts)}
             onIssueDraft={(draftId) =>
@@ -6649,6 +6799,9 @@ export function App() {
             userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
             workspaceLabel={activeWorkspaceName}
             popbillModeLabel={workspacePopbillModeLabel}
+            operatorContactName={data.settings.operatorContactName}
+            operatorContactTel={data.settings.operatorContactTel}
+            operatorContactEmail={data.settings.operatorContactEmail}
             requestedFilter={requestedIssuanceFilter}
             onConsumeRequestedFilter={() => setRequestedIssuanceFilter(null)}
             drafts={data.drafts}
@@ -6675,9 +6828,7 @@ export function App() {
             onCancelDraft={(draftId) =>
               void runAction(`draft-cancel-${draftId}`, async () => void (await cancelIssuedDraft(draftId)))
             }
-            onShowDraftPopbillInfo={(draftId) =>
-              void runAction(`draft-info-${draftId}`, async () => void (await showDraftPopbillInfo(draftId)))
-            }
+            onUpdateDraftTaxInvoiceInfo={updateDraftTaxInvoiceInfo}
             formatMoney={formatMoney}
             formatDateTime={formatDateTime}
             getDraftStatusLabel={getDraftStatusLabel}
@@ -6707,6 +6858,7 @@ export function App() {
             popbillPendingCustomerCount={popbillPendingCustomers.length}
             busyKey={busyKey}
             isSavingCustomer={isSavingCustomer}
+            customerSearchField={customerSearchField}
             customerSearchQuery={customerSearchQuery}
             customerListFilter={customerListFilter}
             customerDetailTab={customerDetailTab}
@@ -6728,6 +6880,7 @@ export function App() {
             renewableCustomers={customerRenewalCandidates}
             customerNameInputRef={customerNameInputRef}
             customerAddressLookupRef={customerAddressLookupRef}
+            setCustomerSearchField={setCustomerSearchField}
             setCustomerSearchQuery={setCustomerSearchQuery}
             setCustomerListFilter={setCustomerListFilter}
             setCustomerDetailTab={setCustomerDetailTab}
@@ -6746,6 +6899,7 @@ export function App() {
             onStartCustomerRenewal={startCustomerRenewal}
             onSelectCustomer={selectCustomerForEdit}
             onSaveCustomer={saveCustomer}
+            onSaveCustomerMemo={saveCustomerMemo}
             onJoinCustomerPopbill={joinCustomerPopbill}
             onOpenCustomerCertRegistration={openCustomerCertRegistration}
             onLinkCustomerCertificate={linkLocalCertificateToCustomer}
@@ -6864,6 +7018,88 @@ export function App() {
             </aside>
             {opsConsole ? (
               <div className="ops-section-main">
+                {activeOpsSection === "signup-requests" ? (
+                  <Panel
+                    className="panel-ops-signup-requests"
+                    id="ops-signup-requests"
+                    title="가입 승인"
+                    subtitle="고객이 직접 신청한 계정을 검토하고 승인 시 새 작업공간과 owner 멤버십을 자동 생성합니다."
+                  >
+                    <div className="ops-workspace-table-wrap">
+                      {opsSignupRequests.length > 0 ? (
+                        <table className="ops-workspace-table ops-signup-table">
+                          <thead>
+                            <tr>
+                              <th>상태</th>
+                              <th>고객사</th>
+                              <th>신청자</th>
+                              <th>로그인 ID</th>
+                              <th>전화번호</th>
+                              <th>한전 수신 메일</th>
+                              <th>마케팅</th>
+                              <th>신청일</th>
+                              <th>액션</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {opsSignupRequests.map((request) => (
+                              <tr key={request.id}>
+                                <td>
+                                  <span className={`chip ${getSignupStatusChipClass(request.status)}`}>
+                                    {getSignupStatusLabel(request.status)}
+                                  </span>
+                                </td>
+                                <td>
+                                  <strong>{request.organizationName}</strong>
+                                  {request.reviewNote ? <span>{request.reviewNote}</span> : null}
+                                </td>
+                                <td>{request.name}</td>
+                                <td>{request.loginId}</td>
+                                <td>{request.phone}</td>
+                                <td>{request.kepcoEmail}</td>
+                                <td>{request.marketingConsent ? "동의" : "미동의"}</td>
+                                <td>{formatDateTime(request.createdAt)}</td>
+                                <td>
+                                  <div className="ops-table-actions">
+                                    <button
+                                      className="btn-secondary"
+                                      disabled={busyKey !== null || request.status !== "pending"}
+                                      onClick={() =>
+                                        void runAction(
+                                          `ops-signup-approve-${request.id}`,
+                                          async () => void (await approveSignupRequest(request)),
+                                          { reload: false }
+                                        )
+                                      }
+                                    >
+                                      승인
+                                    </button>
+                                    <button
+                                      className="btn-secondary"
+                                      disabled={busyKey !== null || request.status !== "pending"}
+                                      onClick={() =>
+                                        void runAction(
+                                          `ops-signup-reject-${request.id}`,
+                                          async () => void (await rejectSignupRequest(request)),
+                                          { reload: false }
+                                        )
+                                      }
+                                    >
+                                      반려
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div className="empty">접수된 회원가입 신청이 없습니다.</div>
+                      )}
+                    </div>
+                  </Panel>
+                ) : null}
+
                 {activeOpsSection === "consultation" ? (
                   <Panel
                   className="panel-ops-consultation"
@@ -6941,106 +7177,6 @@ export function App() {
                   </Panel>
                 ) : null}
 
-                {activeOpsSection === "workspace-create" ? (
-                  <Panel
-                  className="panel-ops-workspace-create"
-                  id="ops-workspace-create"
-                  title="고객사 작업공간 개통"
-                  subtitle={isCreatingWorkspace ? "고객사 작업공간과 첫 owner 계정을 만드는 중입니다. 잠시만 기다려주세요." : "새 고객사를 만들고 첫 owner 로그인 아이디를 바로 연결합니다."}
-                  actions={
-                    <button disabled={busyKey !== null} onClick={() => void runAction("ops-create-workspace", createWorkspace)}>
-                      {isCreatingWorkspace ? "작업공간 개통 중..." : "작업공간 개통"}
-                    </button>
-                  }
-                >
-                  {isCreatingWorkspace ? (
-                    <div className="helper-box full-width">
-                      <strong>개통 진행 중</strong>
-                      <span>계정 확인, 작업공간 생성, 첫 owner 연결을 순서대로 처리하고 있습니다. 완료될 때까지 창을 닫지 말고 잠시 기다려주세요.</span>
-                    </div>
-                  ) : null}
-                  <div className="ops-workspace-create-summary" aria-label="작업공간 개통 순서">
-                    <span>1. 고객사 정보</span>
-                    <span>2. owner 계정</span>
-                    <span>3. 개통 후 전달</span>
-                  </div>
-                  <div className="form-grid ops-workspace-create-form">
-                    <label className="ops-create-field">
-                      고객사명
-                      <input
-                        disabled={busyKey !== null}
-                        value={opsWorkspaceForm.organizationName}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationName: event.target.value }))}
-                        placeholder="예: 해성태양광"
-                      />
-                    </label>
-                    <label className="ops-create-field">
-                      사업자번호 (선택)
-                      <input
-                        disabled={busyKey !== null}
-                        value={opsWorkspaceForm.organizationBusinessNumber}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, organizationBusinessNumber: event.target.value }))}
-                        placeholder="숫자만 입력 · 개인 사용 작업공간이면 비워두기"
-                      />
-                      <span className="field-hint">이 작업공간을 쓰는 운영 주체의 선택 정보입니다. 관리 고객의 사업자번호와는 별개입니다.</span>
-                    </label>
-                    <label className="ops-create-field ops-create-field-limit">
-                      월 발행 한도
-                      <input
-                        disabled={busyKey !== null}
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={opsWorkspaceForm.managedCustomerLimit}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, managedCustomerLimit: event.target.value }))}
-                        placeholder="예: 50"
-                      />
-                      <span className="field-hint">이번 달에 발행할 수 있는 최대 세금계산서 건수입니다. 다음 달이 되면 다시 0건부터 집계됩니다.</span>
-                    </label>
-                    <label className="ops-create-field">
-                      첫 owner 로그인 아이디
-                      <input
-                        disabled={busyKey !== null}
-                        value={opsWorkspaceForm.ownerLoginId}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerLoginId: event.target.value }))}
-                        placeholder="예: admin01"
-                      />
-                    </label>
-                    <label className="ops-create-field">
-                      owner 이름
-                      <input
-                        disabled={busyKey !== null}
-                        value={opsWorkspaceForm.ownerDisplayName}
-                        onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerDisplayName: event.target.value }))}
-                        placeholder="담당자 이름"
-                      />
-                    </label>
-                    <label className="full ops-create-field ops-create-password-field">
-                      임시 비밀번호
-                      <div className="password-field">
-                        <input
-                          disabled={busyKey !== null}
-                          type={revealedFields.opsOwnerPassword ? "text" : "password"}
-                          value={opsWorkspaceForm.ownerPassword}
-                          onChange={(event) => setOpsWorkspaceForm((prev) => ({ ...prev, ownerPassword: event.target.value }))}
-                          placeholder="기존 사용자면 비워두고, 새 사용자면 8자 이상 입력"
-                        />
-                        <button
-                          type="button"
-                          className="password-toggle"
-                          disabled={busyKey !== null}
-                          aria-label={revealedFields.opsOwnerPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
-                          onClick={() => toggleRevealField("opsOwnerPassword")}
-                        >
-                          <RevealIcon open={Boolean(revealedFields.opsOwnerPassword)} />
-                        </button>
-                      </div>
-                      <span className="field-hint">이미 존재하는 로그인 아이디면 기존 계정을 owner로 연결하고, 처음 만드는 로그인 아이디면 임시 비밀번호가 필요합니다.</span>
-                    </label>
-                  </div>
-                  </Panel>
-                ) : null}
-
                 {activeOpsSection === "subscription" ? (
                   <>
                 <section className={`alert ${opsPartnerIsTest ? "warn" : "success"} ops-mode-banner`}>
@@ -7074,7 +7210,7 @@ export function App() {
                   className="panel-ops-subscription"
                   id="ops-subscription"
                   title="구독/매출"
-                  subtitle={`등록 고객 ${OPS_SUBSCRIPTION_CUSTOMER_BLOCK_SIZE}명당 월 ${formatMoney(OPS_SUBSCRIPTION_MONTHLY_BLOCK_PRICE)}원 기준의 예상 지표입니다. 실제 결제 수납액은 아닙니다.`}
+                  subtitle={`월 발행 ${OPS_SUBSCRIPTION_ISSUE_BLOCK_SIZE}건당 ${formatMoney(OPS_SUBSCRIPTION_MONTHLY_BLOCK_PRICE)}원 기준의 예상 지표입니다. 계좌 입금 확인 후 운영자가 수동으로 유료 구독을 적용합니다.`}
                 >
                   <section className="stats-grid stats-grid-compact ops-subscription-kpis">
                     <StatCard
@@ -7083,9 +7219,9 @@ export function App() {
                       tone={opsSubscriptionMetrics.subscribedWorkspaceCount > 0 ? "default" : "warn"}
                     />
                     <StatCard
-                      label="총 등록 고객 수"
-                      value={opsSubscriptionMetrics.registeredCustomerCount}
-                      tone={opsSubscriptionMetrics.registeredCustomerCount > 0 ? "default" : "warn"}
+                      label="유료 월 발행 한도"
+                      value={`${formatMoney(opsSubscriptionMetrics.monthlyIssueLimit)}건`}
+                      tone={opsSubscriptionMetrics.monthlyIssueLimit > 0 ? "default" : "warn"}
                     />
                     <StatCard
                       label="예상 월 매출"
@@ -7099,7 +7235,7 @@ export function App() {
                     />
                   </section>
                   <p className="ops-helper-text">
-                    구독 대상은 active/trial 작업공간입니다. suspended/churned 작업공간은 예상 매출에서 제외합니다.
+                    예상 매출은 plan_code가 paid이고 active인 작업공간만 포함합니다. 무료 체험, 중지, 해지 작업공간은 예상 매출에서 제외합니다.
                   </p>
                 </Panel>
                   </>
@@ -7120,12 +7256,13 @@ export function App() {
                           <tr>
                             <th>작업공간 ID</th>
                             <th>작업공간명</th>
-                            <th>도메인</th>
+                            <th>플랜</th>
                             <th>owner</th>
                             <th>상태</th>
-                            <th>등록 고객</th>
                             <th>예상 월 구독료</th>
-                            <th>이번 달</th>
+                            <th>월 발행 한도</th>
+                            <th>이번 달 발행</th>
+                            <th>등록 고객</th>
                             <th>포인트</th>
                             <th>최근 발행</th>
                             <th>액션</th>
@@ -7139,7 +7276,7 @@ export function App() {
                               partnerTaxInvoiceUnitCost
                             );
                             const workspaceSubscriptionEligible = isOpsSubscriptionWorkspace(workspace);
-                            const workspaceSubscriptionBlocks = getOpsSubscriptionCustomerBlocks(workspace.managedCustomerCount);
+                            const workspaceSubscriptionBlocks = getOpsSubscriptionIssueBlocks(workspace.monthlyIssueLimit);
                             const workspaceExpectedMonthlyRevenue = workspaceSubscriptionEligible
                               ? getOpsWorkspaceExpectedMonthlyRevenue(workspace)
                               : 0;
@@ -7150,9 +7287,8 @@ export function App() {
                                 <td>{workspaceCode}</td>
                                 <td>
                                   <strong>{workspace.organizationName}</strong>
-                                  <span>{workspace.organizationBusinessNumber || "사업자번호 미입력"}</span>
                                 </td>
-                                <td>{workspace.organizationPlanCode}</td>
+                                <td>{getOrganizationPlanLabel(workspace.organizationPlanCode)}</td>
                                 <td>
                                   {workspace.ownerDisplayName ? `${workspace.ownerDisplayName} · ` : ""}
                                   {workspace.ownerLoginId ?? "-"}
@@ -7162,12 +7298,11 @@ export function App() {
                                     {getOrganizationStatusLabel(workspace.organizationStatus)}
                                   </span>
                                 </td>
-                                <td>{formatMoney(workspace.managedCustomerCount)}명</td>
                                 <td>
                                   {workspaceSubscriptionEligible ? (
                                     <span className="ops-subscription-fee-cell">
                                       <strong>{formatMoney(workspaceExpectedMonthlyRevenue)}원</strong>
-                                      <span>{workspaceSubscriptionBlocks}구간</span>
+                                    <span>{workspaceSubscriptionBlocks}구간 · 월 {formatMoney(workspace.monthlyIssueLimit)}건</span>
                                     </span>
                                   ) : (
                                     <span className="muted">구독 제외</span>
@@ -7175,13 +7310,13 @@ export function App() {
                                 </td>
                                 <td>
                                   <div className="ops-limit-cell">
-                                    <span>{formatMoney(workspace.currentMonthIssuedDraftCount)}건 / {workspace.managedCustomerLimit ?? "-"}건</span>
+                                    <span>월 {formatMoney(workspace.monthlyIssueLimit)}건</span>
                                     <input
                                       aria-label={`${workspace.organizationName} 월 발행 한도`}
                                       type="number"
-                                      min="1"
-                                      step="1"
-                                      value={workspaceLimitEdits[workspace.organizationId] ?? String(workspace.managedCustomerLimit ?? "")}
+                                      min="10"
+                                      step="10"
+                                      value={workspaceLimitEdits[workspace.organizationId] ?? String(workspace.monthlyIssueLimit)}
                                       onChange={(event) =>
                                         setWorkspaceLimitEdits((prev) => ({
                                           ...prev,
@@ -7189,8 +7324,11 @@ export function App() {
                                         }))
                                       }
                                     />
+                                    <span className="field-hint">10건은 무료 체험, 유료 구독은 100건 단위</span>
                                   </div>
                                 </td>
+                                <td>{formatMoney(workspace.currentMonthIssuedDraftCount)}건</td>
+                                <td>{formatMoney(workspace.managedCustomerCount)}명</td>
                                 <td>
                                   <span>누적 {workspaceEstimatedPointUsage !== null ? `${formatMoney(workspaceEstimatedPointUsage)}P` : "-"}</span>
                                   <span>이번 달 {workspaceCurrentMonthEstimatedPointUsage !== null ? `${formatMoney(workspaceCurrentMonthEstimatedPointUsage)}P` : "-"}</span>
@@ -7218,12 +7356,12 @@ export function App() {
                                       onClick={() =>
                                         void runAction(
                                           `ops-workspace-limit-${workspace.organizationId}`,
-                                          async () => void (await updateWorkspaceManagedCustomerLimit(workspace)),
+                                          async () => void (await updateWorkspaceSubscription(workspace)),
                                           { reload: false }
                                         )
                                       }
                                     >
-                                      한도 저장
+                                      구독 저장
                                     </button>
                                   </div>
                                 </td>

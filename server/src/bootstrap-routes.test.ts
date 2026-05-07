@@ -129,6 +129,7 @@ test("bootstrap stays slim and mailbox/log data remains on dedicated endpoints",
     requireAuthContext: () => authContext as never,
     requireInternalJobAccess: () => "secret",
     publicLoginLimiter: (_req, _res, next) => next(),
+    publicSignupLimiter: (_req, _res, next) => next(),
     publicConsultationLimiter: (_req, _res, next) => next(),
     createSupabaseAdminClient: () => ({}) as never,
     createSupabasePublicClient: () =>
@@ -140,9 +141,13 @@ test("bootstrap stays slim and mailbox/log data remains on dedicated endpoints",
           })
         }
       }) as never,
+    resolveAuthenticatedAppSession: async () => authContext as never,
     findAuthUserByLoginId: async () => null,
     isEmailLikeAccount: () => true,
+    normalizeLoginId: (value) => value.trim().toLowerCase(),
     normalizeEmail: (value) => value,
+    createWorkspaceLoginEmail: (loginId) => `${loginId}@workspace.auto-tax.local`,
+    upsertAuthUserLoginIndex: async () => undefined,
     createEmptyBootstrapWorkspace: () => ({
       settings: settings as never,
       customers: [],
@@ -326,6 +331,7 @@ test("bootstrap redacts stored onboarding passwords while keeping configured fla
     requireAuthContext: () => authContext as never,
     requireInternalJobAccess: () => "secret",
     publicLoginLimiter: (_req, _res, next) => next(),
+    publicSignupLimiter: (_req, _res, next) => next(),
     publicConsultationLimiter: (_req, _res, next) => next(),
     createSupabaseAdminClient: () => ({}) as never,
     createSupabasePublicClient: () =>
@@ -337,9 +343,13 @@ test("bootstrap redacts stored onboarding passwords while keeping configured fla
           })
         }
       }) as never,
+    resolveAuthenticatedAppSession: async () => authContext as never,
     findAuthUserByLoginId: async () => null,
     isEmailLikeAccount: () => true,
+    normalizeLoginId: (value) => value.trim().toLowerCase(),
     normalizeEmail: (value) => value,
+    createWorkspaceLoginEmail: (loginId) => `${loginId}@workspace.auto-tax.local`,
+    upsertAuthUserLoginIndex: async () => undefined,
     createEmptyBootstrapWorkspace: () => ({
       settings,
       customers: [],

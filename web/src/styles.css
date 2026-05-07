@@ -15943,8 +15943,9 @@ button.issuance-list-item {
 }
 
 .portal-layout {
-  grid-template-columns: minmax(360px, 460px) minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(360px, 440px) minmax(420px, 620px);
+  justify-content: center;
+  gap: 16px;
   align-items: start;
   min-height: calc(100vh - 93px);
   padding: 32px 40px 48px;
@@ -16038,6 +16039,110 @@ button.issuance-list-item {
 .portal-shell .auth-form input:focus {
   border-color: var(--portal-primary);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.portal-shell .portal-signup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.portal-shell .portal-signup-grid .full {
+  grid-column: 1 / -1;
+}
+
+.portal-shell .portal-terms-list {
+  display: grid;
+  gap: 8px;
+}
+
+.portal-shell .portal-term-item {
+  min-width: 0;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-control);
+  background: var(--portal-surface-subtle);
+}
+
+.portal-shell .portal-term-item summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.portal-shell .portal-term-item label {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.portal-shell .portal-term-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.portal-shell .portal-term-item small {
+  color: var(--portal-muted);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.portal-shell .portal-term-item p {
+  margin: 0;
+  padding: 0 12px 12px 36px;
+  color: var(--portal-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.portal-shell .portal-mode-link {
+  justify-self: start;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--portal-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.portal-shell .portal-consistency {
+  margin: 0;
+  color: var(--portal-muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.portal-shell .portal-consistency.ready {
+  color: var(--portal-primary-strong);
+}
+
+.portal-shell .portal-field-error {
+  color: #b42318;
+}
+
+.portal-shell .portal-field-ok {
+  color: var(--portal-primary-strong);
+}
+
+.portal-shell .portal-password-hint {
+  min-height: 18px;
+  margin-top: -2px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .portal-shell .auth-actions button {
@@ -16362,6 +16467,14 @@ button.issuance-list-item {
   gap: 8px;
 }
 
+.content-ops .panel-ops-signup-requests {
+  grid-column: auto;
+}
+
+.content-ops .ops-signup-table {
+  min-width: 1040px;
+}
+
 .content-ops .ops-subscription-fee-cell {
   display: grid;
   gap: 2px;
@@ -16533,7 +16646,8 @@ button.issuance-list-item {
   .app-shell-topnav .settings-option1-top-row,
   .app-shell-topnav .settings-option1-detail-grid,
   .app-shell-topnav .settings-option1-progress-row,
-  .app-shell-topnav .onboarding-task-shell {
+  .app-shell-topnav .onboarding-task-shell,
+  .portal-shell .portal-signup-grid {
     grid-template-columns: 1fr;
   }
 
@@ -17681,6 +17795,37 @@ button.issuance-list-item {
 .app-shell-topnav .customer-detail-basic-facts dd {
   min-width: 0;
   line-height: 1.25;
+}
+
+.app-shell-topnav .customer-detail-memo-field {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(226, 232, 240, 0.85);
+  color: var(--wf-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .customer-detail-memo-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 58px;
+  resize: vertical;
+  border: 1px solid var(--wf-border);
+  border-radius: 6px;
+  background: var(--wf-surface);
+  color: var(--wf-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.app-shell-topnav .customer-detail-memo-field textarea:focus {
+  border-color: rgba(37, 99, 235, 0.65);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
 }
 
 .app-shell-topnav .customer-detail-nowrap-value {
@@ -23589,6 +23734,2139 @@ button.issuance-list-item {
   }
 }
 
+/* Lovable reference pass: global shell and Home first slice. */
+.app-shell.app-shell-topnav {
+  --lovable-bg: #f4f4f6;
+  --lovable-surface: #ffffff;
+  --lovable-surface-soft: #f7f7f8;
+  --lovable-border: #e1e4ea;
+  --lovable-border-strong: #d4d9e2;
+  --lovable-text: #111827;
+  --lovable-muted: #5f6b7a;
+  --lovable-faint: #8c96a5;
+  --lovable-primary: #2563eb;
+  --lovable-primary-soft: #eef3ff;
+  --lovable-danger: #e5484d;
+  --lovable-danger-soft: #fff1f1;
+  --lovable-warning: #d97706;
+  --lovable-warning-soft: #fff7e8;
+  --lovable-success: #168a4a;
+  --lovable-success-soft: #eefaf3;
+  --wf-bg: var(--lovable-bg);
+  --wf-surface: var(--lovable-surface);
+  --wf-surface-soft: var(--lovable-surface-soft);
+  --wf-border: var(--lovable-border);
+  --wf-border-strong: var(--lovable-border-strong);
+  --wf-text: var(--lovable-text);
+  --wf-muted: var(--lovable-muted);
+  background: var(--lovable-bg);
+  color: var(--lovable-text);
+}
+
+.app-shell-topnav .topnav-shell {
+  grid-template-columns: 156px minmax(360px, 1fr) minmax(420px, 560px);
+  gap: 24px;
+  min-height: 70px;
+  padding: 0 44px;
+  border-bottom: 1px solid var(--lovable-border);
+  background: var(--lovable-surface);
+}
+
+.app-shell-topnav .topnav-brand-logo {
+  width: 130px;
+}
+
+.app-shell-topnav .topnav-list {
+  justify-content: flex-start;
+  gap: 0;
+}
+
+.app-shell-topnav .topnav-button {
+  min-height: 40px;
+  padding: 0 17px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #243041;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.app-shell-topnav .topnav-button:hover,
+.app-shell-topnav .topnav-button:focus-visible {
+  background: #f1f3f7;
+  color: var(--lovable-text);
+}
+
+.app-shell-topnav .topnav-button.active {
+  border-bottom: 0;
+  background: #eef1f7;
+  color: var(--lovable-text);
+}
+
+.app-shell-topnav .topnav-icon {
+  display: none;
+}
+
+.app-shell-topnav .topnav-context {
+  justify-content: flex-end;
+  gap: 18px;
+}
+
+.app-shell-topnav .topnav-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(330px, 100%);
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: #f0f1f4;
+  color: var(--lovable-muted);
+}
+
+.app-shell-topnav .topnav-search:focus-within {
+  border-color: #c8d2e4;
+  background: var(--lovable-surface);
+}
+
+.app-shell-topnav .topnav-search-icon,
+.app-shell-topnav .topnav-notification-icon {
+  width: 18px;
+  height: 18px;
+  color: #667085;
+}
+
+.app-shell-topnav .topnav-search input {
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--lovable-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.app-shell-topnav .topnav-search input:focus {
+  box-shadow: none;
+}
+
+.app-shell-topnav .topnav-notification {
+  position: relative;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.app-shell-topnav .topnav-notification::after {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #e5484d;
+  content: "";
+}
+
+.app-shell-topnav .topnav-profile {
+  position: relative;
+}
+
+.app-shell-topnav .topnav-profile-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 168px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.app-shell-topnav .topnav-profile-summary::-webkit-details-marker {
+  display: none;
+}
+
+.app-shell-topnav .topnav-profile-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: #eef1f7;
+  color: var(--lovable-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .topnav-profile-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-shell-topnav .topnav-profile-copy strong,
+.app-shell-topnav .topnav-profile-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell-topnav .topnav-profile-copy strong {
+  color: var(--lovable-text);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.app-shell-topnav .topnav-profile-copy span {
+  color: var(--lovable-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.app-shell-topnav .topnav-profile-menu {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 100;
+  display: grid;
+  gap: 10px;
+  width: 220px;
+  padding: 12px;
+  border: 1px solid var(--lovable-border);
+  border-radius: 4px;
+  background: var(--lovable-surface);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+}
+
+.app-shell-topnav .topnav-profile:not([open]) .topnav-profile-menu {
+  display: none;
+}
+
+.app-shell-topnav .topnav-profile-menu label {
+  display: grid;
+  gap: 6px;
+  color: var(--lovable-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.app-shell-topnav .topnav-workspace-select,
+.app-shell-topnav .topnav-logout {
+  width: 100%;
+  min-height: 38px;
+  margin: 0;
+  border-radius: 4px;
+}
+
+.app-shell-topnav .content {
+  background: var(--lovable-bg);
+}
+
+.app-shell-topnav .content-home {
+  padding: 0 32px 76px;
+  background: var(--lovable-bg);
+}
+
+.app-shell-topnav .home-screen.lovable-home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+  width: min(1360px, 100%);
+  min-height: calc(100vh - 70px);
+  min-height: calc(100dvh - 70px);
+  margin: 0 auto;
+  padding: 40px 0 64px;
+}
+
+.lovable-home-hero {
+  display: grid;
+  gap: 8px;
+}
+
+.lovable-home-hero h2 {
+  margin: 0;
+  color: var(--lovable-text);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.lovable-home-hero p {
+  margin: 0;
+  color: var(--lovable-muted);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lovable-home-loading {
+  padding: 14px 18px;
+  border: 1px solid var(--lovable-border);
+  border-radius: 4px;
+  background: var(--lovable-surface);
+}
+
+.lovable-overview {
+  display: grid;
+  gap: 16px;
+}
+
+.lovable-overview-head,
+.lovable-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.lovable-overview-head h3,
+.lovable-panel-head h3 {
+  margin: 0;
+  color: var(--lovable-text);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.lovable-overview-head span,
+.lovable-panel-head p {
+  margin: 0;
+  color: var(--lovable-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lovable-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.app-shell-topnav .lovable-metric-card {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  min-height: 118px;
+  padding: 22px 22px 20px;
+  border: 1px solid var(--lovable-border);
+  border-radius: 2px;
+  background: var(--lovable-surface);
+  color: var(--lovable-text);
+  box-shadow: none;
+  text-align: left;
+}
+
+.app-shell-topnav .lovable-metric-card:hover,
+.app-shell-topnav .lovable-metric-card:focus-visible {
+  border-color: var(--lovable-border-strong);
+  background: var(--lovable-surface);
+  box-shadow: none;
+  transform: none;
+}
+
+.lovable-metric-card span {
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.lovable-metric-card strong {
+  display: flex;
+  align-items: baseline;
+  color: var(--lovable-text);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.lovable-metric-card em {
+  color: var(--lovable-muted);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.lovable-home-lower-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(320px, 0.95fr);
+  gap: 24px;
+}
+
+.lovable-home-panel {
+  min-width: 0;
+  border: 1px solid var(--lovable-border);
+  border-radius: 2px;
+  background: var(--lovable-surface);
+}
+
+.lovable-panel-head {
+  padding: 24px 28px 22px;
+}
+
+.lovable-link-button {
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1f3d70;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.app-shell-topnav .lovable-link-button:hover,
+.app-shell-topnav .lovable-link-button:focus-visible {
+  background: transparent;
+  color: #102a56;
+  box-shadow: none;
+}
+
+.lovable-table-wrap {
+  overflow-x: auto;
+}
+
+.lovable-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.lovable-table-wrap th,
+.lovable-table-wrap td {
+  padding: 16px 28px;
+  border-top: 1px solid var(--lovable-border);
+  color: #344054;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.lovable-table-wrap th {
+  background: #f7f7f8;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lovable-table-wrap td:first-child {
+  color: var(--lovable-text);
+  font-weight: 800;
+}
+
+.lovable-empty-cell {
+  height: 160px;
+  color: var(--lovable-muted) !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+}
+
+.lovable-activity-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.lovable-activity-list {
+  display: grid;
+  gap: 0;
+  padding: 0 28px 28px;
+}
+
+.lovable-activity-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--lovable-border);
+}
+
+.lovable-activity-item strong {
+  display: block;
+  color: var(--lovable-text);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.lovable-activity-item p,
+.lovable-activity-item span:not(.status) {
+  margin: 4px 0 0;
+  color: var(--lovable-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lovable-empty-state {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-height: 210px;
+  margin: 0 28px 28px;
+  padding: 34px 24px;
+  border: 1px dashed var(--lovable-border);
+  border-radius: 8px;
+  background: #fbfbfc;
+  text-align: center;
+}
+
+.lovable-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 18px;
+  border-radius: 999px;
+  background: #eef1f7;
+  color: #667085;
+}
+
+.lovable-empty-icon .glyph {
+  width: 22px;
+  height: 22px;
+}
+
+.lovable-empty-state strong {
+  color: var(--lovable-text);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.lovable-empty-state p {
+  margin: 8px 0 0;
+  color: var(--lovable-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-shell-topnav .status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.app-shell-topnav .status-issued {
+  background: #f1f3f5;
+  color: #596273;
+}
+
+.app-shell-topnav .status-review,
+.app-shell-topnav .status-pending,
+.app-shell-topnav .status-unmatched,
+.app-shell-topnav .status-missing-mail {
+  background: var(--lovable-warning-soft);
+  color: var(--lovable-warning);
+}
+
+.app-shell-topnav .status-failed {
+  background: var(--lovable-danger-soft);
+  color: var(--lovable-danger);
+}
+
+@media (max-width: 1180px) {
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 14px;
+    padding: 12px 24px;
+  }
+
+  .app-shell-topnav .topnav-context {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .lovable-metric-grid,
+  .lovable-home-lower-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell-topnav .content-home {
+    padding: 0 16px 48px;
+  }
+
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px 16px;
+  }
+
+  .app-shell-topnav .topnav-list,
+  .app-shell-topnav .topnav-context {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .app-shell-topnav .topnav-search {
+    min-width: 260px;
+  }
+
+  .app-shell-topnav .home-screen.lovable-home {
+    gap: 24px;
+    padding-top: 28px;
+  }
+
+  .lovable-metric-grid,
+  .lovable-home-lower-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lovable-home-hero h2 {
+    font-size: 24px;
+  }
+
+  .lovable-table-wrap th,
+  .lovable-table-wrap td {
+    padding: 14px 18px;
+  }
+}
+
+/* Lovable tighter pass: keep Home rows compact and match the reference scale. */
+.app-shell-topnav .topnav-shell {
+  grid-template-columns: 105px minmax(360px, 1fr) minmax(330px, 420px);
+  gap: 20px;
+  min-height: 68px;
+  padding: 0 28px;
+}
+
+.app-shell-topnav .topnav-brand-logo {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.app-shell-topnav .topnav-button {
+  min-height: 43px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.app-shell-topnav .topnav-search {
+  width: 252px;
+  height: 32px;
+  padding: 0 12px;
+}
+
+.app-shell-topnav .topnav-search input {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.app-shell-topnav .topnav-search-icon,
+.app-shell-topnav .topnav-notification-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.app-shell-topnav .topnav-context {
+  gap: 14px;
+}
+
+.app-shell-topnav .topnav-notification {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+}
+
+.app-shell-topnav .topnav-notification::after {
+  top: 5px;
+  right: 5px;
+}
+
+.app-shell-topnav .topnav-profile {
+  padding-left: 14px;
+  border-left: 1px solid var(--lovable-border);
+}
+
+.app-shell-topnav .topnav-profile-summary {
+  gap: 8px;
+  min-width: 114px;
+}
+
+.app-shell-topnav .topnav-profile-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.app-shell-topnav .topnav-profile-copy strong {
+  font-size: 12px;
+}
+
+.app-shell-topnav .topnav-profile-copy span {
+  font-size: 11px;
+}
+
+.app-shell-topnav .content-home {
+  padding: 0 28px 70px;
+}
+
+.app-shell-topnav .home-screen.lovable-home {
+  align-content: start;
+  gap: 28px;
+  grid-auto-rows: max-content;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  min-height: 0;
+  padding: 36px 0 64px;
+}
+
+.lovable-home-hero {
+  gap: 5px;
+}
+
+.lovable-home-hero h2 {
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.lovable-home-hero p {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lovable-overview {
+  gap: 12px;
+}
+
+.lovable-overview-head h3,
+.lovable-panel-head h3 {
+  font-size: 14px;
+}
+
+.lovable-overview-head span,
+.lovable-panel-head p {
+  font-size: 12px;
+}
+
+.lovable-metric-grid {
+  gap: 12px;
+}
+
+.app-shell-topnav .lovable-metric-card {
+  align-content: center;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  justify-content: stretch;
+  gap: 8px;
+  min-height: 98px;
+  padding: 16px 20px;
+  text-align: left;
+}
+
+.lovable-metric-card span,
+.lovable-metric-card strong,
+.lovable-metric-card em {
+  justify-self: start;
+  text-align: left;
+}
+
+.lovable-metric-card span {
+  font-size: 12px;
+}
+
+.lovable-metric-card strong {
+  font-size: 26px;
+}
+
+.lovable-metric-card em {
+  font-size: 12px;
+}
+
+.lovable-home-lower-grid {
+  grid-template-columns: minmax(0, 1.9fr) minmax(328px, 0.95fr);
+  gap: 16px;
+}
+
+.lovable-panel-head {
+  padding: 18px 20px 17px;
+}
+
+.lovable-table-wrap th,
+.lovable-table-wrap td {
+  padding: 14px 20px;
+  font-size: 12px;
+}
+
+.lovable-table-wrap th {
+  font-size: 12px;
+}
+
+.lovable-activity-list {
+  padding: 0 20px 20px;
+}
+
+.lovable-activity-item {
+  padding: 14px 0;
+}
+
+.lovable-empty-state {
+  min-height: 178px;
+  margin: 0 20px 20px;
+  padding: 30px 22px;
+}
+
+/* Lovable remaining pages pass: issuance, customers, settings, and ops. */
+.app-shell.app-shell-topnav {
+  --lovable-radius-control: 2px;
+  --lovable-radius-panel: 2px;
+  --lovable-shadow-none: none;
+}
+
+.app-shell-topnav :is(.content-issuance, .content-settings, .content-ops) {
+  background: var(--lovable-bg) !important;
+  padding: 24px 28px 70px !important;
+}
+
+.app-shell-topnav .content-issuance > .issuance-screen,
+.app-shell-topnav .content-customers > .customers-screen,
+.app-shell-topnav .content-settings > .settings-layout,
+.app-shell-topnav .content-ops > * {
+  width: min(100%, 1400px) !important;
+  margin-inline: auto !important;
+}
+
+.app-shell-topnav :is(.content-issuance, .content-customers, .content-settings, .content-ops) {
+  color: var(--lovable-text);
+}
+
+.app-shell-topnav :is(.content-issuance, .content-customers, .content-settings, .content-ops)
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-control) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+  color: var(--lovable-text) !important;
+}
+
+.app-shell-topnav :is(.content-issuance, .content-customers, .content-settings, .content-ops)
+  :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+  min-height: 36px;
+}
+
+.app-shell-topnav :is(.content-issuance, .content-customers, .content-settings, .content-ops)
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
+  border-color: var(--lovable-border-strong) !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12) !important;
+  outline: none !important;
+}
+
+.app-shell-topnav :is(.content-issuance, .content-customers, .content-settings, .content-ops)
+  :is(button, .btn-primary, .btn-secondary, .btn-ghost, .btn-danger) {
+  border-radius: var(--lovable-radius-control) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav :is(.content-issuance, .content-customers, .content-settings, .content-ops)
+  :is(.panel, .setup-panel, .mail-card, .status-card, .activity-card, .workspace-card) {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-panel) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-console-toolbar {
+  align-items: center !important;
+  gap: 12px !important;
+  margin: 0 0 16px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-filter-row {
+  gap: 8px !important;
+}
+
+.app-shell-topnav .issuance-filter-chip {
+  min-height: 36px !important;
+  padding: 0 14px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-control) !important;
+  background: var(--lovable-surface) !important;
+  color: var(--lovable-muted) !important;
+  box-shadow: none !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .issuance-filter-chip.active,
+.app-shell-topnav .issuance-filter-chip[aria-pressed="true"] {
+  border-color: var(--lovable-border-strong) !important;
+  background: #eef1f5 !important;
+  color: var(--lovable-text) !important;
+}
+
+.app-shell-topnav .issuance-console-actions {
+  gap: 8px !important;
+}
+
+.app-shell-topnav .issuance-workspace {
+  gap: 16px !important;
+}
+
+.app-shell-topnav :is(.issuance-list-panel, .issuance-detail-panel) {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-panel) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .issuance-list-panel {
+  min-height: 0 !important;
+}
+
+.app-shell-topnav :is(.issuance-panel-head, .issuance-detail-panel-head) {
+  padding: 16px 18px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: var(--lovable-surface) !important;
+}
+
+.app-shell-topnav :is(.issuance-panel-head h2, .issuance-detail-panel-head h2) {
+  color: var(--lovable-text) !important;
+  font-size: 15px !important;
+  letter-spacing: 0 !important;
+}
+
+.app-shell-topnav :is(.issuance-panel-head p, .issuance-detail-panel-head p) {
+  color: var(--lovable-muted) !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .issuance-table-tools {
+  padding: 12px 18px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #fafafa !important;
+}
+
+.app-shell-topnav .issuance-table-shell {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-list-table {
+  border-collapse: collapse !important;
+}
+
+.app-shell-topnav .issuance-list-table th {
+  background: #f7f7f8 !important;
+  color: var(--lovable-muted) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .issuance-list-table th,
+.app-shell-topnav .issuance-list-table td {
+  padding: 13px 16px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .issuance-list-table tr:hover td,
+.app-shell-topnav .issuance-list-table tr.is-selected td {
+  background: #eef1f5 !important;
+}
+
+.app-shell-topnav .issuance-detail-scroll {
+  gap: 12px !important;
+  padding: 16px !important;
+  background: var(--lovable-surface) !important;
+}
+
+.app-shell-topnav :is(
+  .issuance-detail-hero,
+  .issuance-detail-card,
+  .issuance-mail-preview,
+  .issuance-invoice-compare,
+  .issuance-detail-facts,
+  .issuance-detail-empty
+) {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-panel) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav :is(.issuance-detail-hero, .issuance-detail-card, .issuance-mail-preview) {
+  padding: 16px !important;
+}
+
+.app-shell-topnav :is(.issuance-detail-card h3, .issuance-mail-preview h3) {
+  color: var(--lovable-text) !important;
+  font-size: 14px !important;
+}
+
+.app-shell-topnav :is(.issuance-detail-card p, .issuance-mail-preview p, .issuance-detail-facts dd) {
+  color: var(--lovable-muted) !important;
+}
+
+/* Lovable invoices structure pass: card list + review detail. */
+.app-shell-topnav .content-issuance {
+  padding: 22px 30px 58px !important;
+}
+
+.app-shell-topnav .content-issuance > .issuance-screen {
+  width: min(100%, 1400px) !important;
+  font-family:
+    Pretendard,
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif !important;
+}
+
+.app-shell-topnav .issuance-filter-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  min-height: 32px !important;
+  padding: 0 11px !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .issuance-filter-label {
+  line-height: 1 !important;
+}
+
+.app-shell-topnav .issuance-filter-count {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 22px !important;
+  height: 20px !important;
+  padding: 0 6px !important;
+  border-radius: 999px !important;
+  background: #f1f5f9 !important;
+  color: #111827 !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+
+.app-shell-topnav .issuance-filter-chip.active,
+.app-shell-topnav .issuance-filter-chip[aria-pressed="true"] {
+  border-color: #101828 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-filter-chip.active .issuance-filter-count,
+.app-shell-topnav .issuance-filter-chip[aria-pressed="true"] .issuance-filter-count {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-console-actions .btn-secondary {
+  min-height: 36px !important;
+  border-color: #cfd4dc !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+.app-shell-topnav .issuance-console-actions button:not(.btn-secondary) {
+  min-height: 36px !important;
+  border-color: #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-console-actions button:disabled {
+  border-color: #a7adb7 !important;
+  background: #7b818b !important;
+  color: #ffffff !important;
+  opacity: 0.9 !important;
+}
+
+.app-shell-topnav .issuance-workspace {
+  grid-template-columns: 338px minmax(0, 1fr) !important;
+  gap: 18px !important;
+  align-items: start !important;
+}
+
+.app-shell-topnav .issuance-list-panel,
+.app-shell-topnav .issuance-detail-panel {
+  align-self: start !important;
+  border-radius: 0 !important;
+}
+
+.app-shell-topnav .issuance-list-panel {
+  min-height: 700px !important;
+}
+
+.app-shell-topnav .issuance-panel-head {
+  display: grid !important;
+  grid-template-columns: 22px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 41px !important;
+  padding: 11px 14px !important;
+}
+
+.app-shell-topnav .issuance-panel-head h2 {
+  font-size: 13px !important;
+}
+
+.app-shell-topnav .issuance-panel-head h2 span {
+  color: #2563eb !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-table-tools {
+  display: none !important;
+}
+
+.app-shell-topnav .issuance-table-shell {
+  overflow: visible !important;
+}
+
+.app-shell-topnav .issuance-list-table,
+.app-shell-topnav .issuance-list-table tbody,
+.app-shell-topnav .issuance-list-table tr,
+.app-shell-topnav .issuance-list-table td {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.app-shell-topnav .issuance-list-table thead {
+  display: none !important;
+}
+
+.app-shell-topnav .issuance-list-table tr {
+  display: grid !important;
+  grid-template-columns: 26px minmax(0, 1fr) auto !important;
+  grid-template-areas:
+    "check customer status"
+    "check subject subject"
+    "check date amount" !important;
+  gap: 4px 10px !important;
+  align-items: start !important;
+  min-height: 80px !important;
+  padding: 12px 14px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+  cursor: pointer !important;
+}
+
+.app-shell-topnav .issuance-list-table tr:hover,
+.app-shell-topnav .issuance-list-table tr.is-selected {
+  background: #eef2f7 !important;
+}
+
+.app-shell-topnav .issuance-list-table tr:hover td,
+.app-shell-topnav .issuance-list-table tr.is-selected td {
+  background: transparent !important;
+}
+
+.app-shell-topnav .issuance-list-table td {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .issuance-table-check-cell {
+  grid-area: check !important;
+  padding-top: 2px !important;
+}
+
+.app-shell-topnav .issuance-table-status-cell {
+  grid-area: status !important;
+  justify-self: end !important;
+}
+
+.app-shell-topnav .issuance-table-date-cell {
+  grid-area: date !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .issuance-table-customer-cell {
+  grid-area: customer !important;
+}
+
+.app-shell-topnav .issuance-table-customer-cell strong {
+  display: block !important;
+  overflow: hidden !important;
+  color: #111827 !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  line-height: 1.4 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .issuance-table-business-cell {
+  display: none !important;
+}
+
+.app-shell-topnav .issuance-list-table .issuance-table-business-cell {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+.app-shell-topnav .issuance-table-amount-cell {
+  grid-area: amount !important;
+  justify-self: end !important;
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-table-subject-cell {
+  grid-area: subject !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .issuance-table-subject {
+  display: block !important;
+  overflow: hidden !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .issuance-list-table .status {
+  min-height: 22px !important;
+  padding: 0 8px !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  border: 0 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-review,
+.app-shell-topnav .content-issuance .issuance-status-badge.status-scheduled {
+  background: var(--lovable-warning-soft) !important;
+  color: var(--lovable-warning) !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-issuing {
+  background: var(--lovable-primary-soft) !important;
+  color: var(--lovable-primary) !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-issued {
+  background: #f1f3f5 !important;
+  color: #596273 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-unmatched {
+  background: var(--lovable-warning-soft) !important;
+  color: var(--lovable-warning) !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-missing-mail {
+  background: #edf4ff !important;
+  color: #3578c7 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-failed {
+  background: var(--lovable-danger-soft) !important;
+  color: var(--lovable-danger) !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge .status-icon {
+  width: 12px !important;
+  min-width: 12px !important;
+  height: 12px !important;
+  padding: 0 !important;
+  background: transparent !important;
+  color: currentColor !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge .status-icon svg {
+  width: 12px !important;
+  height: 12px !important;
+  stroke: currentColor !important;
+}
+
+.app-shell-topnav .issuance-detail-panel {
+  height: calc(100vh - 142px) !important;
+  max-height: calc(100vh - 142px) !important;
+  min-height: 700px !important;
+}
+
+.app-shell-topnav .issuance-detail-panel-head {
+  display: none !important;
+}
+
+.app-shell-topnav .issuance-detail-scroll {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+  gap: 0 !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .issuance-detail-hero {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  min-height: 62px !important;
+  padding: 16px 22px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  border-radius: 0 !important;
+}
+
+.app-shell-topnav .issuance-detail-hero-copy h2 {
+  margin: 0 !important;
+  color: #111827 !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-detail-hero-copy p {
+  margin-top: 4px !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .issuance-detail-status-badge {
+  flex: 0 0 auto !important;
+  min-height: 22px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .issuance-detail-tabset {
+  min-height: 0 !important;
+  padding: 20px 22px !important;
+  overflow: auto !important;
+}
+
+.app-shell-topnav .issuance-detail-grid,
+.app-shell-topnav .issuance-detail-card {
+  display: block !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .issuance-invoice-compare {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 16px !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .issuance-mail-preview,
+.app-shell-topnav .issuance-detail-facts-shell {
+  display: grid !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 2px !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-info-shell {
+  grid-template-rows: auto auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-info-shell .issuance-detail-facts-parsed {
+  min-height: 0 !important;
+  overflow-y: visible !important;
+  overscroll-behavior: auto !important;
+}
+
+.app-shell-topnav .issuance-card-title {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 38px !important;
+  padding: 0 16px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #fbfbfc !important;
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-card-title-icon {
+  width: 14px !important;
+  height: 14px !important;
+  color: #64748b !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-layout {
+  display: grid !important;
+  gap: 14px !important;
+  padding: 16px !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-party-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+  align-items: start !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-section {
+  display: grid !important;
+  overflow: hidden !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 2px !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-section h3 {
+  display: flex !important;
+  align-items: center !important;
+  min-height: 36px !important;
+  margin: 0 !important;
+  padding: 0 14px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #fbfbfc !important;
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-table {
+  display: grid !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-row {
+  display: grid !important;
+  grid-template-columns: minmax(108px, 138px) minmax(0, 1fr) !important;
+  align-items: center !important;
+  min-height: 42px !important;
+  padding: 0 14px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-row:last-child {
+  border-bottom: 0 !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-row dt,
+.app-shell-topnav .issuance-tax-invoice-row dd {
+  min-width: 0 !important;
+  margin: 0 !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-row dt {
+  color: #64748b !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-row dd {
+  overflow: hidden !important;
+  color: #111827 !important;
+  font-weight: 800 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-row .issuance-inline-edit-input {
+  height: 26px !important;
+  min-height: 26px !important;
+}
+
+@media (max-width: 980px) {
+  .app-shell-topnav .issuance-tax-invoice-party-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+.app-shell-topnav .issuance-mail-preview img {
+  justify-self: center !important;
+  width: auto !important;
+  max-width: calc(100% - 32px) !important;
+  max-height: 270px !important;
+  margin: 16px !important;
+  object-fit: contain !important;
+}
+
+.app-shell-topnav .issuance-mail-preview-body {
+  display: grid !important;
+}
+
+.app-shell-topnav .issuance-mail-preview-state {
+  margin: 0 !important;
+  padding: 44px 16px !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-parsed {
+  display: grid !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-parsed div {
+  display: grid !important;
+  grid-template-columns: minmax(130px, 190px) minmax(0, 1fr) !important;
+  gap: 16px !important;
+  padding: 12px 16px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-parsed div:last-child {
+  border-bottom: 0 !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-parsed dt,
+.app-shell-topnav .issuance-detail-facts-parsed dd {
+  margin: 0 !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-parsed dt {
+  color: #64748b !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-parsed dd {
+  color: #111827 !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  margin: 0 !important;
+  padding: 16px 22px !important;
+  border-top: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-actions p {
+  margin: 0 !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-buttons {
+  display: flex !important;
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+  gap: 8px !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-buttons button {
+  flex: 0 0 auto !important;
+  min-width: 96px !important;
+  min-height: 36px !important;
+  padding: 0 14px !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-buttons button:not(.btn-secondary) {
+  border-color: #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .content-issuance .button-icon {
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  color: currentColor !important;
+}
+
+.app-shell-topnav .content-issuance .button-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+  stroke: currentColor !important;
+}
+
+.app-shell-topnav .issuance-console-actions button:not(.btn-secondary) .button-icon,
+.app-shell-topnav .issuance-detail-footer-buttons button:not(.btn-secondary) .button-icon {
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-console-actions button:not(.btn-secondary) .button-icon svg,
+.app-shell-topnav .issuance-detail-footer-buttons button:not(.btn-secondary) .button-icon svg {
+  stroke: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-exception-reason .issuance-detail-error {
+  margin: 0 !important;
+  padding: 14px 16px !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+
+/* Issuance spacing comfort pass: keep the Lovable structure, but make rows easier to scan. */
+.app-shell-topnav .content-issuance {
+  padding: 24px 32px 64px !important;
+}
+
+.app-shell-topnav .issuance-console-toolbar {
+  margin-bottom: 20px !important;
+}
+
+.app-shell-topnav .issuance-filter-row {
+  gap: 10px !important;
+}
+
+.app-shell-topnav .issuance-filter-chip {
+  min-height: 34px !important;
+  padding-inline: 13px !important;
+}
+
+.app-shell-topnav .issuance-console-actions {
+  gap: 10px !important;
+}
+
+.app-shell-topnav .issuance-console-actions button {
+  min-height: 38px !important;
+  padding-inline: 16px !important;
+}
+
+.app-shell-topnav .issuance-workspace {
+  grid-template-columns: 340px minmax(0, 1fr) !important;
+  gap: 20px !important;
+}
+
+.app-shell-topnav .issuance-panel-head {
+  min-height: 48px !important;
+  padding: 12px 16px !important;
+}
+
+.app-shell-topnav .issuance-list-table tr {
+  min-height: 88px !important;
+  padding: 15px 16px !important;
+  gap: 5px 12px !important;
+}
+
+.app-shell-topnav .issuance-list-table .status {
+  min-height: 24px !important;
+}
+
+.app-shell-topnav .issuance-detail-hero {
+  min-height: 68px !important;
+  padding: 18px 24px !important;
+}
+
+.app-shell-topnav .issuance-detail-tabset {
+  padding: 22px 24px !important;
+}
+
+.app-shell-topnav .issuance-invoice-compare {
+  gap: 18px !important;
+}
+
+.app-shell-topnav .issuance-card-title {
+  min-height: 42px !important;
+  padding-inline: 18px !important;
+}
+
+.app-shell-topnav .issuance-mail-preview img {
+  max-width: calc(100% - 40px) !important;
+  margin: 20px !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-parsed div {
+  grid-template-columns: minmax(150px, 200px) minmax(0, 1fr) !important;
+  gap: 18px !important;
+  padding: 14px 18px !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-info-shell .issuance-detail-facts-parsed div {
+  box-sizing: border-box !important;
+  align-items: center !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  padding: 0 18px !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-info-shell .issuance-detail-facts-parsed dd {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-actions {
+  padding: 18px 24px !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-buttons {
+  gap: 10px !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-buttons button {
+  min-height: 38px !important;
+  padding-inline: 16px !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-shell.is-editing {
+  border-color: #cbd5e1 !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-parsed.is-editing div {
+  align-items: center !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.app-shell-topnav .issuance-detail-facts-parsed.is-editing dd {
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .issuance-inline-edit-input {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 8px !important;
+  border: 1px solid #d8dde6 !important;
+  border-radius: 2px !important;
+  background: #eef0f3 !important;
+  color: #111827 !important;
+  font: inherit !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-inline-edit-input:focus {
+  border-color: #9aa6b8 !important;
+  background: #ffffff !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgb(15 23 42 / 0.08) !important;
+}
+
+.app-shell-topnav .issuance-inline-edit-input[readonly] {
+  color: #475569 !important;
+  background: #f5f6f8 !important;
+}
+
+.app-shell-topnav .issuance-inline-edit-error {
+  margin: 0 !important;
+  padding: 12px 18px !important;
+  border-top: 1px solid var(--lovable-border) !important;
+  color: #dc2626 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip {
+  min-height: 32px !important;
+  padding: 0 12px !important;
+  border-radius: 999px !important;
+  border-color: var(--lovable-border) !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip.active,
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip[aria-pressed="true"] {
+  border-color: #111827 !important;
+  border-radius: 999px !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .content-issuance .ui-checkbox-input {
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  border-radius: 4px !important;
+  background-color: #ffffff !important;
+}
+
+.app-shell-topnav .content-issuance .ui-checkbox-input:checked,
+.app-shell-topnav .content-issuance .ui-checkbox-input:indeterminate {
+  border-color: #111827 !important;
+  background-color: #111827 !important;
+}
+
+.app-shell-topnav .content-issuance .ui-checkbox-input:disabled {
+  opacity: 1 !important;
+  border-color: #cbd5e1 !important;
+  background-color: #ffffff !important;
+}
+
+/* Issuance left list viewport lock: keep the header visible and scroll only rows. */
+.app-shell-topnav .issuance-list-panel {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: 0 !important;
+  min-height: 700px !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-panel-head {
+  position: relative !important;
+  z-index: 1 !important;
+  min-height: 48px !important;
+  margin: 0 !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-table-tools {
+  display: none !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-table-shell {
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  border-top: 0 !important;
+}
+
+.app-shell-topnav .issuance-list-panel .issuance-list-table {
+  margin: 0 !important;
+}
+
+/* Issuance fixed viewport: keep the draft list header in view while detail content scrolls internally. */
+.app-shell-topnav .content-issuance {
+  box-sizing: border-box !important;
+  height: calc(100vh - 70px) !important;
+  height: calc(100dvh - 70px) !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .content-issuance > .issuance-screen,
+.app-shell-topnav .issuance-main-column {
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .issuance-workspace {
+  flex: 1 1 0 !important;
+  align-items: stretch !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .issuance-list-panel,
+.app-shell-topnav .issuance-detail-panel {
+  align-self: stretch !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+.app-shell-topnav .issuance-detail-panel {
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .issuance-detail-scroll {
+  min-height: 0 !important;
+}
+
+@media (max-width: 900px) {
+  .app-shell-topnav .issuance-workspace {
+    grid-template-columns: 1fr !important;
+  }
+
+  .app-shell-topnav .issuance-list-panel,
+  .app-shell-topnav .issuance-detail-panel,
+  .app-shell-topnav .issuance-detail-scroll {
+    height: auto !important;
+    max-height: none !important;
+    min-height: auto !important;
+  }
+}
+
+.app-shell-topnav .customers-screen.customer-console-screen {
+  background: var(--lovable-bg) !important;
+  color: var(--lovable-text) !important;
+}
+
+.app-shell-topnav .customer-console-shell {
+  gap: 16px !important;
+}
+
+.app-shell-topnav .customer-summary-grid {
+  gap: 8px !important;
+  margin-bottom: 16px !important;
+}
+
+.app-shell-topnav .customer-summary-card {
+  min-height: 48px !important;
+  padding: 0 14px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-control) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+  color: var(--lovable-text) !important;
+}
+
+.app-shell-topnav .customer-summary-card strong,
+.app-shell-topnav .customer-summary-card span {
+  color: inherit !important;
+}
+
+.app-shell-topnav .customer-summary-card.is-active,
+.app-shell-topnav .customer-summary-card[aria-pressed="true"] {
+  border-color: var(--lovable-border-strong) !important;
+  background: #eef1f5 !important;
+}
+
+.app-shell-topnav .customer-summary-actions {
+  gap: 8px !important;
+}
+
+.app-shell-topnav .customer-summary-actions :is(button, .btn-primary, .btn-secondary),
+.app-shell-topnav .customer-console-primary-cta,
+.app-shell-topnav .customer-console-secondary-button {
+  min-height: 36px !important;
+  padding: 0 14px !important;
+  border-radius: var(--lovable-radius-control) !important;
+}
+
+.app-shell-topnav .customer-console-page-header {
+  margin: 0 0 12px !important;
+}
+
+.app-shell-topnav .customer-console-page-search {
+  height: 38px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-panel) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav :is(.customer-console-panel, .customer-detail-panel) {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-panel) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav :is(.customer-console-table-topbar, .customer-detail-panel-header) {
+  padding: 15px 18px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: var(--lovable-surface) !important;
+}
+
+.app-shell-topnav .customer-console-table-title h2,
+.app-shell-topnav .customer-detail-panel-header h2 {
+  color: var(--lovable-text) !important;
+  font-size: 15px !important;
+  letter-spacing: 0 !important;
+}
+
+.app-shell-topnav .customer-console-table-title p,
+.app-shell-topnav .customer-detail-panel-header p {
+  color: var(--lovable-muted) !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .customer-console-table {
+  border-collapse: collapse !important;
+}
+
+.app-shell-topnav .customer-console-table th {
+  background: #f7f7f8 !important;
+  color: var(--lovable-muted) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .customer-console-table th,
+.app-shell-topnav .customer-console-table td {
+  padding: 13px 16px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .customer-console-table tr:hover td,
+.app-shell-topnav .customer-console-row.is-selected td {
+  background: #eef1f5 !important;
+}
+
+.app-shell-topnav :is(
+  .customer-detail-card,
+  .customer-info-card,
+  .customer-info-certificate-card,
+  .customer-report-card,
+  .customer-operation-log-card,
+  .customer-detail-section,
+  .customer-detail-basic-card,
+  .customer-detail-connection-card
+) {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-panel) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav :is(.customer-detail-card, .customer-info-card, .customer-report-card) {
+  padding: 16px !important;
+}
+
+.app-shell-topnav .customer-detail-memo-field {
+  border-top-color: var(--lovable-border) !important;
+}
+
+.app-shell-topnav .customer-detail-memo-field textarea {
+  min-height: 64px !important;
+  border-radius: var(--lovable-radius-control) !important;
+}
+
+.app-shell-topnav .settings-layout.settings-option1-layout {
+  gap: 16px !important;
+  background: var(--lovable-bg) !important;
+}
+
+.app-shell-topnav .settings-sidebar-stack {
+  gap: 12px !important;
+}
+
+.app-shell-topnav :is(
+  .settings-sidebar-panel,
+  .settings-inline-note,
+  .settings-option1-card,
+  .settings-detail > .setup-panel,
+  .settings-account-stack > .panel,
+  .settings-mail-card,
+  .settings-security-card
+) {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-panel) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-sidebar-panel {
+  padding: 12px !important;
+}
+
+.app-shell-topnav .settings-step-list {
+  gap: 4px !important;
+}
+
+.app-shell-topnav .settings-step-card {
+  min-height: 38px !important;
+  padding: 9px 10px !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--lovable-radius-control) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--lovable-muted) !important;
+}
+
+.app-shell-topnav .settings-step-card.active {
+  border-color: var(--lovable-border) !important;
+  background: #eef1f5 !important;
+  color: var(--lovable-text) !important;
+}
+
+.app-shell-topnav :is(.settings-option1-top-row, .settings-option1-detail-grid) {
+  gap: 16px !important;
+}
+
+.app-shell-topnav :is(.settings-option1-card, .settings-detail > .setup-panel) {
+  padding: 18px !important;
+}
+
+.app-shell-topnav :is(.settings-option1-card h2, .settings-option1-card h3, .settings-detail h2, .settings-detail h3) {
+  color: var(--lovable-text) !important;
+  letter-spacing: 0 !important;
+}
+
+.app-shell-topnav :is(.settings-option1-card p, .settings-detail p, .settings-inline-note p) {
+  color: var(--lovable-muted) !important;
+}
+
+.app-shell-topnav .settings-option1-status-metrics {
+  gap: 8px !important;
+}
+
+.app-shell-topnav .settings-option1-status-metrics > div {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-control) !important;
+  background: #fafafa !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .content-ops :is(
+  .ops-layout,
+  .ops-shell,
+  .ops-card,
+  .ops-panel,
+  .ops-sidebar,
+  .ops-section-main,
+  .ops-section-card,
+  .ops-table-card,
+  .ops-workspace-card
+) {
+  border-color: var(--lovable-border) !important;
+  border-radius: var(--lovable-radius-panel) !important;
+  background: var(--lovable-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .content-ops :is(table, .ops-table) th {
+  background: #f7f7f8 !important;
+  color: var(--lovable-muted) !important;
+}
+
+.app-shell-topnav .content-ops :is(table, .ops-table) th,
+.app-shell-topnav .content-ops :is(table, .ops-table) td {
+  border-color: var(--lovable-border) !important;
+}
+
 /* Final customer viewport fit lock. Keep this at the end so later customer
    theme passes cannot let the left list grow past the visible page. */
 .app-shell-topnav .content-customers {
@@ -23641,4 +25919,1469 @@ button.issuance-list-item {
 
 .app-shell-topnav .customer-info-certificate-card .customer-certificate-management-actions button {
   box-shadow: none !important;
+}
+
+/* Lovable customer management pass. Keep this after the viewport lock above. */
+.app-shell-topnav .content-customers {
+  box-sizing: border-box !important;
+  overflow: auto !important;
+  padding: 22px 30px 58px !important;
+  background: var(--lovable-bg) !important;
+}
+
+.app-shell-topnav .customers-screen.customer-console-screen {
+  width: min(100%, 1400px) !important;
+  height: auto !important;
+  min-height: calc(100vh - 70px) !important;
+  min-height: calc(100dvh - 70px) !important;
+  margin-inline: auto !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .customer-console-shell {
+  display: grid !important;
+  grid-template-columns: 338px minmax(0, 1fr) !important;
+  grid-template-rows: auto auto !important;
+  align-items: start !important;
+  gap: 16px 18px !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+.app-shell-topnav .customer-summary-grid {
+  grid-column: 1 / -1 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow-x: auto !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .customer-summary-card {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 34px !important;
+  padding: 0 13px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .customer-summary-card.is-active,
+.app-shell-topnav .customer-summary-card[aria-pressed="true"] {
+  border-color: #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .customer-summary-card > span,
+.app-shell-topnav .customer-summary-card-row strong {
+  color: inherit !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .customer-summary-card-row {
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.app-shell-topnav .customer-summary-actions {
+  display: flex !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+  height: 36px !important;
+  margin-left: auto !important;
+}
+
+.app-shell-topnav .customer-summary-actions :is(button, .btn-secondary, .customer-console-primary-cta) {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  min-height: 36px !important;
+  height: 36px !important;
+  padding: 0 14px !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary {
+  border: 1px solid #cfd4dc !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+.app-shell-topnav .customer-summary-actions .customer-console-primary-cta {
+  border: 1px solid #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .customer-summary-actions .customer-console-danger-action {
+  border-color: #f0a6a6 !important;
+  background: #ffffff !important;
+  color: #d84a4a !important;
+}
+
+.app-shell-topnav .customer-summary-actions .customer-console-danger-action:disabled {
+  border-color: #e5e7eb !important;
+  background: #f9fafb !important;
+  color: #a7adb7 !important;
+  opacity: 1 !important;
+}
+
+.app-shell-topnav .customer-summary-actions .button-icon,
+.app-shell-topnav .customer-console-filter-button .customer-console-page-header-icon {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.app-shell-topnav .customer-console-main-column {
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+  display: grid !important;
+  grid-template-rows: auto auto !important;
+  align-content: start !important;
+  gap: 8px !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .customer-console-page-header {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 32px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .customer-console-filter-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 12px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 2px !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .customer-console-page-search {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 12px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 2px !important;
+  background: #eef0f3 !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-console-page-search input {
+  height: 30px !important;
+  min-height: 30px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  line-height: 30px !important;
+}
+
+.app-shell-topnav .customer-console-page-search-icon {
+  color: #64748b !important;
+}
+
+.app-shell-topnav .customer-console-panel {
+  display: grid !important;
+  grid-template-rows: auto auto !important;
+  height: auto !important;
+  min-height: 760px !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-console-table-topbar {
+  min-height: 52px !important;
+  padding: 12px 16px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .customer-console-table-title {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 10px !important;
+}
+
+.app-shell-topnav .customer-console-table-title strong {
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  color: #111827 !important;
+}
+
+.app-shell-topnav .customer-console-table-title span {
+  font-size: 12px !important;
+  color: #64748b !important;
+}
+
+.app-shell-topnav .customer-console-table-actions {
+  display: none !important;
+}
+
+.app-shell-topnav .customer-console-table-wrap {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  border: 0 !important;
+}
+
+.app-shell-topnav .customer-console-table {
+  table-layout: fixed !important;
+  border-collapse: collapse !important;
+}
+
+.app-shell-topnav .customer-console-table th,
+.app-shell-topnav .customer-console-table td {
+  height: 40px !important;
+  padding: 0 14px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .customer-console-table thead th {
+  position: static !important;
+  height: 36px !important;
+  background: #fbfbfc !important;
+  color: #64748b !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .customer-console-table tbody tr.is-selected,
+.app-shell-topnav .customer-console-table tbody tr.is-selected > td {
+  background: #e9edf2 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-header {
+  grid-template-columns: auto minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-field-filter {
+  position: relative !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-field-filter-trigger {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 4px !important;
+  border: 0 !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-field-filter-trigger:hover,
+.app-shell-topnav .content-customers .customer-console-field-filter-trigger:focus-visible {
+  background: #eef0f3 !important;
+  outline: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-field-filter-trigger .customer-console-page-header-icon {
+  color: #7c6f55 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-field-filter-menu {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: 0 !important;
+  z-index: 30 !important;
+  display: grid !important;
+  width: 176px !important;
+  padding: 6px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 4px !important;
+  background: #ffffff !important;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12) !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-field-filter-menu button {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  min-height: 30px !important;
+  padding: 0 10px !important;
+  border: 0 !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-field-filter-menu button:hover,
+.app-shell-topnav .content-customers .customer-console-field-filter-menu button.is-selected {
+  background: #eef0f3 !important;
+  color: #111827 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-header {
+  grid-template-columns: minmax(112px, 158px) minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search {
+  overflow: hidden !important;
+  background: #eef0f3 !important;
+  background-color: #eef0f3 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search input,
+.app-shell-topnav .content-customers .customer-console-page-search input:focus {
+  border: 0 !important;
+  background: #eef0f3 !important;
+  background-color: #eef0f3 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-header {
+  grid-template-columns: minmax(112px, 158px) minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-field-filter {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 6px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 0 8px 0 12px !important;
+  cursor: pointer !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-field-filter select {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  line-height: 30px !important;
+  outline: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search {
+  border-color: #eef0f3 !important;
+  background: #eef0f3 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search input,
+.app-shell-topnav .content-customers .customer-console-page-search input:focus {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 100% !important;
+  border: 0 !important;
+  background: #eef0f3 !important;
+  background-color: #eef0f3 !important;
+  outline: 0 !important;
+}
+
+/* Customer detail IA restore: keep the previous grouped sections with current Lovable tokens. */
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.95fr) !important;
+  grid-auto-rows: auto !important;
+  align-items: start !important;
+  align-content: start !important;
+  gap: 14px !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-section {
+  display: grid !important;
+  min-width: 0 !important;
+  padding: 18px 22px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .content-customers .customer-info-basic-card {
+  grid-column: 1 !important;
+  grid-row: 1 / span 2 !important;
+  min-height: 0 !important;
+  border: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .content-customers .customer-info-contract-card {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  min-height: 0 !important;
+  border: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .content-customers .customer-info-certificate-card {
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  min-height: 0 !important;
+  border: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .content-customers .customer-report-history-section {
+  grid-column: 1 / -1 !important;
+  grid-row: 3 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-basic-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 8px 18px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-basic-facts > div,
+.app-shell-topnav .content-customers .customer-detail-basic-facts > div.wide {
+  display: grid !important;
+  grid-template-columns: 92px minmax(0, 1fr) !important;
+  align-items: center !important;
+  min-height: 24px !important;
+  gap: 8px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-basic-facts > div.wide {
+  grid-column: 1 / -1 !important;
+}
+
+.app-shell-topnav .content-customers .customer-report-profile-grid {
+  gap: 12px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-memo-field {
+  min-height: 118px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-memo-field textarea {
+  min-height: 82px !important;
+}
+
+@media (max-width: 1100px) {
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers :is(.customer-info-basic-card, .customer-info-contract-card, .customer-info-certificate-card, .customer-report-history-section) {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+}
+
+/* Customer chip/search final polish: exact parity with issuance filters. */
+.app-shell-topnav .content-customers .customer-summary-grid {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  overflow-x: auto !important;
+}
+
+.app-shell-topnav .content-customers .customer-summary-card {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 34px !important;
+  height: 34px !important;
+  padding: 0 13px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .content-customers .customer-summary-card.is-active,
+.app-shell-topnav .content-customers .customer-summary-card[aria-pressed="true"] {
+  border-color: #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .content-customers .customer-summary-card > span {
+  display: inline-flex !important;
+  align-items: center !important;
+  color: inherit !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+
+.app-shell-topnav .content-customers .customer-summary-card-row {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 22px !important;
+  height: 20px !important;
+  padding: 0 6px !important;
+  border-radius: 999px !important;
+  background: #f1f5f9 !important;
+  color: #111827 !important;
+  line-height: 1 !important;
+}
+
+.app-shell-topnav .content-customers .customer-summary-card-row strong {
+  color: inherit !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+
+.app-shell-topnav .content-customers .customer-summary-card.is-active .customer-summary-card-row,
+.app-shell-topnav .content-customers .customer-summary-card[aria-pressed="true"] .customer-summary-card-row {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-header {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-filter-button,
+.app-shell-topnav .content-customers .customer-console-page-search {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-filter-button {
+  justify-content: center !important;
+  gap: 6px !important;
+  padding: 0 12px !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search {
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 0 12px !important;
+  background: #eef0f3 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search-icon,
+.app-shell-topnav .content-customers .customer-console-filter-button .customer-console-page-header-icon {
+  display: inline-flex !important;
+  flex: 0 0 16px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #64748b !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search-icon svg,
+.app-shell-topnav .content-customers .customer-console-filter-button .customer-console-page-header-icon svg {
+  display: block !important;
+  width: 16px !important;
+  height: 16px !important;
+  stroke: currentColor !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-filter-button .customer-console-page-header-icon {
+  color: #7c6f55 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search input {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  outline: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search input::placeholder {
+  color: #9aa3b2 !important;
+  opacity: 1 !important;
+}
+
+.app-shell-topnav .customer-console-table tbody tr:hover,
+.app-shell-topnav .customer-console-table tbody tr:hover > td {
+  background: #f4f6f8 !important;
+}
+
+.app-shell-topnav .customer-console-col-check {
+  width: 44px !important;
+}
+
+.app-shell-topnav .customer-console-col-owner {
+  width: 130px !important;
+}
+
+.app-shell-topnav .customer-detail-panel {
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  display: block !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-detail-panel-body.customer-detail-option3-body {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .customer-detail-section {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav :is(.customer-info-basic-card, .customer-info-contract-card, .customer-info-certificate-card) {
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 18px 22px !important;
+  border-bottom: 0 !important;
+}
+
+.app-shell-topnav .customer-info-contract-card {
+  border-top: 0 !important;
+}
+
+.app-shell-topnav .customer-info-certificate-card {
+  border-top: 0 !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .customer-detail-section-head {
+  min-height: 24px !important;
+}
+
+.app-shell-topnav .customer-detail-section-head h3 {
+  color: #111827 !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .customer-auto-save-status {
+  display: none !important;
+}
+
+.app-shell-topnav .customer-detail-basic-facts {
+  grid-template-columns: 1fr !important;
+  gap: 0 !important;
+}
+
+.app-shell-topnav .customer-detail-basic-facts > div,
+.app-shell-topnav .customer-detail-basic-facts > div.wide {
+  grid-column: auto !important;
+  display: grid !important;
+  grid-template-columns: 126px minmax(0, 1fr) !important;
+  align-items: center !important;
+  min-height: 30px !important;
+  gap: 0 !important;
+}
+
+.app-shell-topnav .customer-detail-context-grid dt {
+  color: #64748b !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .customer-detail-context-grid dd {
+  color: #111827 !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .customer-detail-memo-field {
+  margin-top: 2px !important;
+  padding-top: 10px !important;
+  border-top: 1px solid var(--lovable-border) !important;
+  color: #64748b !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .customer-detail-memo-field textarea {
+  min-height: 42px !important;
+  border-radius: 2px !important;
+  background: #f8fafc !important;
+  resize: vertical !important;
+}
+
+.app-shell-topnav .customer-report-profile-grid {
+  grid-template-columns: 1fr !important;
+  gap: 10px !important;
+}
+
+.app-shell-topnav .customer-report-profile-grid label {
+  gap: 6px !important;
+  color: #64748b !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .customer-detail-panel.is-detail input,
+.app-shell-topnav .customer-detail-panel.is-detail select,
+.app-shell-topnav .customer-detail-panel.is-detail textarea {
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-contract-period-inputs {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+  gap: 10px !important;
+}
+
+.app-shell-topnav .customer-certificate-management-row {
+  min-height: 42px !important;
+  padding: 8px 0 !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  border-radius: 0 !important;
+}
+
+.app-shell-topnav .customer-certificate-management-actions button {
+  min-height: 28px !important;
+  border-radius: 2px !important;
+}
+
+.app-shell-topnav .customer-report-history-section {
+  margin-top: 0 !important;
+  padding: 0 !important;
+  border: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .customer-report-history-head {
+  min-height: 54px !important;
+  padding: 0 16px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .customer-report-history-head h3 {
+  font-size: 14px !important;
+}
+
+.app-shell-topnav .customer-report-history-section .customer-report-year-select {
+  width: 76px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+}
+
+.app-shell-topnav .customer-report-totals {
+  display: flex !important;
+  gap: 18px !important;
+  margin-left: auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .customer-report-totals > div {
+  gap: 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .customer-report-totals span,
+.app-shell-topnav .customer-report-totals strong {
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .customer-report-table-wrap {
+  border: 0 !important;
+  border-radius: 0 !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .customer-report-table th,
+.app-shell-topnav .customer-report-table td {
+  height: 34px !important;
+  padding: 0 12px !important;
+  border-left: 0 !important;
+  border-top: 0 !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .customer-report-table thead th {
+  position: static !important;
+  background: #fbfbfc !important;
+}
+
+.app-shell-topnav .customer-detail-action-strip {
+  display: none !important;
+}
+
+/* Final issuance unification pass: align invoices with the customer console tokens. */
+.app-shell-topnav .content-issuance {
+  box-sizing: border-box !important;
+  background: var(--lovable-bg) !important;
+  padding: 22px 30px 58px !important;
+}
+
+.app-shell-topnav .content-issuance > .issuance-screen {
+  width: min(100%, 1400px) !important;
+  margin-inline: auto !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .issuance-console-toolbar {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  min-height: 36px !important;
+  margin: 0 0 16px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-filter-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  overflow-x: auto !important;
+}
+
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 34px !important;
+  padding: 0 13px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip.active,
+.app-shell-topnav .issuance-filter-row .issuance-filter-chip[aria-pressed="true"] {
+  border-color: #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-filter-count {
+  min-width: 22px !important;
+  height: 20px !important;
+  padding: 0 6px !important;
+  border-radius: 999px !important;
+  background: #f1f5f9 !important;
+  color: #111827 !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-filter-chip.active .issuance-filter-count,
+.app-shell-topnav .issuance-filter-chip[aria-pressed="true"] .issuance-filter-count {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-console-actions {
+  display: flex !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+  height: 36px !important;
+  margin-left: auto !important;
+}
+
+.app-shell-topnav .issuance-console-actions button,
+.app-shell-topnav .issuance-detail-footer-buttons button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  min-height: 36px !important;
+  height: 36px !important;
+  padding: 0 14px !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .issuance-console-actions .btn-secondary,
+.app-shell-topnav .issuance-detail-footer-buttons .btn-secondary {
+  border: 1px solid #cfd4dc !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+.app-shell-topnav .issuance-console-actions button:not(.btn-secondary):not(:disabled),
+.app-shell-topnav .issuance-detail-footer-buttons button:not(.btn-secondary):not(:disabled) {
+  border: 1px solid #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-console-actions button:disabled,
+.app-shell-topnav .issuance-detail-footer-buttons button:disabled {
+  border-color: #9aa1ad !important;
+  background: #858c96 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+.app-shell-topnav .content-issuance .button-icon,
+.app-shell-topnav .content-issuance .status-icon,
+.app-shell-topnav .content-issuance .issuance-card-title-icon {
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  color: currentColor !important;
+}
+
+.app-shell-topnav .content-issuance .button-icon svg,
+.app-shell-topnav .content-issuance .status-icon svg,
+.app-shell-topnav .content-issuance .issuance-card-title-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+  stroke: currentColor !important;
+}
+
+.app-shell-topnav .issuance-workspace {
+  grid-template-columns: 338px minmax(0, 1fr) !important;
+  gap: 18px !important;
+  align-items: stretch !important;
+}
+
+.app-shell-topnav .issuance-list-panel,
+.app-shell-topnav .issuance-detail-panel {
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-panel-head {
+  min-height: 52px !important;
+  padding: 12px 16px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-panel-head h2 {
+  color: #111827 !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-panel-head p {
+  color: #64748b !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .issuance-list-table tr {
+  min-height: 88px !important;
+  padding: 15px 16px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-list-table tr:hover,
+.app-shell-topnav .issuance-list-table tr.is-selected {
+  background: #e9edf2 !important;
+}
+
+.app-shell-topnav .issuance-list-table tr:hover td,
+.app-shell-topnav .issuance-list-table tr.is-selected td {
+  background: transparent !important;
+}
+
+.app-shell-topnav .issuance-table-customer-cell strong,
+.app-shell-topnav .issuance-table-amount-cell {
+  color: #111827 !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-table-date-cell,
+.app-shell-topnav .issuance-table-subject {
+  color: #475569 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  min-height: 22px !important;
+  padding: 0 8px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-review,
+.app-shell-topnav .content-issuance .issuance-status-badge.status-scheduled,
+.app-shell-topnav .content-issuance .issuance-status-badge.status-unmatched {
+  background: var(--lovable-warning-soft) !important;
+  color: var(--lovable-warning) !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-issuing {
+  background: var(--lovable-primary-soft) !important;
+  color: var(--lovable-primary) !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-issued {
+  background: #f1f3f5 !important;
+  color: #596273 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-missing-mail {
+  background: #edf4ff !important;
+  color: #3578c7 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-status-badge.status-failed {
+  background: var(--lovable-danger-soft) !important;
+  color: var(--lovable-danger) !important;
+}
+
+.app-shell-topnav .issuance-detail-scroll {
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-detail-hero {
+  min-height: 68px !important;
+  padding: 18px 24px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-detail-hero-copy h2 {
+  color: #111827 !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-detail-hero-copy p {
+  color: #475569 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .issuance-mail-preview,
+.app-shell-topnav .issuance-detail-facts-shell {
+  overflow: hidden !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-card-title {
+  min-height: 42px !important;
+  padding: 0 18px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #fbfbfc !important;
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-section {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-section h3 {
+  min-height: 36px !important;
+  background: #fbfbfc !important;
+  color: #111827 !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-row {
+  min-height: 42px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-row dt {
+  color: #64748b !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .issuance-tax-invoice-row dd {
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-actions {
+  justify-content: flex-end !important;
+  min-height: 70px !important;
+  padding: 16px 24px !important;
+  border-top: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .issuance-detail-footer-buttons {
+  gap: 8px !important;
+  margin-left: 0 !important;
+}
+
+/* Final customer action/chip alignment: mirror the invoice filter and action tokens. */
+.app-shell-topnav .customers-screen.customer-console-screen {
+  background: transparent !important;
+}
+
+.app-shell-topnav .customer-console-shell {
+  display: grid !important;
+  grid-template-columns: 338px minmax(0, 1fr) !important;
+  grid-template-rows: auto auto !important;
+  gap: 16px 18px !important;
+  align-items: start !important;
+}
+
+.app-shell-topnav .customer-summary-grid {
+  grid-column: 1 / -1 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-summary-card {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 34px !important;
+  padding: 0 13px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .customer-summary-card.is-active,
+.app-shell-topnav .customer-summary-card[aria-pressed="true"] {
+  border-color: #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .customer-summary-card > span,
+.app-shell-topnav .customer-summary-card-row,
+.app-shell-topnav .customer-summary-card-row strong {
+  color: inherit !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+
+.app-shell-topnav .customer-summary-actions {
+  display: flex !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+  height: 36px !important;
+  margin-left: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-summary-actions button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  min-height: 36px !important;
+  height: 36px !important;
+  padding: 0 14px !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .customer-summary-actions .btn-secondary {
+  border: 1px solid #cfd4dc !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+.app-shell-topnav .customer-summary-actions .customer-console-primary-cta {
+  border: 1px solid #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-shell-topnav .customer-summary-actions .customer-console-danger-action {
+  border: 1px solid #f0a6a6 !important;
+  background: #ffffff !important;
+  color: #d84a4a !important;
+}
+
+.app-shell-topnav .customer-summary-actions button:disabled {
+  border-color: #e5e7eb !important;
+  background: #f9fafb !important;
+  color: #a7adb7 !important;
+  opacity: 1 !important;
+}
+
+.app-shell-topnav .customer-summary-actions .button-icon,
+.app-shell-topnav .customer-console-filter-button .customer-console-page-header-icon {
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  color: currentColor !important;
+}
+
+.app-shell-topnav .customer-summary-actions .button-icon svg,
+.app-shell-topnav .customer-console-filter-button .customer-console-page-header-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+  stroke: currentColor !important;
+}
+
+.app-shell-topnav .customer-summary-actions .customer-console-primary-cta .button-icon,
+.app-shell-topnav .customer-summary-actions .customer-console-primary-cta .button-icon svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+.app-shell-topnav .customer-console-main-column {
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+  display: grid !important;
+  grid-template-rows: auto auto !important;
+  gap: 8px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .customer-console-page-header {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  gap: 8px !important;
+  min-height: 32px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-console-filter-button,
+.app-shell-topnav .customer-console-page-search {
+  height: 32px !important;
+  min-height: 32px !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-console-filter-button {
+  padding: 0 12px !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .customer-console-page-search {
+  padding: 0 12px !important;
+  background: #eef0f3 !important;
+}
+
+.app-shell-topnav .customer-console-page-search input {
+  height: 30px !important;
+  min-height: 30px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: #eef0f3 !important;
+  background-color: #eef0f3 !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .panel.panel-customer-list.customer-console-panel {
+  display: grid !important;
+  grid-template-rows: auto auto !important;
+  height: auto !important;
+  min-height: 760px !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--lovable-border) !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .panel.panel-customer-list.customer-console-panel::before,
+.app-shell-topnav .panel.panel-customer-list.customer-console-panel::after {
+  display: none !important;
+  content: none !important;
+}
+
+.app-shell-topnav .customer-console-table-topbar {
+  min-height: 52px !important;
+  margin: 0 !important;
+  padding: 12px 16px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-console-table-wrap {
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-console-table {
+  border: 0 !important;
+  border-collapse: collapse !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .customer-console-table th,
+.app-shell-topnav .customer-console-table td {
+  height: 40px !important;
+  padding: 0 14px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .customer-console-table thead th {
+  background: #fbfbfc !important;
+}
+
+.app-shell-topnav .customer-console-table tbody tr.is-selected,
+.app-shell-topnav .customer-console-table tbody tr.is-selected > td {
+  background: #e9edf2 !important;
 }

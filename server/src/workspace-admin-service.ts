@@ -26,11 +26,7 @@ export function createDeterministicUuid(seed: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
-export function createWorkspaceSeed(organizationName: string, ownerLoginId: string, businessNumber: string): string {
-  if (businessNumber) {
-    return `workspace:business:${businessNumber}`;
-  }
-
+export function createWorkspaceSeed(organizationName: string, ownerLoginId: string): string {
   return `workspace:name:${normalizeWorkspaceName(organizationName)}|owner:${normalizeLoginId(ownerLoginId)}`;
 }
 
@@ -45,7 +41,7 @@ export function createWorkspaceAdminService(deps: WorkspaceAdminServiceDeps) {
     const adminClient = createSupabaseAdminClient();
     let organizationsQuery = adminClient
       .from("organizations")
-      .select("id, name, business_number, plan_code, status, managed_customer_limit, created_at")
+      .select("id, name, plan_code, status, monthly_issue_limit, created_at")
       .order("created_at", { ascending: false });
 
     if (organizationIdsFilter && organizationIdsFilter.length > 0) {
@@ -158,13 +154,9 @@ export function createWorkspaceAdminService(deps: WorkspaceAdminServiceDeps) {
       return {
         organizationId,
         organizationName: String(organization.name),
-        organizationBusinessNumber: organization.business_number ? String(organization.business_number) : null,
         organizationPlanCode: String(organization.plan_code),
         organizationStatus: String(organization.status) as OpsWorkspaceSummary["organizationStatus"],
-        managedCustomerLimit:
-          organization.managed_customer_limit === null || organization.managed_customer_limit === undefined
-            ? null
-            : Number(organization.managed_customer_limit),
+        monthlyIssueLimit: Number(organization.monthly_issue_limit ?? 10),
         managedCustomerCount: managedCustomerCountByOrganizationId.get(organizationId) ?? 0,
         ownerLoginId: ownerUserId ? accountByUserId.get(ownerUserId) ?? null : null,
         ownerDisplayName: owner?.display_name ? String(owner.display_name) : null,

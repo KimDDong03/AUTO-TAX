@@ -28,6 +28,15 @@ export interface CertificateCheckMetadataUpdate {
   certAlertLastSentAt?: string | null;
 }
 
+export interface OrganizationIssueQuota {
+  organizationName: string;
+  organizationPlanCode: string;
+  organizationStatus: "trial" | "active" | "suspended" | "churned";
+  monthlyIssueLimit: number;
+  issuedDraftCount: number;
+  currentMonthIssuedDraftCount: number;
+}
+
 export interface AppStore {
   initialize(): Promise<void>;
   getSettings(): Promise<AppSettings>;
@@ -44,6 +53,7 @@ export interface AppStore {
   findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null>;
   findCustomerByMatchAddress(matchAddress: string): Promise<Customer | null>;
   saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer>;
+  updateCustomerMemo(customerId: number, memo: string): Promise<Customer>;
   getCustomerReportDetail(customerId: number, reportYear: number): Promise<CustomerReportDetail>;
   saveCustomerReportDetail(customerId: number, input: CustomerReportDetailInput): Promise<CustomerReportDetail>;
   upsertCustomerReportDetailFromIssuedDraft(draft: InvoiceDraft): Promise<CustomerReportDetail>;
@@ -98,6 +108,7 @@ export interface AppStore {
   listDrafts(): Promise<InvoiceDraft[]>;
   getMonthlyIssueLimit?(): Promise<number | null>;
   getCurrentMonthIssuedDraftCount?(): Promise<number>;
+  getOrganizationIssueQuota?(): Promise<OrganizationIssueQuota>;
   listInbox(): Promise<InboxMessage[]>;
   listLogs(): Promise<LogEntry[]>;
   updateDraftStatus(

@@ -40,6 +40,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "imapflow": "^1.2.16",
+    "lucide-react": "^1.14.0",
     "mailparser": "^3.9.0",
     "nodemailer": "^7.0.7",
     "popbill": "^1.63.0",

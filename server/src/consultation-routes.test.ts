@@ -107,6 +107,7 @@ function registerCoreForConsultationTest(app: express.Express, adminClient: unkn
     requireAuthContext: () => ({ isPlatformAdmin: false }) as never,
     requireInternalJobAccess: () => "secret",
     publicLoginLimiter: (_req, _res, next) => next(),
+    publicSignupLimiter: (_req, _res, next) => next(),
     publicConsultationLimiter: limiter,
     createSupabaseAdminClient: () => adminClient as never,
     createSupabasePublicClient: () =>
@@ -118,9 +119,15 @@ function registerCoreForConsultationTest(app: express.Express, adminClient: unkn
           })
         }
       }) as never,
+    resolveAuthenticatedAppSession: async () => {
+      throw new Error("unused");
+    },
     findAuthUserByLoginId: async () => null,
     isEmailLikeAccount: () => true,
+    normalizeLoginId: (value) => value.trim().toLowerCase(),
     normalizeEmail: (value) => value,
+    createWorkspaceLoginEmail: (loginId) => `${loginId}@workspace.auto-tax.local`,
+    upsertAuthUserLoginIndex: async () => undefined,
     createEmptyBootstrapWorkspace: () => ({
       settings: {} as never,
       customers: [],
@@ -207,7 +214,6 @@ test("ops consultation routes list and update requests behind platform-admin gua
     getOpsWorkspaceSummaryById: async () => null,
     toClientSettings: (settings) => settings,
     testMailConnections: async () => ({ imapOk: true, smtpOk: true }),
-    digitsOnly: (value) => value.replace(/\D/g, ""),
     normalizeLoginId: (value) => value.trim().toLowerCase(),
     createWorkspaceSeed: () => "seed",
     createDeterministicUuid: () => "00000000-0000-4000-8000-000000000001",

@@ -48,10 +48,9 @@ export type OrganizationStatus = "trial" | "active" | "suspended" | "churned";
 export interface AuthenticatedOrganizationMembership {
   organizationId: string;
   organizationName: string;
-  organizationBusinessNumber: string | null;
   organizationPlanCode: string;
   organizationStatus: OrganizationStatus;
-  managedCustomerLimit: number | null;
+  monthlyIssueLimit: number;
   role: OrganizationMemberRole;
   displayName: string | null;
 }
@@ -75,18 +74,16 @@ type MembershipRow = {
     | {
         id: string;
         name: string;
-        business_number: string | null;
         plan_code: string;
         status: OrganizationStatus;
-        managed_customer_limit: number | null;
+        monthly_issue_limit: number;
       }
     | Array<{
         id: string;
         name: string;
-        business_number: string | null;
         plan_code: string;
         status: OrganizationStatus;
-        managed_customer_limit: number | null;
+        monthly_issue_limit: number;
       }>
     | null;
 };
@@ -117,7 +114,7 @@ async function listOrganizationMemberships(
   const { data, error } = await client
     .from("organization_members")
     .select(
-      "organization_id, role, display_name, organizations(id, name, business_number, plan_code, status, managed_customer_limit)"
+      "organization_id, role, display_name, organizations(id, name, plan_code, status, monthly_issue_limit)"
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
@@ -140,10 +137,9 @@ async function listOrganizationMemberships(
       {
         organizationId: organization.id,
         organizationName: organization.name,
-        organizationBusinessNumber: organization.business_number,
         organizationPlanCode: organization.plan_code,
         organizationStatus: organization.status,
-        managedCustomerLimit: organization.managed_customer_limit,
+        monthlyIssueLimit: organization.monthly_issue_limit,
         role: membership.role,
         displayName: membership.display_name
       }

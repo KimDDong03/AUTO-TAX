@@ -6,7 +6,38 @@ import type { Customer, InboxMessage, InvoiceDraft, MailPreviewImageResponse } f
 type IssuanceFilter = "pending" | "scheduled" | "issuing" | "issued" | "unmatched" | "missingMail" | "all";
 type IssuancePeriodFilter = "all" | "month" | "recent30";
 type IssuanceSortMode = "status" | "newest" | "oldest" | "amountDesc";
-type UnmatchedDetailTab = "mail" | "extracted" | "exception";
+
+export type DraftTaxInvoiceInfoUpdateInput = {
+  kepcoCorpName: string;
+  kepcoCorpNum: string;
+  kepcoBranchId: string;
+  kepcoCeoName: string;
+  kepcoAddr: string;
+  kepcoBizType: string;
+  kepcoBizClass: string;
+  itemName: string;
+  plantName: string;
+  supplyCost: number;
+  taxTotal: number;
+  recipientEmail: string;
+};
+
+type DraftTaxInvoiceInfoFormState = {
+  draftId: number;
+  customerLabel: string;
+  kepcoCorpName: string;
+  kepcoCorpNum: string;
+  kepcoBranchId: string;
+  kepcoCeoName: string;
+  kepcoAddr: string;
+  kepcoBizType: string;
+  kepcoBizClass: string;
+  itemName: string;
+  plantName: string;
+  supplyCost: string;
+  taxTotal: string;
+  recipientEmail: string;
+};
 
 type IssuanceListEntry =
   | {
@@ -48,6 +79,9 @@ type IssuanceTabProps = {
   userLabel: string;
   workspaceLabel: string;
   popbillModeLabel: string;
+  operatorContactName: string;
+  operatorContactTel: string;
+  operatorContactEmail: string;
   requestedFilter?: IssuanceFilter | null;
   onConsumeRequestedFilter?: () => void;
   drafts: InvoiceDraft[];
@@ -64,7 +98,7 @@ type IssuanceTabProps = {
   onViewDraft: (draftId: number) => void;
   onPrintDraft: (draftId: number) => void;
   onCancelDraft: (draftId: number) => void;
-  onShowDraftPopbillInfo: (draftId: number) => void;
+  onUpdateDraftTaxInvoiceInfo: (draftId: number, input: DraftTaxInvoiceInfoUpdateInput) => Promise<void>;
   formatMoney: (value: number) => string;
   formatDateTime: (value: string | null) => string;
   getDraftStatusLabel: (status: string) => string;
@@ -78,12 +112,6 @@ const ISSUANCE_FILTERS: Array<{ id: IssuanceFilter; label: string }> = [
   { id: "issued", label: "발행 완료" },
   { id: "unmatched", label: "고객 미매칭" },
   { id: "missingMail", label: "메일 미수신" }
-];
-
-const UNMATCHED_DETAIL_TABS: Array<{ id: UnmatchedDetailTab; label: string }> = [
-  { id: "mail", label: "메일 정보" },
-  { id: "extracted", label: "추출 정보" },
-  { id: "exception", label: "예외 사유" }
 ];
 
 const DRAFT_STATUS_ORDER: Record<InvoiceDraft["status"], number> = {
@@ -174,6 +202,145 @@ function formatIssuanceTableDate(value: string | null): string {
   }
 
   return parsed.toLocaleDateString("ko-KR");
+}
+
+function formatIssuanceListDateTime(value: string | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const hours = String(parsed.getHours()).padStart(2, "0");
+  const minutes = String(parsed.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function formatKepcoMailSubject(draft: InvoiceDraft): string {
+  const month = draft.billingMonth.match(/^\d{4}-(\d{2})$/)?.[1];
+  const monthLabel = month ? `${Number(month)}월분` : "정산";
+  return `[한전] ${monthLabel} 정산내역서 - ${draft.customerName}`;
+}
+
+function formatWon(value: number, formatMoney: (value: number) => string): string {
+  return `₩ ${formatMoney(value)}`;
+}
+
+function formatDraftMoneyInput(value: number): string {
+  return new Intl.NumberFormat("ko-KR").format(value);
+}
+
+function draftToTaxInvoiceInfoForm(draft: InvoiceDraft): DraftTaxInvoiceInfoFormState {
+  return {
+    draftId: draft.id,
+    customerLabel: draft.customerName,
+    kepcoCorpName: draft.kepcoCorpName || draft.customerName,
+    kepcoCorpNum: draft.kepcoCorpNum,
+    kepcoBranchId: draft.kepcoBranchId,
+    kepcoCeoName: draft.kepcoCeoName,
+    kepcoAddr: draft.kepcoAddr,
+    kepcoBizType: draft.kepcoBizType,
+    kepcoBizClass: draft.kepcoBizClass,
+    itemName: draft.itemName,
+    plantName: draft.plantName,
+    supplyCost: formatDraftMoneyInput(draft.supplyCost),
+    taxTotal: formatDraftMoneyInput(draft.taxTotal),
+    recipientEmail: draft.recipientEmail
+  };
+}
+
+function parseDraftMoneyInput(value: string, label: string): number {
+  const normalized = value.replace(/[,\s₩원]/g, "");
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`${label}은 0 이상의 정수로 입력해주세요.`);
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${label}은 0 이상의 정수로 입력해주세요.`);
+  }
+
+  return parsed;
+}
+
+function validateDraftBusinessNumber(value: string): string {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length !== 10) {
+    throw new Error("사업자번호는 숫자 10자리로 입력해주세요.");
+  }
+  return trimmed;
+}
+
+function validateDraftRecipientEmail(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    throw new Error("수신 이메일 형식이 올바르지 않습니다.");
+  }
+  return trimmed;
+}
+
+function getDraftFormErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "세금계산서 정보 저장에 실패했습니다.";
+}
+
+function formatDraftFormTotalAmount(form: DraftTaxInvoiceInfoFormState, formatMoney: (value: number) => string): string {
+  try {
+    return formatWon(parseDraftMoneyInput(form.supplyCost || "0", "공급가액") + parseDraftMoneyInput(form.taxTotal || "0", "부가세"), formatMoney);
+  } catch {
+    return "-";
+  }
+}
+
+function formatOptionalInvoiceValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+
+  const stringValue = String(value).trim();
+  return stringValue || "-";
+}
+
+type IssuanceStatus = InvoiceDraft["status"] | "unmatched" | "missing-mail";
+
+function getIssuanceStatusIconName(status: IssuanceStatus): string {
+  switch (status) {
+    case "review":
+    case "scheduled":
+      return "warning";
+    case "issuing":
+      return "loader-circle";
+    case "issued":
+      return "complete";
+    case "failed":
+      return "circle-x";
+    case "unmatched":
+      return "help";
+    case "missing-mail":
+      return "mail-x";
+    default:
+      return "warning";
+  }
+}
+
+function IssuanceStatusBadge(props: { status: IssuanceStatus; label: string; className?: string }) {
+  const iconName = getIssuanceStatusIconName(props.status);
+  const className = ["status", `status-${props.status}`, "issuance-status-badge", props.className]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <span className={className}>
+      <Icon name={iconName} className="status-icon" />
+      <span>{props.label}</span>
+    </span>
+  );
 }
 
 function getIssuanceListEntryOrder(entry: IssuanceListEntry): number {
@@ -375,15 +542,17 @@ export function IssuanceTab(props: IssuanceTabProps) {
   const failedCount = useMemo(() => props.drafts.filter((draft) => draft.status === "failed").length, [props.drafts]);
   const unmatchedMessageCount = props.unmatchedInboxMessages.length;
   const currentBillingMonth = useMemo(() => getCurrentSeoulBillingMonth(), []);
-  const defaultFilter: IssuanceFilter = "all";
-  const [activeFilter, setActiveFilter] = useState<IssuanceFilter>(defaultFilter);
+  const defaultFilter: IssuanceFilter = "pending";
+  const [activeFilter, setActiveFilter] = useState<IssuanceFilter>(props.requestedFilter ?? defaultFilter);
   const [selectedEntryKey, setSelectedEntryKey] = useState<string | null>(null);
   const [issuanceSearchQuery, setIssuanceSearchQuery] = useState("");
   const [periodFilter, setPeriodFilter] = useState<IssuancePeriodFilter>("all");
   const [sortMode, setSortMode] = useState<IssuanceSortMode>("status");
-  const [unmatchedDetailTab, setUnmatchedDetailTab] = useState<UnmatchedDetailTab>("mail");
   const [customerFinderOpen, setCustomerFinderOpen] = useState(false);
   const [customerFinderQuery, setCustomerFinderQuery] = useState("");
+  const [taxInvoiceInfoForm, setTaxInvoiceInfoForm] = useState<DraftTaxInvoiceInfoFormState | null>(null);
+  const [taxInvoiceInfoError, setTaxInvoiceInfoError] = useState("");
+  const [taxInvoiceInfoSaving, setTaxInvoiceInfoSaving] = useState(false);
   const [checkedEntryKeys, setCheckedEntryKeys] = useState<Set<string>>(() => new Set());
   const [mailPreviewByDraftId, setMailPreviewByDraftId] = useState<Record<number, DraftMailPreviewState>>({});
   const previousRequestedFilterRef = useRef<IssuanceFilter | null>(null);
@@ -519,15 +688,19 @@ export function IssuanceTab(props: IssuanceTabProps) {
   }, [selectedEntryKey, visibleEntries]);
 
   const selectedEntry = useMemo(
-    () => visibleEntries.find((entry) => entry.key === selectedEntryKey) ?? null,
+    () => visibleEntries.find((entry) => entry.key === selectedEntryKey) ?? visibleEntries[0] ?? null,
     [selectedEntryKey, visibleEntries]
   );
   const selectedDraft = selectedEntry?.kind === "draft" ? selectedEntry.draft : null;
   const selectedUnmatchedMessage = selectedEntry?.kind === "unmatched" ? selectedEntry.message : null;
   const selectedMissingMailEntry = selectedEntry?.kind === "missing-mail" ? selectedEntry : null;
   const selectedDraftMailPreview = selectedDraft ? mailPreviewByDraftId[selectedDraft.id] ?? null : null;
-
   const isSelectedDraftIssued = selectedDraft?.status === "issued";
+  const isTaxInvoiceInfoEditing = Boolean(selectedDraft && taxInvoiceInfoForm?.draftId === selectedDraft.id);
+  const selectedDraftCustomer = useMemo(
+    () => (selectedDraft ? props.customers.find((customer) => customer.id === selectedDraft.customerId) ?? null : null),
+    [props.customers, selectedDraft?.customerId]
+  );
   const visibleIssueableEntries = useMemo(
     () => visibleEntries.filter(isIssueSelectableEntry),
     [visibleEntries]
@@ -547,7 +720,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
         .map((entry) => entry.draft.id),
     [checkedEntryKeys, visibleIssueableEntries]
   );
-  const selectedIssueButtonLabel = checkedIssueableDraftIds.length > 0 ? `선택 발행 ${checkedIssueableDraftIds.length}` : "선택 발행";
+  const selectedIssueButtonLabel = "선택 일괄 발행";
   const canIssueCheckedDrafts = checkedIssueableDraftIds.length > 0;
   const selectedUnmatchedAmount =
     selectedUnmatchedMessage?.parsedData !== null && selectedUnmatchedMessage?.parsedData !== undefined
@@ -574,7 +747,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
   useEffect(() => {
     setCustomerFinderOpen(false);
     setCustomerFinderQuery("");
-    setUnmatchedDetailTab("mail");
   }, [selectedUnmatchedMessage?.id]);
 
   useEffect(() => {
@@ -667,7 +839,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
     setEntryChecked(entry, !checkedEntryKeys.has(entry.key));
   };
 
-  const handleEntryRowClick = (event: React.MouseEvent<HTMLTableRowElement>, entry: IssuanceListEntry) => {
+  const handleEntryRowClick = (event: React.MouseEvent<HTMLElement>, entry: IssuanceListEntry) => {
     if (event.ctrlKey) {
       toggleEntryChecked(entry);
       return;
@@ -702,6 +874,68 @@ export function IssuanceTab(props: IssuanceTabProps) {
   };
 
   useEffect(() => {
+    if (!taxInvoiceInfoForm) {
+      return;
+    }
+
+    if (selectedDraft?.id !== taxInvoiceInfoForm.draftId) {
+      setTaxInvoiceInfoError("");
+      setTaxInvoiceInfoForm(null);
+    }
+  }, [selectedDraft?.id, taxInvoiceInfoForm?.draftId]);
+
+  const openTaxInvoiceInfoEditor = (draft: InvoiceDraft) => {
+    setTaxInvoiceInfoError("");
+    setTaxInvoiceInfoForm(draftToTaxInvoiceInfoForm(draft));
+  };
+
+  const updateTaxInvoiceInfoFormField = (field: keyof DraftTaxInvoiceInfoFormState, value: string) => {
+    setTaxInvoiceInfoError("");
+    setTaxInvoiceInfoForm((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const handleTaxInvoiceInfoSave = async () => {
+    if (!taxInvoiceInfoForm) {
+      return;
+    }
+
+    try {
+      const kepcoCorpName = taxInvoiceInfoForm.kepcoCorpName.trim();
+      const itemName = taxInvoiceInfoForm.itemName.trim();
+      if (!kepcoCorpName) {
+        throw new Error("공급받는자를 입력해주세요.");
+      }
+      if (!itemName) {
+        throw new Error("품목을 입력해주세요.");
+      }
+
+      const input: DraftTaxInvoiceInfoUpdateInput = {
+        kepcoCorpName,
+        kepcoCorpNum: validateDraftBusinessNumber(taxInvoiceInfoForm.kepcoCorpNum),
+        kepcoBranchId: taxInvoiceInfoForm.kepcoBranchId.trim(),
+        kepcoCeoName: taxInvoiceInfoForm.kepcoCeoName.trim(),
+        kepcoAddr: taxInvoiceInfoForm.kepcoAddr.trim(),
+        kepcoBizType: taxInvoiceInfoForm.kepcoBizType.trim(),
+        kepcoBizClass: taxInvoiceInfoForm.kepcoBizClass.trim(),
+        itemName,
+        plantName: taxInvoiceInfoForm.plantName.trim(),
+        supplyCost: parseDraftMoneyInput(taxInvoiceInfoForm.supplyCost, "공급가액"),
+        taxTotal: parseDraftMoneyInput(taxInvoiceInfoForm.taxTotal, "부가세"),
+        recipientEmail: validateDraftRecipientEmail(taxInvoiceInfoForm.recipientEmail)
+      };
+
+      setTaxInvoiceInfoSaving(true);
+      await props.onUpdateDraftTaxInvoiceInfo(taxInvoiceInfoForm.draftId, input);
+      setTaxInvoiceInfoForm(null);
+      setTaxInvoiceInfoError("");
+    } catch (error) {
+      setTaxInvoiceInfoError(getDraftFormErrorMessage(error));
+    } finally {
+      setTaxInvoiceInfoSaving(false);
+    }
+  };
+
+  useEffect(() => {
     if (!customerFinderOpen) {
       return;
     }
@@ -715,6 +949,41 @@ export function IssuanceTab(props: IssuanceTabProps) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [customerFinderOpen]);
+
+  const renderTaxInvoiceValueRow = (label: string, value: string) => (
+    <div className="issuance-tax-invoice-row" key={label}>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+
+  const renderTaxInvoiceInputRow = (
+    label: string,
+    field: keyof DraftTaxInvoiceInfoFormState,
+    options: { type?: string; inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"]; placeholder?: string } = {}
+  ) => (
+    <div className="issuance-tax-invoice-row" key={label}>
+      <dt>{label}</dt>
+      <dd>
+        <input
+          className="issuance-inline-edit-input"
+          value={taxInvoiceInfoForm?.[field] ?? ""}
+          aria-label={label}
+          type={options.type}
+          inputMode={options.inputMode}
+          placeholder={options.placeholder}
+          onChange={(event) => updateTaxInvoiceInfoFormField(field, event.target.value)}
+        />
+      </dd>
+    </div>
+  );
+
+  const renderTaxInvoiceSection = (title: string, rows: React.ReactNode) => (
+    <section className="issuance-tax-invoice-section" aria-label={`${title} 정보`}>
+      <h3>{title}</h3>
+      <dl className="issuance-tax-invoice-table">{rows}</dl>
+    </section>
+  );
 
   return (
     <div className="issuance-screen">
@@ -752,9 +1021,11 @@ export function IssuanceTab(props: IssuanceTabProps) {
                       ? "home-header-chip issuance-filter-chip active"
                       : "home-header-chip issuance-filter-chip"
                   }
+                  aria-pressed={activeFilter === filter.id}
                   onClick={() => setActiveFilter(filter.id)}
                 >
-                  {filter.label} {count}
+                  <span className="issuance-filter-label">{filter.label}</span>
+                  <span className="issuance-filter-count">{count}</span>
                 </button>
               );
             })}
@@ -763,9 +1034,10 @@ export function IssuanceTab(props: IssuanceTabProps) {
           <div className="issuance-console-actions" aria-label="세금계산서 발행 작업">
             <button type="button" className="btn-secondary" onClick={props.onSyncMail} disabled={props.busyKey !== null}>
               <Icon name="sync" className="button-icon" />
-              {props.busyKey === "sync" ? "동기화 중..." : "메일 동기화"}
+              {props.busyKey === "sync" ? "가져오는 중..." : "메일 다시 가져오기"}
             </button>
             <button type="button" onClick={handleSelectedIssueClick} disabled={!canIssueCheckedDrafts || props.busyKey !== null}>
+              <Icon name="send" className="button-icon" />
               {selectedIssueButtonLabel}
             </button>
           </div>
@@ -809,9 +1081,26 @@ export function IssuanceTab(props: IssuanceTabProps) {
         <div className="issuance-workspace">
           <section className="issuance-list-panel">
             <div className="issuance-panel-head">
+              <CheckboxControl
+                checked={allVisibleIssueableEntriesChecked}
+                readOnly
+                disabled={visibleIssueableEntries.length === 0}
+                aria-label={`초안 목록 (${visibleEntries.length})`}
+                ref={(element) => {
+                  if (element) {
+                    element.indeterminate = someVisibleIssueableEntriesChecked;
+                  }
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleVisibleIssueableEntriesChecked();
+                }}
+              />
               <div>
-                <h2>초안 목록</h2>
-                <p>
+                <h2>
+                  초안 목록 <span>({visibleEntries.length})</span>
+                </h2>
+                <p className="sr-only">
                   {visibleEntries.length} / {filteredEntries.length}건 표시
                 </p>
               </div>
@@ -929,18 +1218,16 @@ export function IssuanceTab(props: IssuanceTabProps) {
                               />
                             </td>
                             <td className="issuance-table-status-cell">
-                              <span className={`status status-${draft.status}`}>{props.getDraftStatusLabel(draft.status)}</span>
+                              <IssuanceStatusBadge status={draft.status} label={props.getDraftStatusLabel(draft.status)} />
                             </td>
-                            <td className="issuance-table-date-cell">{formatIssuanceTableDate(draft.issuedAt ?? draft.issueRequestedAt ?? draft.updatedAt)}</td>
+                            <td className="issuance-table-date-cell">{formatIssuanceListDateTime(draft.issuedAt ?? draft.issueRequestedAt ?? draft.updatedAt)}</td>
                             <td className="issuance-table-customer-cell">
                               <strong>{draft.customerName}</strong>
                             </td>
                             <td className="issuance-table-business-cell">{draft.kepcoCorpNum || "-"}</td>
-                            <td className="issuance-table-amount-cell">{props.formatMoney(draft.supplyCost)}원</td>
+                            <td className="issuance-table-amount-cell">{formatWon(draft.totalAmount, props.formatMoney)}</td>
                             <td className="issuance-table-subject-cell">
-                              <span className="issuance-table-subject">
-                                {draft.itemName} · {draft.billingMonth || "정산월 미확인"}
-                              </span>
+                              <span className="issuance-table-subject">{formatKepcoMailSubject(draft)}</span>
                               {draft.issueError ? <span className="cell-error">{props.simplifyIssueError(draft.issueError)}</span> : null}
                             </td>
                           </tr>
@@ -968,7 +1255,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                               />
                             </td>
                             <td className="issuance-table-status-cell">
-                              <span className="status status-missing-mail">메일 미수신</span>
+                              <IssuanceStatusBadge status="missing-mail" label="메일 미수신" />
                             </td>
                             <td className="issuance-table-date-cell">-</td>
                             <td className="issuance-table-customer-cell">
@@ -985,7 +1272,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
 
                       const message = entry.message;
                       const parsedAmount = message.parsedData
-                        ? `${props.formatMoney(message.parsedData.supplyCost + message.parsedData.taxTotal)}원`
+                        ? formatWon(message.parsedData.supplyCost + message.parsedData.taxTotal, props.formatMoney)
                         : "금액 미확인";
 
                       return (
@@ -1006,14 +1293,14 @@ export function IssuanceTab(props: IssuanceTabProps) {
                             />
                           </td>
                           <td className="issuance-table-status-cell">
-                            <span className="status status-unmatched">고객 미매칭</span>
+                            <IssuanceStatusBadge status="unmatched" label="고객 미매칭" />
                           </td>
                           <td className="issuance-table-date-cell">{formatIssuanceTableDate(message.receivedAt)}</td>
                           <td className="issuance-table-customer-cell">
                             <strong>{message.parsedData?.plantName || "미매칭 메일"}</strong>
                           </td>
                           <td className="issuance-table-business-cell">-</td>
-                          <td className="issuance-table-amount-cell">{parsedAmount}</td>
+                            <td className="issuance-table-amount-cell">{parsedAmount}</td>
                           <td className="issuance-table-subject-cell">
                             <span className="issuance-table-subject">{message.subject || message.parsedData?.plantAddress || "-"}</span>
                           </td>
@@ -1033,81 +1320,169 @@ export function IssuanceTab(props: IssuanceTabProps) {
             {selectedDraft ? (
               <div className="issuance-detail-scroll">
                 <div className="issuance-detail-hero">
-                    <div className="issuance-detail-hero-copy">
-                      <h2>{selectedDraft.customerName}</h2>
-                      <p>
-                        {selectedDraft.itemName} · {selectedDraft.billingMonth || "정산월 미확인"} · 합계 {props.formatMoney(selectedDraft.totalAmount)}원
-                      </p>
-                    </div>
+                  <div className="issuance-detail-hero-copy">
+                    <h2>{selectedDraft.customerName}</h2>
+                    <p>{formatKepcoMailSubject(selectedDraft)}</p>
                   </div>
+                  <IssuanceStatusBadge
+                    status={selectedDraft.status}
+                    label={props.getDraftStatusLabel(selectedDraft.status)}
+                    className="issuance-detail-status-badge"
+                  />
+                </div>
 
                 <div className="issuance-detail-tabset">
-                  <div className="issuance-detail-grid">
-                    <section className="issuance-detail-card" aria-label="발행 정보">
-                      <div className="issuance-invoice-compare">
-                        <div className="issuance-mail-preview" aria-label="원본 메일 금액 이미지">
-                          {selectedDraftMailPreview?.status === "ready" ? (
-                            <img
-                              src={selectedDraftMailPreview.preview.imageDataUrl}
-                              width={selectedDraftMailPreview.preview.width}
-                              height={selectedDraftMailPreview.preview.height}
-                              alt={`${selectedDraft.customerName} 원본 메일 금액 영역`}
-                            />
-                          ) : selectedDraftMailPreview?.status === "error" ? (
-                            <p className="issuance-mail-preview-state">{selectedDraftMailPreview.error}</p>
-                          ) : (
-                            <p className="issuance-mail-preview-state">원본 메일 이미지를 불러오는 중입니다.</p>
+                  <div className="issuance-invoice-compare" aria-label="발행 정보">
+                    <div className="issuance-mail-preview" aria-label="한전 이메일 캡처본">
+                      <div className="issuance-card-title">
+                        <Icon name="mail" className="issuance-card-title-icon" />
+                        한전 이메일 캡처본
+                      </div>
+                      <div className="issuance-mail-preview-body">
+                        {selectedDraftMailPreview?.status === "ready" ? (
+                          <img
+                            src={selectedDraftMailPreview.preview.imageDataUrl}
+                            width={selectedDraftMailPreview.preview.width}
+                            height={selectedDraftMailPreview.preview.height}
+                            alt={`${selectedDraft.customerName} 원본 메일 금액 영역`}
+                          />
+                        ) : selectedDraftMailPreview?.status === "error" ? (
+                          <p className="issuance-mail-preview-state">{selectedDraftMailPreview.error}</p>
+                        ) : (
+                          <p className="issuance-mail-preview-state">원본 메일 이미지를 불러오는 중입니다.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <section
+                      className={
+                        isTaxInvoiceInfoEditing
+                          ? "issuance-detail-facts-shell issuance-tax-invoice-info-shell is-editing"
+                          : "issuance-detail-facts-shell issuance-tax-invoice-info-shell"
+                      }
+                      aria-label="자동 등록된 세금계산서 정보"
+                    >
+                      <div className="issuance-card-title">
+                        <Icon name="document" className="issuance-card-title-icon" />
+                        자동 등록된 세금계산서 정보
+                      </div>
+                      <div className="issuance-tax-invoice-layout">
+                        <div className="issuance-tax-invoice-party-grid">
+                          {renderTaxInvoiceSection(
+                            "공급자",
+                            <>
+                              {renderTaxInvoiceValueRow("등록번호", formatOptionalInvoiceValue(selectedDraftCustomer?.businessNumber))}
+                              {renderTaxInvoiceValueRow("상호", formatOptionalInvoiceValue(selectedDraftCustomer?.corpName || selectedDraft.customerName))}
+                              {renderTaxInvoiceValueRow("대표자명", formatOptionalInvoiceValue(selectedDraftCustomer?.ceoName))}
+                              {renderTaxInvoiceValueRow("주소", formatOptionalInvoiceValue(selectedDraftCustomer?.addr))}
+                              {renderTaxInvoiceValueRow("업태", formatOptionalInvoiceValue(selectedDraftCustomer?.bizType))}
+                              {renderTaxInvoiceValueRow("종목", formatOptionalInvoiceValue(selectedDraftCustomer?.bizClass))}
+                              {renderTaxInvoiceValueRow("담당자명", formatOptionalInvoiceValue(props.operatorContactName))}
+                              {renderTaxInvoiceValueRow("연락처", formatOptionalInvoiceValue(props.operatorContactTel))}
+                              {renderTaxInvoiceValueRow("이메일", formatOptionalInvoiceValue(props.operatorContactEmail))}
+                            </>
+                          )}
+                          {renderTaxInvoiceSection(
+                            "공급받는자",
+                            isTaxInvoiceInfoEditing && taxInvoiceInfoForm ? (
+                              <>
+                                {renderTaxInvoiceInputRow("등록번호", "kepcoCorpNum", {
+                                  inputMode: "numeric",
+                                  placeholder: "123-45-67890"
+                                })}
+                                {renderTaxInvoiceInputRow("종사업장번호", "kepcoBranchId", { inputMode: "numeric" })}
+                                {renderTaxInvoiceInputRow("상호", "kepcoCorpName")}
+                                {renderTaxInvoiceInputRow("대표자명", "kepcoCeoName")}
+                                {renderTaxInvoiceInputRow("주소", "kepcoAddr")}
+                                {renderTaxInvoiceInputRow("업태", "kepcoBizType")}
+                                {renderTaxInvoiceInputRow("종목", "kepcoBizClass")}
+                                {renderTaxInvoiceInputRow("수신 이메일", "recipientEmail", {
+                                  type: "email",
+                                  placeholder: "kepco-mail@example.com"
+                                })}
+                              </>
+                            ) : (
+                              <>
+                                {renderTaxInvoiceValueRow("등록번호", formatOptionalInvoiceValue(selectedDraft.kepcoCorpNum))}
+                                {renderTaxInvoiceValueRow("종사업장번호", formatOptionalInvoiceValue(selectedDraft.kepcoBranchId))}
+                                {renderTaxInvoiceValueRow("상호", formatOptionalInvoiceValue(selectedDraft.kepcoCorpName || selectedDraft.customerName))}
+                                {renderTaxInvoiceValueRow("대표자명", formatOptionalInvoiceValue(selectedDraft.kepcoCeoName))}
+                                {renderTaxInvoiceValueRow("주소", formatOptionalInvoiceValue(selectedDraft.kepcoAddr))}
+                                {renderTaxInvoiceValueRow("업태", formatOptionalInvoiceValue(selectedDraft.kepcoBizType))}
+                                {renderTaxInvoiceValueRow("종목", formatOptionalInvoiceValue(selectedDraft.kepcoBizClass))}
+                                {renderTaxInvoiceValueRow("수신 이메일", formatOptionalInvoiceValue(selectedDraft.recipientEmail))}
+                              </>
+                            )
                           )}
                         </div>
 
-                        <dl className="issuance-detail-facts issuance-detail-facts-parsed">
-                          <div>
-                            <dt>정산월</dt>
-                            <dd>{selectedDraft.billingMonth || "-"}</dd>
-                          </div>
-                          <div>
-                            <dt>작성일</dt>
-                            <dd>{selectedDraft.writeDate || "-"}</dd>
-                          </div>
-                          <div>
-                            <dt>공급가액</dt>
-                            <dd>{props.formatMoney(selectedDraft.supplyCost)}원</dd>
-                          </div>
-                          <div>
-                            <dt>부가세</dt>
-                            <dd>{props.formatMoney(selectedDraft.taxTotal)}원</dd>
-                          </div>
-                          <div>
-                            <dt>합계</dt>
-                            <dd>{props.formatMoney(selectedDraft.totalAmount)}원</dd>
-                          </div>
-                          <div>
-                            <dt>품목</dt>
-                            <dd>{selectedDraft.itemName || "-"}</dd>
-                          </div>
-                          <div>
-                            <dt>수신 이메일</dt>
-                            <dd>{selectedDraft.recipientEmail || "-"}</dd>
-                          </div>
-                          <div>
-                            <dt>원본 메일 ID</dt>
-                            <dd>{selectedDraft.sourceMessageId}</dd>
-                          </div>
-                        </dl>
+                        {renderTaxInvoiceSection(
+                          "발행 내용",
+                          isTaxInvoiceInfoEditing && taxInvoiceInfoForm ? (
+                            <>
+                              {renderTaxInvoiceValueRow("작성일자", formatIssuanceTableDate(selectedDraft.writeDate))}
+                              {renderTaxInvoiceInputRow("품목", "itemName")}
+                              {renderTaxInvoiceInputRow("비고/발전소명", "plantName")}
+                              {renderTaxInvoiceInputRow("공급가액", "supplyCost", { inputMode: "numeric" })}
+                              {renderTaxInvoiceInputRow("부가세", "taxTotal", { inputMode: "numeric" })}
+                              {renderTaxInvoiceValueRow("합계금액", formatDraftFormTotalAmount(taxInvoiceInfoForm, props.formatMoney))}
+                            </>
+                          ) : (
+                            <>
+                              {renderTaxInvoiceValueRow("작성일자", formatIssuanceTableDate(selectedDraft.writeDate))}
+                              {renderTaxInvoiceValueRow("품목", formatOptionalInvoiceValue(selectedDraft.itemName))}
+                              {renderTaxInvoiceValueRow("비고/발전소명", formatOptionalInvoiceValue(selectedDraft.plantName))}
+                              {renderTaxInvoiceValueRow("공급가액", formatWon(selectedDraft.supplyCost, props.formatMoney))}
+                              {renderTaxInvoiceValueRow("부가세", formatWon(selectedDraft.taxTotal, props.formatMoney))}
+                              {renderTaxInvoiceValueRow("합계금액", formatWon(selectedDraft.totalAmount, props.formatMoney))}
+                            </>
+                          )
+                        )}
                       </div>
+                      {isTaxInvoiceInfoEditing && taxInvoiceInfoError ? <p className="issuance-inline-edit-error">{taxInvoiceInfoError}</p> : null}
                     </section>
                   </div>
                 </div>
-                {isSelectedDraftIssued ? (
-                  <div className="issuance-detail-footer-actions">
-                    <button type="button" className="btn-secondary" onClick={() => props.onViewDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
-                      보기
-                    </button>
-                    <button type="button" className="btn-secondary" onClick={() => props.onCancelDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
-                      발행 취소
-                    </button>
+                <div className="issuance-detail-footer-actions">
+                  <div className="issuance-detail-footer-buttons">
+                    {isSelectedDraftIssued ? (
+                      <>
+                        <button type="button" className="btn-secondary" onClick={() => props.onViewDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
+                          보기
+                        </button>
+                        <button type="button" className="btn-secondary" onClick={() => props.onCancelDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
+                          발행 취소
+                        </button>
+                      </>
+                    ) : isTaxInvoiceInfoEditing ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleTaxInvoiceInfoSave()}
+                        disabled={taxInvoiceInfoSaving || props.busyKey !== null}
+                      >
+                        <Icon name="complete" className="button-icon" />
+                        {taxInvoiceInfoSaving ? "저장 중..." : "수정 완료"}
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => openTaxInvoiceInfoEditor(selectedDraft)}
+                          disabled={props.busyKey !== null}
+                          aria-label="자동 등록된 세금계산서 정보 수정"
+                        >
+                          <Icon name="edit" className="button-icon" />
+                          세금계산서 정보 수정
+                        </button>
+                        <button type="button" onClick={() => props.onIssueDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
+                          <Icon name="send" className="button-icon" />
+                          발행하기
+                        </button>
+                      </>
+                    )}
                   </div>
-                ) : null}
+                </div>
               </div>
             ) : selectedUnmatchedMessage ? (
               <div className="issuance-detail-scroll">
@@ -1119,112 +1494,115 @@ export function IssuanceTab(props: IssuanceTabProps) {
                       {selectedUnmatchedMessage.parsedData?.billingMonth ? ` · ${selectedUnmatchedMessage.parsedData.billingMonth}` : ""}
                     </p>
                   </div>
+                  <IssuanceStatusBadge status="unmatched" label="고객 미매칭" className="issuance-detail-status-badge" />
                 </div>
 
                 <div className="issuance-detail-tabset">
-                  <div className="issuance-detail-tabs is-unmatched" role="tablist" aria-label="미매칭 메일 상세 정보">
-                    {UNMATCHED_DETAIL_TABS.map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={unmatchedDetailTab === tab.id}
-                        className={unmatchedDetailTab === tab.id ? "active" : ""}
-                        onClick={() => setUnmatchedDetailTab(tab.id)}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="issuance-detail-grid">
-                    <section className="issuance-detail-card" aria-label="메일 정보" hidden={unmatchedDetailTab !== "mail"}>
-                      <dl className="issuance-detail-facts">
-                      <div>
-                        <dt>메일 ID</dt>
-                        <dd>{selectedUnmatchedMessage.id}</dd>
+                  <div className="issuance-invoice-compare" aria-label="미매칭 메일 정보">
+                    <section className="issuance-detail-facts-shell" aria-label="메일 정보">
+                      <div className="issuance-card-title">
+                        <Icon name="mail" className="issuance-card-title-icon" />
+                        메일 정보
                       </div>
-                      <div>
-                        <dt>상태</dt>
-                        <dd>고객 미매칭</dd>
-                      </div>
-                      <div>
-                        <dt>제목</dt>
-                        <dd>{selectedUnmatchedMessage.subject || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>발신 주소</dt>
-                        <dd>{selectedUnmatchedMessage.fromAddress || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>수신 시각</dt>
-                        <dd>{props.formatDateTime(selectedUnmatchedMessage.receivedAt)}</dd>
-                      </div>
-                      <div>
-                        <dt>연결 고객</dt>
-                        <dd>-</dd>
-                      </div>
+                      <dl className="issuance-detail-facts issuance-detail-facts-parsed">
+                        <div>
+                          <dt>메일 ID</dt>
+                          <dd>{selectedUnmatchedMessage.id}</dd>
+                        </div>
+                        <div>
+                          <dt>상태</dt>
+                          <dd>고객 미매칭</dd>
+                        </div>
+                        <div>
+                          <dt>제목</dt>
+                          <dd>{selectedUnmatchedMessage.subject || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>발신 주소</dt>
+                          <dd>{selectedUnmatchedMessage.fromAddress || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>수신 시각</dt>
+                          <dd>{props.formatDateTime(selectedUnmatchedMessage.receivedAt)}</dd>
+                        </div>
+                        <div>
+                          <dt>연결 고객</dt>
+                          <dd>-</dd>
+                        </div>
                       </dl>
                     </section>
 
-                    <section className="issuance-detail-card" aria-label="추출 정보" hidden={unmatchedDetailTab !== "extracted"}>
-                      <dl className="issuance-detail-facts">
-                      <div>
-                        <dt>발전소명</dt>
-                        <dd>{selectedUnmatchedMessage.parsedData?.plantName || "-"}</dd>
+                    <section className="issuance-detail-facts-shell" aria-label="자동 추출 정보">
+                      <div className="issuance-card-title">
+                        <Icon name="document" className="issuance-card-title-icon" />
+                        자동 추출 정보
                       </div>
-                      <div>
-                        <dt>정산월</dt>
-                        <dd>{selectedUnmatchedMessage.parsedData?.billingMonth || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>주소</dt>
-                        <dd>{selectedUnmatchedMessage.parsedData?.plantAddress || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>품목</dt>
-                        <dd>{selectedUnmatchedMessage.parsedData?.itemName || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>공급가액</dt>
-                        <dd>
-                          {selectedUnmatchedMessage.parsedData
-                            ? `${props.formatMoney(selectedUnmatchedMessage.parsedData.supplyCost)}원`
-                            : "-"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>부가세</dt>
-                        <dd>
-                          {selectedUnmatchedMessage.parsedData
-                            ? `${props.formatMoney(selectedUnmatchedMessage.parsedData.taxTotal)}원`
-                            : "-"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>합계</dt>
-                        <dd>{selectedUnmatchedAmount !== null ? `${props.formatMoney(selectedUnmatchedAmount)}원` : "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>지점 ID</dt>
-                        <dd>{selectedUnmatchedMessage.parsedData?.kepcoBranchId || "-"}</dd>
-                      </div>
+                      <dl className="issuance-detail-facts issuance-detail-facts-parsed">
+                        <div>
+                          <dt>발전소명</dt>
+                          <dd>{selectedUnmatchedMessage.parsedData?.plantName || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>정산월</dt>
+                          <dd>{selectedUnmatchedMessage.parsedData?.billingMonth || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>주소</dt>
+                          <dd>{selectedUnmatchedMessage.parsedData?.plantAddress || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>품목</dt>
+                          <dd>{selectedUnmatchedMessage.parsedData?.itemName || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>공급가액</dt>
+                          <dd>
+                            {selectedUnmatchedMessage.parsedData
+                              ? formatWon(selectedUnmatchedMessage.parsedData.supplyCost, props.formatMoney)
+                              : "-"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>부가세</dt>
+                          <dd>
+                            {selectedUnmatchedMessage.parsedData
+                              ? formatWon(selectedUnmatchedMessage.parsedData.taxTotal, props.formatMoney)
+                              : "-"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>합계금액</dt>
+                          <dd>{selectedUnmatchedAmount !== null ? formatWon(selectedUnmatchedAmount, props.formatMoney) : "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>지점 ID</dt>
+                          <dd>{selectedUnmatchedMessage.parsedData?.kepcoBranchId || "-"}</dd>
+                        </div>
                       </dl>
                     </section>
 
-                    <section className="issuance-detail-card issuance-detail-card-danger" aria-label="예외 사유" hidden={unmatchedDetailTab !== "exception"}>
+                    <section className="issuance-detail-facts-shell issuance-exception-reason" aria-label="예외 사유">
+                      <div className="issuance-card-title">
+                        <Icon name="warning" className="issuance-card-title-icon" />
+                        예외 사유
+                      </div>
                       <p className="issuance-detail-error">{selectedUnmatchedMessage.parseError || "현재 표시할 예외 사유가 없습니다."}</p>
                     </section>
                   </div>
                 </div>
 
                 <div className="issuance-detail-footer-actions">
-                  <button type="button" onClick={() => setCustomerFinderOpen(true)}>
-                    고객 찾기
-                  </button>
-                  <button type="button" onClick={() => props.onReprocessInboxMessage(selectedUnmatchedMessage.id)} disabled={props.busyKey !== null}>
-                    재처리
-                  </button>
+                  <p>고객을 연결하면 자동 등록된 세금계산서 정보로 전환됩니다.</p>
+                  <div className="issuance-detail-footer-buttons">
+                    <button type="button" className="btn-secondary" onClick={() => props.onReprocessInboxMessage(selectedUnmatchedMessage.id)} disabled={props.busyKey !== null}>
+                      <Icon name="refresh" className="button-icon" />
+                      재처리
+                    </button>
+                    <button type="button" onClick={() => setCustomerFinderOpen(true)}>
+                      <Icon name="search" className="button-icon" />
+                      고객 찾기
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : selectedMissingMailEntry ? (
@@ -1236,59 +1614,69 @@ export function IssuanceTab(props: IssuanceTabProps) {
                       {selectedMissingMailEntry.billingMonth} 정산월 메일이 아직 수신 목록에 없습니다.
                     </p>
                   </div>
+                  <IssuanceStatusBadge status="missing-mail" label="메일 미수신" className="issuance-detail-status-badge" />
                 </div>
 
-                <div className="issuance-detail-grid">
-                  <section className="issuance-detail-card" aria-label="메일 미수신 고객 정보">
-                    <dl className="issuance-detail-facts">
-                    <div>
-                      <dt>정산월</dt>
-                      <dd>{selectedMissingMailEntry.billingMonth}</dd>
-                    </div>
-                    <div>
-                      <dt>상태</dt>
-                      <dd>메일 미수신</dd>
-                    </div>
-                    <div>
-                      <dt>고객명</dt>
-                      <dd>{selectedMissingMailEntry.customer.customerName}</dd>
-                    </div>
-                    <div>
-                      <dt>법인명</dt>
-                      <dd>{selectedMissingMailEntry.customer.corpName || "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>사업자번호</dt>
-                      <dd>{selectedMissingMailEntry.customer.businessNumber || "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>주소</dt>
-                      <dd>{selectedMissingMailEntry.customer.addr || "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>발전소명</dt>
-                      <dd>
-                        {selectedMissingMailEntry.customer.plantNames.length > 0
-                          ? selectedMissingMailEntry.customer.plantNames.join(", ")
-                          : "-"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>연동 상태</dt>
-                      <dd>
-                        {selectedMissingMailEntry.customer.popbillState} / 인증서{" "}
-                        {selectedMissingMailEntry.customer.popbillCertRegistered ? "등록" : "미등록"}
-                      </dd>
-                    </div>
-                    </dl>
-                  </section>
+                <div className="issuance-detail-tabset">
+                  <div className="issuance-invoice-compare" aria-label="메일 미수신 정보">
+                    <section className="issuance-detail-facts-shell" aria-label="메일 수신 대기 정보">
+                      <div className="issuance-card-title">
+                        <Icon name="mail-x" className="issuance-card-title-icon" />
+                        메일 수신 대기 정보
+                      </div>
+                      <dl className="issuance-detail-facts issuance-detail-facts-parsed">
+                        <div>
+                          <dt>정산월</dt>
+                          <dd>{selectedMissingMailEntry.billingMonth}</dd>
+                        </div>
+                        <div>
+                          <dt>상태</dt>
+                          <dd>메일 미수신</dd>
+                        </div>
+                        <div>
+                          <dt>고객명</dt>
+                          <dd>{selectedMissingMailEntry.customer.customerName}</dd>
+                        </div>
+                        <div>
+                          <dt>법인명</dt>
+                          <dd>{selectedMissingMailEntry.customer.corpName || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>사업자번호</dt>
+                          <dd>{selectedMissingMailEntry.customer.businessNumber || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>주소</dt>
+                          <dd>{selectedMissingMailEntry.customer.addr || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>발전소명</dt>
+                          <dd>
+                            {selectedMissingMailEntry.customer.plantNames.length > 0
+                              ? selectedMissingMailEntry.customer.plantNames.join(", ")
+                              : "-"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>연동 상태</dt>
+                          <dd>
+                            {selectedMissingMailEntry.customer.popbillState} / 인증서{" "}
+                            {selectedMissingMailEntry.customer.popbillCertRegistered ? "등록" : "미등록"}
+                          </dd>
+                        </div>
+                      </dl>
+                    </section>
+                  </div>
                 </div>
 
                 <div className="issuance-detail-footer-actions">
-                  <button type="button" className="btn-secondary" onClick={props.onSyncMail} disabled={props.busyKey !== null}>
-                    <Icon name="sync" className="button-icon" />
-                    {props.busyKey === "sync" ? "동기화 중..." : "메일 동기화"}
-                  </button>
+                  <p>메일함을 다시 가져온 뒤 수신 여부를 확인합니다.</p>
+                  <div className="issuance-detail-footer-buttons">
+                    <button type="button" className="btn-secondary" onClick={props.onSyncMail} disabled={props.busyKey !== null}>
+                      <Icon name="sync" className="button-icon" />
+                      {props.busyKey === "sync" ? "가져오는 중..." : "메일 다시 가져오기"}
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (

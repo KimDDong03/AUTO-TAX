@@ -39,6 +39,7 @@ import {
   getCurrentSeoulBillingMonth,
   type CustomerListFilter
 } from "./customerListFilters";
+import type { CustomerSearchField } from "./customerSearch";
 
 type CustomerFormState = {
   id: number | null;
@@ -101,6 +102,19 @@ type CustomerStatusBadge = {
 type CustomerOnestopStepId = "source" | "password" | "confirm" | "result";
 type CustomerRenewalAssistantUpgradeState = "unknown" | "up-to-date" | "upgrade-available" | "upgrade-required";
 
+const CUSTOMER_SEARCH_FIELD_OPTIONS: Array<{
+  value: CustomerSearchField;
+  label: string;
+  placeholder: string;
+}> = [
+  { value: "all", label: "전체", placeholder: "전체 검색" },
+  { value: "corpName", label: "고객명", placeholder: "고객명 검색" },
+  { value: "customerName", label: "대표자명", placeholder: "대표자명 검색" },
+  { value: "businessNumber", label: "사업자등록번호", placeholder: "사업자등록번호 검색" },
+  { value: "phone", label: "전화번호", placeholder: "전화번호 검색" },
+  { value: "issueMonth", label: "세금계산서 발행월", placeholder: "예: 2026-05" }
+];
+
 type CustomersTabProps = {
   customers: Customer[];
   customerCertificates: CustomerCertificate[];
@@ -121,6 +135,7 @@ type CustomersTabProps = {
   popbillPendingCustomerCount: number;
   busyKey: string | null;
   isSavingCustomer: boolean;
+  customerSearchField: CustomerSearchField;
   customerSearchQuery: string;
   customerListFilter: CustomerListFilter;
   customerDetailTab: CustomerDetailTabId;
@@ -142,6 +157,7 @@ type CustomersTabProps = {
   renewableCustomers: CustomerRenewalCandidateView[];
   customerNameInputRef: React.RefObject<HTMLInputElement | null>;
   customerAddressLookupRef: React.MutableRefObject<string>;
+  setCustomerSearchField: React.Dispatch<React.SetStateAction<CustomerSearchField>>;
   setCustomerSearchQuery: React.Dispatch<React.SetStateAction<string>>;
   setCustomerListFilter: React.Dispatch<React.SetStateAction<CustomerListFilter>>;
   setCustomerDetailTab: React.Dispatch<React.SetStateAction<CustomerDetailTabId>>;
@@ -168,6 +184,7 @@ type CustomersTabProps = {
   onStartCustomerRenewal: (customerId: number) => Promise<void>;
   onSelectCustomer: (customer: Customer) => void;
   onSaveCustomer: () => Promise<void>;
+  onSaveCustomerMemo: (customerId: number, memo: string) => Promise<void>;
   onJoinCustomerPopbill: (customerId: number) => Promise<void>;
   onOpenCustomerCertRegistration: (customerId: number) => Promise<void>;
   onLinkCustomerCertificate: (certificateIndex: string, customerId: number) => Promise<void>;
@@ -419,6 +436,8 @@ export function CustomersTab(props: CustomersTabProps) {
   const previousCustomerDetailTabRef = useRef<CustomerDetailTabId>("info");
   const customerMainColumnRef = useRef<HTMLDivElement | null>(null);
   const customerTableWrapRef = useRef<HTMLDivElement | null>(null);
+  const customerSearchFilterRef = useRef<HTMLDivElement | null>(null);
+  const [customerSearchFilterOpen, setCustomerSearchFilterOpen] = useState(false);
   const [customerOnestopStep, setCustomerOnestopStep] = useState<CustomerOnestopStepId>("source");
   const [customerOnestopCertificates, setCustomerOnestopCertificates] = useState<RenewalAgentCertificate[]>([]);
   const [customerOnestopCertificateSearchQuery, setCustomerOnestopCertificateSearchQuery] = useState("");
@@ -433,6 +452,20 @@ export function CustomersTab(props: CustomersTabProps) {
   const [customerCertificateSearchQuery, setCustomerCertificateSearchQuery] = useState("");
   const [customerCertificateSelectedKey, setCustomerCertificateSelectedKey] = useState<string | null>(null);
   const [customerCertificateActionNotice, setCustomerCertificateActionNotice] = useState("");
+
+  useEffect(() => {
+    if (!customerSearchFilterOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (customerSearchFilterRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setCustomerSearchFilterOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [customerSearchFilterOpen]);
 
   useEffect(() => {
     if (props.creatingCustomer) {
@@ -975,6 +1008,7 @@ export function CustomersTab(props: CustomersTabProps) {
     [checkedCustomerIds, visibleTableCustomers]
   );
   const checkedVisibleCustomerCount = checkedVisibleCustomers.length;
+  const deletableCheckedCustomer = checkedVisibleCustomerCount === 1 ? checkedVisibleCustomers[0] : null;
   const allVisibleCustomersChecked = visibleTableCustomers.length > 0 && checkedVisibleCustomerCount === visibleTableCustomers.length;
   const someVisibleCustomersChecked = checkedVisibleCustomerCount > 0 && !allVisibleCustomersChecked;
 
@@ -1374,7 +1408,7 @@ export function CustomersTab(props: CustomersTabProps) {
       {
         key: "invoice-issued",
         filter: "unissued",
-        label: "세금계산서 발행 현황",
+        label: "이번 달 발행",
         value: `${issuedThisMonthCustomerCount}/${props.customers.length}건`,
         tone:
           props.customers.length > 0 && issuedThisMonthCustomerCount < props.customers.length
@@ -1384,14 +1418,14 @@ export function CustomersTab(props: CustomersTabProps) {
       {
         key: "certificate-expiration",
         filter: "certificate-expiration",
-        label: "인증서 만료 예정 고객",
+        label: "인증서 만료 예정",
         value: `${certificateExpirationCustomerCount}명`,
         tone: certificateExpirationCustomerCount > 0 ? ("warn" as CustomerConsoleTone) : ("success" as CustomerConsoleTone)
       },
       {
         key: "contract-expiration",
         filter: "contract-expiration",
-        label: "계약 만료 예정 고객",
+        label: "계약 만료 예정",
         value: `${props.contractRenewalDueItems.length}명`,
         tone: props.contractRenewalDueItems.length > 0 ? ("warn" as CustomerConsoleTone) : ("success" as CustomerConsoleTone)
       }
@@ -1405,7 +1439,10 @@ export function CustomersTab(props: CustomersTabProps) {
   );
   const hasActiveFilter =
     props.customerListFilter !== "all" ||
+    props.customerSearchField !== "all" ||
     props.customerSearchQuery.trim() !== "";
+  const selectedCustomerSearchFieldOption =
+    CUSTOMER_SEARCH_FIELD_OPTIONS.find((option) => option.value === props.customerSearchField) ?? CUSTOMER_SEARCH_FIELD_OPTIONS[0]!;
   const detailPanelOpen = props.creatingCustomer || Boolean(selectedCustomer);
   const selectedRecentIssuedDraft = props.selectedCustomerIssuedDrafts[0] ?? null;
   const selectedReportDraft = useMemo(() => {
@@ -1590,12 +1627,22 @@ export function CustomersTab(props: CustomersTabProps) {
     const customerReportSaveStatus = customerReportDetail.saving
       ? "자동 저장 중..."
       : customerReportDetail.notice || "변경하면 자동 저장됩니다.";
+    const customerMemoValue = props.customerForm.id === selectedCustomer.id ? props.customerForm.memo : selectedCustomer.memo;
+    const customerMemoChanged = customerMemoValue !== selectedCustomer.memo;
+    const customerMemoSaveStatus = props.isSavingCustomer
+      ? "저장 중..."
+      : customerMemoChanged
+        ? "저장 대기"
+        : "저장됨";
 
     return (
       <div className="customer-detail-panel-body customer-detail-option3-body">
           <section className="customer-detail-section customer-info-card customer-info-basic-card">
             <div className="customer-detail-section-head">
               <h3>기본 정보</h3>
+              <span className={props.isSavingCustomer ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
+                {customerMemoSaveStatus}
+              </span>
             </div>
             <dl className="customer-detail-context-grid customer-detail-basic-facts">
               <div>
@@ -1619,6 +1666,38 @@ export function CustomersTab(props: CustomersTabProps) {
                 <dd>{selectedCustomer.addr || "-"}</dd>
               </div>
             </dl>
+            <label className="customer-detail-memo-field">
+              메모
+              <textarea
+                rows={3}
+                value={customerMemoValue}
+                placeholder="고객별 확인 사항을 입력하세요."
+                onChange={(event) => {
+                  const nextMemo = event.target.value;
+                  props.setCustomerForm((prev) =>
+                    prev.id === selectedCustomer.id
+                      ? {
+                          ...prev,
+                          memo: nextMemo
+                        }
+                      : prev
+                  );
+                }}
+                onBlur={() => {
+                  if (!customerMemoChanged || props.busyKey !== null) return;
+                  void props.runAction(
+                    `save-customer-memo-${selectedCustomer.id}`,
+                    async () => props.onSaveCustomerMemo(selectedCustomer.id, customerMemoValue),
+                    { reload: false }
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && customerMemoChanged && props.busyKey === null) {
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            </label>
           </section>
 
           <section className="customer-detail-section customer-info-card customer-info-contract-card">
@@ -2283,20 +2362,70 @@ export function CustomersTab(props: CustomersTabProps) {
                   : "선택한 고객 데이터 내보내기"
               }
             >
-              데이터 내보내기
+              <Icon name="download" className="button-icon" />
+              내보내기
             </button>
             <button type="button" className="customer-console-primary-cta" onClick={handleCreateCustomer}>
+              <Icon name="plus" className="button-icon" />
               고객 추가
+            </button>
+            <button
+              type="button"
+              className="btn-secondary customer-console-danger-action"
+              onClick={() => {
+                if (!deletableCheckedCustomer) return;
+                void props.runAction(
+                  `delete-customer-${deletableCheckedCustomer.id}`,
+                  async () => props.onDeleteCustomer(deletableCheckedCustomer)
+                );
+              }}
+              disabled={props.busyKey !== null || props.creatingCustomer || !deletableCheckedCustomer}
+            >
+              <Icon name="trash" className="button-icon" />
+              고객 삭제
             </button>
           </div>
         </section>
 
         <div ref={customerMainColumnRef} className="customer-console-main-column">
           <header className="customer-console-page-header">
+            <div ref={customerSearchFilterRef} className="customer-console-field-filter">
+              <button
+                type="button"
+                className="customer-console-field-filter-trigger"
+                onClick={() => setCustomerSearchFilterOpen((open) => !open)}
+                aria-haspopup="listbox"
+                aria-expanded={customerSearchFilterOpen}
+                aria-label="검색 필터"
+              >
+                <Icon name="filter" className="customer-console-page-header-icon" />
+                <span>{selectedCustomerSearchFieldOption.label}</span>
+              </button>
+              {customerSearchFilterOpen ? (
+                <div className="customer-console-field-filter-menu" role="listbox" aria-label="검색 필터 선택">
+                  {CUSTOMER_SEARCH_FIELD_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={option.value === props.customerSearchField ? "is-selected" : ""}
+                      onClick={() => {
+                        props.setCustomerSearchField(option.value);
+                        setCustomerSearchFilterOpen(false);
+                      }}
+                      role="option"
+                      aria-selected={option.value === props.customerSearchField}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <label className="customer-console-page-search" aria-label="고객 검색">
               <Icon name="search" className="customer-console-page-search-icon" />
               <input
-                placeholder="검색"
+                type="search"
+                placeholder={selectedCustomerSearchFieldOption.placeholder}
                 value={props.customerSearchQuery}
                 onChange={(event) => props.setCustomerSearchQuery(event.target.value)}
               />
@@ -2316,6 +2445,7 @@ export function CustomersTab(props: CustomersTabProps) {
                     className="btn-secondary customer-console-reset"
                     onClick={() => {
                       props.setCustomerListFilter("all");
+                      props.setCustomerSearchField("all");
                       props.setCustomerSearchQuery("");
                     }}
                   >

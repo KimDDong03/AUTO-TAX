@@ -241,7 +241,7 @@ function createCorsOptions(): CorsOptions {
     origin(origin, callback) {
       callback(null, isAllowedCorsOrigin(origin, allowedOrigins));
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Authorization",
       "Content-Type",
@@ -771,6 +771,14 @@ const publicConsultationLimiter = createRateLimiter({
   keyGenerator: (req) => resolveRequestIp(req)
 });
 
+const publicSignupLimiter = createRateLimiter({
+  keyPrefix: "public-signup",
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: "회원가입 신청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+  keyGenerator: (req) => resolveRequestIp(req)
+});
+
 const requireInternalJobAccess = createInternalJobAccessGuard({
   hasValidJobSecret
 });
@@ -851,12 +859,17 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     requireAuthContext,
     requireInternalJobAccess,
     publicLoginLimiter,
+    publicSignupLimiter,
     publicConsultationLimiter,
     createSupabaseAdminClient,
     createSupabasePublicClient,
+    resolveAuthenticatedAppSession,
     findAuthUserByLoginId,
     isEmailLikeAccount,
+    normalizeLoginId,
     normalizeEmail,
+    createWorkspaceLoginEmail,
+    upsertAuthUserLoginIndex,
     createEmptyBootstrapWorkspace,
     createEmptySettings,
     toClientSettings,
@@ -897,7 +910,6 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     getOpsWorkspaceSummaryById,
     toClientSettings,
     testMailConnections,
-    digitsOnly,
     normalizeLoginId,
     createWorkspaceSeed,
     createDeterministicUuid,

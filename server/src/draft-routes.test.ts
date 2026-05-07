@@ -242,6 +242,287 @@ test("draft pilot report route can export the Phase 5 report as csv", async () =
   }
 });
 
+test("draft tax invoice info route updates editable draft values", async () => {
+  let capturedDraftId: number | null = null;
+  let capturedParsedMail: Record<string, unknown> | null = null;
+  const draft = {
+    id: 501,
+    customerId: 77,
+    status: "review",
+    plantName: "하예리발전소",
+    billingMonth: "2026-04",
+    kepcoCorpNum: "120-82-00052",
+    kepcoBranchId: "",
+    kepcoCorpName: "하예리",
+    kepcoCeoName: "하예리",
+    kepcoAddr: "충청남도 아산시",
+    kepcoBizType: "전기업",
+    kepcoBizClass: "태양광발전",
+    recipientEmail: ""
+  };
+  const requestStore = {
+    getPilotIssuanceReport: async () => ({ ok: true }),
+    getDraftPilotTimeline: async () => null,
+    getDraft: async () => draft,
+    refreshDraftFromParsedMail: async (draftId: number, parsedMail: Record<string, unknown>) => {
+      capturedDraftId = draftId;
+      capturedParsedMail = parsedMail;
+      return {
+        ...draft,
+        ...parsedMail
+      };
+    }
+  } as unknown as AppStore;
+
+  const app = express();
+  app.use(express.json());
+  registerDraftRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireWorkspaceEditor: () => ({}) as never,
+    getServerManagedSettings: async () => ({}) as never,
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorStatus: () => 500,
+    buildApiErrorBody: () => ({ error: "unused" }),
+    assertDraftPopbillEnvironment: async () => undefined,
+    backfillDraftPopbillEnvironmentIfMissing: async () => undefined
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/drafts/501/tax-invoice-info`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kepcoCorpName: "한국전력공사",
+        kepcoCorpNum: "120-82-00052",
+        itemName: "전력 판매",
+        supplyCost: "1,000",
+        taxTotal: 100,
+        recipientEmail: "bill@example.com"
+      })
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(capturedDraftId, 501);
+    assert.deepEqual(capturedParsedMail, {
+      originalFrom: "",
+      plantName: "하예리발전소",
+      plantAddress: "충청남도 아산시",
+      billingMonth: "2026-04",
+      supplyCost: 1000,
+      taxTotal: 100,
+      totalAmount: 1100,
+      itemName: "전력 판매",
+      kepcoCorpNum: "120-82-00052",
+      kepcoBranchId: "",
+      kepcoCorpName: "한국전력공사",
+      kepcoCeoName: "하예리",
+      kepcoAddr: "충청남도 아산시",
+      kepcoBizType: "전기업",
+      kepcoBizClass: "태양광발전",
+      recipientEmail: "bill@example.com",
+      rawText: ""
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
+test("draft tax invoice info route updates recipient detail and issue note fields", async () => {
+  const capturedParsedMails: Array<Record<string, unknown>> = [];
+  const draft = {
+    id: 502,
+    customerId: 77,
+    status: "review",
+    plantName: "기존 발전소",
+    billingMonth: "2026-04",
+    kepcoCorpNum: "120-82-00052",
+    kepcoBranchId: "",
+    kepcoCorpName: "하예리",
+    kepcoCeoName: "하예리",
+    kepcoAddr: "충청남도 아산시",
+    kepcoBizType: "전기업",
+    kepcoBizClass: "태양광발전",
+    recipientEmail: ""
+  };
+  const requestStore = {
+    getPilotIssuanceReport: async () => ({ ok: true }),
+    getDraftPilotTimeline: async () => null,
+    getDraft: async () => draft,
+    refreshDraftFromParsedMail: async (_draftId: number, parsedMail: Record<string, unknown>) => {
+      capturedParsedMails.push(parsedMail);
+      return {
+        ...draft,
+        ...parsedMail
+      };
+    }
+  } as unknown as AppStore;
+
+  const app = express();
+  app.use(express.json());
+  registerDraftRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireWorkspaceEditor: () => ({}) as never,
+    getServerManagedSettings: async () => ({}) as never,
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorStatus: () => 500,
+    buildApiErrorBody: () => ({ error: "unused" }),
+    assertDraftPopbillEnvironment: async () => undefined,
+    backfillDraftPopbillEnvironmentIfMissing: async () => undefined
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/drafts/502/tax-invoice-info`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kepcoCorpName: "한국전력공사",
+        kepcoCorpNum: "120-82-00052",
+        kepcoBranchId: "0206",
+        kepcoCeoName: "김동철",
+        kepcoAddr: "전라남도 나주시 전력로 55",
+        kepcoBizType: "전기가스",
+        kepcoBizClass: "전기공급",
+        itemName: "2026년4월전력",
+        plantName: "하예리발전소",
+        supplyCost: 121867,
+        taxTotal: 12186,
+        recipientEmail: "ppa0206@kepco.co.kr"
+      })
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(capturedParsedMails.length, 1);
+    const parsedMail = capturedParsedMails[0];
+    assert.equal(parsedMail.kepcoBranchId, "0206");
+    assert.equal(parsedMail.kepcoCeoName, "김동철");
+    assert.equal(parsedMail.kepcoAddr, "전라남도 나주시 전력로 55");
+    assert.equal(parsedMail.kepcoBizType, "전기가스");
+    assert.equal(parsedMail.kepcoBizClass, "전기공급");
+    assert.equal(parsedMail.plantName, "하예리발전소");
+    assert.equal(parsedMail.totalAmount, 134053);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
+test("draft tax invoice info route keeps business number and recipient email validation", async () => {
+  const draft = {
+    id: 503,
+    customerId: 77,
+    status: "review",
+    plantName: "하예리발전소",
+    billingMonth: "2026-04",
+    kepcoCorpNum: "120-82-00052",
+    kepcoBranchId: "",
+    kepcoCorpName: "하예리",
+    kepcoCeoName: "하예리",
+    kepcoAddr: "충청남도 아산시",
+    kepcoBizType: "전기업",
+    kepcoBizClass: "태양광발전",
+    recipientEmail: ""
+  };
+  const requestStore = {
+    getPilotIssuanceReport: async () => ({ ok: true }),
+    getDraftPilotTimeline: async () => null,
+    getDraft: async () => draft,
+    refreshDraftFromParsedMail: async () => {
+      throw new Error("invalid request should not be persisted");
+    }
+  } as unknown as AppStore;
+
+  const app = express();
+  app.use(express.json());
+  registerDraftRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireWorkspaceEditor: () => ({}) as never,
+    getServerManagedSettings: async () => ({}) as never,
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorStatus: () => 500,
+    buildApiErrorBody: () => ({ error: "unused" }),
+    assertDraftPopbillEnvironment: async () => undefined,
+    backfillDraftPopbillEnvironmentIfMissing: async () => undefined
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const validBody = {
+    kepcoCorpName: "한국전력공사",
+    kepcoCorpNum: "120-82-00052",
+    itemName: "전력 판매",
+    supplyCost: 1000,
+    taxTotal: 100,
+    recipientEmail: "bill@example.com"
+  };
+
+  try {
+    const invalidBusinessNumber = await fetch(`${baseUrl}/api/drafts/503/tax-invoice-info`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...validBody,
+        kepcoCorpNum: "120"
+      })
+    });
+    const invalidEmail = await fetch(`${baseUrl}/api/drafts/503/tax-invoice-info`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...validBody,
+        recipientEmail: "not-an-email"
+      })
+    });
+
+    assert.equal(invalidBusinessNumber.status, 400);
+    assert.equal(asRecord(await invalidBusinessNumber.json()).error, "사업자번호는 숫자 10자리로 입력해주세요.");
+    assert.equal(invalidEmail.status, 400);
+    assert.equal(asRecord(await invalidEmail.json()).error, "수신 이메일 형식이 올바르지 않습니다.");
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
 test("draft pilot timeline route returns 404 when draft timeline is unavailable", async () => {
   const requestStore = {
     getPilotIssuanceReport: async () => ({ ok: true }),

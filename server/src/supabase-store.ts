@@ -41,7 +41,7 @@ import {
 import { createSupabaseAdminClient } from "./supabase.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
 import { decryptSecret, encryptSecret } from "./secret-box.js";
-import type { AppStore, CertificateCheckMetadataUpdate } from "./store-contract.js";
+import type { AppStore, CertificateCheckMetadataUpdate, OrganizationIssueQuota } from "./store-contract.js";
 import {
   buildDraftMgtKey,
   buildPopbillUserId,
@@ -656,7 +656,7 @@ export class SupabaseStore implements AppStore {
   private organizationId: string | null = null;
   private initialized = false;
   private settingsRowsCache: { settingsRow: Row; integrationRow: Row } | null = null;
-  private managedCustomerLimitCache: number | null | undefined = undefined;
+  private issueQuotaCache: OrganizationIssueQuota | null = null;
   private managedCustomerRowCache = new Map<number, Row | null>();
   private customerCache = new Map<number, Customer | null>();
 
@@ -695,10 +695,9 @@ export class SupabaseStore implements AppStore {
             .from("organizations")
             .insert({
               name: envString("AUTO_TAX_ORGANIZATION_NAME") ?? "AUTO-TAX Default Workspace",
-              business_number: digitsOnly(envString("AUTO_TAX_ORGANIZATION_BUSINESS_NUMBER") ?? ""),
-              plan_code: "starter",
+              plan_code: "free_trial",
               status: "trial",
-              managed_customer_limit: 50
+              monthly_issue_limit: 10
             })
             .select("id")
             .single()
@@ -793,34 +792,6 @@ export class SupabaseStore implements AppStore {
     return this.settingsRowsCache;
   }
 
-  private async getManagedCustomerLimit(): Promise<number | null> {
-    if (this.managedCustomerLimitCache !== undefined) {
-      return this.managedCustomerLimitCache;
-    }
-    await this.initialize();
-    const row = await assertNoError(
-      "작업공간 한도 조회 실패",
-      this.client
-        .from("organizations")
-        .select("managed_customer_limit")
-        .eq("id", this.requireOrganizationId())
-        .single()
-    );
-
-    const value = (row as Row).managed_customer_limit;
-    if (value === null || value === undefined) {
-      this.managedCustomerLimitCache = null;
-      return null;
-    }
-
-    this.managedCustomerLimitCache = asNumber(value);
-    return this.managedCustomerLimitCache;
-  }
-
-  async getMonthlyIssueLimit(): Promise<number | null> {
-    return await this.getManagedCustomerLimit();
-  }
-
   async getCurrentMonthIssuedDraftCount(): Promise<number> {
     await this.initialize();
     const { startIso, endIso } = buildSeoulMonthRange();
@@ -837,6 +808,54 @@ export class SupabaseStore implements AppStore {
     }
 
     return count ?? 0;
+  }
+
+  private async getIssuedDraftCount(): Promise<number> {
+    await this.initialize();
+    const { count, error } = await this.client
+      .from("invoice_drafts")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", this.requireOrganizationId())
+      .eq("status", "issued");
+
+    if (error) {
+      throw new Error(`누적 발행 건수 조회 실패: ${error.message}`);
+    }
+
+    return count ?? 0;
+  }
+
+  async getOrganizationIssueQuota(): Promise<OrganizationIssueQuota> {
+    if (this.issueQuotaCache) {
+      return this.issueQuotaCache;
+    }
+    await this.initialize();
+    const row = await assertNoError(
+      "작업공간 발행 한도 조회 실패",
+      this.client
+        .from("organizations")
+        .select("name, plan_code, status, monthly_issue_limit")
+        .eq("id", this.requireOrganizationId())
+        .single()
+    );
+
+    const [issuedDraftCount, currentMonthIssuedDraftCount] = await Promise.all([
+      this.getIssuedDraftCount(),
+      this.getCurrentMonthIssuedDraftCount()
+    ]);
+    this.issueQuotaCache = {
+      organizationName: asString((row as Row).name),
+      organizationPlanCode: asString((row as Row).plan_code, "free_trial"),
+      organizationStatus: asString((row as Row).status, "trial") as OrganizationIssueQuota["organizationStatus"],
+      monthlyIssueLimit: asNumber((row as Row).monthly_issue_limit),
+      issuedDraftCount,
+      currentMonthIssuedDraftCount
+    };
+    return this.issueQuotaCache;
+  }
+
+  async getMonthlyIssueLimit(): Promise<number | null> {
+    return (await this.getOrganizationIssueQuota()).monthlyIssueLimit;
   }
 
   private async getManagedCustomerRowByLegacyId(customerId: number): Promise<Row | null> {
@@ -1579,6 +1598,33 @@ export class SupabaseStore implements AppStore {
       customerId: asNumber(persistedRow.legacy_id),
       plantNames: [],
       matchAddresses: effectiveMatchAddresses
+    });
+  }
+
+  async updateCustomerMemo(customerId: number, memo: string): Promise<Customer> {
+    const current = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!current) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const updatedRow = await assertNoError(
+      "고객 메모 저장 실패",
+      this.client
+        .from("managed_customers")
+        .update({
+          memo,
+          updated_at: nowIso()
+        })
+        .eq("id", asString(current.id))
+        .select("*")
+        .single()
+    ) as Row;
+
+    const cachedCustomer = this.customerCache.get(customerId);
+    return this.buildCachedCustomerFromRow(updatedRow, {
+      customerId,
+      plantNames: cachedCustomer?.plantNames,
+      matchAddresses: cachedCustomer?.matchAddresses
     });
   }
 
@@ -2597,6 +2643,7 @@ export class SupabaseStore implements AppStore {
     }
     if (status === "issued") {
       payload.issued_at = nowIso();
+      this.issueQuotaCache = null;
     }
     if (popbillResult !== undefined) {
       payload.popbill_result_json = popbillResult;

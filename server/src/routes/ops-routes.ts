@@ -6,11 +6,18 @@ import type { AppSettings } from "../domain.js";
 import { HttpError } from "../http-errors.js";
 import type { RequirePlatformAdmin } from "../route-types.js";
 import type { AppStore } from "../store-contract.js";
+import {
+  getPublicSignupRequestById,
+  listPublicSignupRequests,
+  updatePublicSignupRequestStatus
+} from "../signup-requests.js";
+
+const FREE_TRIAL_ISSUE_LIMIT = 10;
+const PAID_SUBSCRIPTION_BLOCK_SIZE = 100;
 
 const opsWorkspaceCreateSchema = z.object({
   organizationName: z.string().trim().min(1),
-  organizationBusinessNumber: z.string().trim().default(""),
-  managedCustomerLimit: z.number().int().min(1).max(10000).default(50),
+  monthlyIssueLimit: z.number().int().min(1).max(10000).default(FREE_TRIAL_ISSUE_LIMIT),
   ownerLoginId: z
     .string()
     .trim()
@@ -23,8 +30,9 @@ const opsWorkspaceCreateSchema = z.object({
   status: z.enum(["trial", "active", "suspended", "churned"]).default("active")
 });
 
-const opsWorkspaceLimitUpdateSchema = z.object({
-  managedCustomerLimit: z.number().int().min(1).max(10000)
+const opsWorkspaceSubscriptionUpdateSchema = z.object({
+  planCode: z.enum(["free_trial", "paid"]),
+  monthlyIssueLimit: z.number().int().min(1).max(10000).optional()
 });
 
 const passwordResetSchema = z.object({
@@ -33,6 +41,10 @@ const passwordResetSchema = z.object({
 
 const consultationRequestUpdateSchema = z.object({
   status: z.enum(["new", "contacted", "workspace_opened", "closed"]).optional(),
+  note: z.string().trim().max(2000).optional()
+});
+
+const signupRequestRejectSchema = z.object({
   note: z.string().trim().max(2000).optional()
 });
 
@@ -111,9 +123,8 @@ type RouteDeps = {
     smtpMessage?: string;
     testMailSent?: boolean;
   }>;
-  digitsOnly: (value: string) => string;
   normalizeLoginId: (value: string) => string;
-  createWorkspaceSeed: (organizationName: string, ownerLoginId: string, businessNumber: string) => string;
+  createWorkspaceSeed: (organizationName: string, ownerLoginId: string) => string;
   createDeterministicUuid: (seed: string) => string;
   findAuthUserByLoginId: (
     adminClient: ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>,
@@ -128,6 +139,9 @@ type RouteDeps = {
   listAllAuthUsers: (adminClient: ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>) => Promise<AuthUserSummary[]>;
 };
 
+type OpsWorkspaceCreateInput = z.infer<typeof opsWorkspaceCreateSchema>;
+type PlatformAuthContext = ReturnType<RequirePlatformAdmin>;
+
 export function registerOpsRoutes(deps: RouteDeps) {
   const {
     app,
@@ -138,7 +152,6 @@ export function registerOpsRoutes(deps: RouteDeps) {
     getOpsWorkspaceSummaryById,
     toClientSettings,
     testMailConnections,
-    digitsOnly,
     normalizeLoginId,
     createWorkspaceSeed,
     createDeterministicUuid,
@@ -149,46 +162,18 @@ export function registerOpsRoutes(deps: RouteDeps) {
     listAllAuthUsers
   } = deps;
 
-  app.get("/api/ops/workspaces", async (_req, res) => {
-    requirePlatformAdmin(res);
-    res.json(await listOpsWorkspaces());
-  });
-
-  app.get("/api/ops/consultation-requests", async (_req, res) => {
-    requirePlatformAdmin(res);
-    res.json(await listPublicConsultationRequests(createSupabaseAdminClient()));
-  });
-
-  app.patch("/api/ops/consultation-requests/:id", async (req, res) => {
-    const authContext = requirePlatformAdmin(res);
-    const params = z.object({ id: z.string().uuid() }).parse(req.params);
-    const payload = consultationRequestUpdateSchema.parse(req.body ?? {});
-    if (payload.status === undefined && payload.note === undefined) {
-      throw new HttpError(400, "변경할 상담 신청 값이 없습니다.");
-    }
-
-    const request = await updatePublicConsultationRequest(createSupabaseAdminClient(), {
-      id: params.id,
-      status: payload.status,
-      note: payload.note,
-      handledBy: authContext.userId
-    });
-
-    if (!request) {
-      throw new HttpError(404, "상담 신청을 찾지 못했습니다.");
-    }
-
-    res.json({ request });
-  });
-
-  app.post("/api/ops/workspaces", async (req, res) => {
-    const authContext = requirePlatformAdmin(res);
-    const payload = opsWorkspaceCreateSchema.parse(req.body ?? {});
+  const createOpsWorkspaceWithOwner = async (
+    authContext: PlatformAuthContext,
+    payload: OpsWorkspaceCreateInput
+  ): Promise<{
+    workspace: OpsWorkspaceSummary;
+    ownerAction: "linked-existing-user" | "created-user";
+    workspaceAction: "created" | "reused-existing";
+  }> => {
     const adminClient = createSupabaseAdminClient();
-    const normalizedBusinessNumber = digitsOnly(payload.organizationBusinessNumber);
     const normalizedOwnerLoginId = normalizeLoginId(payload.ownerLoginId);
     const workspaceId = createDeterministicUuid(
-      createWorkspaceSeed(payload.organizationName, normalizedOwnerLoginId, normalizedBusinessNumber)
+      createWorkspaceSeed(payload.organizationName, normalizedOwnerLoginId)
     );
 
     let ownerUser = await findAuthUserByLoginId(adminClient, normalizedOwnerLoginId);
@@ -233,22 +218,6 @@ export function registerOpsRoutes(deps: RouteDeps) {
       });
     }
 
-    if (normalizedBusinessNumber) {
-      const { data: existingOrganizations, error: existingOrganizationError } = await adminClient
-        .from("organizations")
-        .select("id")
-        .eq("business_number", normalizedBusinessNumber);
-
-      if (existingOrganizationError) {
-        throw new Error(`기존 작업공간 확인에 실패했습니다: ${existingOrganizationError.message}`);
-      }
-
-      const conflictingOrganization = (existingOrganizations ?? []).find((organization) => String(organization.id) !== workspaceId);
-      if (conflictingOrganization) {
-        throw new HttpError(409, "같은 사업자번호를 가진 작업공간이 이미 있습니다.");
-      }
-    }
-
     let createdOrganizationId: string | null = null;
     let workspaceAction: "created" | "reused-existing" = "created";
 
@@ -258,17 +227,16 @@ export function registerOpsRoutes(deps: RouteDeps) {
         .insert({
           id: workspaceId,
           name: payload.organizationName,
-          business_number: normalizedBusinessNumber || null,
           status: payload.status,
           plan_code: payload.planCode,
-          managed_customer_limit: payload.managedCustomerLimit
+          monthly_issue_limit: payload.monthlyIssueLimit
         })
         .select("id")
         .maybeSingle();
 
       if (organizationError) {
         const reusedOrganization =
-          isUniqueViolation(organizationError, "organizations_pkey") || isUniqueViolation(organizationError, "organizations_business_number_key")
+          isUniqueViolation(organizationError, "organizations_pkey")
             ? await getOpsWorkspaceSummaryById(workspaceId)
             : null;
 
@@ -329,11 +297,11 @@ export function registerOpsRoutes(deps: RouteDeps) {
         throw new Error("개통 결과를 다시 읽지 못했습니다.");
       }
 
-      res.status(workspaceAction === "created" ? 201 : 200).json({
+      return {
         workspace,
         ownerAction: createdUserId ? "created-user" : "linked-existing-user",
         workspaceAction
-      });
+      };
     } catch (error) {
       if (createdOrganizationId && workspaceAction === "created") {
         await adminClient.from("organizations").delete().eq("id", createdOrganizationId);
@@ -345,28 +313,143 @@ export function registerOpsRoutes(deps: RouteDeps) {
 
       throw error;
     }
+  };
+
+  app.get("/api/ops/workspaces", async (_req, res) => {
+    requirePlatformAdmin(res);
+    res.json(await listOpsWorkspaces());
   });
 
-  app.put("/api/ops/workspaces/:organizationId/managed-customer-limit", async (req, res) => {
+  app.get("/api/ops/signup-requests", async (_req, res) => {
+    requirePlatformAdmin(res);
+    res.json(await listPublicSignupRequests(createSupabaseAdminClient()));
+  });
+
+  app.post("/api/ops/signup-requests/:id/approve", async (req, res) => {
+    const authContext = requirePlatformAdmin(res);
+    const params = z.object({ id: z.string().uuid() }).parse(req.params);
+    const adminClient = createSupabaseAdminClient();
+    const signupRequest = await getPublicSignupRequestById(adminClient, params.id);
+
+    if (!signupRequest) {
+      throw new HttpError(404, "회원가입 신청을 찾지 못했습니다.");
+    }
+    if (signupRequest.status !== "pending") {
+      throw new HttpError(409, "이미 처리된 회원가입 신청입니다.");
+    }
+
+    const workspaceResult = await createOpsWorkspaceWithOwner(authContext, {
+      organizationName: signupRequest.organizationName,
+      monthlyIssueLimit: FREE_TRIAL_ISSUE_LIMIT,
+      ownerLoginId: signupRequest.loginId,
+      ownerDisplayName: signupRequest.name,
+      ownerPassword: "",
+      planCode: "free_trial",
+      status: "trial"
+    });
+    const request = await updatePublicSignupRequestStatus(adminClient, {
+      id: signupRequest.id,
+      status: "approved",
+      reviewedBy: authContext.userId,
+      reviewNote: `작업공간 ${workspaceResult.workspace.organizationName} 승인 개통`
+    });
+
+    if (!request) {
+      throw new Error("회원가입 승인 결과를 다시 읽지 못했습니다.");
+    }
+
+    res.json({
+      request,
+      ...workspaceResult
+    });
+  });
+
+  app.post("/api/ops/signup-requests/:id/reject", async (req, res) => {
+    const authContext = requirePlatformAdmin(res);
+    const params = z.object({ id: z.string().uuid() }).parse(req.params);
+    const payload = signupRequestRejectSchema.parse(req.body ?? {});
+    const adminClient = createSupabaseAdminClient();
+    const signupRequest = await getPublicSignupRequestById(adminClient, params.id);
+
+    if (!signupRequest) {
+      throw new HttpError(404, "회원가입 신청을 찾지 못했습니다.");
+    }
+    if (signupRequest.status !== "pending") {
+      throw new HttpError(409, "이미 처리된 회원가입 신청입니다.");
+    }
+
+    const request = await updatePublicSignupRequestStatus(adminClient, {
+      id: signupRequest.id,
+      status: "rejected",
+      reviewedBy: authContext.userId,
+      reviewNote: payload.note
+    });
+
+    if (!request) {
+      throw new Error("회원가입 반려 결과를 다시 읽지 못했습니다.");
+    }
+
+    res.json({ request });
+  });
+
+  app.get("/api/ops/consultation-requests", async (_req, res) => {
+    requirePlatformAdmin(res);
+    res.json(await listPublicConsultationRequests(createSupabaseAdminClient()));
+  });
+
+  app.patch("/api/ops/consultation-requests/:id", async (req, res) => {
+    const authContext = requirePlatformAdmin(res);
+    const params = z.object({ id: z.string().uuid() }).parse(req.params);
+    const payload = consultationRequestUpdateSchema.parse(req.body ?? {});
+    if (payload.status === undefined && payload.note === undefined) {
+      throw new HttpError(400, "변경할 상담 신청 값이 없습니다.");
+    }
+
+    const request = await updatePublicConsultationRequest(createSupabaseAdminClient(), {
+      id: params.id,
+      status: payload.status,
+      note: payload.note,
+      handledBy: authContext.userId
+    });
+
+    if (!request) {
+      throw new HttpError(404, "상담 신청을 찾지 못했습니다.");
+    }
+
+    res.json({ request });
+  });
+
+  app.put("/api/ops/workspaces/:organizationId/subscription", async (req, res) => {
     requirePlatformAdmin(res);
     const params = z.object({ organizationId: z.string().uuid() }).parse(req.params);
-    const payload = opsWorkspaceLimitUpdateSchema.parse(req.body ?? {});
+    const payload = opsWorkspaceSubscriptionUpdateSchema.parse(req.body ?? {});
+    const monthlyIssueLimit =
+      payload.planCode === "free_trial" ? FREE_TRIAL_ISSUE_LIMIT : payload.monthlyIssueLimit;
+
+    if (payload.planCode === "paid") {
+      if (!monthlyIssueLimit || monthlyIssueLimit < PAID_SUBSCRIPTION_BLOCK_SIZE || monthlyIssueLimit % PAID_SUBSCRIPTION_BLOCK_SIZE !== 0) {
+        throw new HttpError(400, "유료 구독 월 발행 한도는 100건 이상, 100건 단위로 입력하세요.");
+      }
+    }
+
     const adminClient = createSupabaseAdminClient();
 
     const { error: updateError } = await adminClient
       .from("organizations")
       .update({
-        managed_customer_limit: payload.managedCustomerLimit
+        plan_code: payload.planCode,
+        status: payload.planCode === "paid" ? "active" : "trial",
+        monthly_issue_limit: monthlyIssueLimit
       })
       .eq("id", params.organizationId);
 
     if (updateError) {
-      throw new Error(`월 발행 한도 저장에 실패했습니다: ${updateError.message}`);
+      throw new Error(`구독 상태 저장에 실패했습니다: ${updateError.message}`);
     }
 
     const workspace = await getOpsWorkspaceSummaryById(params.organizationId);
     if (!workspace) {
-      throw new Error("한도 저장 후 작업공간을 다시 찾지 못했습니다.");
+      throw new Error("구독 상태 저장 후 작업공간을 다시 찾지 못했습니다.");
     }
 
     res.json({ workspace });

@@ -380,6 +380,16 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     res.json(toClientCustomer(customer));
   });
 
+  app.patch("/api/customers/:id/memo", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const customerId = Number(req.params.id);
+    const payload = zod.object({ memo: zod.string().max(5000).default("") }).parse(req.body);
+    const customer = await requestStore.updateCustomerMemo(customerId, payload.memo);
+    await requestStore.createLog("info", "customers", "고객 메모를 수정했습니다.", { customerId });
+    res.json(toClientCustomer(customer));
+  });
+
   app.delete("/api/customers/:id", async (req, res) => {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);

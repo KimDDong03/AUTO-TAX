@@ -51,3 +51,26 @@ test("matchesCustomerSearchQuery does not treat full Hangul queries as initials-
 
   assert.equal(matchesCustomerSearchQuery(customer, "홍계정"), false);
 });
+
+test("matchesCustomerSearchQuery supports scoped customer search fields", () => {
+  const customer = createCustomer({
+    corpName: "햇살 발전소",
+    customerName: "김대표",
+    businessNumber: "1234567890",
+    renewalContactMobile: "010-3357-7797"
+  });
+
+  assert.equal(matchesCustomerSearchQuery(customer, "햇살", "corpName"), true);
+  assert.equal(matchesCustomerSearchQuery(customer, "김대표", "corpName"), false);
+  assert.equal(matchesCustomerSearchQuery(customer, "김대표", "customerName"), true);
+  assert.equal(matchesCustomerSearchQuery(customer, "123-45-67890", "businessNumber"), true);
+  assert.equal(matchesCustomerSearchQuery(customer, "01033577797", "phone"), true);
+});
+
+test("matchesCustomerSearchQuery supports issued billing month search", () => {
+  const customer = createCustomer();
+
+  assert.equal(matchesCustomerSearchQuery(customer, "2026-05", "issueMonth", ["2026-05"]), true);
+  assert.equal(matchesCustomerSearchQuery(customer, "2026년 5월", "issueMonth", ["2026-05"]), true);
+  assert.equal(matchesCustomerSearchQuery(customer, "2026년 4월", "issueMonth", ["2026-05"]), false);
+});
