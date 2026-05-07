@@ -234,6 +234,29 @@ function formatCustomerDate(value: string | null | undefined): string {
   return new Date(timestamp).toLocaleDateString("ko-KR");
 }
 
+function formatCustomerMonthLabel(value: string | null | undefined): string {
+  if (!value) return "-";
+  const match = value.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return value;
+  return `${match[1]}년 ${Number(match[2])}월`;
+}
+
+function getCustomerDraftStatusLabel(status: InvoiceDraft["status"]): string {
+  switch (status) {
+    case "review":
+    case "scheduled":
+      return "발행 대기";
+    case "failed":
+      return "발행 실패";
+    case "issuing":
+      return "발행 중";
+    case "issued":
+      return "발행 완료";
+    default:
+      return status;
+  }
+}
+
 function getCurrentCustomerReportYear(): number {
   return new Date().getFullYear();
 }
@@ -422,6 +445,7 @@ export function CustomersTab(props: CustomersTabProps) {
   const [customerTableViewportHeight, setCustomerTableViewportHeight] = useState<number | null>(null);
   const [checkedCustomerIds, setCheckedCustomerIds] = useState<Set<number>>(() => new Set());
   const [customerReportYear, setCustomerReportYear] = useState(getCurrentCustomerReportYear);
+  const [customerHistoryDetailOpen, setCustomerHistoryDetailOpen] = useState(false);
   const customerReportDetail = useCustomerReportDetail(selectedCustomer?.id ?? null, customerReportYear, {
     onSaved: props.onCustomerReportDetailSaved
   });
@@ -499,6 +523,7 @@ export function CustomersTab(props: CustomersTabProps) {
 
   useEffect(() => {
     if (selectedCustomer) {
+      setCustomerHistoryDetailOpen(false);
       setCustomerCertificateSelectorOpen(false);
       setCustomerCertificateSearchQuery("");
       setCustomerCertificateSelectedKey(null);
@@ -1290,7 +1315,7 @@ export function CustomersTab(props: CustomersTabProps) {
             </div>
             <div className="customer-certificate-selector-controls">
               <input
-                type="search"
+                type="text"
                 value={customerCertificateSearchQuery}
                 onChange={(event) => setCustomerCertificateSearchQuery(event.target.value)}
                 placeholder="인증서명, 용도, 발급기관 검색"
@@ -1634,9 +1659,22 @@ export function CustomersTab(props: CustomersTabProps) {
       : customerMemoChanged
         ? "저장 대기"
         : "저장됨";
+    const contractEndMonth = deriveContractEndMonth(reportProfile.contractStartMonth);
+    const customerHistorySummaryText =
+      props.mailboxDataLoading && props.selectedCustomerIssuedDrafts.length === 0
+        ? "발행 이력을 불러오는 중입니다."
+        : selectedRecentIssuedDraft
+          ? `최근 발행 ${props.formatDateTime(selectedRecentIssuedDraft.issuedAt)}`
+          : "아직 발행 이력이 없습니다.";
+    const contractPeriodLabel = reportProfile.contractStartMonth
+      ? `${formatCustomerMonthLabel(reportProfile.contractStartMonth)} ~ ${formatCustomerMonthLabel(contractEndMonth)}`
+      : "계약기간 미입력";
+    const selectedContractRenewalDueItem =
+      props.contractRenewalDueItems.find((item) => item.customerId === selectedCustomer.id) ?? null;
 
     return (
       <div className="customer-detail-panel-body customer-detail-option3-body">
+        <div className="customer-detail-overview">
           <section className="customer-detail-section customer-info-card customer-info-basic-card">
             <div className="customer-detail-section-head">
               <h3>기본 정보</h3>
@@ -1669,7 +1707,7 @@ export function CustomersTab(props: CustomersTabProps) {
             <label className="customer-detail-memo-field">
               메모
               <textarea
-                rows={3}
+                rows={1}
                 value={customerMemoValue}
                 placeholder="고객별 확인 사항을 입력하세요."
                 onChange={(event) => {
@@ -1698,123 +1736,133 @@ export function CustomersTab(props: CustomersTabProps) {
                 }}
               />
             </label>
+            <div className="customer-history-summary" aria-label="운영 이력 요약">
+              <div className="customer-history-summary-main">
+                <span>운영 이력</span>
+                <strong>{props.selectedCustomerIssuedDrafts.length}건</strong>
+                <em>{customerHistorySummaryText}</em>
+              </div>
+              <button type="button" className="btn-ghost customer-history-detail-button" onClick={() => setCustomerHistoryDetailOpen(true)}>
+                상세정보보기
+              </button>
+            </div>
           </section>
 
-          <section className="customer-detail-section customer-info-card customer-info-contract-card">
-            <div className="customer-detail-section-head customer-report-auto-save-head">
-              <h3>계약/발행</h3>
-              <span className={customerReportDetail.error ? "customer-auto-save-status tone-danger" : customerReportDetail.saving ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
-                {customerReportDetail.error || customerReportSaveStatus}
-              </span>
-            </div>
-            <div className="customer-report-profile-grid customer-info-contract-grid">
-              <label>
-                태양광 용량 KW
-                <input
-                  type="number"
-                  min="0"
-                  step="0.001"
-                  value={reportProfile.solarCapacityKw ?? ""}
-                  onInput={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.currentTarget.value))}
-                  onChange={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.target.value))}
-                  onBlur={flushCustomerReportDetailSave}
-                />
-              </label>
-              <label className="customer-contract-period-field">
-                계약기간
-                <span className="customer-contract-period-inputs">
+          <div className="customer-detail-overview-side">
+            <section className="customer-detail-section customer-info-card customer-info-contract-card">
+              <div className="customer-detail-section-head customer-report-auto-save-head">
+                <h3>계약/발행</h3>
+                <span className={customerReportDetail.error ? "customer-auto-save-status tone-danger" : customerReportDetail.saving ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
+                  {customerReportDetail.error || customerReportSaveStatus}
+                </span>
+              </div>
+              <div className="customer-report-profile-grid customer-info-contract-grid">
+                <label>
+                  태양광 용량 KW
                   <input
-                    type="month"
-                    aria-label="계약 시작 월"
-                    value={reportProfile.contractStartMonth ?? ""}
-                    onInput={(event) => updateCustomerReportProfile("contractStartMonth", event.currentTarget.value || null)}
-                    onChange={(event) => updateCustomerReportProfile("contractStartMonth", event.target.value || null)}
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={reportProfile.solarCapacityKw ?? ""}
+                    onInput={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.currentTarget.value))}
+                    onChange={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.target.value))}
                     onBlur={flushCustomerReportDetailSave}
                   />
-                  <span aria-hidden="true">~</span>
-                  <input
-                    type="month"
-                    aria-label="계약 종료 월"
-                    value={deriveContractEndMonth(reportProfile.contractStartMonth) ?? ""}
-                    readOnly
-                    aria-readonly="true"
-                  />
-                </span>
-              </label>
-            </div>
-          </section>
+                </label>
+                <label className="customer-contract-period-field">
+                  계약기간
+                  <span className="customer-contract-period-inputs">
+                    <input
+                      type="month"
+                      aria-label="계약 시작 월"
+                      value={reportProfile.contractStartMonth ?? ""}
+                      onInput={(event) => updateCustomerReportProfile("contractStartMonth", event.currentTarget.value || null)}
+                      onChange={(event) => updateCustomerReportProfile("contractStartMonth", event.target.value || null)}
+                      onBlur={flushCustomerReportDetailSave}
+                    />
+                    <span aria-hidden="true">~</span>
+                    <input
+                      type="month"
+                      aria-label="계약 종료 월"
+                      value={deriveContractEndMonth(reportProfile.contractStartMonth) ?? ""}
+                      readOnly
+                      aria-readonly="true"
+                    />
+                  </span>
+                </label>
+              </div>
+            </section>
 
-          <section className="customer-detail-section customer-info-card customer-info-certificate-card">
-            <div className="customer-detail-section-head customer-certificate-card-head">
-              <h3>인증서</h3>
-            </div>
-            <div className="customer-certificate-management-list">
-              <div className="customer-certificate-management-row">
-                <div className="customer-certificate-management-main">
-                  <div className="customer-certificate-management-title">
-                    <strong>전자세금용</strong>
-                    <span className={getToneBadgeClass(selectedCustomerCertificateStatus.tone)}>{selectedCustomerCertificateStatus.label}</span>
+            <section className="customer-detail-section customer-info-card customer-info-certificate-card">
+              <div className="customer-detail-section-head customer-certificate-card-head">
+                <h3>인증서</h3>
+              </div>
+              <div className="customer-certificate-management-list">
+                <div className="customer-certificate-management-row">
+                  <div className="customer-certificate-management-main">
+                    <div className="customer-certificate-management-title">
+                      <strong>전자세금용</strong>
+                      <span className={getToneBadgeClass(selectedCustomerCertificateStatus.tone)}>{selectedCustomerCertificateStatus.label}</span>
+                    </div>
+                    {renderCustomerCertificateExpireMeta(selectedCustomerElectronicTaxCertificate, selectedCustomerElectronicTaxCertificateFallback)}
                   </div>
-                  {renderCustomerCertificateExpireMeta(selectedCustomerElectronicTaxCertificate, selectedCustomerElectronicTaxCertificateFallback)}
+                </div>
+                <div className="customer-certificate-management-row">
+                  <div className="customer-certificate-management-main">
+                    <div className="customer-certificate-management-title">
+                      <strong>범용</strong>
+                      <span
+                        className={getToneBadgeClass(
+                          selectedCustomerGeneralCertificate?.statusTone ?? selectedCustomerGeneralCertificateStatus.tone
+                        )}
+                      >
+                        {selectedCustomerGeneralCertificate?.statusText ?? selectedCustomerGeneralCertificateStatus.label}
+                      </span>
+                    </div>
+                    {renderCustomerCertificateMeta(
+                      selectedCustomerGeneralCertificate,
+                      selectedCustomerGeneralCertificateStatus.detail || "갱신 준비와 결제에 사용할 범용 인증서를 연결하세요."
+                    )}
+                    {selectedCustomerGeneralCertificate?.paymentAmount ? (
+                      <small>결제 예정 {selectedCustomerGeneralCertificate.paymentAmount}</small>
+                    ) : null}
+                  </div>
+                  <div className="customer-certificate-management-actions">
+                    <button type="button" className="btn-ghost" disabled={props.busyKey !== null} onClick={openCustomerCertificateSelector}>
+                      {selectedCustomerGeneralCertificate ? "범용 인증서 교체" : "범용 인증서 등록"}
+                    </button>
+                    {selectedCustomerGeneralCertificate ? (
+                      selectedCustomerGeneralCertificate.canOpenPayment ? (
+                        <button
+                          type="button"
+                          disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
+                          title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
+                          onClick={openSelectedCustomerGeneralCertificatePayment}
+                        >
+                          결제 열기
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
+                          title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
+                          onClick={prepareSelectedCustomerGeneralCertificateRenewal}
+                        >
+                          갱신 준비
+                        </button>
+                      )
+                    ) : null}
+                  </div>
                 </div>
               </div>
-              <div className="customer-certificate-management-row">
-                <div className="customer-certificate-management-main">
-                  <div className="customer-certificate-management-title">
-                    <strong>범용</strong>
-                    <span
-                      className={getToneBadgeClass(
-                        selectedCustomerGeneralCertificate?.statusTone ?? selectedCustomerGeneralCertificateStatus.tone
-                      )}
-                    >
-                      {selectedCustomerGeneralCertificate?.statusText ?? selectedCustomerGeneralCertificateStatus.label}
-                    </span>
-                  </div>
-                  {renderCustomerCertificateMeta(
-                    selectedCustomerGeneralCertificate,
-                    selectedCustomerGeneralCertificateStatus.detail || "갱신 준비와 결제에 사용할 범용 인증서를 연결하세요."
-                  )}
-                  {selectedCustomerGeneralCertificate?.paymentAmount ? (
-                    <small>결제 예정 {selectedCustomerGeneralCertificate.paymentAmount}</small>
-                  ) : null}
-                </div>
-                <div className="customer-certificate-management-actions">
-                  <button type="button" className="btn-ghost" disabled={props.busyKey !== null} onClick={openCustomerCertificateSelector}>
-                    {selectedCustomerGeneralCertificate ? "범용 인증서 교체" : "범용 인증서 등록"}
-                  </button>
-                  {selectedCustomerGeneralCertificate ? (
-                    selectedCustomerGeneralCertificate.canOpenPayment ? (
-                      <button
-                        type="button"
-                        disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
-                        title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
-                        onClick={openSelectedCustomerGeneralCertificatePayment}
-                      >
-                        결제 열기
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
-                        title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
-                        onClick={prepareSelectedCustomerGeneralCertificateRenewal}
-                      >
-                        갱신 준비
-                      </button>
-                    )
-                  ) : null}
-                </div>
-              </div>
-            </div>
-            {customerCertificateActionNotice ? <p className="customer-certificate-action-notice">{customerCertificateActionNotice}</p> : null}
-          </section>
+              {customerCertificateActionNotice ? <p className="customer-certificate-action-notice">{customerCertificateActionNotice}</p> : null}
+            </section>
+          </div>
+        </div>
 
-          <section className="customer-detail-section customer-report-history-section">
+        <section className="customer-detail-section customer-report-history-section">
             <div className="customer-detail-section-head customer-report-history-head">
-            <h3>발행 이력</h3>
-              <span className={customerReportDetail.error ? "customer-auto-save-status tone-danger" : customerReportDetail.saving ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
-                {customerReportDetail.error || customerReportSaveStatus}
-              </span>
+              <h3>신고 이력</h3>
               <select
                 className="customer-report-year-select"
                 aria-label="신고 연도"
@@ -1827,27 +1875,27 @@ export function CustomersTab(props: CustomersTabProps) {
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="customer-report-totals" aria-label="발행 이력 합계">
-              <div>
-                <span>1분기합계</span>
-                <strong>{props.formatMoney(selectedReportTotals.firstHalf)}원</strong>
-              </div>
-              <div>
-                <span>2분기합계</span>
-                <strong>{props.formatMoney(selectedReportTotals.secondHalf)}원</strong>
-              </div>
-              <div>
-                <span>공급가액</span>
-                <strong>{props.formatMoney(selectedReportTotals.supply)}원</strong>
-              </div>
-              <div>
-                <span>부가세</span>
-                <strong>{props.formatMoney(selectedReportTotals.vat)}원</strong>
-              </div>
-              <div>
-                <span>총합계</span>
-                <strong>{props.formatMoney(selectedReportTotals.annual)}원</strong>
+              <div className="customer-report-totals" aria-label="신고 이력 합계">
+                <div>
+                  <span>1분기합계</span>
+                  <strong>{props.formatMoney(selectedReportTotals.firstHalf)}원</strong>
+                </div>
+                <div>
+                  <span>2분기합계</span>
+                  <strong>{props.formatMoney(selectedReportTotals.secondHalf)}원</strong>
+                </div>
+                <div>
+                  <span>공급가액</span>
+                  <strong>{props.formatMoney(selectedReportTotals.supply)}원</strong>
+                </div>
+                <div>
+                  <span>부가세</span>
+                  <strong>{props.formatMoney(selectedReportTotals.vat)}원</strong>
+                </div>
+                <div>
+                  <span>총계</span>
+                  <strong>{props.formatMoney(selectedReportTotals.annual)}원</strong>
+                </div>
               </div>
             </div>
             {customerReportDetail.loading ? <p className="customer-detail-card-note">신고 상세를 불러오는 중입니다.</p> : null}
@@ -1876,7 +1924,7 @@ export function CustomersTab(props: CustomersTabProps) {
                           <input
                             type="text"
                             inputMode="numeric"
-                            placeholder="일"
+                            placeholder="-"
                             aria-label={`${month.reportMonth}월 발행일`}
                             aria-invalid={issueDateInvalid}
                             value={issueDateInputValue}
@@ -1893,7 +1941,8 @@ export function CustomersTab(props: CustomersTabProps) {
                             type="number"
                             min="0"
                             step="1"
-                            value={month.supplyAmount}
+                            placeholder="-"
+                            value={month.supplyAmount > 0 ? month.supplyAmount : ""}
                             onInput={(event) =>
                               updateCustomerReportMonth(month.reportMonth, (current) => {
                                 const supplyAmount = parseMoneyInput(event.currentTarget.value);
@@ -1924,7 +1973,8 @@ export function CustomersTab(props: CustomersTabProps) {
                             type="number"
                             min="0"
                             step="1"
-                            value={month.vatAmount}
+                            placeholder="-"
+                            value={month.vatAmount > 0 ? month.vatAmount : ""}
                             onInput={(event) =>
                               updateCustomerReportMonth(month.reportMonth, (current) => {
                                 const vatAmount = parseMoneyInput(event.currentTarget.value);
@@ -1950,7 +2000,9 @@ export function CustomersTab(props: CustomersTabProps) {
                             }
                           />
                         </td>
-                        <td className="customer-report-total-cell">{props.formatMoney(month.supplyAmount + month.vatAmount)}원</td>
+                        <td className="customer-report-total-cell">
+                          {month.supplyAmount + month.vatAmount > 0 ? `${props.formatMoney(month.supplyAmount + month.vatAmount)}원` : "-"}
+                        </td>
                       </tr>
                     );
                   })}
@@ -1962,27 +2014,93 @@ export function CustomersTab(props: CustomersTabProps) {
             ) : null}
           </section>
 
-          <section className="customer-detail-section customer-detail-action-strip" aria-label="고객 작업">
-            <div className="customer-detail-action-summary">
-              <span>운영 이력</span>
-              <strong>{props.selectedCustomerIssuedDrafts.length}건</strong>
-              <em>
-                {props.mailboxDataLoading && props.selectedCustomerIssuedDrafts.length === 0
-                  ? "발행 이력을 불러오는 중입니다."
-                  : selectedRecentIssuedDraft
-                    ? `최근 발행 ${props.formatDateTime(selectedRecentIssuedDraft.issuedAt)}`
-                    : "아직 발행 이력이 없습니다."}
-              </em>
-            </div>
-            <div className="customer-detail-action-buttons">
-              <button
-                className="btn-ghost btn-danger"
-                onClick={() => void props.runAction(`delete-customer-${selectedCustomer.id}`, async () => props.onDeleteCustomer(selectedCustomer))}
+          {customerHistoryDetailOpen ? (
+            <div className="customer-history-detail-modal" onMouseDown={() => setCustomerHistoryDetailOpen(false)}>
+              <section
+                className="customer-history-detail-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="customer-history-detail-title"
+                onMouseDown={(event) => event.stopPropagation()}
               >
-                고객 삭제
-              </button>
+                <header className="customer-history-detail-head">
+                  <div>
+                    <h3 id="customer-history-detail-title">고객 상세정보</h3>
+                    <p>{selectedCustomer.corpName || selectedCustomer.customerName || "선택 고객"}</p>
+                  </div>
+                  <button type="button" className="btn-ghost" onClick={() => setCustomerHistoryDetailOpen(false)}>
+                    닫기
+                  </button>
+                </header>
+                <div className="customer-history-detail-grid">
+                  <div className="customer-history-detail-column">
+                    <div className="customer-history-detail-column-head">
+                      <h4>운영 이력</h4>
+                      <span>{props.selectedCustomerIssuedDrafts.length}건</span>
+                    </div>
+                    {props.selectedCustomerIssuedDrafts.length > 0 ? (
+                      <div className="customer-history-detail-list">
+                        {props.selectedCustomerIssuedDrafts.map((draft) => (
+                          <div key={draft.id} className="customer-history-detail-row">
+                            <div>
+                              <strong>{formatCustomerMonthLabel(draft.billingMonth)}</strong>
+                              <span>{getCustomerDraftStatusLabel(draft.status)}</span>
+                            </div>
+                            <dl>
+                              <div>
+                                <dt>발행일</dt>
+                                <dd>{props.formatDateTime(draft.issuedAt ?? draft.issueRequestedAt ?? draft.createdAt)}</dd>
+                              </div>
+                              <div>
+                                <dt>합계액</dt>
+                                <dd>{props.formatMoney(draft.totalAmount)}원</dd>
+                              </div>
+                            </dl>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="customer-history-detail-empty">
+                        {props.mailboxDataLoading ? "발행 이력을 불러오는 중입니다." : "아직 발행 이력이 없습니다."}
+                      </p>
+                    )}
+                  </div>
+                  <div className="customer-history-detail-column">
+                    <div className="customer-history-detail-column-head">
+                      <h4>계약기간</h4>
+                      <span>{selectedContractRenewalDueItem ? "갱신 예정" : "현재"}</span>
+                    </div>
+                    <dl className="customer-history-contract-list">
+                      <div>
+                        <dt>현재 계약기간</dt>
+                        <dd>{contractPeriodLabel}</dd>
+                      </div>
+                      <div>
+                        <dt>태양광 용량</dt>
+                        <dd>{reportProfile.solarCapacityKw !== null ? `${reportProfile.solarCapacityKw} KW` : "-"}</dd>
+                      </div>
+                      {selectedContractRenewalDueItem ? (
+                        <>
+                          <div>
+                            <dt>다음 계약기간</dt>
+                            <dd>
+                              {formatCustomerMonthLabel(selectedContractRenewalDueItem.nextContractStartMonth)} ~{" "}
+                              {formatCustomerMonthLabel(selectedContractRenewalDueItem.nextContractEndMonth)}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>상태</dt>
+                            <dd>{selectedContractRenewalDueItem.status === "overdue" ? "계약 만료" : "계약 만료 예정"}</dd>
+                          </div>
+                        </>
+                      ) : null}
+                    </dl>
+                    <p className="customer-history-detail-empty">이전 계약기간 기록은 아직 저장된 항목이 없습니다.</p>
+                  </div>
+                </div>
+              </section>
             </div>
-          </section>
+          ) : null}
         </div>
     );
   };
@@ -2423,8 +2541,19 @@ export function CustomersTab(props: CustomersTabProps) {
             </div>
             <label className="customer-console-page-search" aria-label="고객 검색">
               <Icon name="search" className="customer-console-page-search-icon" />
+              <span
+                className={[
+                  "customer-console-page-search-text",
+                  props.customerSearchQuery ? "" : "is-placeholder"
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                {props.customerSearchQuery || selectedCustomerSearchFieldOption.placeholder}
+              </span>
               <input
-                type="search"
+                className="customer-console-page-search-input"
+                type="text"
                 placeholder={selectedCustomerSearchFieldOption.placeholder}
                 value={props.customerSearchQuery}
                 onChange={(event) => props.setCustomerSearchQuery(event.target.value)}
@@ -2436,7 +2565,6 @@ export function CustomersTab(props: CustomersTabProps) {
             <div className="customer-console-table-topbar">
               <div className="customer-console-table-title">
                 <strong>{activeFilterCopy[props.customerListFilter].title} ({visibleTableCustomers.length})</strong>
-                <span>상호순</span>
               </div>
               <div className="customer-console-table-actions">
                 {hasActiveFilter ? (

@@ -1338,7 +1338,7 @@ try {
     assert.equal(await detailPanel.getByText("계약기간 종료", { exact: true }).count(), 0);
     await detailPanel.getByText("신고 이력", { exact: true }).waitFor();
     await detailPanel.getByText("운영 이력", { exact: true }).waitFor();
-    await detailPanel.getByText("고객 삭제", { exact: true }).waitFor();
+    await detailPanel.getByRole("button", { name: "상세정보보기" }).waitFor();
     const detailViewportProbe = await page.evaluate(() => {
       const panel = document.querySelector(".customer-detail-panel.is-detail");
       const body = document.querySelector(".customer-detail-panel-body.customer-detail-option3-body");
@@ -1348,6 +1348,26 @@ try {
         bodyClientHeight: body?.clientHeight ?? null,
         bodyScrollHeight: body?.scrollHeight ?? null,
         bodyOverflowY: body ? window.getComputedStyle(body).overflowY : null,
+        overviewCount: document.querySelectorAll(".customer-detail-overview").length,
+        overviewSideCount: document.querySelectorAll(".customer-detail-overview-side").length,
+        overviewDisplay: (() => {
+          const element = document.querySelector(".customer-detail-overview");
+          return element ? window.getComputedStyle(element).display : null;
+        })(),
+        overviewGridColumns: (() => {
+          const element = document.querySelector(".customer-detail-overview");
+          return element ? window.getComputedStyle(element).gridTemplateColumns : null;
+        })(),
+        overviewHeight: (() => {
+          const element = document.querySelector(".customer-detail-overview");
+          return element ? Math.round(element.getBoundingClientRect().height) : null;
+        })(),
+        overviewHasBasicCard: Boolean(document.querySelector(".customer-detail-overview .customer-info-basic-card")),
+        overviewHasContractCard: Boolean(document.querySelector(".customer-detail-overview .customer-info-contract-card")),
+        overviewHasCertificateCard: Boolean(document.querySelector(".customer-detail-overview .customer-info-certificate-card")),
+        historySummaryCount: document.querySelectorAll(".customer-info-basic-card .customer-history-summary").length,
+        historySummaryButtonCount: document.querySelectorAll(".customer-info-basic-card .customer-history-detail-button").length,
+        actionStripCount: document.querySelectorAll(".customer-detail-action-strip").length,
         reportTableCount: document.querySelectorAll(".customer-report-history-section .customer-report-table").length,
         reportHeaders: Array.from(document.querySelectorAll(".customer-report-history-section .customer-report-table thead th")).map((cell) =>
           cell.textContent?.trim() ?? ""
@@ -1379,8 +1399,6 @@ try {
           const input = document.querySelector(".customer-report-history-section .customer-report-table tbody tr td:nth-child(3) input");
           return input ? window.getComputedStyle(input).display : null;
         })(),
-        infoCardCount: document.querySelectorAll(".customer-info-card").length,
-        infoCardClasses: Array.from(document.querySelectorAll(".customer-info-card")).map((card) => card.className),
         legacyBasicCardCount: document.querySelectorAll(".customer-detail-basic-card").length,
         legacyConnectionCardCount: document.querySelectorAll(".customer-detail-connection-card").length,
         infoCardHeadings: Array.from(document.querySelectorAll(".customer-info-card .customer-detail-section-head h3")).map(
@@ -1390,12 +1408,6 @@ try {
         customerInfoCardHeadingTextCount: Array.from(document.querySelectorAll(".customer-info-card h3, .customer-info-card h4")).filter(
           (heading) => heading.textContent?.trim() === "고객 정보"
         ).length,
-        infoCardHeadingFontSizes: Array.from(document.querySelectorAll(".customer-info-card .customer-detail-section-head h3")).map((heading) =>
-          window.getComputedStyle(heading).fontSize
-        ),
-        infoCardHeights: Array.from(document.querySelectorAll(".customer-info-card")).map((card) =>
-          Math.round(card.getBoundingClientRect().height)
-        ),
         issueModeEditorCount: document.querySelectorAll(".customer-info-card .customer-issue-mode-editor").length,
         contractGridText: document.querySelector(".customer-info-contract-card .customer-info-contract-grid")?.textContent?.trim() ?? "",
         contractPeriodInputCount: document.querySelectorAll(".customer-info-contract-card .customer-contract-period-inputs input[type='month']").length,
@@ -1449,10 +1461,10 @@ try {
     if (
       detailViewportProbe.bodyClientHeight === null ||
       detailViewportProbe.bodyScrollHeight === null ||
-      detailViewportProbe.bodyOverflowY !== "hidden" ||
-      detailViewportProbe.bodyScrollHeight - detailViewportProbe.bodyClientHeight > 2
+      detailViewportProbe.bodyOverflowY === "auto" ||
+      detailViewportProbe.bodyOverflowY === "scroll"
     ) {
-      throw new Error(`customer detail should fit without vertical body scrolling. got=${JSON.stringify(detailViewportProbe)}`);
+      throw new Error(`customer detail should not create an internal body scroller. got=${JSON.stringify(detailViewportProbe)}`);
     }
     if (
       detailViewportProbe.reportTableCount !== 1 ||
@@ -1469,7 +1481,7 @@ try {
       detailViewportProbe.reportIssueYearInputCount !== 0 ||
       detailViewportProbe.reportIssueYearTexts.some((text) => text !== "2026년") ||
       detailViewportProbe.reportIssueDateInputTypes.some((type) => type !== "text") ||
-      detailViewportProbe.reportIssueDatePlaceholders.some((placeholder) => placeholder !== "일")
+      detailViewportProbe.reportIssueDatePlaceholders.some((placeholder) => placeholder !== "-")
     ) {
       throw new Error(`customer report history should fix issue year and collect issue day only. got=${JSON.stringify(detailViewportProbe)}`);
     }
@@ -1481,19 +1493,28 @@ try {
       throw new Error(`customer report history cells should be vertically centered in each row. got=${JSON.stringify(detailViewportProbe)}`);
     }
     if (
-      detailViewportProbe.infoCardCount !== 3 ||
-      !detailViewportProbe.infoCardClasses[0]?.includes("customer-info-basic-card") ||
-      !detailViewportProbe.infoCardClasses[1]?.includes("customer-info-contract-card") ||
-      !detailViewportProbe.infoCardClasses[2]?.includes("customer-info-certificate-card") ||
+      detailViewportProbe.overviewCount !== 1 ||
+      detailViewportProbe.overviewSideCount !== 1 ||
+      !detailViewportProbe.overviewHasBasicCard ||
+      !detailViewportProbe.overviewHasContractCard ||
+      !detailViewportProbe.overviewHasCertificateCard ||
+      detailViewportProbe.historySummaryCount !== 1 ||
+      detailViewportProbe.historySummaryButtonCount !== 1 ||
+      detailViewportProbe.actionStripCount !== 0 ||
+      detailViewportProbe.overviewDisplay !== "grid" ||
+      !detailViewportProbe.overviewGridColumns ||
+      detailViewportProbe.overviewGridColumns.trim().split(/\s+/).length < 2 ||
+      detailViewportProbe.overviewHeight === null ||
+      detailViewportProbe.overviewHeight < 180 ||
+      detailViewportProbe.overviewHeight > 320 ||
       detailViewportProbe.legacyBasicCardCount !== 0 ||
       detailViewportProbe.legacyConnectionCardCount !== 0 ||
       detailViewportProbe.customerInfoHeadingCount !== 0 ||
       detailViewportProbe.customerInfoCardHeadingTextCount !== 0 ||
-      detailViewportProbe.infoCardHeadings.join("|") !== "기본 정보|계약/발행|인증서" ||
-      detailViewportProbe.infoCardHeights.length !== 3 ||
-      Math.max(...detailViewportProbe.infoCardHeights) - Math.min(...detailViewportProbe.infoCardHeights) > 1 ||
+      !detailViewportProbe.infoCardHeadings.includes("기본 정보") ||
+      !detailViewportProbe.infoCardHeadings.includes("계약/발행") ||
+      !detailViewportProbe.infoCardHeadings.includes("인증서") ||
       detailViewportProbe.issueModeEditorCount !== 0 ||
-      new Set(detailViewportProbe.infoCardHeadingFontSizes).size !== 1 ||
       !detailViewportProbe.contractGridText.includes("계약기간") ||
       detailViewportProbe.contractGridText.includes("계약기간 시작") ||
       detailViewportProbe.contractGridText.includes("계약기간 종료") ||
@@ -1502,7 +1523,7 @@ try {
       detailViewportProbe.contractPeriodGridColumns.trim().split(/\s+/).length !== 3 ||
       detailViewportProbe.phoneWhiteSpace !== "nowrap"
     ) {
-      throw new Error(`customer detail should render separate basic, contract, and certificate cards with issue-mode editor. got=${JSON.stringify(detailViewportProbe)}`);
+      throw new Error(`customer detail should render a compact overview with customer facts, contract controls, and certificate actions. got=${JSON.stringify(detailViewportProbe)}`);
     }
     if (
       detailViewportProbe.connectionCheckboxCount !== 0 ||
@@ -1594,7 +1615,6 @@ try {
       return {
         hasCustomersScreen: Boolean(customersScreen),
         containsPopbillAlias: /발행 연동|연동 미완료|연결 필요|연결 해제/.test(text),
-        infoCardCount: document.querySelectorAll(".customer-info-card").length,
         connectionFactCount: document.querySelectorAll(".customer-info-certificate-card .customer-detail-connection-facts > div").length,
         connectionFactLabels: Array.from(document.querySelectorAll(".customer-info-certificate-card .customer-detail-connection-facts > div dt")).map(
           (item) => item.textContent?.trim() ?? ""
@@ -1628,15 +1648,17 @@ try {
       throw new Error(`customer certificate card should own certificate management actions. got=${JSON.stringify(customerPopbillCopyProbe)}`);
     }
     if (
-      customerPopbillCopyProbe.infoCardCount !== 3 ||
       customerPopbillCopyProbe.basicCardHeight === null ||
       customerPopbillCopyProbe.contractCardHeight === null ||
       customerPopbillCopyProbe.certificateCardHeight === null
     ) {
       throw new Error(`customer info card height probes missing. got=${JSON.stringify(customerPopbillCopyProbe)}`);
     }
-    const actionStrip = detailPanel.locator(".customer-detail-action-strip");
-    await actionStrip.getByText("아직 발행 이력이 없습니다.", { exact: true }).waitFor();
+    const historySummary = detailPanel.locator(".customer-history-summary");
+    await historySummary.getByText("아직 발행 이력이 없습니다.", { exact: true }).waitFor();
+    await historySummary.getByRole("button", { name: "상세정보보기" }).click();
+    await page.getByRole("dialog", { name: "고객 상세정보" }).waitFor();
+    await page.getByRole("button", { name: "닫기" }).click();
     assert.equal(await detailPanel.locator(".customer-detail-operations-section").count(), 0);
     assert.equal(await detailPanel.locator(".customer-detail-danger-zone").count(), 0);
     assert.equal(await detailPanel.locator(".customer-detail-history-preview").count(), 0);
