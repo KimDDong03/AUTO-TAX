@@ -1367,6 +1367,29 @@ export function IssuanceTab(props: IssuanceTabProps) {
                         자동 등록된 세금계산서 정보
                       </div>
                       <div className="issuance-tax-invoice-layout">
+                        {renderTaxInvoiceSection(
+                          "발행 내용",
+                          isTaxInvoiceInfoEditing && taxInvoiceInfoForm ? (
+                            <>
+                              {renderTaxInvoiceValueRow("작성일자", formatIssuanceTableDate(selectedDraft.writeDate))}
+                              {renderTaxInvoiceInputRow("품목", "itemName")}
+                              {renderTaxInvoiceInputRow("비고/발전소명", "plantName")}
+                              {renderTaxInvoiceInputRow("공급가액", "supplyCost", { inputMode: "numeric" })}
+                              {renderTaxInvoiceInputRow("부가세", "taxTotal", { inputMode: "numeric" })}
+                              {renderTaxInvoiceValueRow("합계금액", formatDraftFormTotalAmount(taxInvoiceInfoForm, props.formatMoney))}
+                            </>
+                          ) : (
+                            <>
+                              {renderTaxInvoiceValueRow("작성일자", formatIssuanceTableDate(selectedDraft.writeDate))}
+                              {renderTaxInvoiceValueRow("품목", formatOptionalInvoiceValue(selectedDraft.itemName))}
+                              {renderTaxInvoiceValueRow("비고/발전소명", formatOptionalInvoiceValue(selectedDraft.plantName))}
+                              {renderTaxInvoiceValueRow("공급가액", formatWon(selectedDraft.supplyCost, props.formatMoney))}
+                              {renderTaxInvoiceValueRow("부가세", formatWon(selectedDraft.taxTotal, props.formatMoney))}
+                              {renderTaxInvoiceValueRow("합계금액", formatWon(selectedDraft.totalAmount, props.formatMoney))}
+                            </>
+                          )
+                        )}
+
                         <div className="issuance-tax-invoice-party-grid">
                           {renderTaxInvoiceSection(
                             "공급자",
@@ -1415,29 +1438,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
                             )
                           )}
                         </div>
-
-                        {renderTaxInvoiceSection(
-                          "발행 내용",
-                          isTaxInvoiceInfoEditing && taxInvoiceInfoForm ? (
-                            <>
-                              {renderTaxInvoiceValueRow("작성일자", formatIssuanceTableDate(selectedDraft.writeDate))}
-                              {renderTaxInvoiceInputRow("품목", "itemName")}
-                              {renderTaxInvoiceInputRow("비고/발전소명", "plantName")}
-                              {renderTaxInvoiceInputRow("공급가액", "supplyCost", { inputMode: "numeric" })}
-                              {renderTaxInvoiceInputRow("부가세", "taxTotal", { inputMode: "numeric" })}
-                              {renderTaxInvoiceValueRow("합계금액", formatDraftFormTotalAmount(taxInvoiceInfoForm, props.formatMoney))}
-                            </>
-                          ) : (
-                            <>
-                              {renderTaxInvoiceValueRow("작성일자", formatIssuanceTableDate(selectedDraft.writeDate))}
-                              {renderTaxInvoiceValueRow("품목", formatOptionalInvoiceValue(selectedDraft.itemName))}
-                              {renderTaxInvoiceValueRow("비고/발전소명", formatOptionalInvoiceValue(selectedDraft.plantName))}
-                              {renderTaxInvoiceValueRow("공급가액", formatWon(selectedDraft.supplyCost, props.formatMoney))}
-                              {renderTaxInvoiceValueRow("부가세", formatWon(selectedDraft.taxTotal, props.formatMoney))}
-                              {renderTaxInvoiceValueRow("합계금액", formatWon(selectedDraft.totalAmount, props.formatMoney))}
-                            </>
-                          )
-                        )}
                       </div>
                       {isTaxInvoiceInfoEditing && taxInvoiceInfoError ? <p className="issuance-inline-edit-error">{taxInvoiceInfoError}</p> : null}
                     </section>

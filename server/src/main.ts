@@ -148,6 +148,18 @@ const DEFAULT_ALLOWED_WEB_ORIGINS = [
   "http://[::1]:5173"
 ] as const;
 const LOOPBACK_WEB_ORIGIN_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co http://127.0.0.1:35119",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'"
+].join("; ");
 
 function isUniqueViolation(error: { code?: unknown; message?: unknown } | null | undefined, constraintName?: string) {
   if (!error) {
@@ -806,6 +818,7 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
     if (req.path.startsWith("/api/")) {
       res.setHeader("Cache-Control", "no-store");
     }

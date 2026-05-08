@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import type { AppStore } from "../store-contract.js";
-import type { InvoiceDraft, MailParseStatus } from "../domain.js";
+import type { InboxMessage, InvoiceDraft, MailParseStatus, ParsedMail } from "../domain.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor } from "../route-types.js";
 import type { MailSyncOptions, MailSyncResult } from "../mail-sync.js";
 
@@ -22,12 +22,38 @@ type RouteDeps = {
   syncMailbox: (requestStore: AppStore, options?: MailSyncOptions) => Promise<MailSyncResult>;
 };
 
+type ClientParsedMail = Omit<ParsedMail, "rawText">;
+type ClientInboxMessage = Omit<InboxMessage, "messageUid" | "mailbox" | "rawSource" | "textBody" | "parsedData"> & {
+  parsedData?: ClientParsedMail;
+};
+
+export function toClientInboxMessage(message: InboxMessage): ClientInboxMessage {
+  const {
+    messageUid: _messageUid,
+    mailbox: _mailbox,
+    rawSource: _rawSource,
+    textBody: _textBody,
+    parsedData,
+    ...safeMessage
+  } = message;
+
+  if (!parsedData) {
+    return safeMessage;
+  }
+
+  const { rawText: _rawText, ...safeParsedData } = parsedData;
+  return {
+    ...safeMessage,
+    parsedData: safeParsedData
+  };
+}
+
 export function registerMailRoutes(deps: RouteDeps) {
   const { app, store, getRequestStore, requireWorkspaceEditor, reprocessInboxMessage, syncMailbox } = deps;
 
   app.get("/api/inbox", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
-    res.json(await requestStore.listInbox());
+    res.json((await requestStore.listInbox()).map(toClientInboxMessage));
   });
 
   app.post("/api/inbox/:id/reprocess", async (req, res) => {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import type { AddressInfo } from "node:net";
 import test from "node:test";
-import { isAllowedCorsOrigin, resolveDirectStartServerOptions } from "./main.js";
+import { createApp, isAllowedCorsOrigin, resolveDirectStartServerOptions } from "./main.js";
 
 test("isAllowedCorsOrigin accepts localhost dev origins on non-default Vite ports", () => {
   assert.equal(isAllowedCorsOrigin("http://localhost:5174", new Set()), true);
@@ -55,4 +56,33 @@ test("resolveDirectStartServerOptions lets explicit false override dev fallback"
       allowStoreInitializationFailure: false
     }
   );
+});
+
+test("createApp sends browser security headers on API responses", async () => {
+  const app = await createApp(null, "__missing_web_dist__");
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/health`);
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-security-policy") ?? "", /default-src 'self'/);
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(response.headers.get("x-frame-options"), "DENY");
+    assert.equal(response.headers.get("referrer-policy"), "strict-origin-when-cross-origin");
+    assert.match(response.headers.get("permissions-policy") ?? "", /camera=\(\)/);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
 });

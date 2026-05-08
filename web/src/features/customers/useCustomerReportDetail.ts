@@ -9,6 +9,7 @@ import {
 
 type UseCustomerReportDetailOptions = {
   onSaved?: (detail: CustomerReportDetail) => void | Promise<void>;
+  autoSave?: boolean;
 };
 
 function getReportDetailSignature(detail: CustomerReportDetail | null): string {
@@ -20,6 +21,7 @@ export function useCustomerReportDetail(
   reportYear: number,
   options: UseCustomerReportDetailOptions = {}
 ) {
+  const autoSave = options.autoSave ?? true;
   const [detail, setDetail] = useState<CustomerReportDetail | null>(null);
   const [draft, setDraft] = useState<CustomerReportDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -96,9 +98,9 @@ export function useCustomerReportDetail(
   }, [draft]);
 
   const saveCurrentDraft = useCallback(
-    async (currentDraft: CustomerReportDetail, successNotice: string) => {
+    async (currentDraft: CustomerReportDetail, successNotice: string): Promise<boolean> => {
       if (customerId === null) {
-        return;
+        return true;
       }
 
       const token = saveTokenRef.current + 1;
@@ -115,7 +117,7 @@ export function useCustomerReportDetail(
         });
         const normalized = normalizeCustomerReportDetail(payload);
         if (saveTokenRef.current !== token) {
-          return;
+          return false;
         }
         setDetail(normalized);
         if (latestDraftSignatureRef.current === savedSignature) {
@@ -123,11 +125,13 @@ export function useCustomerReportDetail(
         }
         setNotice(successNotice);
         await onSavedRef.current?.(normalized);
+        return true;
       } catch (saveError) {
         if (saveTokenRef.current !== token) {
-          return;
+          return false;
         }
         setError(saveError instanceof Error ? saveError.message : "신고 상세를 저장하지 못했습니다.");
+        return false;
       } finally {
         if (saveTokenRef.current === token) {
           setSaving(false);
@@ -138,7 +142,7 @@ export function useCustomerReportDetail(
   );
 
   useEffect(() => {
-    if (!draft || !detail || customerId === null || loading || saving) {
+    if (!autoSave || !draft || !detail || customerId === null || loading || saving) {
       return;
     }
 
@@ -151,14 +155,14 @@ export function useCustomerReportDetail(
     }, 700);
 
     return () => window.clearTimeout(timeoutId);
-  }, [customerId, detail, draft, loading, saveCurrentDraft, saving]);
+  }, [autoSave, customerId, detail, draft, loading, saveCurrentDraft, saving]);
 
   const save = useCallback(async () => {
     const currentDraft = latestDraftRef.current;
     if (!currentDraft || customerId === null) {
-      return;
+      return true;
     }
-    await saveCurrentDraft(currentDraft, "신고 상세를 저장했습니다.");
+    return saveCurrentDraft(currentDraft, "신고 상세를 저장했습니다.");
   }, [customerId, saveCurrentDraft]);
 
   return {

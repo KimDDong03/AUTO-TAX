@@ -13,6 +13,7 @@ This file is for development, deployment, and runtime debugging work. It is not 
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `AUTO_TAX_ENCRYPTION_KEY`
 - `AUTO_TAX_OPS_EMAILS`
 - `AUTO_TAX_POPBILL_LINK_ID`
 - `AUTO_TAX_POPBILL_SECRET_KEY`
@@ -30,8 +31,8 @@ This file is for development, deployment, and runtime debugging work. It is not 
 - `VITE_API_BASE_URL`
 - `AUTO_TAX_ALLOWED_ORIGINS`
 - `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`
-- `SUPABASE_DB_PASSWORD`
 - `AUTO_TAX_RENEWAL_AGENT_*`
+- `SUPABASE_DB_PASSWORD`
 - `AUTO_TAX_RENEWAL_HELPER_ZIP_PATH`
 - `VITE_RENEWAL_HELPER_DOWNLOAD_URL`
 
@@ -79,6 +80,7 @@ npm run build:vercel
 - Production deployment assumes HTTPS end-to-end.
 - `/api/*` responses and Windows local helper responses send `Cache-Control: no-store`.
 - Server-managed secrets include mail credentials, Popbill env values, the customer user-id prefix/shared password defaults, and the optional encrypted renewal issue password default.
+- Set `AUTO_TAX_ENCRYPTION_KEY` in production as an app-specific high-entropy key. Do not rely on the Supabase service role key as the encryption-key fallback for real customer data.
 - The public consultation form accepts only name and phone. Do not collect mail app passwords, Hometax credentials, or account passwords on the public page.
 - Do not store Hometax credentials, raw certificate files, or certificate passwords on the server.
 - Browser auth follows the current Supabase JWT lifecycle. Invalid refresh-token recovery clears the local session and forces re-login.

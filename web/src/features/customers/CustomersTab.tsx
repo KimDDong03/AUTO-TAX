@@ -446,8 +446,10 @@ export function CustomersTab(props: CustomersTabProps) {
   const [checkedCustomerIds, setCheckedCustomerIds] = useState<Set<number>>(() => new Set());
   const [customerReportYear, setCustomerReportYear] = useState(getCurrentCustomerReportYear);
   const [customerHistoryDetailOpen, setCustomerHistoryDetailOpen] = useState(false);
+  const [customerDetailEditing, setCustomerDetailEditing] = useState(false);
   const customerReportDetail = useCustomerReportDetail(selectedCustomer?.id ?? null, customerReportYear, {
-    onSaved: props.onCustomerReportDetailSaved
+    onSaved: props.onCustomerReportDetailSaved,
+    autoSave: false
   });
   const [customerReportIssueDateDrafts, setCustomerReportIssueDateDrafts] = useState<Record<string, string>>({});
   const selectedCustomerIssuedDraftsSyncKey = useMemo(() => {
@@ -523,6 +525,7 @@ export function CustomersTab(props: CustomersTabProps) {
 
   useEffect(() => {
     if (selectedCustomer) {
+      setCustomerDetailEditing(false);
       setCustomerHistoryDetailOpen(false);
       setCustomerCertificateSelectorOpen(false);
       setCustomerCertificateSearchQuery("");
@@ -1015,16 +1018,17 @@ export function CustomersTab(props: CustomersTabProps) {
   };
   const getLatestIssuedDraftForCustomer = (customerId: number) => props.issuedDraftsByCustomerId.get(customerId)?.[0] ?? null;
   const currentBillingMonth = getCurrentSeoulBillingMonth();
-  const issuedThisMonthCustomerCount = (() => {
-    if (!currentBillingMonth) return 0;
-    let count = 0;
-    props.issuedDraftsByCustomerId.forEach((drafts) => {
+  const issuedThisMonthCustomerIds = useMemo(() => {
+    const customerIds = new Set<number>();
+    if (!currentBillingMonth) return customerIds;
+    props.issuedDraftsByCustomerId.forEach((drafts, customerId) => {
       if (drafts.some((draft) => draft.billingMonth === currentBillingMonth)) {
-        count += 1;
+        customerIds.add(customerId);
       }
     });
-    return count;
-  })();
+    return customerIds;
+  }, [currentBillingMonth, props.issuedDraftsByCustomerId]);
+  const unissuedThisMonthCustomerCount = props.customers.filter((customer) => !issuedThisMonthCustomerIds.has(customer.id)).length;
   const certificateExpirationCustomerCount = props.expiredCertCustomers.length + props.expiringSoonCustomerCount;
   const visibleTableCustomers = props.filteredCustomers;
   const visibleCustomerIdSet = useMemo(() => new Set(visibleTableCustomers.map((customer) => customer.id)), [visibleTableCustomers]);
@@ -1082,13 +1086,6 @@ export function CustomersTab(props: CustomersTabProps) {
     });
   };
 
-  const flushCustomerReportDetailSave = () => {
-    if (!customerReportDetail.draft || customerReportDetail.loading || customerReportDetail.saving) {
-      return;
-    }
-    void customerReportDetail.save();
-  };
-
   const checkOnlyCustomer = (customerId: number) => {
     setCheckedCustomerIds((prev) => {
       if (prev.size === 1 && prev.has(customerId)) {
@@ -1099,9 +1096,6 @@ export function CustomersTab(props: CustomersTabProps) {
   };
 
   const handleCustomerRowClick = (event: React.MouseEvent<HTMLTableRowElement>, customer: Customer) => {
-    if (selectedCustomer && selectedCustomer.id !== customer.id) {
-      flushCustomerReportDetailSave();
-    }
     if (event.ctrlKey || event.metaKey) {
       toggleCustomerChecked(customer.id);
     } else {
@@ -1431,14 +1425,11 @@ export function CustomersTab(props: CustomersTabProps) {
         tone: "default" as CustomerConsoleTone
       },
       {
-        key: "invoice-issued",
+        key: "invoice-unissued",
         filter: "unissued",
-        label: "이번 달 발행",
-        value: `${issuedThisMonthCustomerCount}/${props.customers.length}건`,
-        tone:
-          props.customers.length > 0 && issuedThisMonthCustomerCount < props.customers.length
-            ? ("warn" as CustomerConsoleTone)
-            : ("success" as CustomerConsoleTone)
+        label: "이번 달 미발행",
+        value: `${unissuedThisMonthCustomerCount}명`,
+        tone: unissuedThisMonthCustomerCount > 0 ? ("warn" as CustomerConsoleTone) : ("success" as CustomerConsoleTone)
       },
       {
         key: "certificate-expiration",
@@ -1457,9 +1448,9 @@ export function CustomersTab(props: CustomersTabProps) {
     ],
     [
       certificateExpirationCustomerCount,
-      issuedThisMonthCustomerCount,
       props.contractRenewalDueItems.length,
-      props.customers.length
+      props.customers.length,
+      unissuedThisMonthCustomerCount
     ]
   );
   const hasActiveFilter =
@@ -1495,7 +1486,7 @@ export function CustomersTab(props: CustomersTabProps) {
   );
 
   const updateCustomerReportDraft = (updater: (draft: CustomerReportDetail) => CustomerReportDetail) => {
-    if (!selectedCustomer) {
+    if (!selectedCustomer || !customerDetailEditing) {
       return;
     }
     customerReportDetail.setDraft((prev) => {
@@ -1530,6 +1521,24 @@ export function CustomersTab(props: CustomersTabProps) {
     updateCustomerReportDraft((draft) => ({
       ...draft,
       months: draft.months.map((month) => (month.reportMonth === reportMonth ? updater(month) : month))
+    }));
+  };
+  const updateCustomerReportSupplyAmount = (reportMonth: number, value: string) => {
+    const supplyAmount = parseMoneyInput(value);
+    updateCustomerReportMonth(reportMonth, (current) => ({
+      ...current,
+      issueYear: customerReportYear,
+      supplyAmount,
+      totalAmount: supplyAmount + current.vatAmount
+    }));
+  };
+  const updateCustomerReportVatAmount = (reportMonth: number, value: string) => {
+    const vatAmount = parseMoneyInput(value);
+    updateCustomerReportMonth(reportMonth, (current) => ({
+      ...current,
+      issueYear: customerReportYear,
+      vatAmount,
+      totalAmount: current.supplyAmount + vatAmount
     }));
   };
 
@@ -1650,8 +1659,10 @@ export function CustomersTab(props: CustomersTabProps) {
     const reportProfile = selectedReportDraft.profile;
     const reportYearOptions = Array.from({ length: 8 }, (_, index) => getCurrentCustomerReportYear() + 1 - index);
     const customerReportSaveStatus = customerReportDetail.saving
-      ? "자동 저장 중..."
-      : customerReportDetail.notice || "변경하면 자동 저장됩니다.";
+      ? "저장 중..."
+      : customerDetailEditing
+        ? "수정 중"
+        : customerReportDetail.notice || "읽기 전용";
     const customerMemoValue = props.customerForm.id === selectedCustomer.id ? props.customerForm.memo : selectedCustomer.memo;
     const customerMemoChanged = customerMemoValue !== selectedCustomer.memo;
     const customerMemoSaveStatus = props.isSavingCustomer
@@ -1671,16 +1682,68 @@ export function CustomersTab(props: CustomersTabProps) {
       : "계약기간 미입력";
     const selectedContractRenewalDueItem =
       props.contractRenewalDueItems.find((item) => item.customerId === selectedCustomer.id) ?? null;
+    const solarCapacityLabel =
+      reportProfile.solarCapacityKw !== null && reportProfile.solarCapacityKw !== undefined
+        ? `${reportProfile.solarCapacityKw} KW`
+        : "미입력";
+    const contractPeriodSummaryLabel = reportProfile.contractStartMonth
+      ? `${formatCustomerMonthLabel(reportProfile.contractStartMonth)} ~ ${formatCustomerMonthLabel(contractEndMonth)}`
+      : "미입력";
+    const resetCustomerDetailEditDraft = () => {
+      props.setCustomerForm((prev) => (prev.id === selectedCustomer.id ? { ...prev, memo: selectedCustomer.memo } : prev));
+      customerReportDetail.setDraft(
+        customerReportDetail.detail ?? createEmptyCustomerReportDetail(selectedCustomer.id, customerReportYear)
+      );
+      setCustomerReportIssueDateDrafts({});
+      setCustomerCertificateSelectorOpen(false);
+      setCustomerCertificateSelectedKey(null);
+      setCustomerCertificateActionNotice("");
+    };
+    const cancelCustomerDetailEdit = () => {
+      resetCustomerDetailEditDraft();
+      setCustomerDetailEditing(false);
+    };
+    const saveCustomerDetailEdit = () => {
+      if (hasInvalidCustomerReportIssueDateDraft || customerReportDetail.loading || customerReportDetail.saving || props.busyKey !== null) {
+        return;
+      }
+      void props.runAction(
+        `save-customer-detail-${selectedCustomer.id}`,
+        async () => {
+          if (customerMemoChanged) {
+            await props.onSaveCustomerMemo(selectedCustomer.id, customerMemoValue);
+          }
+          const reportSaved = await customerReportDetail.save();
+          if (!reportSaved) {
+            return;
+          }
+          setCustomerReportIssueDateDrafts({});
+          setCustomerCertificateSelectorOpen(false);
+          setCustomerCertificateSelectedKey(null);
+          setCustomerCertificateActionNotice("");
+          setCustomerDetailEditing(false);
+        },
+        { reload: false }
+      );
+    };
+    const customerDetailSaving =
+      props.busyKey !== null || props.isSavingCustomer || customerReportDetail.saving;
 
     return (
-      <div className="customer-detail-panel-body customer-detail-option3-body">
+      <div
+        className={`customer-detail-panel-body customer-detail-option3-body ${
+          customerDetailEditing ? "is-editing" : "is-readonly"
+        }`}
+      >
         <div className="customer-detail-overview">
           <section className="customer-detail-section customer-info-card customer-info-basic-card">
             <div className="customer-detail-section-head">
               <h3>기본 정보</h3>
-              <span className={props.isSavingCustomer ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
-                {customerMemoSaveStatus}
-              </span>
+              {customerDetailEditing ? (
+                <span className={props.isSavingCustomer ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
+                  {customerMemoSaveStatus}
+                </span>
+              ) : null}
             </div>
             <dl className="customer-detail-context-grid customer-detail-basic-facts">
               <div>
@@ -1704,47 +1767,64 @@ export function CustomersTab(props: CustomersTabProps) {
                 <dd>{selectedCustomer.addr || "-"}</dd>
               </div>
             </dl>
-            <label className="customer-detail-memo-field">
-              메모
-              <textarea
-                rows={1}
-                value={customerMemoValue}
-                placeholder="고객별 확인 사항을 입력하세요."
-                onChange={(event) => {
-                  const nextMemo = event.target.value;
-                  props.setCustomerForm((prev) =>
-                    prev.id === selectedCustomer.id
-                      ? {
-                          ...prev,
-                          memo: nextMemo
-                        }
-                      : prev
-                  );
-                }}
-                onBlur={() => {
-                  if (!customerMemoChanged || props.busyKey !== null) return;
-                  void props.runAction(
-                    `save-customer-memo-${selectedCustomer.id}`,
-                    async () => props.onSaveCustomerMemo(selectedCustomer.id, customerMemoValue),
-                    { reload: false }
-                  );
-                }}
-                onKeyDown={(event) => {
-                  if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && customerMemoChanged && props.busyKey === null) {
-                    event.currentTarget.blur();
-                  }
-                }}
-              />
-            </label>
-            <div className="customer-history-summary" aria-label="운영 이력 요약">
-              <div className="customer-history-summary-main">
-                <span>운영 이력</span>
-                <strong>{props.selectedCustomerIssuedDrafts.length}건</strong>
-                <em>{customerHistorySummaryText}</em>
+            {customerDetailEditing ? (
+              <label className="customer-detail-memo-field">
+                메모
+                <textarea
+                  rows={1}
+                  value={customerMemoValue}
+                  placeholder="고객별 확인 사항을 입력하세요."
+                  onChange={(event) => {
+                    const nextMemo = event.target.value;
+                    props.setCustomerForm((prev) =>
+                      prev.id === selectedCustomer.id
+                        ? {
+                            ...prev,
+                            memo: nextMemo
+                          }
+                        : prev
+                    );
+                  }}
+                  onKeyDown={(event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && customerMemoChanged && props.busyKey === null) {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
+              </label>
+            ) : (
+              <div className="customer-detail-read-row customer-detail-memo-summary">
+                <span>메모</span>
+                <p>{customerMemoValue.trim() || "-"}</p>
               </div>
-              <button type="button" className="btn-ghost customer-history-detail-button" onClick={() => setCustomerHistoryDetailOpen(true)}>
-                상세정보보기
-              </button>
+            )}
+          </section>
+
+          <section className="customer-detail-section customer-info-card customer-report-summary-card">
+            <div className="customer-detail-section-head">
+              <h3>신고 합계</h3>
+            </div>
+            <div className="customer-report-totals customer-report-summary-totals" aria-label="신고 이력 합계">
+              <div>
+                <span>1분기합계</span>
+                <strong>{props.formatMoney(selectedReportTotals.firstHalf)}원</strong>
+              </div>
+              <div>
+                <span>2분기합계</span>
+                <strong>{props.formatMoney(selectedReportTotals.secondHalf)}원</strong>
+              </div>
+              <div>
+                <span>공급가액</span>
+                <strong>{props.formatMoney(selectedReportTotals.supply)}원</strong>
+              </div>
+              <div>
+                <span>부가세</span>
+                <strong>{props.formatMoney(selectedReportTotals.vat)}원</strong>
+              </div>
+              <div>
+                <span>총계</span>
+                <strong>{props.formatMoney(selectedReportTotals.annual)}원</strong>
+              </div>
             </div>
           </section>
 
@@ -1756,41 +1836,62 @@ export function CustomersTab(props: CustomersTabProps) {
                   {customerReportDetail.error || customerReportSaveStatus}
                 </span>
               </div>
-              <div className="customer-report-profile-grid customer-info-contract-grid">
-                <label>
-                  태양광 용량 KW
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    value={reportProfile.solarCapacityKw ?? ""}
-                    onInput={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.currentTarget.value))}
-                    onChange={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.target.value))}
-                    onBlur={flushCustomerReportDetailSave}
-                  />
-                </label>
-                <label className="customer-contract-period-field">
-                  계약기간
-                  <span className="customer-contract-period-inputs">
-                    <input
-                      type="month"
-                      aria-label="계약 시작 월"
-                      value={reportProfile.contractStartMonth ?? ""}
-                      onInput={(event) => updateCustomerReportProfile("contractStartMonth", event.currentTarget.value || null)}
-                      onChange={(event) => updateCustomerReportProfile("contractStartMonth", event.target.value || null)}
-                      onBlur={flushCustomerReportDetailSave}
-                    />
-                    <span aria-hidden="true">~</span>
-                    <input
-                      type="month"
-                      aria-label="계약 종료 월"
-                      value={deriveContractEndMonth(reportProfile.contractStartMonth) ?? ""}
-                      readOnly
-                      aria-readonly="true"
-                    />
-                  </span>
-                </label>
+              <div className="customer-history-summary" aria-label="운영 이력 요약">
+                <div className="customer-history-summary-main">
+                  <span>운영 이력</span>
+                  <strong>{props.selectedCustomerIssuedDrafts.length}건</strong>
+                  <em>{customerHistorySummaryText}</em>
+                </div>
+                <button type="button" className="btn-ghost customer-history-detail-button" onClick={() => setCustomerHistoryDetailOpen(true)}>
+                  상세정보보기
+                </button>
               </div>
+              {customerDetailEditing ? (
+                <div className="customer-report-profile-grid customer-info-contract-grid">
+                  <label>
+                    태양광 용량 KW
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value={reportProfile.solarCapacityKw ?? ""}
+                      onInput={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.currentTarget.value))}
+                      onChange={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.target.value))}
+                    />
+                  </label>
+                  <label className="customer-contract-period-field">
+                    계약기간
+                    <span className="customer-contract-period-inputs">
+                      <input
+                        type="month"
+                        aria-label="계약 시작 월"
+                        value={reportProfile.contractStartMonth ?? ""}
+                        onInput={(event) => updateCustomerReportProfile("contractStartMonth", event.currentTarget.value || null)}
+                        onChange={(event) => updateCustomerReportProfile("contractStartMonth", event.target.value || null)}
+                      />
+                      <span aria-hidden="true">~</span>
+                      <input
+                        type="month"
+                        aria-label="계약 종료 월"
+                        value={deriveContractEndMonth(reportProfile.contractStartMonth) ?? ""}
+                        readOnly
+                        aria-readonly="true"
+                      />
+                    </span>
+                  </label>
+                </div>
+              ) : (
+                <dl className="customer-detail-context-grid customer-info-contract-summary">
+                  <div>
+                    <dt>태양광 용량 KW</dt>
+                    <dd>{solarCapacityLabel}</dd>
+                  </div>
+                  <div>
+                    <dt>계약기간</dt>
+                    <dd>{contractPeriodSummaryLabel}</dd>
+                  </div>
+                </dl>
+              )}
             </section>
 
             <section className="customer-detail-section customer-info-card customer-info-certificate-card">
@@ -1827,35 +1928,39 @@ export function CustomersTab(props: CustomersTabProps) {
                       <small>결제 예정 {selectedCustomerGeneralCertificate.paymentAmount}</small>
                     ) : null}
                   </div>
-                  <div className="customer-certificate-management-actions">
-                    <button type="button" className="btn-ghost" disabled={props.busyKey !== null} onClick={openCustomerCertificateSelector}>
-                      {selectedCustomerGeneralCertificate ? "범용 인증서 교체" : "범용 인증서 등록"}
-                    </button>
-                    {selectedCustomerGeneralCertificate ? (
-                      selectedCustomerGeneralCertificate.canOpenPayment ? (
-                        <button
-                          type="button"
-                          disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
-                          title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
-                          onClick={openSelectedCustomerGeneralCertificatePayment}
-                        >
-                          결제 열기
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
-                          title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
-                          onClick={prepareSelectedCustomerGeneralCertificateRenewal}
-                        >
-                          갱신 준비
-                        </button>
-                      )
-                    ) : null}
-                  </div>
+                  {customerDetailEditing ? (
+                    <div className="customer-certificate-management-actions">
+                      <button type="button" className="btn-ghost" disabled={props.busyKey !== null} onClick={openCustomerCertificateSelector}>
+                        {selectedCustomerGeneralCertificate ? "범용 인증서 교체" : "범용 인증서 등록"}
+                      </button>
+                      {selectedCustomerGeneralCertificate ? (
+                        selectedCustomerGeneralCertificate.canOpenPayment ? (
+                          <button
+                            type="button"
+                            disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
+                            title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
+                            onClick={openSelectedCustomerGeneralCertificatePayment}
+                          >
+                            결제 열기
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
+                            title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
+                            onClick={prepareSelectedCustomerGeneralCertificateRenewal}
+                          >
+                            갱신 준비
+                          </button>
+                        )
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </div>
-              {customerCertificateActionNotice ? <p className="customer-certificate-action-notice">{customerCertificateActionNotice}</p> : null}
+              {customerDetailEditing && customerCertificateActionNotice ? (
+                <p className="customer-certificate-action-notice">{customerCertificateActionNotice}</p>
+              ) : null}
             </section>
           </div>
         </div>
@@ -1875,28 +1980,6 @@ export function CustomersTab(props: CustomersTabProps) {
                   </option>
                 ))}
               </select>
-              <div className="customer-report-totals" aria-label="신고 이력 합계">
-                <div>
-                  <span>1분기합계</span>
-                  <strong>{props.formatMoney(selectedReportTotals.firstHalf)}원</strong>
-                </div>
-                <div>
-                  <span>2분기합계</span>
-                  <strong>{props.formatMoney(selectedReportTotals.secondHalf)}원</strong>
-                </div>
-                <div>
-                  <span>공급가액</span>
-                  <strong>{props.formatMoney(selectedReportTotals.supply)}원</strong>
-                </div>
-                <div>
-                  <span>부가세</span>
-                  <strong>{props.formatMoney(selectedReportTotals.vat)}원</strong>
-                </div>
-                <div>
-                  <span>총계</span>
-                  <strong>{props.formatMoney(selectedReportTotals.annual)}원</strong>
-                </div>
-              </div>
             </div>
             {customerReportDetail.loading ? <p className="customer-detail-card-note">신고 상세를 불러오는 중입니다.</p> : null}
             {customerReportDetail.error ? <p className="customer-detail-card-note tone-danger">{customerReportDetail.error}</p> : null}
@@ -1919,84 +2002,55 @@ export function CustomersTab(props: CustomersTabProps) {
                       <tr key={month.reportMonth}>
                         <td>{month.reportMonth}월</td>
                         <td>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="-"
-                            aria-label={`${month.reportMonth}월 발행일`}
-                            aria-invalid={issueDateInvalid}
-                            value={issueDateInputValue}
-                            onInput={(event) => updateCustomerReportIssueDay(month.reportMonth, event.currentTarget.value)}
-                            onChange={(event) => updateCustomerReportIssueDay(month.reportMonth, event.target.value)}
-                            onBlur={() => {
-                              normalizeCustomerReportIssueDayDraft(month.reportMonth);
-                              flushCustomerReportDetailSave();
-                            }}
-                          />
+                          {customerDetailEditing ? (
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="-"
+                              aria-label={`${month.reportMonth}월 발행일`}
+                              aria-invalid={issueDateInvalid}
+                              value={issueDateInputValue}
+                              onInput={(event) => updateCustomerReportIssueDay(month.reportMonth, event.currentTarget.value)}
+                              onChange={(event) => updateCustomerReportIssueDay(month.reportMonth, event.target.value)}
+                              onBlur={() => normalizeCustomerReportIssueDayDraft(month.reportMonth)}
+                            />
+                          ) : (
+                            <span className="customer-report-read-value">{formatCustomerReportIssueDay(month.issueDate) || "-"}</span>
+                          )}
                         </td>
                         <td>
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            placeholder="-"
-                            value={month.supplyAmount > 0 ? month.supplyAmount : ""}
-                            onInput={(event) =>
-                              updateCustomerReportMonth(month.reportMonth, (current) => {
-                                const supplyAmount = parseMoneyInput(event.currentTarget.value);
-                                return {
-                                  ...current,
-                                  issueYear: customerReportYear,
-                                  supplyAmount,
-                                  totalAmount: supplyAmount + current.vatAmount
-                                };
-                              })
-                            }
-                            onBlur={flushCustomerReportDetailSave}
-                            onChange={(event) =>
-                              updateCustomerReportMonth(month.reportMonth, (current) => {
-                                const supplyAmount = parseMoneyInput(event.target.value);
-                                return {
-                                  ...current,
-                                  issueYear: customerReportYear,
-                                  supplyAmount,
-                                  totalAmount: supplyAmount + current.vatAmount
-                                };
-                              })
-                            }
-                          />
+                          {customerDetailEditing ? (
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              placeholder="-"
+                              value={month.supplyAmount > 0 ? month.supplyAmount : ""}
+                              onInput={(event) => updateCustomerReportSupplyAmount(month.reportMonth, event.currentTarget.value)}
+                              onChange={(event) => updateCustomerReportSupplyAmount(month.reportMonth, event.target.value)}
+                            />
+                          ) : (
+                            <span className="customer-report-read-value">
+                              {month.supplyAmount > 0 ? props.formatMoney(month.supplyAmount) : "-"}
+                            </span>
+                          )}
                         </td>
                         <td>
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            placeholder="-"
-                            value={month.vatAmount > 0 ? month.vatAmount : ""}
-                            onInput={(event) =>
-                              updateCustomerReportMonth(month.reportMonth, (current) => {
-                                const vatAmount = parseMoneyInput(event.currentTarget.value);
-                                return {
-                                  ...current,
-                                  issueYear: customerReportYear,
-                                  vatAmount,
-                                  totalAmount: current.supplyAmount + vatAmount
-                                };
-                              })
-                            }
-                            onBlur={flushCustomerReportDetailSave}
-                            onChange={(event) =>
-                              updateCustomerReportMonth(month.reportMonth, (current) => {
-                                const vatAmount = parseMoneyInput(event.target.value);
-                                return {
-                                  ...current,
-                                  issueYear: customerReportYear,
-                                  vatAmount,
-                                  totalAmount: current.supplyAmount + vatAmount
-                                };
-                              })
-                            }
-                          />
+                          {customerDetailEditing ? (
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              placeholder="-"
+                              value={month.vatAmount > 0 ? month.vatAmount : ""}
+                              onInput={(event) => updateCustomerReportVatAmount(month.reportMonth, event.currentTarget.value)}
+                              onChange={(event) => updateCustomerReportVatAmount(month.reportMonth, event.target.value)}
+                            />
+                          ) : (
+                            <span className="customer-report-read-value">
+                              {month.vatAmount > 0 ? props.formatMoney(month.vatAmount) : "-"}
+                            </span>
+                          )}
                         </td>
                         <td className="customer-report-total-cell">
                           {month.supplyAmount + month.vatAmount > 0 ? `${props.formatMoney(month.supplyAmount + month.vatAmount)}원` : "-"}
@@ -2007,10 +2061,38 @@ export function CustomersTab(props: CustomersTabProps) {
                 </tbody>
               </table>
             </div>
-            {hasInvalidCustomerReportIssueDateDraft ? (
+            {customerDetailEditing && hasInvalidCustomerReportIssueDateDraft ? (
               <p className="customer-detail-card-note tone-danger">발행일은 해당 월에 맞는 숫자만 입력하세요.</p>
             ) : null}
           </section>
+
+          <div className="customer-detail-edit-footer" aria-label="고객 상세 수정">
+            <div className="customer-detail-edit-actions">
+              {customerDetailEditing ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={customerDetailSaving}
+                    onClick={cancelCustomerDetailEdit}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    disabled={customerDetailSaving || hasInvalidCustomerReportIssueDateDraft}
+                    onClick={saveCustomerDetailEdit}
+                  >
+                    저장
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="btn-secondary" disabled={props.busyKey !== null} onClick={() => setCustomerDetailEditing(true)}>
+                  수정
+                </button>
+              )}
+            </div>
+          </div>
 
           {customerHistoryDetailOpen ? (
             <div className="customer-history-detail-modal" onMouseDown={() => setCustomerHistoryDetailOpen(false)}>

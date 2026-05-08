@@ -1339,6 +1339,7 @@ try {
     await detailPanel.getByText("신고 이력", { exact: true }).waitFor();
     await detailPanel.getByText("운영 이력", { exact: true }).waitFor();
     await detailPanel.getByRole("button", { name: "상세정보보기" }).waitFor();
+    await detailPanel.getByRole("button", { name: "수정" }).waitFor();
     const detailViewportProbe = await page.evaluate(() => {
       const panel = document.querySelector(".customer-detail-panel.is-detail");
       const body = document.querySelector(".customer-detail-panel-body.customer-detail-option3-body");
@@ -1347,26 +1348,113 @@ try {
         headerCount: document.querySelectorAll(".customer-detail-panel.is-detail .customer-detail-panel-head").length,
         bodyClientHeight: body?.clientHeight ?? null,
         bodyScrollHeight: body?.scrollHeight ?? null,
+        bodyDisplay: body ? window.getComputedStyle(body).display : null,
+        bodyGridColumns: body ? window.getComputedStyle(body).gridTemplateColumns : null,
+        bodyGridRows: body ? window.getComputedStyle(body).gridTemplateRows : null,
         bodyOverflowY: body ? window.getComputedStyle(body).overflowY : null,
+        bodyPaddingTop: body ? window.getComputedStyle(body).paddingTop : null,
+        bodyPaddingRight: body ? window.getComputedStyle(body).paddingRight : null,
+        bodyPaddingBottom: body ? window.getComputedStyle(body).paddingBottom : null,
+        bodyPaddingLeft: body ? window.getComputedStyle(body).paddingLeft : null,
         overviewCount: document.querySelectorAll(".customer-detail-overview").length,
         overviewSideCount: document.querySelectorAll(".customer-detail-overview-side").length,
         overviewDisplay: (() => {
           const element = document.querySelector(".customer-detail-overview");
           return element ? window.getComputedStyle(element).display : null;
         })(),
-        overviewGridColumns: (() => {
-          const element = document.querySelector(".customer-detail-overview");
-          return element ? window.getComputedStyle(element).gridTemplateColumns : null;
+        overviewSideDisplay: (() => {
+          const element = document.querySelector(".customer-detail-overview-side");
+          return element ? window.getComputedStyle(element).display : null;
         })(),
-        overviewHeight: (() => {
-          const element = document.querySelector(".customer-detail-overview");
-          return element ? Math.round(element.getBoundingClientRect().height) : null;
+        basicCardLeft: (() => {
+          const element = document.querySelector(".customer-info-basic-card");
+          return element ? Math.round(element.getBoundingClientRect().left) : null;
+        })(),
+        basicCardWidth: (() => {
+          const element = document.querySelector(".customer-info-basic-card");
+          return element ? Math.round(element.getBoundingClientRect().width) : null;
+        })(),
+        basicCardTop: (() => {
+          const element = document.querySelector(".customer-info-basic-card");
+          return element ? Math.round(element.getBoundingClientRect().top) : null;
+        })(),
+        reportSummaryCardLeft: (() => {
+          const element = document.querySelector(".customer-report-summary-card");
+          return element ? Math.round(element.getBoundingClientRect().left) : null;
+        })(),
+        reportSummaryCardWidth: (() => {
+          const element = document.querySelector(".customer-report-summary-card");
+          return element ? Math.round(element.getBoundingClientRect().width) : null;
+        })(),
+        reportSummaryCardTop: (() => {
+          const element = document.querySelector(".customer-report-summary-card");
+          return element ? Math.round(element.getBoundingClientRect().top) : null;
+        })(),
+        certificateCardLeft: (() => {
+          const element = document.querySelector(".customer-info-certificate-card");
+          return element ? Math.round(element.getBoundingClientRect().left) : null;
+        })(),
+        certificateCardWidth: (() => {
+          const element = document.querySelector(".customer-info-certificate-card");
+          return element ? Math.round(element.getBoundingClientRect().width) : null;
+        })(),
+        certificateCardTop: (() => {
+          const element = document.querySelector(".customer-info-certificate-card");
+          return element ? Math.round(element.getBoundingClientRect().top) : null;
+        })(),
+        contractCardLeft: (() => {
+          const element = document.querySelector(".customer-info-contract-card");
+          return element ? Math.round(element.getBoundingClientRect().left) : null;
+        })(),
+        contractCardTop: (() => {
+          const element = document.querySelector(".customer-info-contract-card");
+          return element ? Math.round(element.getBoundingClientRect().top) : null;
+        })(),
+        reportHistoryLeft: (() => {
+          const element = document.querySelector(".customer-report-history-section");
+          return element ? Math.round(element.getBoundingClientRect().left) : null;
+        })(),
+        reportHistoryTop: (() => {
+          const element = document.querySelector(".customer-report-history-section");
+          return element ? Math.round(element.getBoundingClientRect().top) : null;
+        })(),
+        editFooterTop: (() => {
+          const element = document.querySelector(".customer-detail-edit-footer");
+          return element ? Math.round(element.getBoundingClientRect().top) : null;
+        })(),
+        panelLeft: (() => {
+          const element = document.querySelector(".customer-detail-panel.is-detail");
+          return element ? Math.round(element.getBoundingClientRect().left) : null;
+        })(),
+        panelRight: (() => {
+          const element = document.querySelector(".customer-detail-panel.is-detail");
+          return element ? Math.round(element.getBoundingClientRect().right) : null;
         })(),
         overviewHasBasicCard: Boolean(document.querySelector(".customer-detail-overview .customer-info-basic-card")),
         overviewHasContractCard: Boolean(document.querySelector(".customer-detail-overview .customer-info-contract-card")),
         overviewHasCertificateCard: Boolean(document.querySelector(".customer-detail-overview .customer-info-certificate-card")),
-        historySummaryCount: document.querySelectorAll(".customer-info-basic-card .customer-history-summary").length,
-        historySummaryButtonCount: document.querySelectorAll(".customer-info-basic-card .customer-history-detail-button").length,
+        historySummaryInBasicCount: document.querySelectorAll(".customer-info-basic-card .customer-history-summary").length,
+        historySummaryInContractCount: document.querySelectorAll(".customer-info-contract-card .customer-history-summary").length,
+        historySummaryButtonCount: document.querySelectorAll(".customer-info-contract-card .customer-history-detail-button").length,
+        contractReportTotalsCount: document.querySelectorAll(".customer-info-contract-card .customer-contract-report-totals").length,
+        contractReportTotalItems: Array.from(
+          document.querySelectorAll(".customer-info-contract-card .customer-contract-report-totals > div")
+        ).map((item) => item.textContent?.trim() ?? ""),
+        reportSummaryTotalsCount: document.querySelectorAll(".customer-report-summary-card .customer-report-summary-totals").length,
+        reportSummaryTotalItems: Array.from(
+          document.querySelectorAll(".customer-report-summary-card .customer-report-summary-totals > div")
+        ).map((item) => item.textContent?.trim() ?? ""),
+        reportHeaderTotalsCount: document.querySelectorAll(".customer-report-history-head .customer-report-totals").length,
+        reportHeaderGridColumns: (() => {
+          const element = document.querySelector(".customer-report-history-head");
+          return element ? window.getComputedStyle(element).gridTemplateColumns : null;
+        })(),
+        editBarCount: document.querySelectorAll(".customer-detail-edit-bar").length,
+        editFooterCount: document.querySelectorAll(".customer-detail-edit-footer").length,
+        editButtonCount: document.querySelectorAll(".customer-detail-edit-actions button").length,
+        editActionLabels: Array.from(document.querySelectorAll(".customer-detail-edit-actions button")).map(
+          (button) => button.textContent?.trim() ?? ""
+        ),
         actionStripCount: document.querySelectorAll(".customer-detail-action-strip").length,
         reportTableCount: document.querySelectorAll(".customer-report-history-section .customer-report-table").length,
         reportHeaders: Array.from(document.querySelectorAll(".customer-report-history-section .customer-report-table thead th")).map((cell) =>
@@ -1379,6 +1467,8 @@ try {
         reportMonthInputCount: document.querySelectorAll(
           ".customer-report-history-section .customer-report-table tbody tr td:nth-child(1) input"
         ).length,
+        reportInputCount: document.querySelectorAll(".customer-report-history-section .customer-report-table input").length,
+        reportReadValueCount: document.querySelectorAll(".customer-report-history-section .customer-report-read-value").length,
         reportIssueDateInputTypes: Array.from(
           document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(2) input")
         ).map((input) => (input instanceof HTMLInputElement ? input.type : "")),
@@ -1397,6 +1487,8 @@ try {
           const input = document.querySelector(".customer-report-history-section .customer-report-table tbody tr td:nth-child(2) input");
           return input ? window.getComputedStyle(input).display : null;
         })(),
+        memoTextareaCount: document.querySelectorAll(".customer-info-basic-card textarea").length,
+        memoReadSummaryCount: document.querySelectorAll(".customer-info-basic-card .customer-detail-memo-summary").length,
         legacyBasicCardCount: document.querySelectorAll(".customer-detail-basic-card").length,
         legacyConnectionCardCount: document.querySelectorAll(".customer-detail-connection-card").length,
         infoCardHeadings: Array.from(document.querySelectorAll(".customer-info-card .customer-detail-section-head h3")).map(
@@ -1408,6 +1500,7 @@ try {
         ).length,
         issueModeEditorCount: document.querySelectorAll(".customer-info-card .customer-issue-mode-editor").length,
         contractGridText: document.querySelector(".customer-info-contract-card .customer-info-contract-grid")?.textContent?.trim() ?? "",
+        contractSummaryText: document.querySelector(".customer-info-contract-card .customer-info-contract-summary")?.textContent?.trim() ?? "",
         contractPeriodInputCount: document.querySelectorAll(".customer-info-contract-card .customer-contract-period-inputs input[type='month']").length,
         contractPeriodGridColumns: (() => {
           const element = document.querySelector(".customer-info-contract-card .customer-contract-period-inputs");
@@ -1419,6 +1512,20 @@ try {
           );
           const value = fact?.querySelector("dd");
           return value ? window.getComputedStyle(value).whiteSpace : null;
+        })(),
+        addressWhiteSpace: (() => {
+          const fact = Array.from(document.querySelectorAll(".customer-detail-basic-facts > div")).find(
+            (item) => item.querySelector("dt")?.textContent?.trim() === "사업장 주소"
+          );
+          const value = fact?.querySelector("dd");
+          return value ? window.getComputedStyle(value).whiteSpace : null;
+        })(),
+        addressTextOverflow: (() => {
+          const fact = Array.from(document.querySelectorAll(".customer-detail-basic-facts > div")).find(
+            (item) => item.querySelector("dt")?.textContent?.trim() === "사업장 주소"
+          );
+          const value = fact?.querySelector("dd");
+          return value ? window.getComputedStyle(value).textOverflow : null;
         })(),
         connectionCheckboxCount: document.querySelectorAll(
           ".customer-info-certificate-card .customer-detail-connection-controls input[type='checkbox']"
@@ -1480,17 +1587,17 @@ try {
       detailViewportProbe.reportHeaders.includes("발행년도") ||
       detailViewportProbe.reportYearCellCount !== 0 ||
       detailViewportProbe.reportMonthInputCount !== 0 ||
-      detailViewportProbe.reportIssueDateInputTypes.some((type) => type !== "text") ||
-      detailViewportProbe.reportIssueDatePlaceholders.some((placeholder) => placeholder !== "-")
+      detailViewportProbe.reportInputCount !== 0 ||
+      detailViewportProbe.reportReadValueCount < 36
     ) {
-      throw new Error(`customer report history should use selected year context and collect issue day only. got=${JSON.stringify(detailViewportProbe)}`);
+      throw new Error(`customer report history should render read-only values before edit mode. got=${JSON.stringify(detailViewportProbe)}`);
     }
     if (
       detailViewportProbe.reportBodyCellVerticalAlign !== "middle" ||
       detailViewportProbe.reportHeaderVerticalAlign !== "middle" ||
-      detailViewportProbe.reportDayInputDisplay !== "block"
+      detailViewportProbe.reportDayInputDisplay !== null
     ) {
-      throw new Error(`customer report history cells should be vertically centered in each row. got=${JSON.stringify(detailViewportProbe)}`);
+      throw new Error(`customer report history cells should be vertically centered without read-mode inputs. got=${JSON.stringify(detailViewportProbe)}`);
     }
     if (
       detailViewportProbe.overviewCount !== 1 ||
@@ -1498,15 +1605,64 @@ try {
       !detailViewportProbe.overviewHasBasicCard ||
       !detailViewportProbe.overviewHasContractCard ||
       !detailViewportProbe.overviewHasCertificateCard ||
-      detailViewportProbe.historySummaryCount !== 1 ||
+      detailViewportProbe.historySummaryInBasicCount !== 0 ||
+      detailViewportProbe.historySummaryInContractCount !== 1 ||
       detailViewportProbe.historySummaryButtonCount !== 1 ||
+      detailViewportProbe.contractReportTotalsCount !== 0 ||
+      detailViewportProbe.contractReportTotalItems.length !== 0 ||
+      detailViewportProbe.reportSummaryTotalsCount !== 1 ||
+      detailViewportProbe.reportSummaryTotalItems.length !== 5 ||
+      !detailViewportProbe.reportSummaryTotalItems[0]?.includes("1분기합계") ||
+      !detailViewportProbe.reportSummaryTotalItems[4]?.includes("총계") ||
+      detailViewportProbe.reportHeaderTotalsCount !== 0 ||
+      !detailViewportProbe.reportHeaderGridColumns ||
+      detailViewportProbe.reportHeaderGridColumns.trim().split(/\s+/).length !== 2 ||
+      detailViewportProbe.editBarCount !== 0 ||
+      detailViewportProbe.editFooterCount !== 1 ||
+      detailViewportProbe.editButtonCount !== 1 ||
+      detailViewportProbe.editActionLabels.join("|") !== "수정" ||
+      detailViewportProbe.memoTextareaCount !== 0 ||
+      detailViewportProbe.memoReadSummaryCount !== 1 ||
       detailViewportProbe.actionStripCount !== 0 ||
-      detailViewportProbe.overviewDisplay !== "grid" ||
-      !detailViewportProbe.overviewGridColumns ||
-      detailViewportProbe.overviewGridColumns.trim().split(/\s+/).length < 2 ||
-      detailViewportProbe.overviewHeight === null ||
-      detailViewportProbe.overviewHeight < 180 ||
-      detailViewportProbe.overviewHeight > 320 ||
+      detailViewportProbe.bodyDisplay !== "grid" ||
+      detailViewportProbe.bodyPaddingTop !== "14px" ||
+      detailViewportProbe.bodyPaddingRight !== "14px" ||
+      detailViewportProbe.bodyPaddingBottom !== "14px" ||
+      detailViewportProbe.bodyPaddingLeft !== "14px" ||
+      !detailViewportProbe.bodyGridColumns ||
+      detailViewportProbe.bodyGridColumns.trim().split(/\s+/).length < 2 ||
+      !detailViewportProbe.bodyGridRows ||
+      detailViewportProbe.bodyGridRows.trim().split(/\s+/).length < 4 ||
+      detailViewportProbe.overviewDisplay !== "contents" ||
+      detailViewportProbe.overviewSideDisplay !== "contents" ||
+      detailViewportProbe.basicCardLeft === null ||
+      detailViewportProbe.basicCardWidth === null ||
+      detailViewportProbe.basicCardTop === null ||
+      detailViewportProbe.reportSummaryCardLeft === null ||
+      detailViewportProbe.reportSummaryCardWidth === null ||
+      detailViewportProbe.reportSummaryCardTop === null ||
+      detailViewportProbe.certificateCardLeft === null ||
+      detailViewportProbe.certificateCardWidth === null ||
+      detailViewportProbe.certificateCardTop === null ||
+      detailViewportProbe.contractCardLeft === null ||
+      detailViewportProbe.contractCardTop === null ||
+      detailViewportProbe.reportHistoryLeft === null ||
+      detailViewportProbe.reportHistoryTop === null ||
+      detailViewportProbe.editFooterTop === null ||
+      detailViewportProbe.panelLeft === null ||
+      detailViewportProbe.panelRight === null ||
+      detailViewportProbe.basicCardWidth <= detailViewportProbe.reportSummaryCardWidth ||
+      detailViewportProbe.basicCardLeft - detailViewportProbe.panelLeft < 14 ||
+      detailViewportProbe.panelRight - (detailViewportProbe.reportSummaryCardLeft + detailViewportProbe.reportSummaryCardWidth) < 14 ||
+      detailViewportProbe.reportSummaryCardLeft <= detailViewportProbe.basicCardLeft ||
+      Math.abs(detailViewportProbe.reportSummaryCardTop - detailViewportProbe.basicCardTop) > 2 ||
+      Math.abs(detailViewportProbe.contractCardLeft - detailViewportProbe.basicCardLeft) > 2 ||
+      detailViewportProbe.contractCardTop <= detailViewportProbe.basicCardTop ||
+      Math.abs(detailViewportProbe.certificateCardLeft - detailViewportProbe.contractCardLeft) > 2 ||
+      detailViewportProbe.certificateCardTop <= detailViewportProbe.contractCardTop ||
+      detailViewportProbe.reportHistoryLeft <= detailViewportProbe.contractCardLeft ||
+      Math.abs(detailViewportProbe.reportHistoryTop - detailViewportProbe.contractCardTop) > 2 ||
+      detailViewportProbe.editFooterTop <= detailViewportProbe.reportHistoryTop ||
       detailViewportProbe.legacyBasicCardCount !== 0 ||
       detailViewportProbe.legacyConnectionCardCount !== 0 ||
       detailViewportProbe.customerInfoHeadingCount !== 0 ||
@@ -1514,16 +1670,16 @@ try {
       !detailViewportProbe.infoCardHeadings.includes("기본 정보") ||
       !detailViewportProbe.infoCardHeadings.includes("계약/발행") ||
       !detailViewportProbe.infoCardHeadings.includes("인증서") ||
+      !detailViewportProbe.infoCardHeadings.includes("신고 합계") ||
       detailViewportProbe.issueModeEditorCount !== 0 ||
-      !detailViewportProbe.contractGridText.includes("계약기간") ||
-      detailViewportProbe.contractGridText.includes("계약기간 시작") ||
-      detailViewportProbe.contractGridText.includes("계약기간 종료") ||
-      detailViewportProbe.contractPeriodInputCount !== 2 ||
-      !detailViewportProbe.contractPeriodGridColumns ||
-      detailViewportProbe.contractPeriodGridColumns.trim().split(/\s+/).length !== 3 ||
-      detailViewportProbe.phoneWhiteSpace !== "nowrap"
+      detailViewportProbe.contractGridText !== "" ||
+      !detailViewportProbe.contractSummaryText.includes("계약기간") ||
+      detailViewportProbe.contractPeriodInputCount !== 0 ||
+      detailViewportProbe.phoneWhiteSpace !== "nowrap" ||
+      detailViewportProbe.addressWhiteSpace !== "normal" ||
+      detailViewportProbe.addressTextOverflow !== "clip"
     ) {
-      throw new Error(`customer detail should render a compact overview with customer facts, contract controls, and certificate actions. got=${JSON.stringify(detailViewportProbe)}`);
+      throw new Error(`customer detail should render a compact read-only overview before edit mode. got=${JSON.stringify(detailViewportProbe)}`);
     }
     if (
       detailViewportProbe.connectionCheckboxCount !== 0 ||
@@ -1537,13 +1693,97 @@ try {
       /·|전자세금용/.test(detailViewportProbe.certificateManagementRows[0]?.meta ?? "") ||
       detailViewportProbe.certificateManagementRows[0]?.titleDisplay !== "flex" ||
       detailViewportProbe.certificateManagementRows[1]?.label !== "범용" ||
-      !detailViewportProbe.certificateManagementRows[1]?.actions.some((text) => /범용 인증서/.test(text)) ||
+      detailViewportProbe.certificateManagementRows[1]?.actions.length !== 0 ||
       detailViewportProbe.certificateHelperActions.length !== 0 ||
       detailViewportProbe.inlineCertificateSelectorCount !== 0 ||
       detailViewportProbe.certificateSelectorModalCount !== 0
     ) {
-      throw new Error(`customer certificate card should expose customer-scoped certificate actions. got=${JSON.stringify(detailViewportProbe)}`);
+      throw new Error(`customer certificate card should hide customer-scoped certificate actions before edit mode. got=${JSON.stringify(detailViewportProbe)}`);
     }
+    await detailPanel.getByRole("button", { name: "수정" }).click();
+    await detailPanel.getByRole("button", { name: "저장" }).waitFor();
+    await detailPanel.getByRole("button", { name: "취소" }).waitFor();
+    const detailEditModeProbe = await page.evaluate(() => ({
+      actionLabels: Array.from(document.querySelectorAll(".customer-detail-edit-actions button")).map(
+        (button) => button.textContent?.trim() ?? ""
+      ),
+      memoTextareaCount: document.querySelectorAll(".customer-info-basic-card textarea").length,
+      memoReadSummaryCount: document.querySelectorAll(".customer-info-basic-card .customer-detail-memo-summary").length,
+      reportInputCount: document.querySelectorAll(".customer-report-history-section .customer-report-table input").length,
+      reportIssueDateInputTypes: Array.from(
+        document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(2) input")
+      ).map((input) => (input instanceof HTMLInputElement ? input.type : "")),
+      reportIssueDatePlaceholders: Array.from(
+        document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(2) input")
+      ).map((input) => (input instanceof HTMLInputElement ? input.placeholder : "")),
+      reportDayInputDisplay: (() => {
+        const input = document.querySelector(".customer-report-history-section .customer-report-table tbody tr td:nth-child(2) input");
+        return input ? window.getComputedStyle(input).display : null;
+      })(),
+      contractGridText: document.querySelector(".customer-info-contract-card .customer-info-contract-grid")?.textContent?.trim() ?? "",
+      contractPeriodInputCount: document.querySelectorAll(".customer-info-contract-card .customer-contract-period-inputs input[type='month']").length,
+      contractPeriodGridColumns: (() => {
+        const element = document.querySelector(".customer-info-contract-card .customer-contract-period-inputs");
+        return element ? window.getComputedStyle(element).gridTemplateColumns : null;
+      })(),
+      certificateManagementRows: Array.from(document.querySelectorAll(".customer-certificate-management-row")).map((item) => ({
+        label: item.querySelector(".customer-certificate-management-title > strong")?.textContent?.trim() ?? "",
+        actions: Array.from(item.querySelectorAll("button")).map((button) => button.textContent?.trim() ?? "")
+      }))
+    }));
+    if (
+      detailEditModeProbe.actionLabels.join("|") !== "취소|저장" ||
+      detailEditModeProbe.memoTextareaCount !== 1 ||
+      detailEditModeProbe.memoReadSummaryCount !== 0 ||
+      detailEditModeProbe.reportInputCount !== 36 ||
+      detailEditModeProbe.reportIssueDateInputTypes.some((type) => type !== "text") ||
+      detailEditModeProbe.reportIssueDatePlaceholders.some((placeholder) => placeholder !== "-") ||
+      detailEditModeProbe.reportDayInputDisplay !== "block" ||
+      !detailEditModeProbe.contractGridText.includes("계약기간") ||
+      detailEditModeProbe.contractGridText.includes("계약기간 시작") ||
+      detailEditModeProbe.contractGridText.includes("계약기간 종료") ||
+      detailEditModeProbe.contractPeriodInputCount !== 2 ||
+      !detailEditModeProbe.contractPeriodGridColumns ||
+      detailEditModeProbe.contractPeriodGridColumns.trim().split(/\s+/).length !== 3 ||
+      detailEditModeProbe.certificateManagementRows[1]?.label !== "범용" ||
+      !detailEditModeProbe.certificateManagementRows[1]?.actions.some((text) => /범용 인증서/.test(text))
+    ) {
+      throw new Error(`customer detail edit mode should expose inputs and certificate actions. got=${JSON.stringify(detailEditModeProbe)}`);
+    }
+    await detailPanel.getByRole("button", { name: "취소" }).click();
+    await detailPanel.getByRole("button", { name: "수정" }).waitFor();
+    const detailCancelProbe = await page.evaluate(() => ({
+      memoTextareaCount: document.querySelectorAll(".customer-info-basic-card textarea").length,
+      reportInputCount: document.querySelectorAll(".customer-report-history-section .customer-report-table input").length,
+      certificateActionButtonCount: document.querySelectorAll(".customer-info-certificate-card .customer-certificate-management-actions button").length
+    }));
+    if (
+      detailCancelProbe.memoTextareaCount !== 0 ||
+      detailCancelProbe.reportInputCount !== 0 ||
+      detailCancelProbe.certificateActionButtonCount !== 0
+    ) {
+      throw new Error(`customer detail cancel should restore read-only mode. got=${JSON.stringify(detailCancelProbe)}`);
+    }
+    await detailPanel.getByRole("button", { name: "수정" }).click();
+    await detailPanel.getByRole("button", { name: "저장" }).waitFor();
+    await detailPanel.getByRole("button", { name: "저장" }).click();
+    await detailPanel.getByRole("button", { name: "수정" }).waitFor();
+    const detailSaveProbe = await page.evaluate(() => ({
+      memoTextareaCount: document.querySelectorAll(".customer-info-basic-card textarea").length,
+      reportInputCount: document.querySelectorAll(".customer-report-history-section .customer-report-table input").length,
+      editActionLabels: Array.from(document.querySelectorAll(".customer-detail-edit-actions button")).map(
+        (button) => button.textContent?.trim() ?? ""
+      )
+    }));
+    if (
+      detailSaveProbe.memoTextareaCount !== 0 ||
+      detailSaveProbe.reportInputCount !== 0 ||
+      detailSaveProbe.editActionLabels.join("|") !== "수정"
+    ) {
+      throw new Error(`customer detail save should return to read-only mode. got=${JSON.stringify(detailSaveProbe)}`);
+    }
+    await detailPanel.getByRole("button", { name: "수정" }).click();
+    await detailPanel.getByRole("button", { name: "저장" }).waitFor();
     const helperCountsBeforeSelectorOpen = {
       healthCount: helperRequestLog.healthCount,
       bridgeProbeCount: helperRequestLog.bridgeProbeCount

@@ -149,8 +149,7 @@ type ApiAuthMiddlewareDeps = {
 
 export function createApiAuthMiddleware(deps: ApiAuthMiddlewareDeps): RequestHandler {
   return async (req, res, next) => {
-    const logAuthFailure = async (status: number, message: string, actorUserId?: string | null) => {
-      const organizationId = req.header("x-organization-id")?.trim();
+    const logAuthFailure = async (status: number, message: string, organizationId?: string | null, actorUserId?: string | null) => {
       if (!organizationId || !deps.createLoggingStoreForOrganizationId) {
         return;
       }
