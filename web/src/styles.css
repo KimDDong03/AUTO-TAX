@@ -28768,7 +28768,7 @@ button.issuance-list-item {
   }
 }
 
-/* Issuance responsive repair: keep the draft list visible without pushing detail away. */
+/* Issuance responsive repair: keep drafts and detail in the same working row. */
 @media (max-width: 1180px) {
   .app-shell-topnav .content-issuance {
     height: calc(100vh - 64px) !important;
@@ -28786,11 +28786,12 @@ button.issuance-list-item {
 
   .app-shell-topnav .issuance-workspace {
     display: grid !important;
-    grid-template-columns: clamp(300px, 32vw, 340px) minmax(0, 1fr) !important;
+    grid-template-columns: clamp(250px, 30vw, 320px) minmax(360px, 1fr) !important;
     grid-auto-rows: minmax(0, 1fr) !important;
     align-items: stretch !important;
     min-height: 0 !important;
-    overflow: hidden !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
   }
 
   .app-shell-topnav .issuance-list-panel {
@@ -28832,46 +28833,19 @@ button.issuance-list-item {
 }
 
 @media (max-width: 860px) {
-  .app-shell-topnav .content-issuance {
-    height: auto !important;
-    min-height: calc(100vh - 64px) !important;
-    min-height: calc(100dvh - 64px) !important;
-    overflow: visible !important;
-  }
-
-  .app-shell-topnav .content-issuance > .issuance-screen,
-  .app-shell-topnav .issuance-main-column {
-    height: auto !important;
-    overflow: visible !important;
-  }
-
   .app-shell-topnav .issuance-workspace {
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: visible !important;
+    grid-template-columns: 240px minmax(340px, 1fr) !important;
   }
 
-  .app-shell-topnav .issuance-list-panel,
-  .app-shell-topnav .issuance-detail-panel {
-    grid-column: auto !important;
-    grid-row: auto !important;
+  .app-shell-topnav .issuance-panel-head {
+    padding-inline: 12px !important;
   }
 
-  .app-shell-topnav .issuance-list-panel {
-    height: clamp(320px, 42vh, 420px) !important;
-    min-height: 320px !important;
-    max-height: 420px !important;
-  }
-
-  .app-shell-topnav .issuance-list-panel .issuance-table-shell {
-    max-height: 340px !important;
-  }
-
-  .app-shell-topnav .issuance-detail-panel {
-    display: block !important;
+  .app-shell-topnav .issuance-list-table tr {
+    padding-inline: 12px !important;
   }
 
   .app-shell-topnav .issuance-detail-scroll {
-    overflow: visible !important;
+    overflow: auto !important;
   }
 }
