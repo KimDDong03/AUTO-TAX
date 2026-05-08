@@ -28910,13 +28910,54 @@ button.issuance-list-item {
   margin-left: auto !important;
 }
 
-.app-shell-topnav .customer-console-shell {
-  gap: var(--console-current-top-row-gap) var(--console-current-panel-gap) !important;
+.app-shell-topnav .content-customers {
+  height: calc(100vh - 70px) !important;
+  height: calc(100dvh - 70px) !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
 }
 
-/* Customer page should not add viewport-height padding on top of its own content padding. */
-.app-shell-topnav .customers-screen.customer-console-screen {
+.app-shell-topnav .content-customers > .customers-screen.customer-console-screen {
+  height: 100% !important;
   min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .customer-console-shell {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: var(--console-current-top-row-gap) var(--console-current-panel-gap) !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .customer-console-main-column,
+.app-shell-topnav .customer-detail-panel {
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .customer-console-main-column {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .panel.panel-customer-list.customer-console-panel {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .customer-console-table-wrap {
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+}
+
+.app-shell-topnav .customer-detail-panel-body.customer-detail-option3-body {
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: auto !important;
 }
 
 /* Issuance/customer top-row lock: prevent chip rows from jumping between pages. */
