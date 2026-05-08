@@ -28301,3 +28301,20 @@ button.issuance-list-item {
 .app-shell-topnav .customer-console-table tbody tr:hover > td {
   background: #f7f8fa !important;
 }
+
+@media (max-width: 1100px) {
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card,
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-summary-card,
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card,
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card,
+  .app-shell-topnav .content-customers .customer-report-history-section,
+  .app-shell-topnav .content-customers .customer-detail-edit-footer {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+}
