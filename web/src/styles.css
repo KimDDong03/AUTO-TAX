@@ -28318,3 +28318,328 @@ button.issuance-list-item {
     grid-row: auto !important;
   }
 }
+
+/* Responsive hardening: keep every main page inside the viewport at compact and medium widths. */
+.app-shell-topnav :is(
+  .content,
+  .content-home,
+  .content-issuance,
+  .content-customers,
+  .content-certificates,
+  .content-settings,
+  .content-ops,
+  .home-screen,
+  .issuance-screen,
+  .customers-screen,
+  .certificate-screen,
+  .certificates-screen,
+  .settings-screen,
+  .settings-layout,
+  .ops-screen,
+  .ops-layout
+) {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.app-shell-topnav :is(
+  .lovable-table-wrap,
+  .issuance-table-shell,
+  .issuance-detail-tabset,
+  .issuance-detail-scroll,
+  .customer-console-table-wrap,
+  .customer-report-table-wrap,
+  .certificate-main-table-wrap,
+  .certificate-unlinked-table-wrap,
+  .ops-workspace-table-wrap,
+  .ops-table-wrap
+) {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overscroll-behavior-x: contain !important;
+}
+
+.app-shell-topnav :is(
+  .lovable-table-wrap table,
+  .issuance-list-table,
+  .customer-console-table,
+  .customer-report-table,
+  .certificate-table,
+  .certificate-unlinked-table,
+  .ops-workspace-table,
+  .ops-table
+) {
+  max-width: 100% !important;
+}
+
+@media (max-width: 1280px) {
+  .app-shell-topnav :is(
+    .content-home,
+    .content-issuance,
+    .content-customers,
+    .content-certificates,
+    .content-settings,
+    .content-ops
+  ) {
+    padding-inline: 24px !important;
+  }
+
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: 92px minmax(0, 1fr) minmax(300px, 380px) !important;
+    gap: 14px !important;
+    padding-inline: 24px !important;
+  }
+
+  .app-shell-topnav .topnav-list {
+    min-width: 0 !important;
+    overflow-x: auto !important;
+  }
+
+  .app-shell-topnav .topnav-context {
+    min-width: 0 !important;
+  }
+}
+
+@media (max-width: 1180px) {
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: auto minmax(0, 1fr) auto !important;
+  }
+
+  .app-shell-topnav .topnav-search {
+    width: 220px !important;
+    min-width: 220px !important;
+  }
+
+  .app-shell-topnav .issuance-console-toolbar,
+  .app-shell-topnav .customer-summary-grid {
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+  }
+
+  .app-shell-topnav .issuance-filter-row,
+  .app-shell-topnav .customer-summary-grid {
+    max-width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  .app-shell-topnav .issuance-console-actions,
+  .app-shell-topnav .customer-summary-actions {
+    margin-left: 0 !important;
+  }
+
+  .app-shell-topnav .issuance-workspace {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .issuance-list-panel,
+  .app-shell-topnav .issuance-detail-panel,
+  .app-shell-topnav .issuance-detail-scroll {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+  }
+
+  .app-shell-topnav .settings-layout.settings-option1-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .settings-sidebar-stack {
+    position: static !important;
+  }
+
+  .app-shell-topnav .settings-option1-top-row,
+  .app-shell-topnav .settings-option1-detail-grid,
+  .app-shell-topnav .certificate-layout-grid,
+  .app-shell-topnav .ops-layout,
+  .app-shell-topnav .ops-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+    row-gap: 10px !important;
+  }
+
+  .app-shell-topnav .topnav-context {
+    grid-column: 1 / -1 !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  .app-shell-topnav .topnav-search {
+    flex: 0 0 auto !important;
+    width: 240px !important;
+    min-width: 240px !important;
+  }
+
+  .app-shell-topnav .lovable-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .app-shell-topnav .lovable-home-lower-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .customer-console-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .customer-console-main-column,
+  .app-shell-topnav .customer-detail-panel {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+
+  .app-shell-topnav .panel.panel-customer-list.customer-console-panel {
+    min-height: 0 !important;
+  }
+
+  .app-shell-topnav .customer-console-table-wrap {
+    max-height: 360px !important;
+    overflow: auto !important;
+  }
+
+  .app-shell-topnav .issuance-tax-invoice-party-grid,
+  .app-shell-topnav .issuance-detail-facts-parsed div,
+  .app-shell-topnav .settings-option1-progress-row,
+  .app-shell-topnav .settings-option1-form-grid,
+  .app-shell-topnav .workspace-member-create-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .settings-option1-status-metrics,
+  .app-shell-topnav .certificate-ops-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell-topnav :is(
+    .content-home,
+    .content-issuance,
+    .content-customers,
+    .content-certificates,
+    .content-settings,
+    .content-ops
+  ) {
+    padding-inline: 14px !important;
+    padding-bottom: 44px !important;
+  }
+
+  .app-shell-topnav .topnav-shell {
+    padding-inline: 14px !important;
+  }
+
+  .app-shell-topnav .topnav-brand {
+    min-width: 42px !important;
+  }
+
+  .app-shell-topnav .topnav-list {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  .app-shell-topnav .topnav-button {
+    min-height: 38px !important;
+    padding-inline: 12px !important;
+  }
+
+  .app-shell-topnav .topnav-user-copy {
+    display: none !important;
+  }
+
+  .app-shell-topnav .issuance-console-actions,
+  .app-shell-topnav .customer-summary-actions,
+  .app-shell-topnav .issuance-detail-footer-buttons,
+  .app-shell-topnav .certificate-ops-actions,
+  .app-shell-topnav .certificate-bottom-actions {
+    flex-wrap: wrap !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  .app-shell-topnav .issuance-console-actions button,
+  .app-shell-topnav .customer-summary-actions button,
+  .app-shell-topnav .issuance-detail-footer-buttons button,
+  .app-shell-topnav .certificate-ops-actions button,
+  .app-shell-topnav .certificate-bottom-actions button {
+    flex: 1 1 148px !important;
+  }
+
+  .app-shell-topnav .customer-detail-panel-body.customer-detail-option3-body,
+  .app-shell-topnav .issuance-detail-scroll,
+  .app-shell-topnav .issuance-detail-tabset,
+  .app-shell-topnav .settings-detail > .setup-panel,
+  .app-shell-topnav .settings-option1-card {
+    padding: 14px !important;
+  }
+
+  .app-shell-topnav .customer-detail-overview .customer-detail-basic-facts,
+  .app-shell-topnav .customer-detail-overview .customer-detail-basic-facts > div,
+  .app-shell-topnav .customer-detail-overview .customer-detail-basic-facts > div.wide,
+  .app-shell-topnav .customer-info-contract-grid,
+  .app-shell-topnav .customer-report-profile-grid,
+  .app-shell-topnav .customer-contract-period-inputs,
+  .app-shell-topnav .settings-option1-inline-control {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .customer-detail-overview .customer-detail-basic-facts > div,
+  .app-shell-topnav .customer-detail-overview .customer-detail-basic-facts > div.wide {
+    gap: 4px !important;
+    align-items: start !important;
+  }
+
+  .app-shell-topnav .customer-report-history-head,
+  .app-shell-topnav .settings-option1-card-head,
+  .app-shell-topnav .settings-option1-save-row {
+    flex-wrap: wrap !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .app-shell-topnav .topnav-search {
+    width: 220px !important;
+    min-width: 220px !important;
+  }
+
+  .app-shell-topnav .lovable-metric-grid,
+  .app-shell-topnav .settings-option1-status-metrics,
+  .app-shell-topnav .certificate-ops-metrics {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .lovable-home-hero h2 {
+    font-size: 22px !important;
+  }
+
+  .app-shell-topnav .lovable-panel-head,
+  .app-shell-topnav .issuance-detail-hero,
+  .app-shell-topnav .issuance-detail-footer-actions {
+    padding-inline: 14px !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .portal-shell,
+  .auth-shell {
+    padding: 14px !important;
+  }
+
+  .portal-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .portal-header {
+    flex-direction: column !important;
+  }
+
+  .portal-header-note {
+    max-width: none !important;
+    text-align: left !important;
+  }
+}
