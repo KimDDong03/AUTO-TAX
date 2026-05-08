@@ -28926,6 +28926,7 @@ button.issuance-list-item {
 .app-shell-topnav .customer-console-shell {
   grid-template-rows: auto minmax(0, 1fr) !important;
   gap: var(--console-current-top-row-gap) var(--console-current-panel-gap) !important;
+  align-items: stretch !important;
   height: 100% !important;
   min-height: 0 !important;
   overflow: hidden !important;
@@ -28933,12 +28934,19 @@ button.issuance-list-item {
 
 .app-shell-topnav .customer-console-main-column,
 .app-shell-topnav .customer-detail-panel {
+  height: 100% !important;
+  max-height: 100% !important;
   min-height: 0 !important;
   overflow: hidden !important;
 }
 
 .app-shell-topnav .customer-console-main-column {
   grid-template-rows: auto minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .customer-detail-panel {
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr) !important;
 }
 
 .app-shell-topnav .panel.panel-customer-list.customer-console-panel {
@@ -28950,14 +28958,18 @@ button.issuance-list-item {
 
 .app-shell-topnav .customer-console-table-wrap {
   height: 100% !important;
+  max-height: 100% !important;
   min-height: 0 !important;
   overflow: auto !important;
 }
 
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body,
 .app-shell-topnav .customer-detail-panel-body.customer-detail-option3-body {
   height: 100% !important;
+  max-height: 100% !important;
   min-height: 0 !important;
-  overflow: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
 }
 
 /* Issuance/customer top-row lock: prevent chip rows from jumping between pages. */
