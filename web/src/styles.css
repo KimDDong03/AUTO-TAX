@@ -28768,8 +28768,70 @@ button.issuance-list-item {
   }
 }
 
-/* Issuance responsive repair: stack drafts and detail instead of squeezing the draft column. */
+/* Issuance responsive repair: keep the draft list visible without pushing detail away. */
 @media (max-width: 1180px) {
+  .app-shell-topnav .content-issuance {
+    height: calc(100vh - 64px) !important;
+    height: calc(100dvh - 64px) !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-issuance > .issuance-screen,
+  .app-shell-topnav .issuance-main-column {
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .issuance-workspace {
+    display: grid !important;
+    grid-template-columns: clamp(300px, 32vw, 340px) minmax(0, 1fr) !important;
+    grid-auto-rows: minmax(0, 1fr) !important;
+    align-items: stretch !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .issuance-list-panel {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+  }
+
+  .app-shell-topnav .issuance-detail-panel {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+  }
+
+  .app-shell-topnav .issuance-list-panel,
+  .app-shell-topnav .issuance-detail-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+
+  .app-shell-topnav .issuance-list-panel .issuance-table-shell {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+  }
+
+  .app-shell-topnav .issuance-detail-panel {
+    display: grid !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .issuance-detail-scroll {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: auto !important;
+  }
+}
+
+@media (max-width: 860px) {
   .app-shell-topnav .content-issuance {
     height: auto !important;
     min-height: calc(100vh - 64px) !important;
@@ -28786,31 +28848,23 @@ button.issuance-list-item {
   .app-shell-topnav .issuance-workspace {
     display: flex !important;
     flex-direction: column !important;
-    grid-template-columns: minmax(0, 1fr) !important;
-    grid-auto-rows: auto !important;
-    align-items: stretch !important;
     overflow: visible !important;
   }
 
   .app-shell-topnav .issuance-list-panel,
   .app-shell-topnav .issuance-detail-panel {
-    grid-column: 1 !important;
+    grid-column: auto !important;
     grid-row: auto !important;
-    width: 100% !important;
-    min-width: 0 !important;
   }
 
   .app-shell-topnav .issuance-list-panel {
-    display: block !important;
-    height: clamp(320px, 36vh, 420px) !important;
+    height: clamp(320px, 42vh, 420px) !important;
     min-height: 320px !important;
     max-height: 420px !important;
   }
 
   .app-shell-topnav .issuance-list-panel .issuance-table-shell {
-    height: auto !important;
     max-height: 340px !important;
-    overflow-y: auto !important;
   }
 
   .app-shell-topnav .issuance-detail-panel {
@@ -28818,8 +28872,6 @@ button.issuance-list-item {
   }
 
   .app-shell-topnav .issuance-detail-scroll {
-    height: auto !important;
-    max-height: none !important;
     overflow: visible !important;
   }
 }
