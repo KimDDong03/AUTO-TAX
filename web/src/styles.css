@@ -28914,6 +28914,11 @@ button.issuance-list-item {
   gap: var(--console-current-top-row-gap) var(--console-current-panel-gap) !important;
 }
 
+/* Customer page should not add viewport-height padding on top of its own content padding. */
+.app-shell-topnav .customers-screen.customer-console-screen {
+  min-height: 0 !important;
+}
+
 /* Issuance/customer top-row lock: prevent chip rows from jumping between pages. */
 .app-shell-topnav .content-issuance,
 .app-shell-topnav .content-customers {
