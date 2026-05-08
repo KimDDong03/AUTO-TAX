@@ -28422,9 +28422,12 @@ button.issuance-list-item {
     overflow-x: auto !important;
   }
 
-  .app-shell-topnav .issuance-console-actions,
-  .app-shell-topnav .customer-summary-actions {
+  .app-shell-topnav .issuance-console-actions {
     margin-left: 0 !important;
+  }
+
+  .app-shell-topnav .customer-summary-actions {
+    margin-left: auto !important;
   }
 
   .app-shell-topnav .issuance-workspace {
@@ -28560,6 +28563,7 @@ button.issuance-list-item {
     flex-wrap: wrap !important;
     width: 100% !important;
     height: auto !important;
+    margin-left: 0 !important;
   }
 
   .app-shell-topnav .issuance-console-actions button,
