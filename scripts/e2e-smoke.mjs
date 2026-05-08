@@ -1373,19 +1373,17 @@ try {
           cell.textContent?.trim() ?? ""
         ),
         reportRows: Array.from(document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr")).map(
-          (row) => row.querySelector("td:nth-child(2)")?.textContent?.trim() ?? ""
+          (row) => row.querySelector("td:nth-child(1)")?.textContent?.trim() ?? ""
         ),
-        reportIssueYearInputCount: document.querySelectorAll(
+        reportYearCellCount: document.querySelectorAll(".customer-report-history-section .customer-report-year-cell").length,
+        reportMonthInputCount: document.querySelectorAll(
           ".customer-report-history-section .customer-report-table tbody tr td:nth-child(1) input"
         ).length,
-        reportIssueYearTexts: Array.from(
-          document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(1)")
-        ).map((cell) => cell.textContent?.trim() ?? ""),
         reportIssueDateInputTypes: Array.from(
-          document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(3) input")
+          document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(2) input")
         ).map((input) => (input instanceof HTMLInputElement ? input.type : "")),
         reportIssueDatePlaceholders: Array.from(
-          document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(3) input")
+          document.querySelectorAll(".customer-report-history-section .customer-report-table tbody tr td:nth-child(2) input")
         ).map((input) => (input instanceof HTMLInputElement ? input.placeholder : "")),
         reportBodyCellVerticalAlign: (() => {
           const cell = document.querySelector(".customer-report-history-section .customer-report-table tbody td");
@@ -1396,7 +1394,7 @@ try {
           return cell ? window.getComputedStyle(cell).verticalAlign : null;
         })(),
         reportDayInputDisplay: (() => {
-          const input = document.querySelector(".customer-report-history-section .customer-report-table tbody tr td:nth-child(3) input");
+          const input = document.querySelector(".customer-report-history-section .customer-report-table tbody tr td:nth-child(2) input");
           return input ? window.getComputedStyle(input).display : null;
         })(),
         legacyBasicCardCount: document.querySelectorAll(".customer-detail-basic-card").length,
@@ -1475,15 +1473,17 @@ try {
       throw new Error(`customer report history should render one 1-12 month vertical table. got=${JSON.stringify(detailViewportProbe)}`);
     }
     if (
-      detailViewportProbe.reportHeaders[0] !== "발행년도" ||
-      detailViewportProbe.reportHeaders[1] !== "월" ||
-      detailViewportProbe.reportHeaders[2] !== "일" ||
-      detailViewportProbe.reportIssueYearInputCount !== 0 ||
-      detailViewportProbe.reportIssueYearTexts.some((text) => text !== "2026년") ||
+      detailViewportProbe.reportHeaders.length !== 5 ||
+      detailViewportProbe.reportHeaders[0] !== "월" ||
+      detailViewportProbe.reportHeaders[1] !== "일" ||
+      detailViewportProbe.reportHeaders[2] !== "공급가액" ||
+      detailViewportProbe.reportHeaders.includes("발행년도") ||
+      detailViewportProbe.reportYearCellCount !== 0 ||
+      detailViewportProbe.reportMonthInputCount !== 0 ||
       detailViewportProbe.reportIssueDateInputTypes.some((type) => type !== "text") ||
       detailViewportProbe.reportIssueDatePlaceholders.some((placeholder) => placeholder !== "-")
     ) {
-      throw new Error(`customer report history should fix issue year and collect issue day only. got=${JSON.stringify(detailViewportProbe)}`);
+      throw new Error(`customer report history should use selected year context and collect issue day only. got=${JSON.stringify(detailViewportProbe)}`);
     }
     if (
       detailViewportProbe.reportBodyCellVerticalAlign !== "middle" ||

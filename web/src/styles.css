@@ -18456,15 +18456,13 @@ button.issuance-list-item {
 
 .app-shell-topnav .customer-report-table th:first-child,
 .app-shell-topnav .customer-report-table td:first-child {
-  width: 58px;
+  width: 48px;
   border-left: 0;
   text-align: center;
 }
 
 .app-shell-topnav .customer-report-table th:nth-child(2),
-.app-shell-topnav .customer-report-table td:nth-child(2),
-.app-shell-topnav .customer-report-table th:nth-child(3),
-.app-shell-topnav .customer-report-table td:nth-child(3) {
+.app-shell-topnav .customer-report-table td:nth-child(2) {
   width: 48px;
   text-align: center;
 }
@@ -18504,15 +18502,6 @@ button.issuance-list-item {
 .app-shell-topnav .customer-detail-panel.is-detail .customer-report-table input[aria-invalid="true"] {
   border-color: #b42318;
   background: #fff7f7;
-}
-
-.app-shell-topnav .customer-report-year-cell {
-  color: var(--wf-muted);
-  font-weight: 800;
-  line-height: 1.2;
-  text-align: center;
-  vertical-align: middle;
-  white-space: nowrap;
 }
 
 .app-shell-topnav .customer-report-total-cell {
@@ -26745,7 +26734,8 @@ button.issuance-list-item {
   align-items: stretch !important;
   min-height: 0 !important;
   overflow: hidden !important;
-  border: 1px solid var(--lovable-border) !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
   border-radius: 0 !important;
   background: #ffffff !important;
   box-shadow: none !important;
@@ -27409,28 +27399,20 @@ button.issuance-list-item {
 
 .app-shell-topnav .content-customers .customer-report-table th:first-child,
 .app-shell-topnav .content-customers .customer-report-table td:first-child {
-  width: 64px !important;
+  width: 56px !important;
   padding-left: 0 !important;
   text-align: left !important;
 }
 
 .app-shell-topnav .content-customers .customer-report-table th:nth-child(2),
-.app-shell-topnav .content-customers .customer-report-table td:nth-child(2),
-.app-shell-topnav .content-customers .customer-report-table th:nth-child(3),
-.app-shell-topnav .content-customers .customer-report-table td:nth-child(3) {
+.app-shell-topnav .content-customers .customer-report-table td:nth-child(2) {
   width: 56px !important;
 }
 
-.app-shell-topnav .content-customers .customer-report-table th:nth-child(6),
-.app-shell-topnav .content-customers .customer-report-table td:nth-child(6) {
+.app-shell-topnav .content-customers .customer-report-table th:nth-child(5),
+.app-shell-topnav .content-customers .customer-report-table td:nth-child(5) {
   padding-right: 0 !important;
   text-align: right !important;
-}
-
-.app-shell-topnav .content-customers .customer-report-year-cell {
-  color: #111827 !important;
-  font-weight: 700 !important;
-  text-align: left !important;
 }
 
 .app-shell-topnav .content-customers .customer-report-total-cell {

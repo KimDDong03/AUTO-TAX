@@ -1904,7 +1904,6 @@ export function CustomersTab(props: CustomersTabProps) {
               <table className="customer-report-table">
                 <thead>
                   <tr>
-                    <th>발행년도</th>
                     <th>월</th>
                     <th>일</th>
                     <th>공급가액</th>
@@ -1918,7 +1917,6 @@ export function CustomersTab(props: CustomersTabProps) {
                     const issueDateInvalid = isCustomerReportIssueDateInputInvalid(month.reportMonth, issueDateInputValue);
                     return (
                       <tr key={month.reportMonth}>
-                        <td className="customer-report-year-cell">{customerReportYear}년</td>
                         <td>{month.reportMonth}월</td>
                         <td>
                           <input
