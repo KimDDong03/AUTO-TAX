@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import type { AuthUserSummary, OrganizationMemberSummary } from "../admin-types.js";
 import { HttpError } from "../http-errors.js";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../password-policy.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequireOrganizationOwner, RequestStoreGetter } from "../route-types.js";
 
@@ -17,7 +18,7 @@ const organizationMemberCreateSchema = z.object({
 });
 
 const passwordResetSchema = z.object({
-  password: z.string().trim().min(8).max(128)
+  password: z.string().trim().max(128).refine(isStrongPassword, PASSWORD_POLICY_MESSAGE)
 });
 
 type RouteDeps = {
@@ -76,8 +77,8 @@ export function registerOrganizationMemberRoutes(deps: RouteDeps) {
     let createdUserId: string | null = null;
 
     if (!memberUser) {
-      if (payload.password.trim().length < 8) {
-        throw new HttpError(400, "새 사용자 계정을 만들려면 8자 이상 임시 비밀번호가 필요합니다.");
+      if (!isStrongPassword(payload.password.trim())) {
+        throw new HttpError(400, `새 사용자 계정을 만들려면 ${PASSWORD_POLICY_MESSAGE}`);
       }
 
       const { data: createdUserResult, error: createUserError } = await adminClient.auth.admin.createUser({

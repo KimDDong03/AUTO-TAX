@@ -29,6 +29,7 @@ import { IssuanceTab, type DraftTaxInvoiceInfoUpdateInput } from "./features/iss
 import { buildHomeScreenModel, type HomeActionKey } from "./features/home/homeScreenModel";
 import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
 import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "./features/auth/passwordPolicy";
 import { PublicLanding, type PublicSignupInput } from "./features/public/PublicLanding";
 import {
   downloadCustomerOnboardingTemplate,
@@ -3504,8 +3505,8 @@ export function App() {
         throw new Error("비밀번호 재설정 링크를 다시 열어주세요.");
       }
 
-      if (nextPassword.length < 8) {
-        throw new Error("새 비밀번호는 8자 이상으로 입력하세요.");
+      if (!isStrongPassword(nextPassword)) {
+        throw new Error(PASSWORD_POLICY_MESSAGE);
       }
 
       if (nextPassword !== confirmPassword) {
@@ -3560,8 +3561,8 @@ export function App() {
     const nextPassword = ownerPasswordResetForm.nextPassword.trim();
     const confirmPassword = ownerPasswordResetForm.confirmPassword.trim();
 
-    if (nextPassword.length < 8) {
-      throw new Error("임시 비밀번호는 8자 이상으로 입력하세요.");
+    if (!isStrongPassword(nextPassword)) {
+      throw new Error(PASSWORD_POLICY_MESSAGE);
     }
 
     if (nextPassword !== confirmPassword) {
@@ -5039,7 +5040,7 @@ export function App() {
                         nextPassword: event.target.value
                       }))
                     }
-                    placeholder="8자 이상 입력"
+                    placeholder={PASSWORD_POLICY_PLACEHOLDER}
                     autoComplete="new-password"
                     required
                   />
@@ -7557,7 +7558,7 @@ export function App() {
                                       nextPassword: event.target.value
                                     }))
                                   }
-                                  placeholder="8자 이상 입력"
+                                  placeholder={PASSWORD_POLICY_PLACEHOLDER}
                                 />
                                 <button
                                   type="button"

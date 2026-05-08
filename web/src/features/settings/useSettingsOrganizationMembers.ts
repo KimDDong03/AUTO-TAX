@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { api } from "../../api";
 import type { OrganizationMemberRole, OrganizationMemberSummary } from "../../types";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../auth/passwordPolicy";
 import {
   createEmptyOrganizationMemberForm,
   createEmptyPasswordResetForm,
@@ -142,8 +143,8 @@ export function useSettingsOrganizationMembers({
     const nextPassword = passwordResetForm.nextPassword.trim();
     const confirmPassword = passwordResetForm.confirmPassword.trim();
 
-    if (nextPassword.length < 8) {
-      throw new Error("임시 비밀번호는 8자 이상으로 입력하세요.");
+    if (!isStrongPassword(nextPassword)) {
+      throw new Error(PASSWORD_POLICY_MESSAGE);
     }
 
     if (nextPassword !== confirmPassword) {

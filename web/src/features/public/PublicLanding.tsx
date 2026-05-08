@@ -1,5 +1,6 @@
 import type React from "react";
 import { useState } from "react";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "../auth/passwordPolicy";
 import { PUBLIC_PORTAL_COPY } from "./public-content";
 
 export type PublicSignupInput = {
@@ -95,7 +96,7 @@ function isReasonableOrganizationName(value: string): boolean {
 }
 
 function isStrongEnoughSignupPassword(value: string): boolean {
-  return value.length >= 8 && /[A-Za-z]/.test(value) && /\d/.test(value);
+  return isStrongPassword(value);
 }
 
 function isValidLoginId(value: string): boolean {
@@ -331,7 +332,7 @@ export function PublicLanding({
                     type="password"
                     value={signupForm.password}
                     onChange={(event) => updateSignupForm("password", event.target.value)}
-                    placeholder="8자 이상"
+                    placeholder={PASSWORD_POLICY_PLACEHOLDER}
                     autoComplete="new-password"
                     required
                   />
@@ -341,7 +342,7 @@ export function PublicLanding({
                     }`}
                   >
                     {signupPasswordFilled && !signupPasswordValid
-                      ? "영문과 숫자를 포함해 8자 이상 입력하세요."
+                      ? PASSWORD_POLICY_MESSAGE
                       : signupPasswordValid
                         ? "사용 가능한 비밀번호입니다."
                         : "\u00a0"}

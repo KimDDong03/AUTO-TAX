@@ -1,5 +1,6 @@
 import React from "react";
 import { Panel } from "../../components/ui";
+import { PASSWORD_POLICY_MESSAGE } from "../auth/passwordPolicy";
 import { AccountPasswordPanel } from "./AccountPasswordPanel";
 import { SettingsOrganizationMembersPanel } from "./SettingsOrganizationMembersPanel";
 import type { SettingsAccountSectionModel } from "./settingsSectionModels";
@@ -43,7 +44,7 @@ export function SettingsAccountSection({
       <AccountPasswordPanel
         title="비밀번호 변경"
         subtitle="현재 계정"
-        hintText="새 비밀번호는 8자 이상으로 입력하고, 두 칸이 정확히 같아야 저장됩니다."
+        hintText={`${PASSWORD_POLICY_MESSAGE} 두 칸이 정확히 같아야 저장됩니다.`}
         account={model.account}
         reveals={model.reveals.accountPassword}
         onSubmit={() => model.actions.changePassword(model.account.changePassword)}

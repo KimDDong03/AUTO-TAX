@@ -462,7 +462,7 @@ async function withSignupServer<T>(
 
 const validSignupPayload = {
   loginId: "solar-owner",
-  password: "password123",
+  password: "Password1234!",
   organizationName: "해성태양광",
   name: "홍길동",
   phone: "010-1234-5678",

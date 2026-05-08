@@ -1,4 +1,5 @@
 import { Panel, RevealIcon } from "../../components/ui";
+import { PASSWORD_POLICY_PLACEHOLDER } from "../auth/passwordPolicy";
 import type { SettingsPasswordRevealPair } from "./createSettingsActionAdapters";
 import type { SettingsAccountState } from "./settingsAccountTypes";
 
@@ -55,7 +56,7 @@ export function AccountPasswordPanel({
               type={reveals.nextPassword.visible ? "text" : "password"}
               value={account.passwordChangeForm.nextPassword}
               onChange={(event) => updatePasswordChangeField(account, "nextPassword", event.target.value)}
-              placeholder="8자 이상 입력"
+              placeholder={PASSWORD_POLICY_PLACEHOLDER}
             />
             <button
               type="button"

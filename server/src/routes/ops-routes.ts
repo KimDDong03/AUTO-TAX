@@ -4,6 +4,7 @@ import type { AuthUserSummary, OpsWorkspaceSummary } from "../admin-types.js";
 import { listPublicConsultationRequests, updatePublicConsultationRequest } from "../consultation-requests.js";
 import type { AppSettings } from "../domain.js";
 import { HttpError } from "../http-errors.js";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../password-policy.js";
 import type { RequirePlatformAdmin } from "../route-types.js";
 import type { AppStore } from "../store-contract.js";
 import {
@@ -36,7 +37,7 @@ const opsWorkspaceSubscriptionUpdateSchema = z.object({
 });
 
 const passwordResetSchema = z.object({
-  password: z.string().trim().min(8).max(128)
+  password: z.string().trim().max(128).refine(isStrongPassword, PASSWORD_POLICY_MESSAGE)
 });
 
 const consultationRequestUpdateSchema = z.object({
@@ -179,8 +180,8 @@ export function registerOpsRoutes(deps: RouteDeps) {
     let ownerUser = await findAuthUserByLoginId(adminClient, normalizedOwnerLoginId);
     let createdUserId: string | null = null;
     if (!ownerUser) {
-      if (payload.ownerPassword.trim().length < 8) {
-        throw new HttpError(400, "새 owner 계정을 만들려면 8자 이상 임시 비밀번호가 필요합니다.");
+      if (!isStrongPassword(payload.ownerPassword.trim())) {
+        throw new HttpError(400, `새 owner 계정을 만들려면 ${PASSWORD_POLICY_MESSAGE}`);
       }
 
       const { data: createdUserResult, error: createUserError } = await adminClient.auth.admin.createUser({

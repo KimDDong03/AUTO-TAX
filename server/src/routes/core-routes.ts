@@ -19,6 +19,7 @@ import type {
   RequireInternalJobAccess
 } from "../route-types.js";
 import { HttpError } from "../http-errors.js";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../password-policy.js";
 
 const publicLoginSchema = z.object({
   account: z.string().trim().min(1).max(128),
@@ -34,9 +35,9 @@ const publicSignupSchema = z.object({
     .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/, "로그인 ID는 영문/숫자로 시작하고 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있습니다."),
   password: z
     .string()
-    .min(8, "비밀번호는 8자 이상으로 입력하세요.")
+    .min(12, PASSWORD_POLICY_MESSAGE)
     .max(128)
-    .refine((value) => /[A-Za-z]/.test(value) && /\d/.test(value), "비밀번호는 영문과 숫자를 모두 포함해야 합니다."),
+    .refine(isStrongPassword, PASSWORD_POLICY_MESSAGE),
   organizationName: z
     .string()
     .trim()

@@ -1,5 +1,6 @@
 import React from "react";
 import { Panel, RevealIcon } from "../../components/ui";
+import { PASSWORD_POLICY_PLACEHOLDER } from "../auth/passwordPolicy";
 import type {
   SettingsFeatureActionAdapters,
   SettingsFeatureRevealAdapters
@@ -114,7 +115,7 @@ export function SettingsOrganizationMembersPanel({
                     onChange={(event) =>
                       setOrganizationMemberField("password", event.target.value)
                     }
-                    placeholder="새 계정이면 8자 이상"
+                    placeholder={`새 계정이면 ${PASSWORD_POLICY_PLACEHOLDER}`}
                   />
                   <button
                     type="button"
@@ -133,7 +134,7 @@ export function SettingsOrganizationMembersPanel({
             </div>
             <div className="workspace-member-create-note">
               <span>기존 아이디면 멤버 연결</span>
-              <span>새 아이디면 임시 비밀번호 8자 이상</span>
+              <span>새 아이디면 강한 임시 비밀번호 필요</span>
             </div>
           </div>
 
@@ -211,7 +212,7 @@ export function SettingsOrganizationMembersPanel({
                                 onChange={(event) =>
                                   setPasswordResetField("nextPassword", event.target.value)
                                 }
-                                placeholder="8자 이상 입력"
+                                placeholder={PASSWORD_POLICY_PLACEHOLDER}
                               />
                               <button
                                 type="button"

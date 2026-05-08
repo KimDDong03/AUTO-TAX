@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { updateUserSafely } from "../../supabase";
 import type { OrganizationMemberRole } from "../../types";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../auth/passwordPolicy";
 import {
   createEmptyPasswordChangeForm,
   type PasswordChangeFormState,
@@ -66,8 +67,8 @@ export function useSettingsAccountFacade({
     const nextPassword = passwordChangeForm.nextPassword.trim();
     const confirmPassword = passwordChangeForm.confirmPassword.trim();
 
-    if (nextPassword.length < 8) {
-      throw new Error("새 비밀번호는 8자 이상으로 입력하세요.");
+    if (!isStrongPassword(nextPassword)) {
+      throw new Error(PASSWORD_POLICY_MESSAGE);
     }
 
     if (nextPassword !== confirmPassword) {

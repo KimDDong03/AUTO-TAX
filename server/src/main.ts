@@ -13,7 +13,7 @@ import { findAuthUserByLoginId, listAllAuthUsers, upsertAuthUserLoginIndex } fro
 import { issueDraftNow } from "./automation.js";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
 import type { AppSettings, Customer, CustomerInput, DashboardPayload } from "./domain.js";
-import { buildApiErrorBody, getErrorMessage, getErrorStatus } from "./http-errors.js";
+import { buildApiErrorBody, getErrorMessage, getErrorStatus, HttpError } from "./http-errors.js";
 import { testMailConnections } from "./mail-test.js";
 import { reprocessInboxMessage } from "./mail-reprocess.js";
 import { syncMailbox } from "./mail-sync.js";
@@ -197,13 +197,24 @@ function normalizeOrigin(value: string | null | undefined): string | null {
   }
 }
 
-function collectAllowedOrigins(): Set<string> {
-  const allowed = new Set<string>();
-  const configuredOrigins = envString("AUTO_TAX_ALLOWED_ORIGINS");
-  const configuredServerUrl = envString("AUTO_TAX_SERVER_URL");
+function isProductionRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.NODE_ENV === "production" || env.VERCEL_ENV === "production";
+}
 
-  for (const origin of DEFAULT_ALLOWED_WEB_ORIGINS) {
-    allowed.add(origin);
+function shouldAllowLoopbackOrigins(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !isProductionRuntime(env);
+}
+
+function collectAllowedOrigins(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  const allowed = new Set<string>();
+  const configuredOrigins = env.AUTO_TAX_ALLOWED_ORIGINS?.trim() || undefined;
+  const configuredServerUrl = env.AUTO_TAX_SERVER_URL?.trim() || undefined;
+  const configuredVercelUrl = env.VERCEL_URL?.trim() || undefined;
+
+  if (shouldAllowLoopbackOrigins(env)) {
+    for (const origin of DEFAULT_ALLOWED_WEB_ORIGINS) {
+      allowed.add(origin);
+    }
   }
 
   if (configuredOrigins) {
@@ -218,6 +229,17 @@ function collectAllowedOrigins(): Set<string> {
   const normalizedServerOrigin = normalizeOrigin(configuredServerUrl);
   if (normalizedServerOrigin) {
     allowed.add(normalizedServerOrigin);
+  }
+
+  const normalizedVercelOrigin = normalizeOrigin(
+    configuredVercelUrl && /^https?:\/\//i.test(configuredVercelUrl)
+      ? configuredVercelUrl
+      : configuredVercelUrl
+        ? `https://${configuredVercelUrl}`
+        : undefined
+  );
+  if (normalizedVercelOrigin) {
+    allowed.add(normalizedVercelOrigin);
   }
 
   return allowed;
@@ -235,7 +257,11 @@ function isLoopbackWebOrigin(origin: string): boolean {
   }
 }
 
-export function isAllowedCorsOrigin(origin: string | null | undefined, allowedOrigins = collectAllowedOrigins()): boolean {
+export function isAllowedCorsOrigin(
+  origin: string | null | undefined,
+  allowedOrigins = collectAllowedOrigins(),
+  allowLoopbackOrigins = shouldAllowLoopbackOrigins()
+): boolean {
   if (!origin) {
     return true;
   }
@@ -245,15 +271,24 @@ export function isAllowedCorsOrigin(origin: string | null | undefined, allowedOr
     return false;
   }
 
-  return allowedOrigins.has(normalized) || isLoopbackWebOrigin(normalized);
+  return allowedOrigins.has(normalized) || (allowLoopbackOrigins && isLoopbackWebOrigin(normalized));
+}
+
+export function buildClientApiErrorBody(error: unknown, status: number) {
+  if (status >= 500 && !(error instanceof PopbillApiError) && !(error instanceof HttpError)) {
+    return { error: "서버 오류가 발생했습니다." };
+  }
+
+  return buildApiErrorBody(error, "서버 오류가 발생했습니다.");
 }
 
 function createCorsOptions(): CorsOptions {
   const allowedOrigins = collectAllowedOrigins();
+  const allowLoopbackOrigins = shouldAllowLoopbackOrigins();
 
   return {
     origin(origin, callback) {
-      callback(null, isAllowedCorsOrigin(origin, allowedOrigins));
+      callback(null, isAllowedCorsOrigin(origin, allowedOrigins, allowLoopbackOrigins));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
@@ -1084,7 +1119,7 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
       res.status(400).json({ error: "입력값이 올바르지 않습니다.", details: error.flatten() });
       return;
     }
-    res.status(status).json(buildApiErrorBody(error, "서버 오류가 발생했습니다."));
+    res.status(status).json(buildClientApiErrorBody(error, status));
   });
 
   registerAppShell({

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import type { OrganizationMemberSummary } from "../../types";
+import { PASSWORD_POLICY_PLACEHOLDER } from "../auth/passwordPolicy";
 import {
   SettingsOrganizationMembersPanel
 } from "./SettingsOrganizationMembersPanel";
@@ -356,7 +357,7 @@ test("SettingsOrganizationMembersPanel wires create form updates and inline rese
   });
   const loginIdInput = findInputByPlaceholder(tree, "예: team01");
   const createButton = findButtonByText(tree, "사용자 추가");
-  const nextPasswordInput = findInputByPlaceholder(tree, "8자 이상 입력");
+  const nextPasswordInput = findInputByPlaceholder(tree, PASSWORD_POLICY_PLACEHOLDER);
   const saveResetButton = findButtonByText(tree, "임시 비밀번호 저장");
 
   assert.ok(loginIdInput);
@@ -374,7 +375,7 @@ test("SettingsOrganizationMembersPanel wires create form updates and inline rese
       event: { target: { value: string } }
     ) => void
   )({
-    target: { value: "temp-pass-01" }
+    target: { value: "Temp-pass-01!" }
   });
   await (createButton.props.onClick as () => Promise<void>)();
   await (saveResetButton.props.onClick as () => Promise<void>)();
@@ -385,7 +386,7 @@ test("SettingsOrganizationMembersPanel wires create form updates and inline rese
     password: ""
   });
   assert.deepEqual(updatedResetForm, {
-    nextPassword: "temp-pass-01",
+    nextPassword: "Temp-pass-01!",
     confirmPassword: ""
   });
   assert.equal(created.length, 1);

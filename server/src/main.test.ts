@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
-import { createApp, isAllowedCorsOrigin, resolveDirectStartServerOptions } from "./main.js";
+import { buildClientApiErrorBody, createApp, isAllowedCorsOrigin, resolveDirectStartServerOptions } from "./main.js";
 
 test("isAllowedCorsOrigin accepts localhost dev origins on non-default Vite ports", () => {
   assert.equal(isAllowedCorsOrigin("http://localhost:5174", new Set()), true);
   assert.equal(isAllowedCorsOrigin("http://127.0.0.1:4173", new Set()), true);
   assert.equal(isAllowedCorsOrigin("http://[::1]:5175", new Set()), true);
+});
+
+test("isAllowedCorsOrigin rejects loopback origins when production loopback allowance is disabled", () => {
+  assert.equal(isAllowedCorsOrigin("http://localhost:5174", new Set(), false), false);
+  assert.equal(isAllowedCorsOrigin("http://127.0.0.1:4173", new Set(), false), false);
+  assert.equal(
+    isAllowedCorsOrigin("http://localhost:5174", new Set(["http://localhost:5174"]), false),
+    true
+  );
 });
 
 test("isAllowedCorsOrigin still rejects unrelated origins unless explicitly allowed", () => {
@@ -85,4 +94,11 @@ test("createApp sends browser security headers on API responses", async () => {
       });
     });
   }
+});
+
+test("buildClientApiErrorBody hides unexpected 500 error details from API clients", () => {
+  assert.deepEqual(
+    buildClientApiErrorBody(new Error("Unsupported state or unable to authenticate data"), 500),
+    { error: "서버 오류가 발생했습니다." }
+  );
 });
