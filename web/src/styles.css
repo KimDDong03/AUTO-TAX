@@ -24418,6 +24418,16 @@ button.issuance-list-item {
   .app-shell-topnav .topnav-search {
     width: min(230px, 100%);
   }
+
+  .lovable-metric-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .app-shell-topnav .lovable-metric-card {
+    min-height: 94px;
+    padding: 14px 16px;
+  }
 }
 
 .app-shell-topnav .content-home {
