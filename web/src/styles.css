@@ -27647,11 +27647,57 @@ button.issuance-list-item {
   display: none !important;
 }
 
+/* Current console design tokens for the active topnav work surfaces. */
+.app-shell.app-shell-topnav {
+  --console-current-bg: var(--lovable-bg);
+  --console-current-surface: var(--lovable-surface);
+  --console-current-surface-soft: #fbfbfc;
+  --console-current-control-muted-bg: #f3f4f6;
+  --console-current-border: var(--lovable-border);
+  --console-current-border-strong: #cfd4dc;
+  --console-current-text: var(--lovable-text);
+  --console-current-text-muted: #475569;
+  --console-current-text-subtle: #64748b;
+  --console-current-text-table: #334155;
+  --console-current-active-bg: #111827;
+  --console-current-active-text: #ffffff;
+  --console-current-disabled-bg: #f9fafb;
+  --console-current-disabled-border: #e5e7eb;
+  --console-current-disabled-text: #a7adb7;
+  --console-current-disabled-strong-bg: #858c96;
+  --console-current-disabled-strong-border: #9aa1ad;
+  --console-current-danger: #d84a4a;
+  --console-current-danger-border: #f0a6a6;
+  --console-current-selected-row: #e9edf2;
+  --console-current-customer-selected-row: #eef0f3;
+  --console-current-hover-row: #f7f8fa;
+  --console-current-page-top: 22px;
+  --console-current-page-padding: 22px 30px 58px;
+  --console-current-top-row-height: 36px;
+  --console-current-top-row-gap: 12px;
+  --console-current-panel-gap: 18px;
+  --console-current-control-gap: 8px;
+  --console-current-chip-height: 34px;
+  --console-current-action-height: 36px;
+  --console-current-field-height: 32px;
+  --console-current-field-inner-height: 30px;
+  --console-current-panel-radius: 0;
+  --console-current-control-radius: 2px;
+  --console-current-pill-radius: 999px;
+  --console-current-icon-size: 16px;
+  --console-current-font-xs: 11px;
+  --console-current-font-sm: 12px;
+  --console-current-font-md: 13px;
+  --console-current-font-lg: 14px;
+  --console-current-weight-label: 700;
+  --console-current-weight-strong: 800;
+}
+
 /* Final issuance unification pass: align invoices with the customer console tokens. */
 .app-shell-topnav .content-issuance {
   box-sizing: border-box !important;
-  background: var(--lovable-bg) !important;
-  padding: 22px 30px 58px !important;
+  background: var(--console-current-bg) !important;
+  padding: var(--console-current-page-padding) !important;
 }
 
 .app-shell-topnav .content-issuance > .issuance-screen {
@@ -27663,8 +27709,8 @@ button.issuance-list-item {
 .app-shell-topnav .issuance-console-toolbar {
   display: flex !important;
   align-items: center !important;
-  gap: 12px !important;
-  min-height: 36px !important;
+  gap: var(--console-current-top-row-gap) !important;
+  min-height: var(--console-current-top-row-height) !important;
   margin: 0 0 16px !important;
   padding: 0 !important;
   border: 0 !important;
@@ -27675,7 +27721,7 @@ button.issuance-list-item {
 .app-shell-topnav .issuance-filter-row {
   display: flex !important;
   align-items: center !important;
-  gap: 8px !important;
+  gap: var(--console-current-control-gap) !important;
   min-width: 0 !important;
   overflow-x: auto !important;
 }
@@ -27684,47 +27730,47 @@ button.issuance-list-item {
   display: inline-flex !important;
   flex: 0 0 auto !important;
   align-items: center !important;
-  gap: 8px !important;
-  min-height: 34px !important;
+  gap: var(--console-current-control-gap) !important;
+  min-height: var(--console-current-chip-height) !important;
   padding: 0 13px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 999px !important;
-  background: #ffffff !important;
-  color: #475569 !important;
+  border: 1px solid var(--console-current-border) !important;
+  border-radius: var(--console-current-pill-radius) !important;
+  background: var(--console-current-surface) !important;
+  color: var(--console-current-text-muted) !important;
   box-shadow: none !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-strong) !important;
 }
 
 .app-shell-topnav .issuance-filter-row .issuance-filter-chip.active,
 .app-shell-topnav .issuance-filter-row .issuance-filter-chip[aria-pressed="true"] {
-  border-color: #111827 !important;
-  background: #111827 !important;
-  color: #ffffff !important;
+  border-color: var(--console-current-active-bg) !important;
+  background: var(--console-current-active-bg) !important;
+  color: var(--console-current-active-text) !important;
 }
 
 .app-shell-topnav .issuance-filter-count {
   min-width: 22px !important;
   height: 20px !important;
   padding: 0 6px !important;
-  border-radius: 999px !important;
+  border-radius: var(--console-current-pill-radius) !important;
   background: #f1f5f9 !important;
-  color: #111827 !important;
-  font-size: 11px !important;
-  font-weight: 800 !important;
+  color: var(--console-current-text) !important;
+  font-size: var(--console-current-font-xs) !important;
+  font-weight: var(--console-current-weight-strong) !important;
 }
 
 .app-shell-topnav .issuance-filter-chip.active .issuance-filter-count,
 .app-shell-topnav .issuance-filter-chip[aria-pressed="true"] .issuance-filter-count {
   background: rgba(255, 255, 255, 0.16) !important;
-  color: #ffffff !important;
+  color: var(--console-current-active-text) !important;
 }
 
 .app-shell-topnav .issuance-console-actions {
   display: flex !important;
   align-items: stretch !important;
-  gap: 8px !important;
-  height: 36px !important;
+  gap: var(--console-current-control-gap) !important;
+  height: var(--console-current-action-height) !important;
   margin-left: auto !important;
 }
 
@@ -27733,99 +27779,99 @@ button.issuance-list-item {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 8px !important;
-  min-height: 36px !important;
-  height: 36px !important;
+  gap: var(--console-current-control-gap) !important;
+  min-height: var(--console-current-action-height) !important;
+  height: var(--console-current-action-height) !important;
   padding: 0 14px !important;
-  border-radius: 2px !important;
+  border-radius: var(--console-current-control-radius) !important;
   box-shadow: none !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-strong) !important;
   white-space: nowrap !important;
 }
 
 .app-shell-topnav .issuance-console-actions .btn-secondary,
 .app-shell-topnav .issuance-detail-footer-buttons .btn-secondary {
-  border: 1px solid #cfd4dc !important;
-  background: #ffffff !important;
-  color: #111827 !important;
+  border: 1px solid var(--console-current-border-strong) !important;
+  background: var(--console-current-surface) !important;
+  color: var(--console-current-text) !important;
 }
 
 .app-shell-topnav .issuance-console-actions button:not(.btn-secondary):not(:disabled),
 .app-shell-topnav .issuance-detail-footer-buttons button:not(.btn-secondary):not(:disabled) {
-  border: 1px solid #111827 !important;
-  background: #111827 !important;
-  color: #ffffff !important;
+  border: 1px solid var(--console-current-active-bg) !important;
+  background: var(--console-current-active-bg) !important;
+  color: var(--console-current-active-text) !important;
 }
 
 .app-shell-topnav .issuance-console-actions button:disabled,
 .app-shell-topnav .issuance-detail-footer-buttons button:disabled {
-  border-color: #9aa1ad !important;
-  background: #858c96 !important;
-  color: #ffffff !important;
+  border-color: var(--console-current-disabled-strong-border) !important;
+  background: var(--console-current-disabled-strong-bg) !important;
+  color: var(--console-current-active-text) !important;
   opacity: 1 !important;
 }
 
 .app-shell-topnav .content-issuance .button-icon,
 .app-shell-topnav .content-issuance .status-icon,
 .app-shell-topnav .content-issuance .issuance-card-title-icon {
-  width: 16px !important;
-  min-width: 16px !important;
-  height: 16px !important;
+  width: var(--console-current-icon-size) !important;
+  min-width: var(--console-current-icon-size) !important;
+  height: var(--console-current-icon-size) !important;
   color: currentColor !important;
 }
 
 .app-shell-topnav .content-issuance .button-icon svg,
 .app-shell-topnav .content-issuance .status-icon svg,
 .app-shell-topnav .content-issuance .issuance-card-title-icon svg {
-  width: 16px !important;
-  height: 16px !important;
+  width: var(--console-current-icon-size) !important;
+  height: var(--console-current-icon-size) !important;
   stroke: currentColor !important;
 }
 
 .app-shell-topnav .issuance-workspace {
   grid-template-columns: 338px minmax(0, 1fr) !important;
-  gap: 18px !important;
+  gap: var(--console-current-panel-gap) !important;
   align-items: stretch !important;
 }
 
 .app-shell-topnav .issuance-list-panel,
 .app-shell-topnav .issuance-detail-panel {
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 0 !important;
-  background: #ffffff !important;
+  border: 1px solid var(--console-current-border) !important;
+  border-radius: var(--console-current-panel-radius) !important;
+  background: var(--console-current-surface) !important;
   box-shadow: none !important;
 }
 
 .app-shell-topnav .issuance-panel-head {
   min-height: 52px !important;
   padding: 12px 16px !important;
-  border-bottom: 1px solid var(--lovable-border) !important;
-  background: #ffffff !important;
+  border-bottom: 1px solid var(--console-current-border) !important;
+  background: var(--console-current-surface) !important;
 }
 
 .app-shell-topnav .issuance-panel-head h2 {
-  color: #111827 !important;
-  font-size: 14px !important;
-  font-weight: 800 !important;
+  color: var(--console-current-text) !important;
+  font-size: var(--console-current-font-lg) !important;
+  font-weight: var(--console-current-weight-strong) !important;
 }
 
 .app-shell-topnav .issuance-panel-head p {
-  color: #64748b !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
+  color: var(--console-current-text-subtle) !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-label) !important;
 }
 
 .app-shell-topnav .issuance-list-table tr {
   min-height: 88px !important;
   padding: 15px 16px !important;
-  border-bottom: 1px solid var(--lovable-border) !important;
-  background: #ffffff !important;
+  border-bottom: 1px solid var(--console-current-border) !important;
+  background: var(--console-current-surface) !important;
 }
 
 .app-shell-topnav .issuance-list-table tr:hover,
 .app-shell-topnav .issuance-list-table tr.is-selected {
-  background: #e9edf2 !important;
+  background: var(--console-current-selected-row) !important;
 }
 
 .app-shell-topnav .issuance-list-table tr:hover td,
@@ -27835,16 +27881,16 @@ button.issuance-list-item {
 
 .app-shell-topnav .issuance-table-customer-cell strong,
 .app-shell-topnav .issuance-table-amount-cell {
-  color: #111827 !important;
-  font-size: 13px !important;
-  font-weight: 800 !important;
+  color: var(--console-current-text) !important;
+  font-size: var(--console-current-font-md) !important;
+  font-weight: var(--console-current-weight-strong) !important;
 }
 
 .app-shell-topnav .issuance-table-date-cell,
 .app-shell-topnav .issuance-table-subject {
-  color: #475569 !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
+  color: var(--console-current-text-muted) !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-label) !important;
 }
 
 .app-shell-topnav .content-issuance .issuance-status-badge {
@@ -27854,9 +27900,9 @@ button.issuance-list-item {
   min-height: 22px !important;
   padding: 0 8px !important;
   border: 0 !important;
-  border-radius: 999px !important;
-  font-size: 11px !important;
-  font-weight: 800 !important;
+  border-radius: var(--console-current-pill-radius) !important;
+  font-size: var(--console-current-font-xs) !important;
+  font-weight: var(--console-current-weight-strong) !important;
   line-height: 1 !important;
 }
 
@@ -27888,87 +27934,87 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .issuance-detail-scroll {
-  background: #ffffff !important;
+  background: var(--console-current-surface) !important;
 }
 
 .app-shell-topnav .issuance-detail-hero {
   min-height: 68px !important;
   padding: 18px 24px !important;
   border: 0 !important;
-  border-bottom: 1px solid var(--lovable-border) !important;
-  border-radius: 0 !important;
-  background: #ffffff !important;
+  border-bottom: 1px solid var(--console-current-border) !important;
+  border-radius: var(--console-current-panel-radius) !important;
+  background: var(--console-current-surface) !important;
 }
 
 .app-shell-topnav .issuance-detail-hero-copy h2 {
-  color: #111827 !important;
-  font-size: 14px !important;
-  font-weight: 800 !important;
+  color: var(--console-current-text) !important;
+  font-size: var(--console-current-font-lg) !important;
+  font-weight: var(--console-current-weight-strong) !important;
 }
 
 .app-shell-topnav .issuance-detail-hero-copy p {
-  color: #475569 !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
+  color: var(--console-current-text-muted) !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-label) !important;
 }
 
 .app-shell-topnav .issuance-mail-preview,
 .app-shell-topnav .issuance-detail-facts-shell {
   overflow: hidden !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 0 !important;
-  background: #ffffff !important;
+  border: 1px solid var(--console-current-border) !important;
+  border-radius: var(--console-current-panel-radius) !important;
+  background: var(--console-current-surface) !important;
   box-shadow: none !important;
 }
 
 .app-shell-topnav .issuance-card-title {
   min-height: 42px !important;
   padding: 0 18px !important;
-  border-bottom: 1px solid var(--lovable-border) !important;
-  background: #fbfbfc !important;
-  color: #111827 !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
+  border-bottom: 1px solid var(--console-current-border) !important;
+  background: var(--console-current-surface-soft) !important;
+  color: var(--console-current-text) !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-strong) !important;
 }
 
 .app-shell-topnav .issuance-tax-invoice-section {
-  border-radius: 0 !important;
+  border-radius: var(--console-current-panel-radius) !important;
   box-shadow: none !important;
 }
 
 .app-shell-topnav .issuance-tax-invoice-section h3 {
   min-height: 36px !important;
-  background: #fbfbfc !important;
-  color: #111827 !important;
+  background: var(--console-current-surface-soft) !important;
+  color: var(--console-current-text) !important;
 }
 
 .app-shell-topnav .issuance-tax-invoice-row {
   min-height: 42px !important;
-  border-bottom: 1px solid var(--lovable-border) !important;
+  border-bottom: 1px solid var(--console-current-border) !important;
 }
 
 .app-shell-topnav .issuance-tax-invoice-row dt {
-  color: #64748b !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
+  color: var(--console-current-text-subtle) !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-label) !important;
 }
 
 .app-shell-topnav .issuance-tax-invoice-row dd {
-  color: #111827 !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
+  color: var(--console-current-text) !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-strong) !important;
 }
 
 .app-shell-topnav .issuance-detail-footer-actions {
   justify-content: flex-end !important;
   min-height: 70px !important;
   padding: 16px 24px !important;
-  border-top: 1px solid var(--lovable-border) !important;
-  background: #ffffff !important;
+  border-top: 1px solid var(--console-current-border) !important;
+  background: var(--console-current-surface) !important;
 }
 
 .app-shell-topnav .issuance-detail-footer-buttons {
-  gap: 8px !important;
+  gap: var(--console-current-control-gap) !important;
   margin-left: 0 !important;
 }
 
@@ -27981,7 +28027,7 @@ button.issuance-list-item {
   display: grid !important;
   grid-template-columns: 320px minmax(0, 1fr) !important;
   grid-template-rows: auto auto !important;
-  gap: 12px 14px !important;
+  gap: var(--console-current-top-row-gap) 14px !important;
   align-items: start !important;
 }
 
@@ -27989,7 +28035,7 @@ button.issuance-list-item {
   grid-column: 1 / -1 !important;
   display: flex !important;
   align-items: center !important;
-  gap: 8px !important;
+  gap: var(--console-current-control-gap) !important;
   margin: 0 !important;
   padding: 0 !important;
   border: 0 !important;
@@ -28001,39 +28047,39 @@ button.issuance-list-item {
   display: inline-flex !important;
   flex: 0 0 auto !important;
   align-items: center !important;
-  gap: 8px !important;
-  min-height: 34px !important;
+  gap: var(--console-current-control-gap) !important;
+  min-height: var(--console-current-chip-height) !important;
   padding: 0 13px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 999px !important;
-  background: #ffffff !important;
-  color: #475569 !important;
+  border: 1px solid var(--console-current-border) !important;
+  border-radius: var(--console-current-pill-radius) !important;
+  background: var(--console-current-surface) !important;
+  color: var(--console-current-text-muted) !important;
   box-shadow: none !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-strong) !important;
 }
 
 .app-shell-topnav .customer-summary-card.is-active,
 .app-shell-topnav .customer-summary-card[aria-pressed="true"] {
-  border-color: #111827 !important;
-  background: #111827 !important;
-  color: #ffffff !important;
+  border-color: var(--console-current-active-bg) !important;
+  background: var(--console-current-active-bg) !important;
+  color: var(--console-current-active-text) !important;
 }
 
 .app-shell-topnav .customer-summary-card > span,
 .app-shell-topnav .customer-summary-card-row,
 .app-shell-topnav .customer-summary-card-row strong {
   color: inherit !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-strong) !important;
   line-height: 1 !important;
 }
 
 .app-shell-topnav .customer-summary-actions {
   display: flex !important;
   align-items: stretch !important;
-  gap: 8px !important;
-  height: 36px !important;
+  gap: var(--console-current-control-gap) !important;
+  height: var(--console-current-action-height) !important;
   margin-left: auto !important;
   padding: 0 !important;
   border: 0 !important;
@@ -28045,61 +28091,61 @@ button.issuance-list-item {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 8px !important;
-  min-height: 36px !important;
-  height: 36px !important;
+  gap: var(--console-current-control-gap) !important;
+  min-height: var(--console-current-action-height) !important;
+  height: var(--console-current-action-height) !important;
   padding: 0 14px !important;
-  border-radius: 2px !important;
+  border-radius: var(--console-current-control-radius) !important;
   box-shadow: none !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-strong) !important;
   white-space: nowrap !important;
 }
 
 .app-shell-topnav .customer-summary-actions .btn-secondary {
-  border: 1px solid #cfd4dc !important;
-  background: #ffffff !important;
-  color: #111827 !important;
+  border: 1px solid var(--console-current-border-strong) !important;
+  background: var(--console-current-surface) !important;
+  color: var(--console-current-text) !important;
 }
 
 .app-shell-topnav .customer-summary-actions .customer-console-primary-cta {
-  border: 1px solid #111827 !important;
-  background: #111827 !important;
-  color: #ffffff !important;
+  border: 1px solid var(--console-current-active-bg) !important;
+  background: var(--console-current-active-bg) !important;
+  color: var(--console-current-active-text) !important;
 }
 
 .app-shell-topnav .customer-summary-actions .customer-console-danger-action {
-  border: 1px solid #f0a6a6 !important;
-  background: #ffffff !important;
-  color: #d84a4a !important;
+  border: 1px solid var(--console-current-danger-border) !important;
+  background: var(--console-current-surface) !important;
+  color: var(--console-current-danger) !important;
 }
 
 .app-shell-topnav .customer-summary-actions button:disabled {
-  border-color: #e5e7eb !important;
-  background: #f9fafb !important;
-  color: #a7adb7 !important;
+  border-color: var(--console-current-disabled-border) !important;
+  background: var(--console-current-disabled-bg) !important;
+  color: var(--console-current-disabled-text) !important;
   opacity: 1 !important;
 }
 
 .app-shell-topnav .customer-summary-actions .button-icon,
 .app-shell-topnav .customer-console-filter-button .customer-console-page-header-icon {
-  width: 16px !important;
-  min-width: 16px !important;
-  height: 16px !important;
+  width: var(--console-current-icon-size) !important;
+  min-width: var(--console-current-icon-size) !important;
+  height: var(--console-current-icon-size) !important;
   color: currentColor !important;
 }
 
 .app-shell-topnav .customer-summary-actions .button-icon svg,
 .app-shell-topnav .customer-console-filter-button .customer-console-page-header-icon svg {
-  width: 16px !important;
-  height: 16px !important;
+  width: var(--console-current-icon-size) !important;
+  height: var(--console-current-icon-size) !important;
   stroke: currentColor !important;
 }
 
 .app-shell-topnav .customer-summary-actions .customer-console-primary-cta .button-icon,
 .app-shell-topnav .customer-summary-actions .customer-console-primary-cta .button-icon svg {
-  color: #ffffff !important;
-  stroke: #ffffff !important;
+  color: var(--console-current-active-text) !important;
+  stroke: var(--console-current-active-text) !important;
 }
 
 .app-shell-topnav .customer-console-main-column {
@@ -28123,18 +28169,18 @@ button.issuance-list-item {
   min-height: 52px !important;
   margin: 0 !important;
   padding: 12px !important;
-  border: 1px solid var(--lovable-border) !important;
+  border: 1px solid var(--console-current-border) !important;
   border-bottom: 0 !important;
-  background: #ffffff !important;
+  background: var(--console-current-surface) !important;
   box-shadow: none !important;
 }
 
 .app-shell-topnav .customer-console-field-filter-trigger,
 .app-shell-topnav .customer-console-page-search {
-  height: 32px !important;
-  min-height: 32px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 2px !important;
+  height: var(--console-current-field-height) !important;
+  min-height: var(--console-current-field-height) !important;
+  border: 1px solid var(--console-current-border) !important;
+  border-radius: var(--console-current-control-radius) !important;
   box-shadow: none !important;
 }
 
@@ -28143,26 +28189,26 @@ button.issuance-list-item {
   align-items: center !important;
   gap: 6px !important;
   padding: 0 10px !important;
-  background: #ffffff !important;
-  color: #111827 !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
+  background: var(--console-current-surface) !important;
+  color: var(--console-current-text) !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-label) !important;
 }
 
 .app-shell-topnav .customer-console-page-search {
   padding: 0 10px !important;
-  background: #f3f4f6 !important;
+  background: var(--console-current-control-muted-bg) !important;
 }
 
 .app-shell-topnav .customer-console-page-search input {
-  height: 30px !important;
-  min-height: 30px !important;
+  height: var(--console-current-field-inner-height) !important;
+  min-height: var(--console-current-field-inner-height) !important;
   padding: 0 !important;
   border: 0 !important;
-  background: #f3f4f6 !important;
-  background-color: #f3f4f6 !important;
+  background: var(--console-current-control-muted-bg) !important;
+  background-color: var(--console-current-control-muted-bg) !important;
   box-shadow: none !important;
-  font-size: 12px !important;
+  font-size: var(--console-current-font-sm) !important;
   font-weight: 600 !important;
 }
 
@@ -28175,10 +28221,10 @@ button.issuance-list-item {
   margin: 0 !important;
   padding: 0 !important;
   overflow: hidden !important;
-  border: 1px solid var(--lovable-border) !important;
+  border: 1px solid var(--console-current-border) !important;
   border-top: 0 !important;
-  border-radius: 0 !important;
-  background: #ffffff !important;
+  border-radius: var(--console-current-panel-radius) !important;
+  background: var(--console-current-surface) !important;
   box-shadow: none !important;
 }
 
@@ -28193,8 +28239,8 @@ button.issuance-list-item {
   margin: 0 !important;
   padding: 0 12px !important;
   border: 0 !important;
-  border-bottom: 1px solid var(--lovable-border) !important;
-  background: #ffffff !important;
+  border-bottom: 1px solid var(--console-current-border) !important;
+  background: var(--console-current-surface) !important;
   box-shadow: none !important;
 }
 
@@ -28206,9 +28252,9 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .customer-console-table-title strong {
-  color: #111827 !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
+  color: var(--console-current-text) !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-strong) !important;
   line-height: 14px !important;
 }
 
@@ -28235,19 +28281,19 @@ button.issuance-list-item {
 .app-shell-topnav .customer-console-table td {
   height: 40px !important;
   padding: 0 12px !important;
-  border-bottom: 1px solid var(--lovable-border) !important;
+  border-bottom: 1px solid var(--console-current-border) !important;
   background: transparent !important;
-  color: #334155 !important;
-  font-size: 12px !important;
+  color: var(--console-current-text-table) !important;
+  font-size: var(--console-current-font-sm) !important;
   line-height: 1.2 !important;
   white-space: nowrap !important;
 }
 
 .app-shell-topnav .customer-console-table thead th {
-  background: #fbfbfc !important;
-  color: #64748b !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
+  background: var(--console-current-surface-soft) !important;
+  color: var(--console-current-text-subtle) !important;
+  font-size: var(--console-current-font-sm) !important;
+  font-weight: var(--console-current-weight-label) !important;
   text-align: left !important;
 }
 
@@ -28283,23 +28329,23 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .customer-console-primary-cell strong {
-  color: #111827 !important;
-  font-weight: 800 !important;
+  color: var(--console-current-text) !important;
+  font-weight: var(--console-current-weight-strong) !important;
 }
 
 .app-shell-topnav .customer-console-cell-stack strong {
-  color: #334155 !important;
+  color: var(--console-current-text-table) !important;
   font-weight: 500 !important;
 }
 
 .app-shell-topnav .customer-console-table tbody tr.is-selected,
 .app-shell-topnav .customer-console-table tbody tr.is-selected > td {
-  background: #eef0f3 !important;
+  background: var(--console-current-customer-selected-row) !important;
 }
 
 .app-shell-topnav .customer-console-table tbody tr:hover,
 .app-shell-topnav .customer-console-table tbody tr:hover > td {
-  background: #f7f8fa !important;
+  background: var(--console-current-hover-row) !important;
 }
 
 @media (max-width: 1400px) {
@@ -28857,7 +28903,7 @@ button.issuance-list-item {
 
 .app-shell-topnav .issuance-console-toolbar {
   justify-content: flex-start !important;
-  margin: 0 0 12px !important;
+  margin: 0 0 var(--console-current-top-row-gap) !important;
 }
 
 .app-shell-topnav .issuance-console-actions {
@@ -28865,19 +28911,19 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .customer-console-shell {
-  gap: 12px 18px !important;
+  gap: var(--console-current-top-row-gap) var(--console-current-panel-gap) !important;
 }
 
 /* Issuance/customer top-row lock: prevent chip rows from jumping between pages. */
 .app-shell-topnav .content-issuance,
 .app-shell-topnav .content-customers {
-  padding-top: 22px !important;
+  padding-top: var(--console-current-page-top) !important;
 }
 
 .app-shell-topnav .issuance-console-toolbar,
 .app-shell-topnav .customer-summary-grid {
   align-items: center !important;
-  min-height: 36px !important;
+  min-height: var(--console-current-top-row-height) !important;
 }
 
 .app-shell-topnav .issuance-filter-row {
