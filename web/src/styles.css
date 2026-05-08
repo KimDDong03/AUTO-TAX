@@ -28351,7 +28351,9 @@ button.issuance-list-item {
 @media (max-width: 1400px) {
   .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
     grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-rows: auto !important;
+    grid-template-rows: none !important;
+    grid-auto-rows: max-content !important;
+    align-content: start !important;
   }
 
   .app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card,
