@@ -28302,7 +28302,7 @@ button.issuance-list-item {
   background: #f7f8fa !important;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1400px) {
   .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
     grid-template-columns: minmax(0, 1fr) !important;
     grid-template-rows: auto !important;
