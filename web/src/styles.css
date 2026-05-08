@@ -28860,6 +28860,10 @@ button.issuance-list-item {
   margin: 0 0 12px !important;
 }
 
+.app-shell-topnav .issuance-console-actions {
+  margin-left: auto !important;
+}
+
 .app-shell-topnav .customer-console-shell {
   gap: 12px 18px !important;
 }

@@ -1025,7 +1025,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                   onClick={() => setActiveFilter(filter.id)}
                 >
                   <span className="issuance-filter-label">{filter.label}</span>
-                  <span className="issuance-filter-count">{count}</span>
+                  <span className="issuance-filter-count">{count}명</span>
                 </button>
               );
             })}
