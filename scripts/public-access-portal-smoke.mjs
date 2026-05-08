@@ -96,7 +96,7 @@ try {
   });
   await recoveryPage.waitForFunction(() => window.location.hash === "#type=recovery", null, { timeout: 15000 });
   await recoveryPage.getByRole("heading", { name: "새 비밀번호 설정" }).waitFor({ timeout: 15000 });
-  await recoveryPage.getByPlaceholder("12자 이상, 대/소문자+숫자+특수문자").waitFor({ timeout: 15000 });
+  await recoveryPage.getByPlaceholder("10자 이상, 영문+숫자").waitFor({ timeout: 15000 });
   await captureSection(recoveryPage, ".auth-card", "desktop-recovery.png");
   await recoveryPage.close();
 

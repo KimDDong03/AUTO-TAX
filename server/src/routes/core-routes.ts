@@ -35,7 +35,7 @@ const publicSignupSchema = z.object({
     .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/, "로그인 ID는 영문/숫자로 시작하고 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있습니다."),
   password: z
     .string()
-    .min(12, PASSWORD_POLICY_MESSAGE)
+    .min(10, PASSWORD_POLICY_MESSAGE)
     .max(128)
     .refine(isStrongPassword, PASSWORD_POLICY_MESSAGE),
   organizationName: z
