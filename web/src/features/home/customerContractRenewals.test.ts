@@ -63,7 +63,7 @@ test("customer contract renewal export writes the requested sheet and KST filena
     writeFile: (_workbook: unknown, fileName: string) => {
       calls.fileName = fileName;
     }
-  } as unknown as typeof import("xlsx");
+  } as unknown as typeof import("@e965/xlsx");
 
   const fileName = downloadCustomerContractRenewalsWorkbook(fakeXlsx, [dueItem], {
     now: new Date("2027-03-31T15:00:00.000Z")

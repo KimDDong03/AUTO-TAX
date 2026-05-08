@@ -135,6 +135,7 @@ import {
 } from "./features/auth/auth-hash";
 import { useAuthSessionBootstrap } from "./features/auth/useAuthSessionBootstrap";
 import { setSessionSafely, signOutSafely, updateUserSafely } from "./supabase";
+import { assertSafeSpreadsheetFile, assertSafeSpreadsheetWorkbook } from "./spreadsheet-security";
 import type {
   BootstrapPayload,
   AppSettings,
@@ -757,11 +758,11 @@ function isLoadCancelledError(error: unknown): error is LoadCancelledError {
   return error instanceof LoadCancelledError;
 }
 
-let xlsxModulePromise: Promise<typeof import("xlsx")> | null = null;
+let xlsxModulePromise: Promise<typeof import("@e965/xlsx")> | null = null;
 
 function loadXlsxModule() {
   if (!xlsxModulePromise) {
-    xlsxModulePromise = import("xlsx");
+    xlsxModulePromise = import("@e965/xlsx");
   }
 
   return xlsxModulePromise;
@@ -3117,11 +3118,13 @@ export function App() {
     }
 
     try {
+      assertSafeSpreadsheetFile(file);
       const XLSX = await loadXlsxModule();
       const arrayBuffer = await file.arrayBuffer();
       const workbook = file.name.toLowerCase().endsWith(".csv")
         ? XLSX.read(decodeCustomerImportCsv(arrayBuffer), { type: "string", raw: false })
         : XLSX.read(arrayBuffer, { type: "array" });
+      assertSafeSpreadsheetWorkbook(XLSX, workbook);
       const firstSheetName = workbook.SheetNames[0];
       if (!firstSheetName) {
         throw new Error("읽을 수 있는 시트가 없습니다.");
@@ -3315,6 +3318,7 @@ export function App() {
       file,
       previousSessionState: customerOnboardingSessionState,
       parseWorkbook: async (selectedFile) => {
+        assertSafeSpreadsheetFile(selectedFile);
         const XLSX = await loadXlsxModule();
         return await parseCustomerOnboardingWorkbook(XLSX, selectedFile);
       },

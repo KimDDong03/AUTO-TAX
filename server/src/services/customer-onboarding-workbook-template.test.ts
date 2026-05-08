@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import * as XLSX from "xlsx";
+import * as XLSX from "@e965/xlsx";
 
 type TemplateWorkbookModule = {
   downloadCustomerOnboardingTemplate: (
-    XLSX: typeof import("xlsx"),
+    XLSX: typeof import("@e965/xlsx"),
     certificates: Array<{
       index: string;
       cn: string;
@@ -20,7 +20,7 @@ type TemplateWorkbookModule = {
     }>
   ) => void;
   parseCustomerOnboardingWorkbook: (
-    XLSX: typeof import("xlsx"),
+    XLSX: typeof import("@e965/xlsx"),
     file: File
   ) => Promise<{
     fileName: string;

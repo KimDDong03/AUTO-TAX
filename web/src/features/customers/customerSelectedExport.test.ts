@@ -180,7 +180,7 @@ test("selected customer export writes the two requested workbook sheets", () => 
     writeFile: (_workbook: unknown, fileName: string) => {
       calls.fileName = fileName;
     }
-  } as unknown as typeof import("xlsx");
+  } as unknown as typeof import("@e965/xlsx");
 
   const fileName = downloadSelectedCustomersWorkbook(fakeXlsx, exportItems, {
     reportYear: 2026,

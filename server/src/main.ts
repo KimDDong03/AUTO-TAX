@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cors, { type CorsOptions } from "cors";
@@ -139,6 +140,7 @@ type RateLimiterOptions = {
   max: number;
   message: string;
   keyGenerator?: (req: express.Request) => string;
+  persistent?: boolean;
 };
 
 const rateLimitEntries = new Map<string, RateLimitEntry>();
@@ -316,7 +318,7 @@ function pruneExpiredRateLimitEntries(now: number): void {
 }
 
 function createRateLimiter(options: RateLimiterOptions): express.RequestHandler {
-  return (req, res, next) => {
+  const applyMemoryLimit = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const now = Date.now();
     if (rateLimitEntries.size > 1024) {
       pruneExpiredRateLimitEntries(now);
@@ -344,6 +346,40 @@ function createRateLimiter(options: RateLimiterOptions): express.RequestHandler 
     current.count += 1;
     rateLimitEntries.set(key, current);
     next();
+  };
+
+  if (!options.persistent) {
+    return applyMemoryLimit;
+  }
+
+  return async (req, res, next) => {
+    const now = Date.now();
+    const scopedKey = options.keyGenerator?.(req) ?? resolveRequestIp(req);
+    const rateKey = createHash("sha256").update(`${options.keyPrefix}:${scopedKey}`).digest("hex");
+    const resetAt = new Date(now + options.windowMs).toISOString();
+
+    try {
+      const { data, error } = await createSupabaseAdminClient().rpc("increment_public_rate_limit", {
+        p_key: rateKey,
+        p_window_reset_at: resetAt
+      });
+      if (error) {
+        throw error;
+      }
+
+      const count = Number((data as { count?: unknown } | null)?.count ?? 1);
+      const effectiveResetAt = String((data as { reset_at?: unknown } | null)?.reset_at ?? resetAt);
+      if (count > options.max) {
+        const retryMs = Math.max(0, new Date(effectiveResetAt).getTime() - now);
+        res.setHeader("Retry-After", String(Math.max(1, Math.ceil(retryMs / 1000))));
+        res.status(429).json({ error: options.message });
+        return;
+      }
+
+      next();
+    } catch {
+      applyMemoryLimit(req, res, next);
+    }
   };
 }
 
@@ -766,6 +802,7 @@ const publicLoginLimiter = createRateLimiter({
   windowMs: 10 * 60 * 1000,
   max: 10,
   message: "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.",
+  persistent: true,
   keyGenerator: (req) => {
     const account =
       req.body && typeof req.body === "object" && "account" in req.body
@@ -780,6 +817,7 @@ const publicConsultationLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 5,
   message: "상담 신청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+  persistent: true,
   keyGenerator: (req) => resolveRequestIp(req)
 });
 
@@ -788,6 +826,7 @@ const publicSignupLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 5,
   message: "회원가입 신청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+  persistent: true,
   keyGenerator: (req) => resolveRequestIp(req)
 });
 

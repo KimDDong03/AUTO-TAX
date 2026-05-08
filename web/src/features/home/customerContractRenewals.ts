@@ -1,6 +1,6 @@
 import type { CustomerContractRenewalDueItem, CustomerContractRenewalStatus } from "../../types";
 
-type XlsxModule = typeof import("xlsx");
+type XlsxModule = typeof import("@e965/xlsx");
 
 export const CUSTOMER_CONTRACT_RENEWAL_EXPORT_COLUMNS = [
   "상호명",

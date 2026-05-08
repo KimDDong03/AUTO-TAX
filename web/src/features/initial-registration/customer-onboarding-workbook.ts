@@ -1,6 +1,7 @@
 import type { RenewalBridgeCertificateSummary } from "../../types";
+import { assertSafeSpreadsheetWorkbook } from "../../spreadsheet-security";
 
-type XlsxModule = typeof import("xlsx");
+type XlsxModule = typeof import("@e965/xlsx");
 
 export type CustomerOnboardingWorkbookInput = {
   customers: Array<{
@@ -219,6 +220,11 @@ export async function parseCustomerOnboardingWorkbook(
 }> {
   const arrayBuffer = await file.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: "array" });
+  assertSafeSpreadsheetWorkbook(XLSX, workbook, {
+    maxSheets: 4,
+    maxRows: 5000,
+    maxCells: 30000
+  });
 
   const certificateSheet = getSheetByName(workbook, ["공동인증서", "인증서"]);
   const plantSheet = getSheetByName(workbook, ["발전소"]);

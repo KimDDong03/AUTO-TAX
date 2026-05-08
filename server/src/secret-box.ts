@@ -4,10 +4,16 @@ const SECRET_PREFIX = "enc:v1";
 const IV_LENGTH = 12;
 
 function readSecretMaterial(): string {
-  const configured =
-    process.env.AUTO_TAX_ENCRYPTION_KEY?.trim() ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_SECRET_KEY?.trim();
+  const configuredEncryptionKey = process.env.AUTO_TAX_ENCRYPTION_KEY?.trim();
+  if (configuredEncryptionKey) {
+    return configuredEncryptionKey;
+  }
+
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production") {
+    throw new Error("운영 환경에서는 AUTO_TAX_ENCRYPTION_KEY 환경변수가 필요합니다.");
+  }
+
+  const configured = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_SECRET_KEY?.trim();
 
   if (!configured) {
     throw new Error("AUTO_TAX_ENCRYPTION_KEY 또는 서버 비밀키 환경변수가 필요합니다.");
@@ -16,8 +22,13 @@ function readSecretMaterial(): string {
   return configured;
 }
 
-function getEncryptionKey(): Buffer {
-  return createHash("sha256").update(readSecretMaterial()).digest();
+function deriveEncryptionKey(secretMaterial: string): Buffer {
+  const trimmed = secretMaterial.trim();
+  if (!trimmed) {
+    throw new Error("암호화 키 재료가 필요합니다.");
+  }
+
+  return createHash("sha256").update(trimmed).digest();
 }
 
 export function isEncryptedSecret(value: string | null | undefined): boolean {
@@ -25,6 +36,10 @@ export function isEncryptedSecret(value: string | null | undefined): boolean {
 }
 
 export function encryptSecret(value: string | null | undefined): string {
+  return encryptSecretWithMaterial(value, readSecretMaterial());
+}
+
+export function encryptSecretWithMaterial(value: string | null | undefined, secretMaterial: string): string {
   const plain = value ?? "";
   if (plain === "") {
     return "";
@@ -35,7 +50,7 @@ export function encryptSecret(value: string | null | undefined): string {
   }
 
   const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv("aes-256-gcm", getEncryptionKey(), iv);
+  const cipher = createCipheriv("aes-256-gcm", deriveEncryptionKey(secretMaterial), iv);
   const encrypted = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
@@ -43,6 +58,10 @@ export function encryptSecret(value: string | null | undefined): string {
 }
 
 export function decryptSecret(value: string | null | undefined): string {
+  return decryptSecretWithMaterial(value, readSecretMaterial());
+}
+
+export function decryptSecretWithMaterial(value: string | null | undefined, secretMaterial: string): string {
   const raw = value ?? "";
   if (raw === "") {
     return "";
@@ -57,7 +76,7 @@ export function decryptSecret(value: string | null | undefined): string {
     throw new Error("암호화된 비밀값 형식이 올바르지 않습니다.");
   }
 
-  const decipher = createDecipheriv("aes-256-gcm", getEncryptionKey(), Buffer.from(encodedIv, "base64url"));
+  const decipher = createDecipheriv("aes-256-gcm", deriveEncryptionKey(secretMaterial), Buffer.from(encodedIv, "base64url"));
   decipher.setAuthTag(Buffer.from(encodedTag, "base64url"));
   const decrypted = Buffer.concat([
     decipher.update(Buffer.from(encodedPayload, "base64url")),

@@ -6,6 +6,7 @@ public
 !web/src/features/public/
 !web/src/features/public/**
 .env
+.env.local
 data
 *.log
 release

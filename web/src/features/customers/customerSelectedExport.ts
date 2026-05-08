@@ -1,7 +1,7 @@
 import type { Customer, CustomerReportDetail, CustomerReportMonth } from "../../types";
 import { deriveContractEndMonth } from "./customerReportDetail";
 
-type XlsxModule = typeof import("xlsx");
+type XlsxModule = typeof import("@e965/xlsx");
 type Worksheet = ReturnType<XlsxModule["utils"]["aoa_to_sheet"]>;
 
 export type SelectedCustomerExportItem = {

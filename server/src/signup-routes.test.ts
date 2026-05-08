@@ -641,7 +641,10 @@ test("duplicate signup login id is rejected", async () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(validSignupPayload)
     });
-    assert.equal(duplicate.status, 409);
-    assert.equal(((await duplicate.json()) as { error: string }).error, "이미 사용 중인 로그인 ID입니다.");
+    assert.equal(duplicate.status, 202);
+    assert.deepEqual(await duplicate.json(), {
+      request: null,
+      status: "received"
+    });
   });
 });

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
-import * as XLSX from "xlsx";
+import * as XLSX from "@e965/xlsx";
 
 const baseUrl = process.env.AUTO_TAX_E2E_BASE_URL?.trim() || "http://127.0.0.1:4300";
 const localRenewalHelperUrl = "http://127.0.0.1:35119";
