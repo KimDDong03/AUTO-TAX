@@ -4928,9 +4928,26 @@ export function App() {
     });
   };
 
-  const reprocessInboxMessage = async (messageId: number) => {
-    await api(`/api/inbox/${messageId}/reprocess`, {
+  const unmatchDraftCustomer = async (draftId: number) => {
+    const confirmed = await showAppConfirm(
+      "이 초안의 고객 매칭을 해제하고 원본 메일을 다시 고객 미매칭 상태로 되돌립니다.\n잘못 선택한 고객을 다시 찾을 수 있습니다.\n계속할까요?",
+      {
+        title: "고객 매칭 해제",
+        tone: "warn",
+        confirmLabel: "매칭 해제"
+      }
+    );
+    if (!confirmed) return;
+
+    await api(`/api/drafts/${draftId}/unmatch`, {
       method: "POST"
+    });
+  };
+
+  const reprocessInboxMessage = async (messageId: number, customerId?: number) => {
+    await api(`/api/inbox/${messageId}/reprocess`, {
+      method: "POST",
+      body: JSON.stringify(customerId ? { customerId } : {})
     });
   };
 
@@ -6816,8 +6833,11 @@ export function App() {
             onIssueDraft={(draftId) =>
               void runAction(`issue-${draftId}`, async () => void (await api(`/api/drafts/${draftId}/issue`, { method: "POST" })))
             }
-            onReprocessInboxMessage={(messageId) =>
-              void runAction(`reprocess-${messageId}`, async () => void (await reprocessInboxMessage(messageId)))
+            onReprocessInboxMessage={(messageId, customerId) =>
+              void runAction(
+                customerId ? `reprocess-${messageId}-customer-${customerId}` : `reprocess-${messageId}`,
+                async () => void (await reprocessInboxMessage(messageId, customerId))
+              )
             }
             onViewDraft={(draftId) =>
               void runAction(`draft-view-${draftId}`, async () => void (await openDraftPopbillUrl(draftId, "view-url")))
@@ -6827,6 +6847,9 @@ export function App() {
             }
             onCancelDraft={(draftId) =>
               void runAction(`draft-cancel-${draftId}`, async () => void (await cancelIssuedDraft(draftId)))
+            }
+            onUnmatchDraft={(draftId) =>
+              void runAction(`draft-unmatch-${draftId}`, async () => void (await unmatchDraftCustomer(draftId)))
             }
             onUpdateDraftTaxInvoiceInfo={updateDraftTaxInvoiceInfo}
             formatMoney={formatMoney}

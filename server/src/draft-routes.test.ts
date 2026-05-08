@@ -915,6 +915,139 @@ test("draft preview opened route records an explicit frontend pilot event", asyn
   }
 });
 
+test("draft unmatch route returns a pre-issue draft to unmatched mail", async () => {
+  const calls: number[] = [];
+  const logs: Array<{ message: string; context?: unknown }> = [];
+  const requestStore = {
+    getDraftPilotTimeline: async () => null,
+    getPilotIssuanceReport: async () => ({ ok: true }),
+    getDraft: async (draftId: number) =>
+      draftId === 501
+        ? ({
+            id: 501,
+            customerId: 12,
+            sourceMessageId: 701,
+            status: "review",
+            billingMonth: "2026-04"
+          } as Awaited<ReturnType<AppStore["getDraft"]>>)
+        : null,
+    unmatchDraftSource: async (draftId: number) => {
+      calls.push(draftId);
+      return {} as Awaited<ReturnType<AppStore["unmatchDraftSource"]>>;
+    },
+    createLog: async (_level: string, _scope: string, message: string, context?: unknown) => {
+      logs.push({ message, context });
+    }
+  } as unknown as AppStore;
+
+  const app = express();
+  registerDraftRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireWorkspaceEditor: () => ({}) as never,
+    getServerManagedSettings: async () => ({}) as never,
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorStatus: () => 500,
+    buildApiErrorBody: () => ({ error: "unused" }),
+    assertDraftPopbillEnvironment: async () => undefined,
+    backfillDraftPopbillEnvironmentIfMissing: async () => undefined
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/drafts/501/unmatch`, { method: "POST" });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true });
+    assert.deepEqual(calls, [501]);
+    assert.deepEqual(logs, [
+      {
+        message: "발행 전 초안의 고객 매칭을 해제했습니다.",
+        context: {
+          draftId: 501,
+          customerId: 12,
+          sourceMessageId: 701,
+          billingMonth: "2026-04",
+          previousStatus: "review"
+        }
+      }
+    ]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
+test("draft unmatch route blocks issuing or issued drafts", async () => {
+  let unmatchCalled = false;
+  const requestStore = {
+    getDraftPilotTimeline: async () => null,
+    getPilotIssuanceReport: async () => ({ ok: true }),
+    getDraft: async () =>
+      ({
+        id: 502,
+        customerId: 12,
+        sourceMessageId: 702,
+        status: "issued",
+        billingMonth: "2026-04"
+      }) as Awaited<ReturnType<AppStore["getDraft"]>>,
+    unmatchDraftSource: async () => {
+      unmatchCalled = true;
+      return {} as Awaited<ReturnType<AppStore["unmatchDraftSource"]>>;
+    },
+    createLog: async () => {}
+  } as unknown as AppStore;
+
+  const app = express();
+  registerDraftRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireWorkspaceEditor: () => ({}) as never,
+    getServerManagedSettings: async () => ({}) as never,
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorStatus: () => 500,
+    buildApiErrorBody: () => ({ error: "unused" }),
+    assertDraftPopbillEnvironment: async () => undefined,
+    backfillDraftPopbillEnvironmentIfMissing: async () => undefined
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/drafts/502/unmatch`, { method: "POST" });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+      error: "발행 중이거나 발행 완료된 건은 매칭을 해제할 수 없습니다."
+    });
+    assert.equal(unmatchCalled, false);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
 test("single manual issue route records audit-ready manual issue context", async () => {
   const logs: Array<{ level: string; scope: string; message: string; context?: unknown }> = [];
   const clickedAt = "2026-04-16T01:02:03.000Z";

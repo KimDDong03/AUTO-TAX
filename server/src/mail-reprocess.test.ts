@@ -128,6 +128,98 @@ test("mail reprocess writes explicit customer-match logs for unmatched messages"
   ]);
 });
 
+test("mail reprocess can use a manually selected customer when names or addresses differ", async () => {
+  const updates: Array<Parameters<AppStore["updateInboxMatchResult"]>[0]> = [];
+  const customer = buildCustomer({
+    id: 12,
+    customerName: "등록 고객",
+    corpName: "등록 발전소",
+    addr: "경기도 등록시 다른 주소",
+    matchAddresses: []
+  });
+  const parsedMail = buildParsedMail({
+    plantName: "메일 발전소",
+    plantAddress: "전라남도 예외군 다른 주소"
+  });
+  const draft = {
+    id: 77,
+    customerId: customer.id,
+    customerName: customer.customerName,
+    sourceMessageId: 10,
+    issueMode: "review",
+    status: "review",
+    scheduledFor: null,
+    issueRequestedAt: null,
+    issuedAt: null,
+    issueError: "",
+    billingMonth: parsedMail.billingMonth,
+    writeDate: null,
+    itemName: parsedMail.itemName,
+    plantName: parsedMail.plantName,
+    supplyCost: parsedMail.supplyCost,
+    taxTotal: parsedMail.taxTotal,
+    totalAmount: parsedMail.totalAmount,
+    kepcoCorpNum: parsedMail.kepcoCorpNum,
+    kepcoBranchId: parsedMail.kepcoBranchId,
+    kepcoCorpName: parsedMail.kepcoCorpName,
+    kepcoCeoName: parsedMail.kepcoCeoName,
+    kepcoAddr: parsedMail.kepcoAddr,
+    kepcoBizType: parsedMail.kepcoBizType,
+    kepcoBizClass: parsedMail.kepcoBizClass,
+    recipientEmail: parsedMail.recipientEmail,
+    popbillMgtKey: "MGT-77",
+    popbillEnvironment: null,
+    popbillResultJson: "{}",
+    createdAt: "2026-04-16T00:00:00.000Z",
+    updatedAt: "2026-04-16T00:00:00.000Z"
+  } satisfies InvoiceDraft;
+  let autoMatchCalled = false;
+
+  const store = {
+    getInboxMessage: async () => buildInboxMessage(),
+    listCompletedBillingMonths: async () => [],
+    getCustomer: async (customerId: number) => (customerId === customer.id ? customer : null),
+    findCustomerByMatchAddress: async () => {
+      autoMatchCalled = true;
+      return null;
+    },
+    findDraftByCustomerAndBillingMonth: async (customerId: number, billingMonth: string) => {
+      assert.equal(customerId, customer.id);
+      assert.equal(billingMonth, parsedMail.billingMonth);
+      return null;
+    },
+    updateInboxMatchResult: async (input: Parameters<AppStore["updateInboxMatchResult"]>[0]) => {
+      updates.push(input);
+      return {} as never;
+    },
+    createDraft: async (input: Parameters<AppStore["createDraft"]>[0]) => {
+      assert.equal(input.customer.id, customer.id);
+      assert.equal(input.parsedMail, parsedMail);
+      return draft;
+    },
+    createLog: async () => {}
+  } as unknown as AppStore;
+
+  const result = await reprocessInboxMessage(store, 10, {
+    parseKepcoMail: () => parsedMail,
+    customerId: customer.id
+  });
+
+  assert.equal(autoMatchCalled, false);
+  assert.equal(result.status, "parsed");
+  assert.equal(result.draft?.customerId, customer.id);
+  assert.deepEqual(updates, [
+    {
+      messageId: 10,
+      parseStatus: "parsed",
+      parseError: "",
+      parsedMail,
+      customerId: customer.id,
+      draftId: null
+    }
+  ]);
+});
+
 test("mail reprocess writes explicit draft-create logs when draft creation fails", async () => {
   const logs: Array<{ level: string; scope: string; message: string; context?: unknown }> = [];
   const updates: Array<Parameters<AppStore["updateInboxMatchResult"]>[0]> = [];

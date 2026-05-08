@@ -2472,6 +2472,43 @@ export class SupabaseStore implements AppStore {
     return draft;
   }
 
+  async unmatchDraftSource(draftId: number): Promise<InboxMessage> {
+    const draft = await this.getDraft(draftId);
+    if (!draft) {
+      throw new Error("초안을 찾지 못했습니다.");
+    }
+
+    const draftRow = await this.getDraftRowByLegacyId(draftId);
+    if (!draftRow) {
+      throw new Error("초안을 찾지 못했습니다.");
+    }
+
+    const sourceMessage = await this.getInboxMessage(draft.sourceMessageId);
+    if (!sourceMessage) {
+      throw new Error("원본 메일을 찾지 못했습니다.");
+    }
+
+    if (!sourceMessage.parsedData) {
+      throw new Error("원본 메일 파싱 정보를 찾지 못했습니다.");
+    }
+
+    const inbox = await this.updateInboxMatchResult({
+      messageId: sourceMessage.id,
+      parseStatus: "unmatched",
+      parseError: "",
+      parsedMail: sourceMessage.parsedData,
+      customerId: null,
+      draftId: null
+    });
+
+    await assertNoError(
+      "초안 삭제 실패",
+      this.client.from("invoice_drafts").delete().eq("id", asString(draftRow.id))
+    );
+
+    return inbox;
+  }
+
   async updateInboxParsedData(messageId: number, parsedMail: ParsedMail): Promise<InboxMessage> {
     const messageRow = await this.getInboxRowByLegacyId(messageId);
     if (!messageRow) {

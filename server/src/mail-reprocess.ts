@@ -5,6 +5,7 @@ import type { AppStore } from "./store-contract.js";
 
 type MailReprocessDeps = {
   parseKepcoMail?: typeof parseKepcoMail;
+  customerId?: number | null;
 };
 
 export async function reprocessInboxMessage(
@@ -111,9 +112,16 @@ export async function reprocessInboxMessage(
     }
 
     reprocessStage = "customer-match";
-    const customer = await store.findCustomerByMatchAddress(parsedMail.plantAddress);
+    const manualCustomerId = deps.customerId ?? null;
+    const customer = manualCustomerId
+      ? await store.getCustomer(manualCustomerId)
+      : await store.findCustomerByMatchAddress(parsedMail.plantAddress);
 
     if (!customer) {
+      if (manualCustomerId) {
+        throw new Error("선택한 고객을 찾지 못했습니다.");
+      }
+
       await store.updateInboxMatchResult({
         messageId,
         parseStatus: "unmatched",

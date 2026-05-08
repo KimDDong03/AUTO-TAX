@@ -204,6 +204,7 @@ function renderIssuanceTab(options: RenderIssuanceTabOptions = {}) {
         onViewDraft={() => {}}
         onPrintDraft={() => {}}
         onCancelDraft={() => {}}
+        onUnmatchDraft={() => {}}
         onUpdateDraftTaxInvoiceInfo={async () => {}}
         formatMoney={(value) => String(value)}
         formatDateTime={(value) => value ?? "-"}
@@ -268,6 +269,7 @@ test("IssuanceTab labels the draft edit action as tax invoice info editing", () 
   assert.doesNotMatch(markup, /문서번호/);
   assert.doesNotMatch(markup, /상세 구매일자/);
   assert.ok(buttons.some((button) => button.label.includes("세금계산서 정보 수정")));
+  assert.ok(buttons.some((button) => button.label.includes("매칭 해제")));
 });
 
 test("IssuanceTab shows current-month customers without mail as missing mail", () => {
@@ -277,7 +279,7 @@ test("IssuanceTab shows current-month customers without mail as missing mail", (
     customers: [buildCustomer()]
   });
 
-  assert.match(markup, /issuance-filter-label">메일 미수신<\/span><span class="issuance-filter-count">1<\/span>/);
+  assert.match(markup, /issuance-filter-label">메일 미수신<\/span><span class="issuance-filter-count">1명<\/span>/);
   assert.match(markup, /하예리/);
   assert.match(markup, new RegExp(`${billingMonth} 메일 대기`));
 });
@@ -289,6 +291,6 @@ test("IssuanceTab does not show missing mail when the current month mail exists"
     inboxMessages: [buildInboxMessage()]
   });
 
-  assert.match(markup, /issuance-filter-label">메일 미수신<\/span><span class="issuance-filter-count">0<\/span>/);
+  assert.match(markup, /issuance-filter-label">메일 미수신<\/span><span class="issuance-filter-count">0명<\/span>/);
   assert.doesNotMatch(markup, /하예리/);
 });

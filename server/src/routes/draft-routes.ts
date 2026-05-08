@@ -451,6 +451,33 @@ export function registerDraftRoutes(deps: RouteDeps) {
     res.json({ ok: true, response, draft: reopened });
   });
 
+  app.post("/api/drafts/:id/unmatch", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const draftId = Number(req.params.id);
+    const draft = await requestStore.getDraft(draftId);
+    if (!draft) {
+      res.status(404).json({ error: "발행 건을 찾지 못했습니다." });
+      return;
+    }
+
+    if (draft.status === "issued" || draft.status === "issuing") {
+      res.status(400).json({ error: "발행 중이거나 발행 완료된 건은 매칭을 해제할 수 없습니다." });
+      return;
+    }
+
+    await requestStore.unmatchDraftSource(draftId);
+    await requestStore.createLog("warn", "drafts", "발행 전 초안의 고객 매칭을 해제했습니다.", {
+      draftId,
+      customerId: draft.customerId,
+      sourceMessageId: draft.sourceMessageId,
+      billingMonth: draft.billingMonth,
+      previousStatus: draft.status
+    });
+
+    res.json({ ok: true });
+  });
+
   app.patch("/api/drafts/:id/tax-invoice-info", async (req, res) => {
     requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);

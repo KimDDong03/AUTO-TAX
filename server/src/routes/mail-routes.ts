@@ -10,6 +10,10 @@ const mailSyncSchema = z.object({
   billingMonth: z.string().trim().regex(/^\d{4}-\d{2}$/).optional()
 });
 
+const inboxReprocessSchema = z.object({
+  customerId: z.number().int().positive().nullable().optional()
+});
+
 type RouteDeps = {
   app: Express;
   store: AppStore | null;
@@ -17,7 +21,8 @@ type RouteDeps = {
   requireWorkspaceEditor: RequireWorkspaceEditor;
   reprocessInboxMessage: (
     requestStore: AppStore,
-    messageId: number
+    messageId: number,
+    options?: { customerId?: number | null }
   ) => Promise<{ status: MailParseStatus; draft?: InvoiceDraft | null }>;
   syncMailbox: (requestStore: AppStore, options?: MailSyncOptions) => Promise<MailSyncResult>;
 };
@@ -66,7 +71,17 @@ export function registerMailRoutes(deps: RouteDeps) {
       return;
     }
 
-    const result = await reprocessInboxMessage(requestStore, messageId);
+    const payload = inboxReprocessSchema.parse(req.body ?? {});
+    const customerId = payload.customerId ?? null;
+    if (customerId !== null) {
+      const customer = await requestStore.getCustomer(customerId);
+      if (!customer) {
+        res.status(404).json({ error: "선택한 고객을 찾지 못했습니다." });
+        return;
+      }
+    }
+
+    const result = await reprocessInboxMessage(requestStore, messageId, { customerId });
     res.json({ ok: true, ...result });
   });
 

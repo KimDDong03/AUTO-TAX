@@ -94,10 +94,11 @@ type IssuanceTabProps = {
   onIssueAllReviewDrafts: () => void;
   onIssueSelectedDrafts: (draftIds: number[]) => void;
   onIssueDraft: (draftId: number) => void;
-  onReprocessInboxMessage: (messageId: number) => void;
+  onReprocessInboxMessage: (messageId: number, customerId?: number) => void;
   onViewDraft: (draftId: number) => void;
   onPrintDraft: (draftId: number) => void;
   onCancelDraft: (draftId: number) => void;
+  onUnmatchDraft: (draftId: number) => void;
   onUpdateDraftTaxInvoiceInfo: (draftId: number, input: DraftTaxInvoiceInfoUpdateInput) => Promise<void>;
   formatMoney: (value: number) => string;
   formatDateTime: (value: string | null) => string;
@@ -696,6 +697,9 @@ export function IssuanceTab(props: IssuanceTabProps) {
   const selectedMissingMailEntry = selectedEntry?.kind === "missing-mail" ? selectedEntry : null;
   const selectedDraftMailPreview = selectedDraft ? mailPreviewByDraftId[selectedDraft.id] ?? null : null;
   const isSelectedDraftIssued = selectedDraft?.status === "issued";
+  const canUnmatchSelectedDraft =
+    selectedDraft !== null &&
+    (selectedDraft.status === "review" || selectedDraft.status === "failed" || selectedDraft.status === "scheduled");
   const isTaxInvoiceInfoEditing = Boolean(selectedDraft && taxInvoiceInfoForm?.draftId === selectedDraft.id);
   const selectedDraftCustomer = useMemo(
     () => (selectedDraft ? props.customers.find((customer) => customer.id === selectedDraft.customerId) ?? null : null),
@@ -1475,6 +1479,17 @@ export function IssuanceTab(props: IssuanceTabProps) {
                           <Icon name="edit" className="button-icon" />
                           세금계산서 정보 수정
                         </button>
+                        {canUnmatchSelectedDraft ? (
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => props.onUnmatchDraft(selectedDraft.id)}
+                            disabled={props.busyKey !== null}
+                          >
+                            <Icon name="undo" className="button-icon" />
+                            매칭 해제
+                          </button>
+                        ) : null}
                         <button type="button" onClick={() => props.onIssueDraft(selectedDraft.id)} disabled={props.busyKey !== null}>
                           <Icon name="send" className="button-icon" />
                           발행하기
@@ -1726,7 +1741,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
 
             <div className="issuance-picker-result-head">
               <span>검색 결과 {customerFinderResults.length}명</span>
-              <span>주소와 발전소명이 비슷한 고객이 위에 정렬됩니다.</span>
+              <span>이름이 달라도 선택할 수 있고, 주소와 발전소명이 비슷한 고객이 위에 정렬됩니다.</span>
             </div>
 
             <div className="issuance-picker-result-list">
@@ -1740,7 +1755,20 @@ export function IssuanceTab(props: IssuanceTabProps) {
                           {customer.customerName} · {customer.businessNumber}
                         </span>
                       </div>
-                      {score > 0 ? <span className="status status-review">추천 후보</span> : null}
+                      <div className="issuance-picker-result-actions">
+                        {score > 0 ? <span className="status status-review">추천 후보</span> : null}
+                        <button
+                          type="button"
+                          className="btn-secondary issuance-picker-select-button"
+                          onClick={() => {
+                            setCustomerFinderOpen(false);
+                            props.onReprocessInboxMessage(selectedUnmatchedMessage.id, customer.id);
+                          }}
+                          disabled={props.busyKey !== null}
+                        >
+                          선택
+                        </button>
+                      </div>
                     </div>
                     <div className="issuance-picker-result-meta">
                       <div>
@@ -1761,7 +1789,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
               ) : (
                 <div className="issuance-picker-empty">
                   <strong>조건에 맞는 고객이 없습니다.</strong>
-                  <p>고객명, 상호, 사업자번호, 주소를 바꿔서 다시 검색해 보세요.</p>
+                  <p>등록된 고객명, 상호, 사업자번호, 주소를 바꿔서 다시 검색해 보세요. 이름이 달라도 선택할 수 있습니다.</p>
                 </div>
               )}
             </div>

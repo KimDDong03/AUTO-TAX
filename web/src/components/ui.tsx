@@ -25,6 +25,7 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
+  Undo2,
   User,
   Users,
   type LucideIcon
@@ -70,6 +71,7 @@ const ICON_BY_NAME: Record<string, LucideIcon> = {
   settings: Settings,
   sync: RefreshCw,
   trash: Trash2,
+  undo: Undo2,
   unmatched: Mail,
   user: User,
   warning: AlertTriangle

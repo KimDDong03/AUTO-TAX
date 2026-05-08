@@ -95,6 +95,7 @@ export interface AppStore {
   }): Promise<InvoiceDraft>;
   findDraftByCustomerAndBillingMonth(customerId: number, billingMonth: string): Promise<InvoiceDraft | null>;
   refreshDraftFromParsedMail(draftId: number, parsedMail: ParsedMail): Promise<InvoiceDraft>;
+  unmatchDraftSource(draftId: number): Promise<InboxMessage>;
   updateInboxParsedData(messageId: number, parsedMail: ParsedMail): Promise<InboxMessage>;
   updateInboxMatchResult(args: {
     messageId: number;

@@ -10847,6 +10847,20 @@ button.issuance-list-item {
   gap: 12px;
 }
 
+.issuance-picker-result-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.issuance-picker-select-button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
 .issuance-picker-result-copy {
   display: grid;
   gap: 4px;
@@ -10983,6 +10997,11 @@ button.issuance-list-item {
   .issuance-picker-head,
   .issuance-picker-result-top {
     flex-direction: column;
+  }
+
+  .issuance-picker-result-actions {
+    justify-content: flex-start;
+    width: 100%;
   }
 
   .issuance-picker-result-meta {
