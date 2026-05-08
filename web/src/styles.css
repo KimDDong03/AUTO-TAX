@@ -24416,7 +24416,7 @@ button.issuance-list-item {
   }
 
   .app-shell-topnav .topnav-search {
-    width: min(230px, 100%);
+    width: clamp(210px, 24vw, 320px);
   }
 
   .lovable-metric-grid {
@@ -24427,6 +24427,28 @@ button.issuance-list-item {
   .app-shell-topnav .lovable-metric-card {
     min-height: 94px;
     padding: 14px 16px;
+  }
+}
+
+@media (min-width: 1000px) {
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: 88px minmax(360px, 1fr) minmax(430px, 460px);
+  }
+
+  .app-shell-topnav .topnav-context {
+    gap: 10px;
+  }
+
+  .app-shell-topnav .topnav-search {
+    width: 220px;
+  }
+
+  .app-shell-topnav .topnav-profile {
+    padding-left: 10px;
+  }
+
+  .app-shell-topnav .topnav-profile-summary {
+    min-width: 108px;
   }
 }
 
