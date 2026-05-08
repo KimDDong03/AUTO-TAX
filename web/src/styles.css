@@ -28867,3 +28867,19 @@ button.issuance-list-item {
 .app-shell-topnav .customer-console-shell {
   gap: 12px 18px !important;
 }
+
+/* Issuance/customer top-row lock: prevent chip rows from jumping between pages. */
+.app-shell-topnav .content-issuance,
+.app-shell-topnav .content-customers {
+  padding-top: 22px !important;
+}
+
+.app-shell-topnav .issuance-console-toolbar,
+.app-shell-topnav .customer-summary-grid {
+  align-items: center !important;
+  min-height: 36px !important;
+}
+
+.app-shell-topnav .issuance-filter-row {
+  align-items: center !important;
+}
