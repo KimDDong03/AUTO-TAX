@@ -143,6 +143,11 @@ export function buildSettingsPayload(form: SettingsFormState) {
   const renewalIssuePassword = normalizeRenewalIssuePasswordInput(
     normalized.renewalIssuePassword
   );
+  const notificationEmails = normalized.notificationEmailsText
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const fallbackNotificationEmail = normalized.mailAddress.trim();
   return {
     normalized,
     payload: {
@@ -161,10 +166,12 @@ export function buildSettingsPayload(form: SettingsFormState) {
       smtpPass: normalized.mailPassword.trim(),
       smtpFromName: "AUTO-TAX",
       smtpFromEmail: normalized.mailAddress.trim(),
-      notificationEmails: normalized.notificationEmailsText
-        .split(/\r?\n/)
-        .map((value) => value.trim())
-        .filter(Boolean),
+      notificationEmails:
+        notificationEmails.length > 0
+          ? notificationEmails
+          : fallbackNotificationEmail
+            ? [fallbackNotificationEmail]
+            : [],
       defaultIssueDay: Number(normalized.defaultIssueDay || 0),
       defaultIssueHour: Number(normalized.defaultIssueHour || 0),
       defaultIssueMinute: Number(normalized.defaultIssueMinute || 0),

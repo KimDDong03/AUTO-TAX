@@ -102,6 +102,16 @@ test("buildSettingsPayload omits server-managed issuing prefix and password", ()
   assert.equal("popbillSharedPassword" in payload, false);
 });
 
+test("buildSettingsPayload falls back notification recipient to mail address", () => {
+  const { payload } = buildSettingsPayload({
+    ...settingsToForm(createSettings()),
+    mailAddress: "billing@example.com",
+    notificationEmailsText: ""
+  });
+
+  assert.deepEqual(payload.notificationEmails, ["billing@example.com"]);
+});
+
 test("buildMailSettingsSavePayload preserves saved defaults during connection test", () => {
   const savedSettings = createSettings({
     popbillUserIdPrefix: "HAE_",

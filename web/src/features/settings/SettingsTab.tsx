@@ -1,5 +1,5 @@
 import React from "react";
-import { CheckboxControl, RevealIcon, StatusBadge, type StatusBadgeTone } from "../../components/ui";
+import { RevealIcon, StatusBadge, type StatusBadgeTone } from "../../components/ui";
 import { SettingsAccountSection } from "./SettingsAccountSection";
 import { SettingsDefaultsSection } from "./SettingsDefaultsSection";
 import { SettingsHelperSection } from "./SettingsHelperSection";
@@ -121,7 +121,6 @@ function SettingsOnboardingCard({ model }: SettingsTabProps) {
 function SettingsOption1MailDetail({ model }: SettingsTabProps) {
   const mail = model.sections.mail;
   const sidebar = model.sidebar;
-  const notificationEnabled = mail.fields.notificationEmailsText.trim().length > 0;
 
   return (
     <div className="settings-option1-detail-grid">
@@ -184,33 +183,17 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
               </button>
             </div>
           </label>
-          <CheckboxControl
-            checked={notificationEnabled}
-            containerClassName="settings-option1-checkbox"
-            label="미매칭 메일 알림 받기"
-            onChange={(event) => {
-              if (event.target.checked) {
-                mail.onNotificationEmailsTextChange(
-                  mail.fields.notificationEmailsText.trim() ||
-                    mail.fields.mailAddress
-                );
-              } else {
-                mail.onNotificationEmailsTextChange("");
+          <label className="settings-option1-field settings-option1-field-wide">
+            알림 수신 메일
+            <textarea
+              rows={3}
+              value={mail.fields.notificationEmailsText}
+              onChange={(event) =>
+                mail.onNotificationEmailsTextChange(event.target.value)
               }
-            }}
-          />
-          {notificationEnabled ? (
-            <label className="settings-option1-field settings-option1-field-wide">
-              알림 수신 메일
-              <textarea
-                rows={3}
-                value={mail.fields.notificationEmailsText}
-                onChange={(event) =>
-                  mail.onNotificationEmailsTextChange(event.target.value)
-                }
-              />
-            </label>
-          ) : null}
+            />
+            <span className="field-hint">비워두면 메일 계정으로 받습니다.</span>
+          </label>
         </div>
 
         <div className="settings-option1-save-row">

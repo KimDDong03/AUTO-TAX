@@ -276,6 +276,8 @@ test("SettingsTab mail detail hides customer-unnecessary transport settings", ()
 
   assert.match(mailText, /메일 연결 설정/);
   assert.match(mailText, /메일 계정/);
+  assert.match(mailText, /알림 수신 메일/);
+  assert.doesNotMatch(mailText, /미매칭 메일 알림 받기/);
   assert.doesNotMatch(mailText, /수집 주기/);
   assert.doesNotMatch(mailText, /IMAP/);
   assert.doesNotMatch(mailText, /SMTP/);
