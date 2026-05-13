@@ -234,6 +234,11 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     res.json(await requestStore.listCustomerContractRenewalsDue(getCurrentKstYearMonth()));
   });
 
+  app.get("/api/customers/contract-summaries", async (_req, res) => {
+    const requestStore = getRequestStore(res, store);
+    res.json(await requestStore.listCustomerContractSummaries());
+  });
+
   app.get("/api/customers/:id/report-detail", async (req, res) => {
     const requestStore = getRequestStore(res, store);
     const customerId = parseCustomerIdParam(req.params.id);

@@ -203,6 +203,12 @@ export interface CustomerReportDetail {
 
 export type CustomerContractRenewalStatus = "due_this_month" | "overdue";
 
+export interface CustomerContractSummary {
+  customerId: number;
+  contractStartMonth: string | null;
+  contractEndMonth: string | null;
+}
+
 export interface CustomerContractRenewalDueItem {
   customerId: number;
   customerName: string;

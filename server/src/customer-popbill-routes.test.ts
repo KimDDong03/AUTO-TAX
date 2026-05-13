@@ -8,6 +8,7 @@ import type {
   Customer,
   CustomerContractRenewalCompletion,
   CustomerContractRenewalDueItem,
+  CustomerContractSummary,
   CustomerInput,
   CustomerReportDetail,
   CustomerReportDetailInput
@@ -102,6 +103,7 @@ async function withCustomerRoutes(
     saveCustomer?: (input: CustomerInput, customerId?: number) => Promise<Customer> | Customer;
     getCustomerReportDetail?: (customerId: number, reportYear: number) => Promise<CustomerReportDetail> | CustomerReportDetail;
     saveCustomerReportDetail?: (customerId: number, input: CustomerReportDetailInput) => Promise<CustomerReportDetail> | CustomerReportDetail;
+    listCustomerContractSummaries?: () => Promise<CustomerContractSummary[]> | CustomerContractSummary[];
     listCustomerContractRenewalsDue?: (currentYearMonth: string) => Promise<CustomerContractRenewalDueItem[]> | CustomerContractRenewalDueItem[];
     completeCustomerContractRenewal?: (
       customerId: number,
@@ -168,6 +170,15 @@ async function withCustomerRoutes(
         (await options.listCustomerContractRenewalsDue?.(currentYearMonth)) ??
         (() => {
           throw new Error("listCustomerContractRenewalsDue should not be used in this test");
+        })()
+      );
+    },
+    listCustomerContractSummaries: async () => {
+      calls.events.push("list-contract-summaries");
+      return (
+        (await options.listCustomerContractSummaries?.()) ??
+        (() => {
+          throw new Error("listCustomerContractSummaries should not be used in this test");
         })()
       );
     },
@@ -443,6 +454,31 @@ test("GET customer contract renewals returns due list", async () => {
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), dueItems);
       assert.deepEqual(calls.events, ["list-contract-renewals"]);
+    }
+  );
+});
+
+test("GET customer contract summaries returns list contract status inputs", async () => {
+  const customer = buildCustomer();
+  const summaries: CustomerContractSummary[] = [
+    {
+      customerId: customer.id,
+      contractStartMonth: "2026-06",
+      contractEndMonth: "2027-06"
+    }
+  ];
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      listCustomerContractSummaries: () => summaries
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/contract-summaries`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), summaries);
+      assert.deepEqual(calls.events, ["list-contract-summaries"]);
     }
   );
 });

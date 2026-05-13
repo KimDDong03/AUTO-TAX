@@ -7,6 +7,7 @@ import type {
   CustomerCertificate,
   CustomerCertificateKind,
   CustomerContractRenewalDueItem,
+  CustomerContractSummary,
   CustomerReportDetail,
   CustomerReportMonth,
   InvoiceDraft
@@ -40,6 +41,11 @@ import {
   type CustomerListFilter
 } from "./customerListFilters";
 import type { CustomerSearchField } from "./customerSearch";
+import {
+  buildCustomerContractStatusChip,
+  buildCustomerIssueStatusChip,
+  type CustomerStatusChip
+} from "./customerStatusChips";
 
 type CustomerFormState = {
   id: number | null;
@@ -129,6 +135,7 @@ type CustomersTabProps = {
   selectedCustomerIssues: CustomerIssueChecklistItem[];
   selectedCustomerIssuedDrafts: InvoiceDraft[];
   issuedDraftsByCustomerId: Map<number, InvoiceDraft[]>;
+  contractSummaries: CustomerContractSummary[];
   contractRenewalDueItems: CustomerContractRenewalDueItem[];
   blockedCustomerCount: number;
   readyCustomerCount: number;
@@ -198,7 +205,7 @@ type CustomersTabProps = {
   onExportSelectedCustomers: (customers: Customer[], reportYear: number) => Promise<void>;
   onShowDraftPopbillInfo: (draftId: number) => Promise<void>;
   onOpenDraftPopbillUrl: (draftId: number, path: "view-url" | "print-url") => Promise<void>;
-  onCustomerReportDetailSaved: () => void | Promise<void>;
+  onCustomerReportDetailSaved: (detail: CustomerReportDetail) => void | Promise<void>;
   resolveCustomerAddress: () => Promise<string>;
   runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
   formatCertificateExpireDate: (value: string | null) => string;
@@ -221,6 +228,14 @@ function getToneBadgeClass(tone: CustomerConsoleTone) {
           ? "tone-danger"
           : "tone-default"
   ].join(" ");
+}
+
+function renderCustomerStatusChip(chip: CustomerStatusChip) {
+  return (
+    <span className={`${getToneBadgeClass(chip.tone)} customer-list-status-chip`} title={chip.detail}>
+      {chip.label}
+    </span>
+  );
 }
 
 function parseCustomerTimestamp(value: string | null | undefined): number | null {
@@ -443,6 +458,14 @@ export function CustomersTab(props: CustomersTabProps) {
   const selectedCustomer = props.selectedCustomer;
   const selectedCustomerReadiness = props.selectedCustomerReadiness;
   const visibleCustomerIssues = props.selectedCustomerIssues.filter((issue) => issue.tone !== "success" || Boolean(issue.actionLabel));
+  const customerContractSummaryById = useMemo(
+    () => new Map(props.contractSummaries.map((summary) => [summary.customerId, summary])),
+    [props.contractSummaries]
+  );
+  const customerContractRenewalDueById = useMemo(
+    () => new Map(props.contractRenewalDueItems.map((item) => [item.customerId, item])),
+    [props.contractRenewalDueItems]
+  );
   const [customerDetailPanelOpen, setCustomerDetailPanelOpen] = useState(false);
   const [customerTableViewportHeight, setCustomerTableViewportHeight] = useState<number | null>(null);
   const [checkedCustomerIds, setCheckedCustomerIds] = useState<Set<number>>(() => new Set());
@@ -1612,6 +1635,11 @@ export function CustomersTab(props: CustomersTabProps) {
       const isSelected = !props.creatingCustomer && detailPanelOpen && props.selectedCustomer?.id === customer.id;
       const isChecked = checkedCustomerIds.has(customer.id);
       const summaryTitle = customer.corpName || customer.customerName;
+      const issueStatusChip = buildCustomerIssueStatusChip(customer, props.getCustomerIssueReadiness(customer));
+      const contractStatusChip = buildCustomerContractStatusChip(
+        customerContractSummaryById.get(customer.id),
+        customerContractRenewalDueById.get(customer.id)
+      );
       return (
         <tr
           key={customer.id}
@@ -1640,6 +1668,12 @@ export function CustomersTab(props: CustomersTabProps) {
           <td className="customer-console-col-owner">
             <div className="customer-console-cell-stack">
               <strong>{customer.customerName || "-"}</strong>
+            </div>
+          </td>
+          <td className="customer-console-col-status">
+            <div className="customer-status-chip-row">
+              {renderCustomerStatusChip(issueStatusChip)}
+              {renderCustomerStatusChip(contractStatusChip)}
             </div>
           </td>
         </tr>
@@ -2713,6 +2747,7 @@ export function CustomersTab(props: CustomersTabProps) {
                     </th>
                     <th>상호명</th>
                     <th>대표자명</th>
+                    <th className="customer-console-col-status">상태</th>
                   </tr>
                 </thead>
                 <tbody>{renderCustomerTableRows()}</tbody>

@@ -7,6 +7,7 @@ import type {
   CustomerCertificateInput,
   CustomerContractRenewalCompletion,
   CustomerContractRenewalDueItem,
+  CustomerContractSummary,
   CustomerImportProfile,
   CustomerInput,
   CustomerReportDetail,
@@ -1947,6 +1948,44 @@ export class SupabaseStore implements AppStore {
         left.corpName.localeCompare(right.corpName) ||
         left.customerName.localeCompare(right.customerName)
       );
+  }
+
+  async listCustomerContractSummaries(): Promise<CustomerContractSummary[]> {
+    await this.initialize();
+    const organizationId = this.requireOrganizationId();
+    const [profileRows, customerRows] = await Promise.all([
+      assertNoError(
+        "고객 계약 요약 조회 실패",
+        this.client
+          .from("customer_report_profiles")
+          .select("managed_customer_id, contract_start_month, contract_end_month")
+          .eq("organization_id", organizationId)
+      ),
+      assertNoError(
+        "고객 계약 요약 고객 조회 실패",
+        this.client
+          .from("managed_customers")
+          .select("id, legacy_id")
+          .eq("organization_id", organizationId)
+      )
+    ]);
+
+    const customersById = new Map((customerRows as Row[]).map((row) => [asString(row.id), row]));
+    return ((profileRows as Row[]) ?? [])
+      .map((profileRow) => {
+        const customerRow = customersById.get(asString(profileRow.managed_customer_id));
+        if (!customerRow) {
+          return null;
+        }
+
+        const contractStartMonth = asNullableString(profileRow.contract_start_month);
+        return {
+          customerId: asNumber(customerRow.legacy_id),
+          contractStartMonth,
+          contractEndMonth: deriveContractEndMonth(contractStartMonth)
+        };
+      })
+      .filter((summary): summary is CustomerContractSummary => summary !== null);
   }
 
   async completeCustomerContractRenewal(

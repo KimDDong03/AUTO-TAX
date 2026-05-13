@@ -6,6 +6,7 @@ import type {
   CustomerCertificateInput,
   CustomerContractRenewalCompletion,
   CustomerContractRenewalDueItem,
+  CustomerContractSummary,
   CustomerImportProfile,
   CustomerInput,
   CustomerReportDetail,
@@ -57,6 +58,7 @@ export interface AppStore {
   getCustomerReportDetail(customerId: number, reportYear: number): Promise<CustomerReportDetail>;
   saveCustomerReportDetail(customerId: number, input: CustomerReportDetailInput): Promise<CustomerReportDetail>;
   upsertCustomerReportDetailFromIssuedDraft(draft: InvoiceDraft): Promise<CustomerReportDetail>;
+  listCustomerContractSummaries(): Promise<CustomerContractSummary[]>;
   listCustomerContractRenewalsDue(currentYearMonth: string): Promise<CustomerContractRenewalDueItem[]>;
   completeCustomerContractRenewal(
     customerId: number,

@@ -148,6 +148,7 @@ import type {
   CustomerCertificateKind,
   CustomerContractRenewalCompletion,
   CustomerContractRenewalDueItem,
+  CustomerContractSummary,
   CustomerImportProfile,
   CustomerReportDetail,
   InboxMessage,
@@ -2026,6 +2027,7 @@ export function App() {
   const [customerImportProfile, setCustomerImportProfile] = useState<CustomerImportProfile | null>(null);
   const [completedBillingMonths, setCompletedBillingMonths] = useState<CompletedBillingMonth[]>([]);
   const [customerContractRenewalsDue, setCustomerContractRenewalsDue] = useState<CustomerContractRenewalDueItem[]>([]);
+  const [customerContractSummaries, setCustomerContractSummaries] = useState<CustomerContractSummary[]>([]);
   const [customerImportError, setCustomerImportError] = useState("");
   const [customerImportNotice, setCustomerImportNotice] = useState("");
   const [customerOnboardingFileName, setCustomerOnboardingFileName] = useState("");
@@ -2286,6 +2288,10 @@ export function App() {
       ? await api<CustomerContractRenewalDueItem[]>("/api/customers/contract-renewals/due")
       : [];
     ensureActiveLoad(loadToken);
+    const nextCustomerContractSummaries = payload.auth.activeOrganizationId
+      ? await api<CustomerContractSummary[]>("/api/customers/contract-summaries")
+      : [];
+    ensureActiveLoad(loadToken);
     setError("");
     setActiveOrganizationId(payload.auth.activeOrganizationId);
     const nextActiveOrganizationId = payload.auth.activeOrganizationId ?? null;
@@ -2308,6 +2314,7 @@ export function App() {
     setOpsConsole(nextOpsConsole);
     setCompletedBillingMonths(nextCompletedBillingMonths);
     setCustomerContractRenewalsDue(nextCustomerContractRenewalsDue);
+    setCustomerContractSummaries(nextCustomerContractSummaries);
     setWorkspaceLimitEdits(
       nextOpsConsole
         ? Object.fromEntries(
@@ -2341,6 +2348,24 @@ export function App() {
 
     const nextCustomerContractRenewalsDue = await api<CustomerContractRenewalDueItem[]>("/api/customers/contract-renewals/due");
     setCustomerContractRenewalsDue(nextCustomerContractRenewalsDue);
+  };
+
+  const upsertCustomerContractSummary = (summary: CustomerContractSummary) => {
+    setCustomerContractSummaries((current) => {
+      if (current.some((entry) => entry.customerId === summary.customerId)) {
+        return current.map((entry) => (entry.customerId === summary.customerId ? summary : entry));
+      }
+      return [...current, summary];
+    });
+  };
+
+  const handleCustomerReportDetailSaved = async (detail: CustomerReportDetail) => {
+    upsertCustomerContractSummary({
+      customerId: detail.customerId,
+      contractStartMonth: detail.profile.contractStartMonth,
+      contractEndMonth: detail.profile.contractEndMonth
+    });
+    await refreshCustomerContractRenewalsDue();
   };
 
   const loadWithRetry = async () => {
@@ -6759,13 +6784,18 @@ export function App() {
     }
   };
   const completeCustomerContractRenewal = async (item: CustomerContractRenewalDueItem) => {
-    await api<CustomerContractRenewalCompletion>(`/api/customers/${item.customerId}/contract-renewal/complete`, {
+    const completion = await api<CustomerContractRenewalCompletion>(`/api/customers/${item.customerId}/contract-renewal/complete`, {
       method: "POST",
       body: JSON.stringify({
         expectedContractEndMonth: item.contractEndMonth
       })
     });
     setCustomerContractRenewalsDue((current) => current.filter((entry) => entry.customerId !== item.customerId));
+    upsertCustomerContractSummary({
+      customerId: item.customerId,
+      contractStartMonth: completion.profile.contractStartMonth,
+      contractEndMonth: completion.profile.contractEndMonth
+    });
   };
   const downloadCustomerContractRenewals = async () => {
     const XLSX = await loadXlsxModule();
@@ -7238,6 +7268,7 @@ export function App() {
             selectedCustomerIssues={selectedCustomerIssues}
             selectedCustomerIssuedDrafts={selectedCustomerIssuedDrafts}
             issuedDraftsByCustomerId={issuedDraftsByCustomerId}
+            contractSummaries={customerContractSummaries}
             contractRenewalDueItems={customerContractRenewalsDue}
             blockedCustomerCount={blockedCustomerCount}
             readyCustomerCount={readyNowCustomers.length}
@@ -7299,7 +7330,7 @@ export function App() {
             onExportSelectedCustomers={downloadSelectedCustomers}
             onShowDraftPopbillInfo={showDraftPopbillInfo}
             onOpenDraftPopbillUrl={openDraftPopbillUrl}
-            onCustomerReportDetailSaved={refreshCustomerContractRenewalsDue}
+            onCustomerReportDetailSaved={handleCustomerReportDetailSaved}
             resolveCustomerAddress={resolveCustomerAddress}
             runAction={runAction}
             formatCertificateExpireDate={formatCertificateExpireDate}
