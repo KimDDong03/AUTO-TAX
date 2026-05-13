@@ -67,7 +67,7 @@ export function SettingsDefaultsSection({
     <SetupPanel
       step={2}
       className="panel-settings-popbill"
-      title="발행 설정"
+      title="담당자 정보 및 발행 설정"
       done={model.done}
       note="신규 고객 기본 발행값을 확인합니다."
     >

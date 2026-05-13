@@ -48,7 +48,7 @@ function getAutosaveBadgeTone(state: SettingsSidebarModel["settingsAutosaveState
 
 function SettingsReadinessSummary({ model }: SettingsTabProps) {
   const sidebar = model.sidebar;
-  const onboarding = model.sections.account.onboarding;
+  const onboarding = model.sections.onboarding;
   const parsedProgress = parseProgressText(onboarding.progressText);
   const fallbackTotal = sidebar.settingsSections.length;
   const completed =
@@ -100,20 +100,6 @@ function SettingsReadinessSummary({ model }: SettingsTabProps) {
           </div>
         </div>
       </div>
-    </section>
-  );
-}
-
-function SettingsOnboardingCard({ model }: SettingsTabProps) {
-  const onboarding = model.sections.account.onboarding;
-
-  return (
-    <section className="settings-option1-card settings-option1-reopen-card">
-      <strong>도입 준비 다시 열기</strong>
-      <span>도입 준비를 다시 시작하거나 진행 상태를 확인할 수 있습니다.</span>
-      <button type="button" onClick={onboarding.openOnboarding}>
-        도입 준비 다시 열기
-      </button>
     </section>
   );
 }
@@ -243,21 +229,6 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
               </button>
             </div>
           </label>
-          <label className="settings-option1-field settings-option1-field-wide">
-            알림 수신 메일
-            <textarea
-              rows={3}
-              value={mailDraft.notificationEmailsText}
-              readOnly={!mailEditing}
-              onChange={(event) =>
-                setMailDraft((prev) => ({
-                  ...prev,
-                  notificationEmailsText: event.target.value
-                }))
-              }
-            />
-            <span className="field-hint">비워두면 메일 계정으로 받습니다.</span>
-          </label>
         </div>
 
         <div className="settings-option1-save-row">
@@ -359,6 +330,8 @@ function SettingsOption1AccountPanel({ model }: SettingsTabProps) {
 
 function SettingsTabDetail({ model }: SettingsTabProps) {
   switch (model.sidebar.activeSettingsSection) {
+    case "onboarding":
+      return <>{model.sections.onboarding.content}</>;
     case "gmail":
       return <SettingsOption1MailDetail model={model} />;
     case "popbill":
@@ -416,15 +389,6 @@ export function SettingsTab({ model }: SettingsTabProps) {
                   : "필요한 항목만 수정"}
               </span>
             </div>
-            <div className="button-row settings-inline-actions">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={sidebar.openOnboarding}
-              >
-                도입 준비 다시 열기
-              </button>
-            </div>
           </div>
         </section>
       </aside>
@@ -432,7 +396,6 @@ export function SettingsTab({ model }: SettingsTabProps) {
       <main className="settings-option1-main">
         <div className="settings-option1-top-row">
           <SettingsReadinessSummary model={model} />
-          <SettingsOnboardingCard model={model} />
         </div>
         <div className="settings-detail" aria-label={activeSection?.title ?? "설정"}>
           <SettingsTabDetail model={model} />

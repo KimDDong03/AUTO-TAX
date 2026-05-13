@@ -53,47 +53,60 @@ function createModel(
     sidebar: {
       settingsSections: [
         {
-          id: "gmail",
+          id: "onboarding",
           step: 1,
-          title: "메일 연결",
+          title: "도입 준비",
           done: false,
-          summary: "연결 테스트 필요"
+          summary: "2/6 완료 · 남음 4"
         },
         {
           id: "popbill",
           step: 2,
-          title: "발행 설정",
+          title: "담당자 정보 및 발행 설정",
           done: false,
           summary: "필수값 입력"
         },
         {
-          id: "helper",
+          id: "gmail",
           step: 3,
-          title: "헬퍼 상태",
+          title: "메일 연결하기",
+          done: false,
+          summary: "연결 테스트 필요"
+        },
+        {
+          id: "helper",
+          step: 4,
+          title: "로컬 헬퍼",
           done: false,
           summary: "헬퍼 준비 필요"
         },
         {
           id: "account",
-          step: 4,
+          step: 5,
           title: "계정 / 작업공간",
           done: true,
           summary: "비밀번호 변경"
         }
       ],
       activeSettingsSection,
-      setupPendingCount: 3,
+      setupPendingCount: 4,
       settingsAutosaveState: "saved",
       settingsAutosaveLabel: "자동 저장",
       customerRegistrationReady: false,
       customerCount: 0,
-      nextSettingsSection: "gmail",
-      nextSettingsSectionLabel: "메일 연결",
+      nextSettingsSection: "onboarding",
+      nextSettingsSectionLabel: "도입 준비",
       setActiveSettingsSection: () => {},
       openCertificates: () => {},
       openOnboarding: () => {}
     },
     sections: {
+      onboarding: {
+        complete: false,
+        progressText: "2/6 완료 · 남음 4",
+        pendingStepCount: 4,
+        content: <div>도입 준비 본문</div>
+      },
       mail: {
         busyKey: null,
         isMailTesting: false,
@@ -254,8 +267,21 @@ test("SettingsTab only renders the active detail section content", () => {
   const helperText = collectText(helperTree);
 
   assert.match(helperText, /로컬 헬퍼/);
+  assert.doesNotMatch(helperText, /도입 준비 본문/);
   assert.doesNotMatch(helperText, /자동으로 찾은 메일 서비스/);
   assert.doesNotMatch(helperText, /필수 공통값/);
+});
+
+test("SettingsTab renders onboarding as the first settings detail section", () => {
+  const model = createModel("onboarding");
+  const tree = SettingsTab({ model });
+  const text = collectText(tree);
+
+  assert.match(text, /도입 준비 본문/);
+  assert.match(text, /담당자 정보 및 발행 설정/);
+  assert.match(text, /메일 연결하기/);
+  assert.match(text, /로컬 헬퍼/);
+  assert.doesNotMatch(text, /메일 연결 설정/);
 });
 
 test("SettingsTab keeps local helper details out of issue defaults", () => {
@@ -265,7 +291,7 @@ test("SettingsTab keeps local helper details out of issue defaults", () => {
   const defaultsText = collectText(defaultsTree);
 
   assert.match(defaultsText, /필수 공통값/);
-  assert.doesNotMatch(defaultsText, /로컬 헬퍼/);
+  assert.doesNotMatch(defaultsText, /상태 다시 확인/);
   assert.doesNotMatch(defaultsText, /헬퍼 다운로드/);
 });
 
@@ -279,7 +305,7 @@ test("SettingsTab mail detail hides customer-unnecessary transport settings", ()
   assert.match(mailText, /메일 계정/);
   assert.match(mailText, /변경하려면 수정을 누르세요/);
   assert.match(mailText, /수정/);
-  assert.match(mailText, /알림 수신 메일/);
+  assert.doesNotMatch(mailText, /알림 수신 메일/);
   assert.doesNotMatch(mailText, /미매칭 메일 알림 받기/);
   assert.doesNotMatch(mailText, /수집 주기/);
   assert.doesNotMatch(mailText, /IMAP/);

@@ -13,9 +13,9 @@ export function SettingsHelperSection({
 }: SettingsHelperSectionProps) {
   return (
     <SetupPanel
-      step={3}
+      step={4}
       className="panel-settings-helper"
-      title="헬퍼 상태"
+      title="로컬 헬퍼"
       done={model.done}
       note="헬퍼 연결 / 인증서 읽기 요약"
       actions={

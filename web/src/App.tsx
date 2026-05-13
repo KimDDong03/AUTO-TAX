@@ -1048,7 +1048,7 @@ function resolveWorkspaceTab(
   }
 
   if (requestedTab === "onboarding") {
-    return "home";
+    return "settings";
   }
 
   if (
@@ -1983,15 +1983,11 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     const hashTab = getTabFromHash(hash);
-    return hashTab === "onboarding" ? "home" : hashTab ?? "home";
+    return hashTab ?? "home";
   });
   const [activeOpsSection, setActiveOpsSection] = useState<OpsSectionId>(() => {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     return getOpsSectionFromHash(hash) ?? OPS_DEFAULT_SECTION;
-  });
-  const [onboardingModalOpen, setOnboardingModalOpen] = useState(() => {
-    const hash = typeof window !== "undefined" ? window.location.hash : "";
-    return getTabFromHash(hash) === "onboarding";
   });
   const [requestedOnboardingStepId, setRequestedOnboardingStepId] = useState<string | null>(null);
   const [requestedIssuanceFilter, setRequestedIssuanceFilter] = useState<"unmatched" | null>(null);
@@ -2025,7 +2021,7 @@ export function App() {
       window.history.pushState(null, "", nextHash);
     }
   }, []);
-  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("gmail");
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("onboarding");
   const [appDialog, setAppDialog] = useState<AppDialogState | null>(null);
   const [customerAddressResolveMessage, setCustomerAddressResolveMessage] = useState("");
   const [customerImportFile, setCustomerImportFile] = useState<CustomerImportParsedFile | null>(null);
@@ -2819,7 +2815,7 @@ export function App() {
         const resolvedTab = resolveWorkspaceTab(nextTab, tabRoutingStateRef.current);
         if (nextTab === "onboarding" && tabRoutingStateRef.current.hasActiveWorkspace) {
           setRequestedOnboardingStepId(null);
-          setOnboardingModalOpen(true);
+          setActiveSettingsSection("onboarding");
         }
         if (nextOpsSection) {
           setActiveOpsSection(nextOpsSection);
@@ -5390,27 +5386,6 @@ export function App() {
     });
   };
 
-  useEffect(() => {
-    if (!activeOrganizationId) {
-      setOnboardingModalOpen(false);
-    }
-  }, [activeOrganizationId]);
-
-  useEffect(() => {
-    if (!onboardingModalOpen || !activeOrganizationId) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOnboardingModalOpen(false);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeOrganizationId, onboardingModalOpen]);
-
   if (!authReady) {
     return <div className="loading-shell">{recoveryMode ? "비밀번호 재설정 링크를 확인하는 중입니다." : "로그인 상태를 확인하는 중입니다."}</div>;
   }
@@ -6327,6 +6302,10 @@ export function App() {
 
     setRequestedOnboardingStepId("first-sync");
   };
+  const openUnmatchedIssuanceMessages = () => {
+    setRequestedIssuanceFilter("unmatched");
+    setActiveTab("issuance");
+  };
   const onboardingCertificateCompletionContent = (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
@@ -6425,9 +6404,19 @@ export function App() {
             <span>현재 초안</span>
             <strong>{reviewDrafts.length}건</strong>
           </div>
+          <div>
+            <span>미매칭 메일</span>
+            <strong>{exceptionMessages.length}건</strong>
+          </div>
         </div>
 
-        {canRunOnboardingFirstSync ? (
+        {onboardingFirstSyncReady && exceptionMessages.length > 0 ? (
+          <div className="button-row onboarding-primary-row">
+            <button type="button" className="btn-secondary" onClick={openUnmatchedIssuanceMessages}>
+              세금계산서 발행 &gt; 미매칭 메일로 이동
+            </button>
+          </div>
+        ) : canRunOnboardingFirstSync ? (
           <div className="button-row onboarding-primary-row">
             <button type="button" disabled={busyKey !== null} onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))}>
               {busyKey === "sync" ? "동기화 중..." : "첫 메일 동기화 실행"}
@@ -6444,6 +6433,40 @@ export function App() {
           </button>
         </div>
       </details>
+    </div>
+  );
+  const onboardingMatchingResultContent = (
+    <div className="onboarding-step-body">
+      <section className="onboarding-main-card">
+        <div className="onboarding-main-copy onboarding-task-copy">
+          <strong>
+            {!onboardingFirstSyncReady
+              ? "첫 메일 동기화 필요"
+              : exceptionMessages.length > 0
+                ? "미매칭 메일 확인 필요"
+                : "자동 매칭 확인 완료"}
+          </strong>
+        </div>
+
+        <div className="onboarding-inline-status">
+          <div>
+            <span>초안 생성</span>
+            <strong>{reviewDrafts.length}건</strong>
+          </div>
+          <div>
+            <span>미매칭 메일</span>
+            <strong>{exceptionMessages.length}건</strong>
+          </div>
+        </div>
+
+        {onboardingFirstSyncReady && exceptionMessages.length > 0 ? (
+          <div className="button-row onboarding-primary-row">
+            <button type="button" onClick={openUnmatchedIssuanceMessages}>
+              세금계산서 발행 &gt; 미매칭 메일로 이동
+            </button>
+          </div>
+        ) : null}
+      </section>
     </div>
   );
   const onboardingFirstIssueCheckContent = (
@@ -6609,71 +6632,19 @@ export function App() {
     {
       id: "exceptions",
       step: 5,
-      title: "미매칭 메일 예외 처리",
+      title: "자동 매칭 결과 확인",
       summary: !onboardingFirstSyncReady
         ? "첫 동기화 후 확인"
         : exceptionMessages.length > 0
-          ? `예외 메일 ${exceptionMessages.length}건 처리 필요`
-          : "예외 메일 없음",
-      primaryActionLabel: !onboardingFirstSyncReady ? "첫 메일 동기화 후 예외 확인" : exceptionMessages.length > 0 ? "예외 메일 확인" : "지금 처리할 예외 없음",
+          ? `미매칭 메일 ${exceptionMessages.length}건`
+          : `초안 ${reviewDrafts.length}건 · 미매칭 0건`,
+      primaryActionLabel: !onboardingFirstSyncReady ? "첫 메일 동기화 후 결과 확인" : exceptionMessages.length > 0 ? "미매칭 메일로 이동" : "자동 매칭 확인 완료",
       blockedReason: !onboardingFirstSyncReady
         ? "먼저 첫 메일 동기화를 실행하세요."
-        : exceptionMessages.length === 0
-          ? "지금 처리할 예외 메일이 없습니다."
-          : undefined,
+        : undefined,
       tone: onboardingFirstSyncReady && exceptionMessages.length === 0 ? "muted" : "default",
       done: exceptionHandlingReady,
-      content: (
-        <InitialRegistrationTab
-          mode="exceptions"
-          busyKey={busyKey}
-          customerOnboardingFileName={customerOnboardingFileName}
-          customerOnboardingPreview={customerOnboardingPreview}
-          customerOnboardingNotice={customerOnboardingNotice}
-          customerOnboardingError={customerOnboardingError}
-          pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
-          quickRegisterMessages={exceptionMessages}
-          quickRegisterForm={quickRegisterForm}
-          selectedQuickRegisterMessage={selectedQuickRegisterMessage}
-          isQuickRegistering={isQuickRegistering}
-          quickRegisterNotice={quickRegisterNotice}
-          quickRegisterError={quickRegisterError}
-          billingMonthSummaries={billingMonthSummaries}
-          completedBillingNotice={completedBillingNotice}
-          helperReady={helperReady}
-          helperCertificateCount={customerRenewalAssistantElectronicTaxCertificateCount}
-          certificateReady={onboardingCertificateReady}
-          certificateAutoTargetCount={onboardingCertificateAutoTargetCount}
-          certificatePendingJoinCount={onboardingPendingPopbillJoinCount}
-          certificateFailedJoinCount={onboardingFailedPopbillJoinCount}
-          certificateRetryCount={onboardingCertificateRetryCount}
-          certificatePrimaryActionLabel={onboardingCertificatePrimaryActionLabel}
-          certificateActionDisabled={onboardingCertificateActionDisabled}
-          certificateActionTitle={onboardingCertificateActionTitle}
-          registrationTemplateDownloaded={customerOnboardingSessionState.templateDownloaded}
-          registrationPreviewReady={customerOnboardingSessionState.previewReady}
-          registrationCommitDone={customerOnboardingSessionState.commitDone}
-          customerOnboardingSharedPassword={customerOnboardingSharedPassword}
-          onCustomerOnboardingSharedPasswordChange={setCustomerOnboardingSharedPassword}
-          certificatePasswordOverrideEntries={onboardingCertificatePasswordOverrideEntries}
-          onCertificatePasswordOverrideChange={updateCustomerOnboardingCertificatePasswordOverride}
-          showBillingMonthCompletion
-          downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
-          handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
-          commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
-          proceedOnboardingCertificateFollowUp={proceedOnboardingCertificateFollowUpAction}
-          setQuickRegisterForm={setQuickRegisterForm}
-          selectQuickRegisterMessage={selectQuickRegisterMessage}
-          submitQuickRegister={submitQuickRegister}
-          onReprocessInboxMessage={reprocessInboxMessage}
-          markBillingMonthCompleted={markBillingMonthCompleted}
-          runAction={runAction}
-          formatDateTime={formatDateTime}
-          formatMoney={formatMoney}
-          getInboxDisplayParseStatus={getInboxDisplayParseStatus}
-          getParseStatusLabel={getParseStatusLabel}
-        />
-      )
+      content: onboardingMatchingResultContent
     },
     {
       id: "first-issue",
@@ -6692,7 +6663,7 @@ export function App() {
       blockedReason: !onboardingFirstSyncReady
         ? "먼저 첫 메일 동기화를 실행하세요."
         : exceptionMessages.length > 0
-          ? "먼저 예외 메일을 처리하세요."
+          ? "세금계산서 발행의 미매칭 메일에서 먼저 처리하세요."
           : undefined,
       done: firstIssueCheckReady,
       content: onboardingFirstIssueCheckContent
@@ -6729,10 +6700,12 @@ export function App() {
       : `${onboardingSetupCompletedCount}/${onboardingSetupSteps.length} 완료 · 남음 ${onboardingPendingStepCount}`;
   const openOnboardingStep = (stepId?: string | null) => {
     setRequestedOnboardingStepId(stepId ?? null);
-    setOnboardingModalOpen(true);
-  };
-  const closeOnboardingModal = () => {
-    setOnboardingModalOpen(false);
+    if (!hasActiveWorkspace) {
+      setActiveTab("onboarding");
+      return;
+    }
+    setActiveSettingsSection("onboarding");
+    setActiveTab("settings");
   };
   const reopenOnboarding = () => {
     openOnboardingStep(firstPendingOnboardingStep?.id ?? onboardingCompletionSteps[0]?.id ?? null);
@@ -6758,7 +6731,7 @@ export function App() {
 
     setActiveTab(nextTab);
     if (nextTab === "settings") {
-      openSettingsSection(settingsActionBar.primarySection);
+      openSettingsSection("onboarding");
     }
   };
   const certificateUnlinkedCount = certificatesScreenModel.metrics.unlinkedCount;
@@ -7391,6 +7364,12 @@ export function App() {
             onboardingComplete={onboardingComplete}
             onboardingProgressText={onboardingHeroProgressText}
             onboardingPendingStepCount={onboardingPendingStepCount}
+            onboardingContent={
+              <OnboardingTab
+                steps={onboardingSetupSteps}
+                requestedStepId={requestedOnboardingStepId}
+              />
+            }
             openOnboarding={reopenOnboarding}
             busyKey={busyKey}
             customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
@@ -8332,38 +8311,6 @@ export function App() {
         ) : null}
         </main>
       </div>
-      {hasActiveWorkspace && onboardingModalOpen ? (
-        <div className="onboarding-modal-backdrop" role="presentation" onClick={closeOnboardingModal}>
-          <section
-            className="onboarding-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="onboarding-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className="onboarding-modal-head">
-              <div className="onboarding-modal-copy">
-                <div className="onboarding-modal-progress">
-                  <span className={onboardingPendingStepCount === 0 ? "chip chip-success" : "chip chip-warn"}>
-                    {onboardingPendingStepCount === 0 ? "완료" : "진행"}
-                  </span>
-                  <span>{onboardingHeroProgressText}</span>
-                </div>
-                <div>
-                  <strong id="onboarding-modal-title">도입 준비</strong>
-                  <p>{onboardingHeroTaskLine}</p>
-                </div>
-              </div>
-              <button type="button" className="btn-secondary onboarding-modal-close" onClick={closeOnboardingModal}>
-                닫기
-              </button>
-            </header>
-            <div className="onboarding-modal-body">
-              <OnboardingTab steps={onboardingSetupSteps} requestedStepId={requestedOnboardingStepId} />
-            </div>
-          </section>
-        </div>
-      ) : null}
       {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
     </>
   );

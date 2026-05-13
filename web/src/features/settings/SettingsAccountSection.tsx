@@ -37,33 +37,6 @@ export function SettingsAccountSection({
 
   return (
     <div className="settings-account-stack">
-      <Panel
-        title="도입 준비 메뉴"
-        subtitle={
-          model.onboarding.complete
-            ? "완료 후에도 홈과 설정에서 다시 열 수 있습니다"
-            : `진행 중 · 남은 ${model.onboarding.pendingStepCount}단계`
-        }
-        actions={
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={model.onboarding.openOnboarding}
-          >
-            도입 준비 다시 열기
-          </button>
-        }
-      >
-        <div className="helper-box-stack">
-          <strong>{model.onboarding.progressText}</strong>
-          <span className="field-hint">
-            {model.onboarding.complete
-              ? "도입 준비는 독립 메뉴가 아니라 홈과 설정에서 여는 확인 모달입니다."
-              : "진행 중에는 홈의 준비 카드와 설정의 보조 진입에서 같은 모달을 다시 열 수 있습니다."}
-          </span>
-        </div>
-      </Panel>
-
       <AccountPasswordPanel
         title="비밀번호 변경"
         subtitle="현재 계정"

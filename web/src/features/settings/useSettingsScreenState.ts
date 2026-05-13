@@ -16,7 +16,7 @@ import { useSettingsStoredSecretLoaders } from "./useSettingsStoredSecretLoaders
 import type { SettingsMailEditableFields } from "./settingsSectionModels";
 
 export type MailProvider = "gmail" | "naver" | "daum";
-export type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
+export type SettingsSectionId = "onboarding" | "gmail" | "popbill" | "helper" | "account";
 export type SettingsAutosaveState = "idle" | "pending" | "saving" | "saved" | "error";
 export {
   createEmptyPasswordChangeForm,

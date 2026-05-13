@@ -3,6 +3,7 @@ import type React from "react";
 import type { Customer } from "../../types";
 import type { SettingsFeatureOrchestration } from "./createSettingsActionAdapters";
 import type { SettingsTabModel } from "./SettingsTab";
+import type { SettingsSectionSummary } from "./settingsSectionModels";
 import type { SettingsFormState, SettingsScreenState, SettingsSectionId } from "./useSettingsScreenState";
 import { getSettingsSectionLabel } from "./useSettingsDerivedModel";
 
@@ -21,6 +22,7 @@ export type SettingsScreenProps = {
   onboardingComplete: boolean;
   onboardingProgressText: string;
   onboardingPendingStepCount: number;
+  onboardingContent: React.ReactNode;
   openOnboarding: () => void;
   openCertificates: () => void;
   busyKey: string | null;
@@ -116,6 +118,33 @@ export function useSettingsScreenModel(
       props.settingsState.runRefreshCustomerRenewalAssistant
     ]
   );
+  const settingsSections = useMemo<SettingsSectionSummary[]>(() => {
+    const onboardingSection: SettingsSectionSummary = {
+      id: "onboarding",
+      step: 1,
+      title: "도입 준비",
+      done: props.onboardingComplete,
+      summary: props.onboardingComplete ? "준비 완료" : props.onboardingProgressText
+    };
+    const normalizedSections = props.settingsState.settingsSections.map((section) =>
+      section.id === "onboarding"
+        ? onboardingSection
+        : section
+    );
+
+    if (normalizedSections.some((section) => section.id === "onboarding")) {
+      return normalizedSections;
+    }
+
+    return [onboardingSection, ...normalizedSections];
+  }, [
+    props.onboardingComplete,
+    props.onboardingProgressText,
+    props.settingsState.settingsSections
+  ]);
+  const setupPendingCount = settingsSections.filter((section) => !section.done).length;
+  const nextSettingsSection =
+    settingsSections.find((section) => !section.done)?.id ?? "account";
 
   return useMemo<SettingsTabModel>(
     () => ({
@@ -125,22 +154,26 @@ export function useSettingsScreenModel(
         popbillModeLabel: props.popbillModeLabel
       },
       sidebar: {
-        settingsSections: props.settingsState.settingsSections,
+        settingsSections,
         activeSettingsSection: props.activeSettingsSection,
-        setupPendingCount: props.settingsState.setupPendingCount,
+        setupPendingCount,
         settingsAutosaveState: props.settingsState.settingsAutosaveState,
         settingsAutosaveLabel: props.settingsState.settingsAutosaveLabel,
         customerRegistrationReady: props.customerRegistrationReady,
         customerCount: props.customerCount,
-        nextSettingsSection: props.settingsState.nextSettingsSection,
-        nextSettingsSectionLabel: getSettingsSectionLabel(
-          props.settingsState.nextSettingsSection
-        ),
+        nextSettingsSection,
+        nextSettingsSectionLabel: getSettingsSectionLabel(nextSettingsSection),
         setActiveSettingsSection: props.setActiveSettingsSection,
         openCertificates: props.openCertificates,
         openOnboarding: props.openOnboarding
       },
       sections: {
+        onboarding: {
+          complete: props.onboardingComplete,
+          progressText: props.onboardingProgressText,
+          pendingStepCount: props.onboardingPendingStepCount,
+          content: props.onboardingContent
+        },
         mail: {
           busyKey: props.busyKey,
           isMailTesting: props.busyKey === "mail-test",
@@ -283,6 +316,7 @@ export function useSettingsScreenModel(
       props.customerRenewalLoadedCertificateCount,
       props.formatDateTime,
       props.onboardingComplete,
+      props.onboardingContent,
       props.onboardingPendingStepCount,
       props.onboardingProgressText,
       props.onSaveCustomerIssueCompleteSmsTemplate,
@@ -308,7 +342,6 @@ export function useSettingsScreenModel(
       props.settingsState.handleSettingsMailAddressChange,
       props.settingsState.handleSettingsRenewalIssuePasswordChange,
       props.settingsState.mailPasswordConfigured,
-      props.settingsState.nextSettingsSection,
       props.settingsState.popbillSharedPasswordConfigured,
       props.settingsState.renewalCertificatePasswordConfigured,
       props.settingsState.renewalIssuePasswordConfigured,
@@ -322,8 +355,6 @@ export function useSettingsScreenModel(
       props.settingsState.settingsHealth.mailReady,
       props.settingsState.settingsHealth.operatorReady,
       props.settingsState.settingsHealth.popbillReady,
-      props.settingsState.settingsSections,
-      props.settingsState.setupPendingCount,
       props.userLabel,
       props.workspaceLabel,
       setSettingsField,
@@ -340,7 +371,10 @@ export function useSettingsScreenModel(
       settingsForm.popbillUserIdPrefix,
       settingsForm.renewalCertificatePassword,
       settingsForm.renewalIssuePassword,
-      settingsForm.schedulerEnabled
+      settingsForm.schedulerEnabled,
+      nextSettingsSection,
+      settingsSections,
+      setupPendingCount
     ]
   );
 }

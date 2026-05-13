@@ -134,6 +134,13 @@ export type SettingsHelperSectionModel = {
   helperStatus: SettingsHelperStatusModel;
 };
 
+export type SettingsOnboardingSectionModel = {
+  complete: boolean;
+  progressText: string;
+  pendingStepCount: number;
+  content: React.ReactNode;
+};
+
 export type SettingsAccountSectionModel = {
   onboarding: {
     complete: boolean;
@@ -167,6 +174,7 @@ export type SettingsAccountSectionModel = {
 };
 
 export type SettingsTabSectionsModel = {
+  onboarding: SettingsOnboardingSectionModel;
   mail: SettingsMailSectionModel;
   defaults: SettingsDefaultsSectionModel;
   helper: SettingsHelperSectionModel;

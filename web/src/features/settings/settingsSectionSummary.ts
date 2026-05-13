@@ -30,18 +30,16 @@ export function buildSettingsSectionSummary({
 }: BuildSettingsSectionSummaryArgs): SettingsSectionSummaryState {
   const settingsSections: SettingsSectionSummary[] = [
     {
-      id: "gmail",
+      id: "onboarding",
       step: 1,
-      title: "메일 연결",
-      done: settingsHealth.mailReady,
-      summary: settingsHealth.mailReady
-        ? settingsMailAddress || "준비됨"
-        : "연결 테스트 필요"
+      title: "도입 준비",
+      done: true,
+      summary: "진행 상태 확인"
     },
     {
       id: "popbill",
       step: 2,
-      title: "발행 설정",
+      title: "담당자 정보 및 발행 설정",
       done: settingsHealth.popbillReady && settingsHealth.operatorReady,
       summary:
         settingsHealth.popbillReady && settingsHealth.operatorReady
@@ -49,9 +47,18 @@ export function buildSettingsSectionSummary({
           : "필수값 입력"
     },
     {
-      id: "helper",
+      id: "gmail",
       step: 3,
-      title: "헬퍼 상태",
+      title: "메일 연결하기",
+      done: settingsHealth.mailReady,
+      summary: settingsHealth.mailReady
+        ? settingsMailAddress || "준비됨"
+        : "연결 테스트 필요"
+    },
+    {
+      id: "helper",
+      step: 4,
+      title: "로컬 헬퍼",
       done: helperReady,
       summary: helperReady
         ? customerRenewalAssistantOnline && helperCertificateCount > 0
@@ -67,7 +74,7 @@ export function buildSettingsSectionSummary({
     },
     {
       id: "account",
-      step: 4,
+      step: 5,
       title: "계정 / 작업공간",
       done: true,
       summary: canManageOrganizationMembers ? "사용자 / 비밀번호" : "비밀번호 변경"
@@ -76,10 +83,10 @@ export function buildSettingsSectionSummary({
   const setupPendingCount = settingsSections.filter(
     (section) => !section.done
   ).length;
-  const recommendedSettingsSection: SettingsSectionId = !settingsHealth.mailReady
-    ? "gmail"
-    : !(settingsHealth.popbillReady && settingsHealth.operatorReady)
-      ? "popbill"
+  const recommendedSettingsSection: SettingsSectionId = !(settingsHealth.popbillReady && settingsHealth.operatorReady)
+    ? "popbill"
+    : !settingsHealth.mailReady
+      ? "gmail"
       : !helperReady
         ? "helper"
         : "account";

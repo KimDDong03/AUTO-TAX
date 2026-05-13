@@ -9,9 +9,9 @@ type SettingsMailSectionProps = {
 export function SettingsMailSection({ model }: SettingsMailSectionProps) {
   return (
     <SetupPanel
-      step={1}
+      step={3}
       className="panel-settings-mail"
-      title="메일 연결"
+      title="메일 연결하기"
       done={model.done}
       note="메일 계정 연결 / 테스트"
       actions={

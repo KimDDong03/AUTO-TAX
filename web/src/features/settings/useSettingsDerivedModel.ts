@@ -115,12 +115,14 @@ type UseSettingsDerivedModelArgs = {
 
 export function getSettingsSectionLabel(section: SettingsSectionId): string {
   switch (section) {
+    case "onboarding":
+      return "도입 준비";
     case "gmail":
-      return "메일 연결";
+      return "메일 연결하기";
     case "popbill":
-      return "발행 설정";
+      return "담당자 정보 및 발행 설정";
     case "helper":
-      return "헬퍼 상태";
+      return "로컬 헬퍼";
     case "account":
     default:
       return "계정 / 작업공간";
