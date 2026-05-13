@@ -593,6 +593,32 @@ test("delete customer continues when Popbill member is already missing", async (
   );
 });
 
+test("delete customer continues when Popbill contact update says the member is missing", async () => {
+  const customer = buildCustomer();
+  const events: string[] = [];
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      quitCustomerPopbillMember: async () => {
+        events.push("quit");
+        throw new PopbillApiError("contact-update", "-10000006", "해당 회원을 찾을 수 없습니다.");
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/${customer.id}`, { method: "DELETE" });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        ok: true,
+        popbillCleanupStatus: "already-missing-on-delete"
+      });
+      assert.deepEqual([...events, ...calls.events], ["quit", "delete"]);
+      assert.equal(calls.logs.some((entry) => entry.context), true);
+    }
+  );
+});
+
 test("explicit Popbill quit route resets local state even in production when member is already missing", async () => {
   const customer = buildCustomer();
   const events: string[] = [];

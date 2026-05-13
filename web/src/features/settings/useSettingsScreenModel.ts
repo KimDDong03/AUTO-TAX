@@ -15,6 +15,7 @@ export type SettingsScreenProps = {
   setActiveSettingsSection: React.Dispatch<React.SetStateAction<SettingsSectionId>>;
   customers: Customer[];
   onSaveCustomerIssueCompleteSmsTemplate: (customerId: number, issueCompleteSmsTemplate: string) => Promise<void>;
+  onWithdrawOrganization: (input: { organizationName: string; confirmText: string }) => Promise<void>;
   customerRegistrationReady: boolean;
   customerCount: number;
   onboardingComplete: boolean;
@@ -243,7 +244,18 @@ export function useSettingsScreenModel(
             removeOrganizationMember:
               props.orchestration.actions.removeOrganizationMember,
             resetOrganizationMemberPassword:
-              props.orchestration.actions.resetOrganizationMemberPassword
+              props.orchestration.actions.resetOrganizationMemberPassword,
+            withdrawOrganization: props.orchestration.actions.withdrawOrganization
+          },
+          withdrawal: {
+            organizationName: props.workspaceLabel,
+            customerCount: props.customers.length,
+            joinedPopbillCustomerCount: props.customers.filter(
+              (customer) => customer.popbillState === "joined"
+            ).length,
+            memberCount: props.settingsState.account.organizationMembers.length,
+            canWithdraw: props.settingsState.account.canManageOrganizationMembers,
+            onWithdrawOrganization: props.onWithdrawOrganization
           },
           reveals: {
             accountPassword: props.orchestration.reveals.accountPassword,
@@ -271,6 +283,7 @@ export function useSettingsScreenModel(
       props.onboardingPendingStepCount,
       props.onboardingProgressText,
       props.onSaveCustomerIssueCompleteSmsTemplate,
+      props.onWithdrawOrganization,
       props.openCertificates,
       props.openOnboarding,
       props.popbillModeLabel,
@@ -278,6 +291,7 @@ export function useSettingsScreenModel(
       props.orchestration.actions.createOrganizationMember,
       props.orchestration.actions.removeOrganizationMember,
       props.orchestration.actions.resetOrganizationMemberPassword,
+      props.orchestration.actions.withdrawOrganization,
       props.orchestration.reveals.accountPassword,
       props.orchestration.reveals.mailPassword,
       props.orchestration.reveals.memberResetPassword,

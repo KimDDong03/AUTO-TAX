@@ -194,7 +194,7 @@ type CustomersTabProps = {
   onOpenCustomerCertificatePayment: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
   onRefreshCustomerCertificateStatus: (customerId: number) => Promise<void>;
   onResetPopbillLink: (customer: Customer) => Promise<void>;
-  onDeleteCustomer: (customer: Customer) => Promise<void>;
+  onDeleteCustomers: (customers: Customer[]) => Promise<number[]>;
   onExportSelectedCustomers: (customers: Customer[], reportYear: number) => Promise<void>;
   onShowDraftPopbillInfo: (draftId: number) => Promise<void>;
   onOpenDraftPopbillUrl: (draftId: number, path: "view-url" | "print-url") => Promise<void>;
@@ -1039,7 +1039,6 @@ export function CustomersTab(props: CustomersTabProps) {
     [checkedCustomerIds, visibleTableCustomers]
   );
   const checkedVisibleCustomerCount = checkedVisibleCustomers.length;
-  const deletableCheckedCustomer = checkedVisibleCustomerCount === 1 ? checkedVisibleCustomers[0] : null;
   const allVisibleCustomersChecked = visibleTableCustomers.length > 0 && checkedVisibleCustomerCount === visibleTableCustomers.length;
   const someVisibleCustomersChecked = checkedVisibleCustomerCount > 0 && !allVisibleCustomersChecked;
 
@@ -2582,16 +2581,29 @@ export function CustomersTab(props: CustomersTabProps) {
               type="button"
               className="btn-secondary customer-console-danger-action"
               onClick={() => {
-                if (!deletableCheckedCustomer) return;
+                const customersToDelete = [...checkedVisibleCustomers];
+                if (customersToDelete.length === 0) return;
                 void props.runAction(
-                  `delete-customer-${deletableCheckedCustomer.id}`,
-                  async () => props.onDeleteCustomer(deletableCheckedCustomer)
+                  `delete-customers-${customersToDelete.map((customer) => customer.id).join("-")}`,
+                  async () => {
+                    const deletedCustomerIds = await props.onDeleteCustomers(customersToDelete);
+                    setCheckedCustomerIds((prev) => {
+                      const next = new Set(prev);
+                      deletedCustomerIds.forEach((customerId) => next.delete(customerId));
+                      return next;
+                    });
+                  }
                 );
               }}
-              disabled={props.busyKey !== null || props.creatingCustomer || !deletableCheckedCustomer}
+              disabled={props.busyKey !== null || props.creatingCustomer || checkedVisibleCustomerCount === 0}
+              aria-label={
+                checkedVisibleCustomerCount > 0
+                  ? `선택한 고객 ${checkedVisibleCustomerCount}명 삭제`
+                  : "선택한 고객 삭제"
+              }
             >
               <Icon name="trash" className="button-icon" />
-              고객 삭제
+              {checkedVisibleCustomerCount > 1 ? `${checkedVisibleCustomerCount}명 삭제` : "고객 삭제"}
             </button>
           </div>
         </section>

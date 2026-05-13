@@ -129,7 +129,7 @@ async function listOrganizationMemberships(
       ? membership.organizations[0]
       : membership.organizations;
 
-    if (!organization) {
+    if (!organization || organization.status === "churned") {
       return [];
     }
 

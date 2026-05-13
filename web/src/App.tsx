@@ -615,6 +615,30 @@ type CustomerSaveResponse = Customer & {
   autoJoinStatus?: "already-joined" | "linked-existing-member" | "joined" | "linked-after-duplicate-check" | "failed";
   autoJoinError?: string | null;
 };
+type OrganizationWithdrawalResponse = {
+  ok: true;
+  organizationId: string;
+  organizationName: string;
+  popbill: {
+    totalCustomers: number;
+    joinedTargets: number;
+    skipped: number;
+    quit: number;
+    alreadyMissing: number;
+    localResetFailed: number;
+  };
+  auth: {
+    removedMemberships: number;
+    deletedAuthUsers: number;
+    retainedAuthUsers: number;
+    authDeleteFailures: Array<{
+      userId: string;
+      loginId: string | null;
+      error: string;
+    }>;
+  };
+  cancelledJobs: number;
+};
 type OpsConsoleData = {
   partnerPoints: PartnerPointsPayload;
   renewalAutomation: RenewalAutomationPayload;
@@ -3132,6 +3156,64 @@ export function App() {
     }
   };
 
+  const withdrawOrganization = async (input: { organizationName: string; confirmText: string }) => {
+    const confirmed = await showAppConfirm(
+      [
+        `${input.organizationName} 고객사 회원탈퇴를 진행합니다.`,
+        "팝빌 연동 고객 탈퇴가 먼저 실행되고, 실패가 있으면 작업공간 탈퇴는 중단됩니다.",
+        "완료 후 현재 작업공간 사용자들은 더 이상 접속할 수 없습니다."
+      ].join("\n"),
+      {
+        title: "고객사 회원탈퇴",
+        tone: "danger",
+        confirmLabel: "탈퇴 진행"
+      }
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    let result: OrganizationWithdrawalResponse;
+    try {
+      result = await api<OrganizationWithdrawalResponse>("/api/organization/withdraw", {
+        method: "POST",
+        body: JSON.stringify(input)
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.details) {
+        await showAppAlert(`${error.message}\n\n${error.details}`, {
+          title: "회원탈퇴 중단",
+          tone: "danger"
+        });
+      }
+      throw error;
+    }
+
+    const warnings = [
+      result.popbill.localResetFailed > 0
+        ? `로컬 팝빌 상태 초기화 실패 ${result.popbill.localResetFailed}건은 로그에 남겼습니다.`
+        : null,
+      result.auth.authDeleteFailures.length > 0
+        ? `인증 계정 삭제 실패 ${result.auth.authDeleteFailures.length}건은 접근 해지 후 로그에 남겼습니다.`
+        : null
+    ].filter(Boolean);
+
+    await showAppAlert(
+      [
+        `${result.organizationName} 고객사 회원탈퇴를 완료했습니다.`,
+        `팝빌 탈퇴 대상 ${result.popbill.joinedTargets}건 중 탈퇴 ${result.popbill.quit}건, 이미 없음 ${result.popbill.alreadyMissing}건입니다.`,
+        `작업공간 사용자 ${result.auth.removedMemberships}명의 접근을 해지했고 대기 작업 ${result.cancelledJobs}건을 취소했습니다.`,
+        ...warnings
+      ].join("\n"),
+      {
+        title: "회원탈퇴 완료",
+        tone: warnings.length > 0 ? "warn" : "success"
+      }
+    );
+
+    await signOut();
+  };
+
   const changeOrganization = async (organizationId: string) => {
     setActiveOrganizationId(organizationId);
     setError("");
@@ -4942,7 +5024,58 @@ export function App() {
     });
   };
 
-  const deleteCustomer = async (customer: Customer) => {
+  const deleteCustomers = async (customers: Customer[]) => {
+    const uniqueCustomers = customers.filter(
+      (customer, index, list) => list.findIndex((item) => item.id === customer.id) === index
+    );
+    if (uniqueCustomers.length === 0) {
+      return [];
+    }
+
+    if (uniqueCustomers.length > 1) {
+      const confirmed = await showAppConfirm(
+        `선택한 고객 ${uniqueCustomers.length}명을 삭제합니다.\n팝빌 가입 고객은 삭제 전에 팝빌 탈퇴 처리가 먼저 진행됩니다.\n관련된 로컬 메일 매칭/발행초안도 같이 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`,
+        {
+          title: "고객 일괄 삭제",
+          tone: "danger",
+          confirmLabel: "선택 고객 삭제"
+        }
+      );
+      if (!confirmed) return [];
+
+      const deletedIds: number[] = [];
+      const failedDetails: string[] = [];
+
+      for (const customer of uniqueCustomers) {
+        try {
+          await api(`/api/customers/${customer.id}`, {
+            method: "DELETE"
+          });
+          deletedIds.push(customer.id);
+        } catch (error) {
+          failedDetails.push(`${customer.customerName}: ${getDisplayErrorMessage(error, "삭제 실패")}`);
+        }
+      }
+
+      setCustomerForm((prev) =>
+        prev.id !== null && deletedIds.includes(prev.id) ? createCustomerFormDefaults() : prev
+      );
+
+      const failedCount = failedDetails.length;
+      const successCount = deletedIds.length;
+      const detailText = failedCount > 0 ? `\n실패 내역\n${failedDetails.slice(0, 8).join("\n")}` : "";
+      await showAppAlert(
+        `고객 일괄 삭제를 마쳤습니다.\n대상: ${uniqueCustomers.length}명\n삭제 완료: ${successCount}명\n삭제 실패: ${failedCount}명${detailText}`,
+        {
+          title: "고객 일괄 삭제 완료",
+          tone: failedCount > 0 ? "warn" : "success"
+        }
+      );
+      return deletedIds;
+    }
+
+    const [customer] = uniqueCustomers;
+    if (!customer) return [];
     const confirmed = await showAppConfirm(
       `${customer.customerName} 고객을 삭제합니다.\n관련된 로컬 메일 매칭/발행초안도 같이 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`,
       {
@@ -4951,13 +5084,14 @@ export function App() {
         confirmLabel: "삭제하기"
       }
     );
-    if (!confirmed) return;
+    if (!confirmed) return [];
 
     await api(`/api/customers/${customer.id}`, {
       method: "DELETE"
     });
 
     setCustomerForm((prev) => (prev.id === customer.id ? createCustomerFormDefaults() : prev));
+    return [customer.id];
   };
 
   const quitPopbillMember = async (customer: Customer) => {
@@ -5086,6 +5220,20 @@ export function App() {
       title: "선택 일괄 발행 완료",
       tone: failed > 0 ? "warn" : "success"
     });
+  };
+
+  const issueDraftWithConfirmation = async (draftId: number) => {
+    const confirmed = await showAppConfirm(
+      "발행하시겠습니까?\n발행 시 고객에게 발행 문자가 전송됩니다.",
+      {
+        title: "발행 확인",
+        tone: "warn",
+        confirmLabel: "발행하기"
+      }
+    );
+    if (!confirmed) return;
+
+    await api(`/api/drafts/${draftId}/issue`, { method: "POST" });
   };
 
   const refreshAllCertificateStatuses = async () => {
@@ -6997,7 +7145,7 @@ export function App() {
             onSelectFeedTab={setWorkFeedTab}
             onIssueAllReviewDrafts={() => void runAction("issue-all", issueAllReviewDrafts)}
             onIssueDraft={(draftId) =>
-              void runAction(`issue-${draftId}`, async () => void (await api(`/api/drafts/${draftId}/issue`, { method: "POST" })))
+              void runAction(`issue-${draftId}`, async () => void (await issueDraftWithConfirmation(draftId)))
             }
             onReprocessInboxMessage={(messageId) =>
               void runAction(`reprocess-${messageId}`, async () => void (await reprocessInboxMessage(messageId)))
@@ -7047,7 +7195,7 @@ export function App() {
             onIssueAllReviewDrafts={() => void runAction("issue-all", issueAllReviewDrafts)}
             onIssueSelectedDrafts={(draftIds) => void runAction("issue-selected", async () => void (await issueSelectedDrafts(draftIds)))}
             onIssueDraft={(draftId) =>
-              void runAction(`issue-${draftId}`, async () => void (await api(`/api/drafts/${draftId}/issue`, { method: "POST" })))
+              void runAction(`issue-${draftId}`, async () => void (await issueDraftWithConfirmation(draftId)))
             }
             onReprocessInboxMessage={(messageId, customerId) =>
               void runAction(
@@ -7147,7 +7295,7 @@ export function App() {
             onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
             onRefreshCustomerCertificateStatus={refreshSingleCustomerCertificateStatus}
             onResetPopbillLink={resetPopbillLink}
-            onDeleteCustomer={deleteCustomer}
+            onDeleteCustomers={deleteCustomers}
             onExportSelectedCustomers={downloadSelectedCustomers}
             onShowDraftPopbillInfo={showDraftPopbillInfo}
             onOpenDraftPopbillUrl={openDraftPopbillUrl}
@@ -7173,6 +7321,7 @@ export function App() {
             activeSettingsSection={activeSettingsSection}
             customers={data.customers}
             onSaveCustomerIssueCompleteSmsTemplate={saveCustomerIssueCompleteSmsTemplate}
+            onWithdrawOrganization={withdrawOrganization}
             customerRegistrationReady={customerRegistrationReady}
             customerCount={data.customers.length}
             onboardingComplete={onboardingComplete}

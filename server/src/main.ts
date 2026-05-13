@@ -986,6 +986,7 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     requireOrganizationOwner,
     createSupabaseAdminClient,
     listOrganizationMembers,
+    getServerManagedSettings,
     normalizeLoginId,
     findAuthUserByLoginId,
     createWorkspaceLoginEmail,

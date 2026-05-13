@@ -4593,6 +4593,50 @@ textarea {
   font-size: 0.78rem;
 }
 
+.organization-withdrawal-form {
+  display: grid;
+  gap: 0.78rem;
+}
+
+.organization-withdrawal-summary {
+  display: grid;
+  gap: 0.62rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.organization-withdrawal-summary > div {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.78rem 0.86rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.organization-withdrawal-summary span {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.organization-withdrawal-summary strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.organization-withdrawal-warning {
+  border-color: #ffd8dd;
+  background: var(--danger-soft);
+}
+
+.organization-withdrawal-confirm-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.organization-withdrawal-actions {
+  justify-content: flex-end;
+}
+
 .workspace-member-card {
   display: grid;
   gap: 0.58rem;
@@ -5243,7 +5287,8 @@ tr + tr td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .workspace-member-create-grid {
+  .workspace-member-create-grid,
+  .organization-withdrawal-summary {
     grid-template-columns: 1fr;
   }
 
@@ -28700,7 +28745,8 @@ button.issuance-list-item {
   .app-shell-topnav .issuance-detail-facts-parsed div,
   .app-shell-topnav .settings-option1-progress-row,
   .app-shell-topnav .settings-option1-form-grid,
-  .app-shell-topnav .workspace-member-create-grid {
+  .app-shell-topnav .workspace-member-create-grid,
+  .app-shell-topnav .organization-withdrawal-summary {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 

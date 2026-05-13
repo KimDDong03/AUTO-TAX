@@ -66,8 +66,11 @@ test("createSettingsActionAdapters wraps member/account actions with stable keys
       executed.push("reset");
     }
   );
+  await orchestration.actions.withdrawOrganization(async () => {
+    executed.push("withdraw");
+  });
 
-  assert.deepEqual(executed, ["change", "create", "remove", "reset"]);
+  assert.deepEqual(executed, ["change", "create", "remove", "reset", "withdraw"]);
   assert.deepEqual(actionCalls, [
     {
       key: "change-password",
@@ -83,6 +86,10 @@ test("createSettingsActionAdapters wraps member/account actions with stable keys
     },
     {
       key: "reset-member-password-m-2",
+      reload: false
+    },
+    {
+      key: "withdraw-organization",
       reload: false
     }
   ]);

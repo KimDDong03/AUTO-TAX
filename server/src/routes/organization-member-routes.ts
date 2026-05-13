@@ -1,10 +1,13 @@
 import type { Express } from "express";
 import { z } from "zod";
 import type { AuthUserSummary, OrganizationMemberSummary } from "../admin-types.js";
-import { HttpError } from "../http-errors.js";
+import type { Customer } from "../domain.js";
+import { getErrorMessage, HttpError } from "../http-errors.js";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../password-policy.js";
+import { quitMember } from "../popbill-client.js";
 import type { AppStore } from "../store-contract.js";
-import type { RequireOrganizationOwner, RequestStoreGetter } from "../route-types.js";
+import type { RequireOrganizationOwner, RequestStoreGetter, ServerManagedSettingsGetter } from "../route-types.js";
+import { quitCustomerPopbillMembership } from "./customer-popbill-routes.js";
 
 const organizationMemberCreateSchema = z.object({
   loginId: z
@@ -21,6 +24,43 @@ const passwordResetSchema = z.object({
   password: z.string().trim().max(128).refine(isStrongPassword, PASSWORD_POLICY_MESSAGE)
 });
 
+const organizationWithdrawConfirmText = "회원탈퇴";
+
+const organizationWithdrawSchema = z.object({
+  organizationName: z.string().trim().min(1),
+  confirmText: z.string().trim()
+});
+
+type SupabaseAdminClient = ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>;
+
+type OrganizationWithdrawalPopbillFailure = {
+  customerId: number;
+  customerName: string;
+  businessNumber: string;
+  error: string;
+};
+
+type OrganizationWithdrawalPopbillSummary = {
+  totalCustomers: number;
+  joinedTargets: number;
+  skipped: number;
+  quit: number;
+  alreadyMissing: number;
+  localResetFailed: number;
+  failures: OrganizationWithdrawalPopbillFailure[];
+};
+
+type OrganizationWithdrawalAuthSummary = {
+  removedMemberships: number;
+  deletedAuthUsers: number;
+  retainedAuthUsers: number;
+  authDeleteFailures: Array<{
+    userId: string;
+    loginId: string | null;
+    error: string;
+  }>;
+};
+
 type RouteDeps = {
   app: Express;
   store: AppStore | null;
@@ -28,6 +68,7 @@ type RouteDeps = {
   requireOrganizationOwner: RequireOrganizationOwner;
   createSupabaseAdminClient: () => ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>;
   listOrganizationMembers: (organizationId: string) => Promise<OrganizationMemberSummary[]>;
+  getServerManagedSettings: ServerManagedSettingsGetter;
   normalizeLoginId: (value: string) => string;
   findAuthUserByLoginId: (
     adminClient: ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>,
@@ -39,7 +80,240 @@ type RouteDeps = {
     input: { userId: string; loginId: string; email: string; displayName?: string | null }
   ) => Promise<void>;
   listAllAuthUsers: (adminClient: ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>) => Promise<AuthUserSummary[]>;
+  quitCustomerPopbillMember?: typeof quitMember;
 };
+
+function getCustomerWithdrawalLabel(customer: Customer): string {
+  return customer.corpName.trim() || customer.customerName.trim() || `고객 #${customer.id}`;
+}
+
+function buildPopbillFailureDetails(failures: OrganizationWithdrawalPopbillFailure[]): string {
+  return failures
+    .map((failure) => `${failure.customerName}: ${failure.error}`)
+    .join("\n");
+}
+
+function parseOpsAdminEmails(): Set<string> {
+  const raw = process.env.AUTO_TAX_OPS_EMAILS?.trim();
+  if (!raw) {
+    return new Set();
+  }
+
+  return new Set(
+    raw
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+async function hasOtherOrganizationMembership(
+  adminClient: SupabaseAdminClient,
+  organizationId: string,
+  userId: string
+): Promise<boolean> {
+  const { data, error } = await adminClient
+    .from("organization_members")
+    .select("organization_id")
+    .eq("user_id", userId)
+    .neq("organization_id", organizationId)
+    .limit(1);
+
+  if (error) {
+    throw new Error(`작업공간 사용자 소속 확인에 실패했습니다: ${error.message}`);
+  }
+
+  return (data ?? []).length > 0;
+}
+
+async function planWithdrawnAuthUsers(
+  adminClient: SupabaseAdminClient,
+  organizationId: string,
+  members: OrganizationMemberSummary[],
+  allAuthUsers: AuthUserSummary[]
+): Promise<{
+  deleteTargets: OrganizationMemberSummary[];
+  retainedAuthUsers: number;
+}> {
+  const opsAdminEmails = parseOpsAdminEmails();
+  const authUserById = new Map(allAuthUsers.map((user) => [user.id, user]));
+  const deleteTargets: OrganizationMemberSummary[] = [];
+  let retainedAuthUsers = 0;
+
+  for (const member of members) {
+    const authUser = authUserById.get(member.userId);
+    const email = authUser?.email?.trim().toLowerCase() ?? null;
+    if (email && opsAdminEmails.has(email)) {
+      retainedAuthUsers += 1;
+      continue;
+    }
+
+    if (await hasOtherOrganizationMembership(adminClient, organizationId, member.userId)) {
+      retainedAuthUsers += 1;
+      continue;
+    }
+
+    deleteTargets.push(member);
+  }
+
+  return {
+    deleteTargets,
+    retainedAuthUsers
+  };
+}
+
+async function quitOrganizationCustomerPopbillMemberships({
+  requestStore,
+  settings,
+  quitCustomerPopbillMember
+}: {
+  requestStore: AppStore;
+  settings: Awaited<ReturnType<ServerManagedSettingsGetter>>;
+  quitCustomerPopbillMember: typeof quitMember;
+}): Promise<OrganizationWithdrawalPopbillSummary> {
+  const customers = await requestStore.listCustomers();
+  const summary: OrganizationWithdrawalPopbillSummary = {
+    totalCustomers: customers.length,
+    joinedTargets: 0,
+    skipped: 0,
+    quit: 0,
+    alreadyMissing: 0,
+    localResetFailed: 0,
+    failures: []
+  };
+
+  for (const customer of customers) {
+    if (customer.popbillState !== "joined") {
+      summary.skipped += 1;
+      continue;
+    }
+
+    summary.joinedTargets += 1;
+    try {
+      const result = await quitCustomerPopbillMembership(
+        settings,
+        customer,
+        quitCustomerPopbillMember,
+        "AUTO-TAX 고객사 회원탈퇴"
+      );
+      if (result.status === "quit") {
+        summary.quit += 1;
+      } else if (result.status === "already-missing") {
+        summary.alreadyMissing += 1;
+      }
+
+      try {
+        await requestStore.resetCustomerPopbill(customer.id);
+      } catch {
+        summary.localResetFailed += 1;
+      }
+    } catch (error) {
+      summary.failures.push({
+        customerId: customer.id,
+        customerName: getCustomerWithdrawalLabel(customer),
+        businessNumber: customer.businessNumber,
+        error: getErrorMessage(error, "팝빌 회원 탈퇴에 실패했습니다.")
+      });
+    }
+  }
+
+  return summary;
+}
+
+async function cancelOpenOrganizationJobs(adminClient: SupabaseAdminClient, organizationId: string): Promise<number> {
+  const openJobs = await adminClient
+    .from("job_queue")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .in("status", ["queued", "claimed"]);
+
+  if (openJobs.error) {
+    throw new Error(`대기 중인 작업 확인에 실패했습니다: ${openJobs.error.message}`);
+  }
+
+  if ((openJobs.count ?? 0) === 0) {
+    return 0;
+  }
+
+  const now = new Date().toISOString();
+  const cancelled = await adminClient
+    .from("job_queue")
+    .update({
+      status: "cancelled",
+      error: "고객사 회원탈퇴로 작업이 취소되었습니다.",
+      finished_at: now,
+      updated_at: now
+    })
+    .eq("organization_id", organizationId)
+    .in("status", ["queued", "claimed"]);
+
+  if (cancelled.error) {
+    throw new Error(`대기 중인 작업 취소에 실패했습니다: ${cancelled.error.message}`);
+  }
+
+  return openJobs.count ?? 0;
+}
+
+async function deactivateOrganization(
+  adminClient: SupabaseAdminClient,
+  organizationId: string
+): Promise<void> {
+  const { error } = await adminClient
+    .from("organizations")
+    .update({
+      status: "churned",
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", organizationId);
+
+  if (error) {
+    throw new Error(`작업공간 탈퇴 상태 저장에 실패했습니다: ${error.message}`);
+  }
+}
+
+async function removeOrganizationAccess({
+  adminClient,
+  organizationId,
+  members,
+  deleteTargets
+}: {
+  adminClient: SupabaseAdminClient;
+  organizationId: string;
+  members: OrganizationMemberSummary[];
+  deleteTargets: OrganizationMemberSummary[];
+}): Promise<Omit<OrganizationWithdrawalAuthSummary, "retainedAuthUsers">> {
+  const { error: membershipDeleteError } = await adminClient
+    .from("organization_members")
+    .delete()
+    .eq("organization_id", organizationId);
+
+  if (membershipDeleteError) {
+    throw new Error(`작업공간 사용자 접근 해지에 실패했습니다: ${membershipDeleteError.message}`);
+  }
+
+  const authDeleteFailures: OrganizationWithdrawalAuthSummary["authDeleteFailures"] = [];
+  let deletedAuthUsers = 0;
+
+  for (const member of deleteTargets) {
+    const { error } = await adminClient.auth.admin.deleteUser(member.userId);
+    if (error) {
+      authDeleteFailures.push({
+        userId: member.userId,
+        loginId: member.loginId,
+        error: error.message
+      });
+      continue;
+    }
+
+    deletedAuthUsers += 1;
+  }
+
+  return {
+    removedMemberships: members.length,
+    deletedAuthUsers,
+    authDeleteFailures
+  };
+}
 
 export function registerOrganizationMemberRoutes(deps: RouteDeps) {
   const {
@@ -49,11 +323,13 @@ export function registerOrganizationMemberRoutes(deps: RouteDeps) {
     requireOrganizationOwner,
     createSupabaseAdminClient,
     listOrganizationMembers,
+    getServerManagedSettings,
     normalizeLoginId,
     findAuthUserByLoginId,
     createWorkspaceLoginEmail,
     upsertAuthUserLoginIndex,
-    listAllAuthUsers
+    listAllAuthUsers,
+    quitCustomerPopbillMember = quitMember
   } = deps;
 
   app.get("/api/organization/members", async (_req, res) => {
@@ -243,6 +519,82 @@ export function registerOrganizationMemberRoutes(deps: RouteDeps) {
     res.json({
       ok: true,
       loginId: targetLoginId
+    });
+  });
+
+  app.post("/api/organization/withdraw", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const authContext = requireOrganizationOwner(res);
+    const payload = organizationWithdrawSchema.parse(req.body ?? {});
+
+    if (payload.confirmText !== organizationWithdrawConfirmText) {
+      throw new HttpError(400, `확인 문구로 '${organizationWithdrawConfirmText}'를 입력해야 합니다.`);
+    }
+
+    if (payload.organizationName !== authContext.activeOrganizationName) {
+      throw new HttpError(400, "작업공간명이 현재 고객사와 일치하지 않습니다.");
+    }
+
+    const adminClient = createSupabaseAdminClient();
+    const settings = await getServerManagedSettings(requestStore);
+    const members = await listOrganizationMembers(authContext.activeOrganizationId);
+    const allAuthUsers = await listAllAuthUsers(adminClient);
+    const authPlan = await planWithdrawnAuthUsers(
+      adminClient,
+      authContext.activeOrganizationId,
+      members,
+      allAuthUsers
+    );
+
+    const popbill = await quitOrganizationCustomerPopbillMemberships({
+      requestStore,
+      settings,
+      quitCustomerPopbillMember
+    });
+
+    if (popbill.failures.length > 0) {
+      await requestStore.createLog("error", "organization-withdrawal", "고객사 회원탈퇴가 팝빌 탈퇴 실패로 중단되었습니다.", {
+        organizationId: authContext.activeOrganizationId,
+        organizationName: authContext.activeOrganizationName,
+        popbill
+      });
+      res.status(409).json({
+        error: "팝빌 탈퇴 실패가 있어 고객사 회원탈퇴를 중단했습니다.",
+        errorDetails: buildPopbillFailureDetails(popbill.failures),
+        popbill
+      });
+      return;
+    }
+
+    const cancelledJobs = await cancelOpenOrganizationJobs(adminClient, authContext.activeOrganizationId);
+    await deactivateOrganization(adminClient, authContext.activeOrganizationId);
+    const access = await removeOrganizationAccess({
+      adminClient,
+      organizationId: authContext.activeOrganizationId,
+      members,
+      deleteTargets: authPlan.deleteTargets
+    });
+
+    const auth: OrganizationWithdrawalAuthSummary = {
+      ...access,
+      retainedAuthUsers: authPlan.retainedAuthUsers
+    };
+
+    await requestStore.createLog("warn", "organization-withdrawal", "고객사 회원탈퇴를 완료했습니다.", {
+      organizationId: authContext.activeOrganizationId,
+      organizationName: authContext.activeOrganizationName,
+      popbill,
+      auth,
+      cancelledJobs
+    });
+
+    res.json({
+      ok: true,
+      organizationId: authContext.activeOrganizationId,
+      organizationName: authContext.activeOrganizationName,
+      popbill,
+      auth,
+      cancelledJobs
     });
   });
 }

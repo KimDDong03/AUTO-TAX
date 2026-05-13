@@ -182,6 +182,7 @@ export function isPopbillMemberMissingError(error: unknown): boolean {
   const normalizedRawMessage = error.rawMessage.toLowerCase();
   return (
     error.code === "-99003008" ||
+    (error.operation === "contact-update" && error.code === "-10000006") ||
     normalizedRawMessage.includes("연동회원으로 가입된 사업자 번호가 존재하지 않습니다") ||
     normalizedRawMessage.includes("가입된 사업자 번호가 존재하지 않습니다")
   );

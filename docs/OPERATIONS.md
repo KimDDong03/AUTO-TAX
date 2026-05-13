@@ -85,6 +85,7 @@ npm run build:vercel
 - The public consultation form accepts only name and phone. Do not collect mail app passwords, Hometax credentials, or account passwords on the public page.
 - Do not store Hometax credentials, raw certificate files, or certificate passwords on the server.
 - Browser auth follows the current Supabase JWT lifecycle. Invalid refresh-token recovery clears the local session and forces re-login.
+- Customer-company withdrawal is owner-only and must withdraw joined managed customers from Popbill before the workspace is marked `churned`. A non-already-missing Popbill failure stops the withdrawal so operators can resolve the external account first.
 
 ## 5. Database And Migrations
 

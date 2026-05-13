@@ -37,6 +37,7 @@ export type SettingsFeatureActionAdapters = {
     membershipId: string,
     action: () => Promise<void>
   ) => Promise<void>;
+  withdrawOrganization: (action: () => Promise<void>) => Promise<void>;
 };
 
 export type SettingsFeatureOrchestration = {
@@ -131,6 +132,10 @@ export function createSettingsActionAdapters({
         }),
       resetOrganizationMemberPassword: (membershipId, action) =>
         runAction(`reset-member-password-${membershipId}`, action, {
+          reload: false
+        }),
+      withdrawOrganization: (action) =>
+        runAction("withdraw-organization", action, {
           reload: false
         })
     }

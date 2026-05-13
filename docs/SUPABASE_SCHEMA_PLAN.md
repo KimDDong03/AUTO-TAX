@@ -70,6 +70,11 @@ Important fields:
 - `status`
 - `managed_customer_limit`
 
+Important reality:
+
+- `status = churned` is used for customer-company withdrawal. Auth session resolution filters churned organizations out of selectable memberships.
+- The organization row is retained for audit and historical data; member access is removed through `organization_members` deletion.
+
 ### organization_members
 
 Workspace membership and role.

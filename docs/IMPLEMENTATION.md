@@ -133,6 +133,7 @@ The product is multi-tenant. A logged-in session always operates against one act
   - import/onboarding endpoints
 - `server/src/routes/organization-member-routes.ts`
   - owner-only member management
+  - owner-only customer-company withdrawal; joined customer Popbill memberships are withdrawn before the workspace is churned and member access is removed
 - `server/src/routes/ops-routes.ts`
   - platform admin workspace management and ops console data
   - public consultation request review/status updates
@@ -268,6 +269,23 @@ Main files:
 - `server/src/customer-contract-renewals.ts`
 - `server/src/supabase-store.ts`
 - `docs/SUPABASE_SCHEMA_PLAN.md`
+
+### C-2. Customer-company withdrawal
+
+1. Owners start withdrawal from the settings account section and must type the current workspace name plus `회원탈퇴`.
+2. `POST /api/organization/withdraw` verifies owner access and the confirmation text.
+3. All managed customers with `popbillState = joined` are withdrawn from Popbill first. Already-missing Popbill members are treated as handled, but any other Popbill failure returns `409` and stops workspace withdrawal.
+4. After Popbill targets are handled, open `job_queue` rows for the workspace are marked `cancelled`, the organization status becomes `churned`, and all organization memberships are deleted.
+5. Auth users are deleted only when they belong to no other organization and are not listed in `AUTO_TAX_OPS_EMAILS`; retained users lose this workspace access through membership deletion.
+6. Churned organizations are filtered out of authenticated workspace membership resolution, so stale membership rows cannot keep a withdrawn workspace selectable.
+
+Main files:
+
+- `web/src/App.tsx`
+- `web/src/features/settings/SettingsAccountSection.tsx`
+- `server/src/routes/organization-member-routes.ts`
+- `server/src/supabase.ts`
+- `server/src/popbill-client.ts`
 
 ### D. Draft issuance and pilot reporting
 

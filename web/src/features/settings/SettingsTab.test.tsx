@@ -216,7 +216,16 @@ function createModel(
           changePassword: async () => {},
           createOrganizationMember: async () => {},
           removeOrganizationMember: async () => {},
-          resetOrganizationMemberPassword: async () => {}
+          resetOrganizationMemberPassword: async () => {},
+          withdrawOrganization: async () => {}
+        },
+        withdrawal: {
+          organizationName: "Test Workspace",
+          customerCount: 0,
+          joinedPopbillCustomerCount: 0,
+          memberCount: 0,
+          canWithdraw: false,
+          onWithdrawOrganization: async () => {}
         },
         reveals: {
           accountPassword: {

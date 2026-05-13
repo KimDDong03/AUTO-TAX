@@ -250,6 +250,16 @@ function AppDialogMessage(props: { message: string }) {
   const hasDetailRows = parsedLines.some((item) => item.detail);
 
   if (!hasDetailRows) {
+    if (lines.length > 1) {
+      return (
+        <div id="app-dialog-message" className="app-dialog-message app-dialog-message-leads">
+          {lines.map((line, index) => (
+            <p key={`message-${index}`}>{line}</p>
+          ))}
+        </div>
+      );
+    }
+
     return (
       <p id="app-dialog-message" className="app-dialog-message">
         {props.message}

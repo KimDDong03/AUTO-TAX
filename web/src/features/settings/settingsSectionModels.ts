@@ -138,7 +138,16 @@ export type SettingsAccountSectionModel = {
     | "createOrganizationMember"
     | "removeOrganizationMember"
     | "resetOrganizationMemberPassword"
+    | "withdrawOrganization"
   >;
+  withdrawal: {
+    organizationName: string;
+    customerCount: number;
+    joinedPopbillCustomerCount: number;
+    memberCount: number;
+    canWithdraw: boolean;
+    onWithdrawOrganization: (input: { organizationName: string; confirmText: string }) => Promise<void>;
+  };
   reveals: Pick<
     SettingsFeatureRevealAdapters,
     "accountPassword" | "organizationMemberPassword" | "memberResetPassword"
