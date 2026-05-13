@@ -5,6 +5,7 @@ import {
   POPBILL_XMS_LMS_BYTE_LIMIT,
   POPBILL_XMS_SMS_BYTE_LIMIT,
   getPopbillMessageByteLength,
+  renderIssueCompleteSmsTemplate,
   resolveIssueCompleteSmsTemplate
 } from "../../issueMessageTemplate";
 import type { SettingsDefaultsSectionModel } from "./settingsSectionModels";
@@ -12,6 +13,15 @@ import type { SettingsDefaultsSectionModel } from "./settingsSectionModels";
 type SettingsDefaultsSectionProps = {
   model: SettingsDefaultsSectionModel;
 };
+
+const EXAMPLE_ISSUE_COMPLETE_SMS_AMOUNT = 112500;
+
+function getMessagePreviewPlantName(customer: SettingsDefaultsSectionModel["customerMessages"]["customers"][number]): string {
+  return customer.plantNames.find((plantName) => plantName.trim().length > 0)?.trim()
+    || customer.corpName.trim()
+    || customer.customerName.trim()
+    || "발전소명 예시";
+}
 
 export function SettingsDefaultsSection({
   model
@@ -29,6 +39,15 @@ export function SettingsDefaultsSection({
   const messageTemplateOverLimit = messageTemplateBytes > POPBILL_XMS_LMS_BYTE_LIMIT;
   const messageTemplateKind = messageTemplateBytes <= POPBILL_XMS_SMS_BYTE_LIMIT ? "SMS" : "LMS";
   const messageTemplateChanged = messageTemplateDraft !== savedMessageTemplate;
+  const exampleIssueAmount = new Intl.NumberFormat("ko-KR").format(EXAMPLE_ISSUE_COMPLETE_SMS_AMOUNT);
+  const messageTemplatePreview = selectedCustomer
+    ? renderIssueCompleteSmsTemplate(resolvedMessageTemplate, {
+        organizationName: model.customerMessages.organizationName.trim() || "회사명 예시",
+        customerName: selectedCustomer.customerName.trim() || selectedCustomer.corpName.trim() || "고객명 예시",
+        plantName: getMessagePreviewPlantName(selectedCustomer),
+        totalAmount: exampleIssueAmount
+      })
+    : resolvedMessageTemplate;
 
   useEffect(() => {
     if (customers.length === 0) {
@@ -207,8 +226,11 @@ export function SettingsDefaultsSection({
               </label>
 
               <div className="settings-message-template-preview settings-defaults-cell settings-defaults-cell-span-2">
-                <strong>미리보기</strong>
-                <p>{resolvedMessageTemplate}</p>
+                <strong>예시 미리보기</strong>
+                <p>{messageTemplatePreview}</p>
+                <span className="field-hint">
+                  금액은 예시 {exampleIssueAmount}원입니다. 실제 발행 시 세금계산서 금액으로 치환됩니다.
+                </span>
               </div>
 
               <div className="settings-message-template-actions">

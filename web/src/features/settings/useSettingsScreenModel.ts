@@ -218,6 +218,7 @@ export function useSettingsScreenModel(
           onLoadCurrentRenewalIssuePassword:
             props.settingsState.runLoadCurrentRenewalIssuePassword,
           customerMessages: {
+            organizationName: props.workspaceLabel,
             customers: props.customers,
             busyKey: props.busyKey,
             onSaveIssueCompleteSmsTemplate: props.onSaveCustomerIssueCompleteSmsTemplate

@@ -154,6 +154,7 @@ function createModel(
         onLoadCurrentPopbillSharedPassword: async () => {},
         onLoadCurrentRenewalIssuePassword: async () => {},
         customerMessages: {
+          organizationName: "Test Workspace",
           customers: [],
           busyKey: null,
           onSaveIssueCompleteSmsTemplate: async () => {}

@@ -92,6 +92,7 @@ export type SettingsDefaultsSectionModel = {
   onLoadCurrentPopbillSharedPassword: () => Promise<void>;
   onLoadCurrentRenewalIssuePassword: () => Promise<void>;
   customerMessages: {
+    organizationName: string;
     customers: Customer[];
     busyKey: string | null;
     onSaveIssueCompleteSmsTemplate: (customerId: number, issueCompleteSmsTemplate: string) => Promise<void>;

@@ -21,3 +21,26 @@ export function resolveIssueCompleteSmsTemplate(value: string | null | undefined
   const normalized = normalizeIssueCompleteSmsTemplate(value);
   return normalized || DEFAULT_ISSUE_COMPLETE_SMS_TEMPLATE;
 }
+
+export function renderIssueCompleteSmsTemplate(
+  template: string,
+  values: {
+    organizationName: string;
+    customerName: string;
+    plantName: string;
+    totalAmount: string;
+  }
+): string {
+  const replacements: Record<string, string> = {
+    회사명: values.organizationName,
+    고객명: values.customerName,
+    발전소명: values.plantName,
+    금액: values.totalAmount,
+    organizationName: values.organizationName,
+    customerName: values.customerName,
+    plantName: values.plantName,
+    totalAmount: values.totalAmount
+  };
+
+  return template.replace(/\{([^{}]+)\}/g, (placeholder, key: string) => replacements[key.trim()] ?? placeholder);
+}
