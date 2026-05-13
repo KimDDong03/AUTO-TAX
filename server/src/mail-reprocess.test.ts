@@ -174,11 +174,19 @@ test("mail reprocess can use a manually selected customer when names or addresse
     updatedAt: "2026-04-16T00:00:00.000Z"
   } satisfies InvoiceDraft;
   let autoMatchCalled = false;
+  const savedMatchAddresses: Array<{ customerId: number; matchAddress: string }> = [];
 
   const store = {
     getInboxMessage: async () => buildInboxMessage(),
     listCompletedBillingMonths: async () => [],
     getCustomer: async (customerId: number) => (customerId === customer.id ? customer : null),
+    addCustomerMatchAddress: async (customerId: number, matchAddress: string) => {
+      savedMatchAddresses.push({ customerId, matchAddress });
+      return {
+        ...customer,
+        matchAddresses: [matchAddress]
+      };
+    },
     findCustomerByMatchAddress: async () => {
       autoMatchCalled = true;
       return null;
@@ -194,6 +202,7 @@ test("mail reprocess can use a manually selected customer when names or addresse
     },
     createDraft: async (input: Parameters<AppStore["createDraft"]>[0]) => {
       assert.equal(input.customer.id, customer.id);
+      assert.deepEqual(input.customer.matchAddresses, [parsedMail.plantAddress]);
       assert.equal(input.parsedMail, parsedMail);
       return draft;
     },
@@ -208,6 +217,12 @@ test("mail reprocess can use a manually selected customer when names or addresse
   assert.equal(autoMatchCalled, false);
   assert.equal(result.status, "parsed");
   assert.equal(result.draft?.customerId, customer.id);
+  assert.deepEqual(savedMatchAddresses, [
+    {
+      customerId: customer.id,
+      matchAddress: parsedMail.plantAddress
+    }
+  ]);
   assert.deepEqual(updates, [
     {
       messageId: 10,
@@ -216,6 +231,70 @@ test("mail reprocess can use a manually selected customer when names or addresse
       parsedMail,
       customerId: customer.id,
       draftId: null
+    }
+  ]);
+});
+
+test("mail reprocess fails a manual customer match when parsed address belongs to another customer", async () => {
+  const logs: Array<{ level: string; scope: string; message: string; context?: unknown }> = [];
+  const updates: Array<Parameters<AppStore["updateInboxMatchResult"]>[0]> = [];
+  const customer = buildCustomer({
+    id: 12,
+    customerName: "선택 고객"
+  });
+  const parsedMail = buildParsedMail({
+    plantAddress: "충돌 주소"
+  });
+
+  const store = {
+    getInboxMessage: async () => buildInboxMessage(),
+    listCompletedBillingMonths: async () => [],
+    getCustomer: async (customerId: number) => (customerId === customer.id ? customer : null),
+    addCustomerMatchAddress: async () => {
+      throw new Error("이미 다른 고객에 등록된 매칭 주소입니다. 기존 고객: 기존 고객");
+    },
+    updateInboxMatchResult: async (input: Parameters<AppStore["updateInboxMatchResult"]>[0]) => {
+      updates.push(input);
+      return {} as never;
+    },
+    createLog: async (level: string, scope: string, message: string, context?: unknown) => {
+      logs.push({ level, scope, message, context });
+    }
+  } as unknown as AppStore;
+
+  const result = await reprocessInboxMessage(store, 10, {
+    parseKepcoMail: () => parsedMail,
+    customerId: customer.id
+  });
+
+  assert.equal(result.status, "failed");
+  assert.deepEqual(updates, [
+    {
+      messageId: 10,
+      parseStatus: "failed",
+      parseError: "이미 다른 고객에 등록된 매칭 주소입니다. 기존 고객: 기존 고객",
+      parsedMail,
+      customerId: customer.id,
+      draftId: null
+    }
+  ]);
+  assert.deepEqual(logs, [
+    {
+      level: "error",
+      scope: "mail-reprocess",
+      message: "수동 선택 고객의 매칭 주소 저장에 실패했습니다.",
+      context: {
+        messageId: 10,
+        customerId: customer.id,
+        billingMonth: "2026-03",
+        plantAddress: "충돌 주소",
+        error: "이미 다른 고객에 등록된 매칭 주소입니다. 기존 고객: 기존 고객",
+        pipeline: "mail-reprocess",
+        draftSource: "mail-reprocess",
+        errorCategory: "customer-match",
+        reprocessStage: "customer-match",
+        status: "failed"
+      }
     }
   ]);
 });

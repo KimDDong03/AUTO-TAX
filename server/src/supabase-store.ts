@@ -1428,6 +1428,39 @@ export class SupabaseStore implements AppStore {
     return this.mapCustomerRow(customerRow as Row);
   }
 
+  async addCustomerMatchAddress(customerId: number, matchAddress: string): Promise<Customer> {
+    const current = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!current) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const roadAddress = toRoadAddress(matchAddress);
+    const normalizedAddress = normalizeAddress(roadAddress);
+    if (!normalizedAddress) {
+      return this.mapCustomerRow(current);
+    }
+
+    const existingByMatchAddress = await this.findCustomerByMatchAddress(roadAddress);
+    if (existingByMatchAddress) {
+      if (existingByMatchAddress.id !== customerId) {
+        throw new Error(`이미 다른 고객에 등록된 매칭 주소입니다. 기존 고객: ${existingByMatchAddress.customerName}`);
+      }
+
+      return existingByMatchAddress;
+    }
+
+    await assertNoError(
+      "매칭 주소 저장 실패",
+      this.client.from("managed_customer_match_addresses").insert({
+        managed_customer_id: asString(current.id),
+        match_address: roadAddress,
+        normalized_match_address: normalizedAddress
+      })
+    );
+
+    return this.mapCustomerRow(current);
+  }
+
   async saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer> {
     const timestamp = nowIso();
     const settings = applyServerManagedSettings(await this.getSettings());

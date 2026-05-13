@@ -2,6 +2,65 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppSettings, Customer, CustomerCertificate } from "./domain.js";
 import { SupabaseStore } from "./supabase-store.js";
+import { normalizeAddress, toRoadAddress } from "./utils.js";
+
+function buildManagedCustomerRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "customer-uuid-7",
+    legacy_id: 7,
+    customer_name: "테스트 고객",
+    business_number: "1234567890",
+    corp_name: "테스트 고객",
+    ceo_name: "대표자",
+    addr: "서울시 강남구 테헤란로 1",
+    biz_type: "서비스",
+    biz_class: "개발",
+    popbill_user_id: "POPBILL_7",
+    popbill_password_encrypted: "",
+    popbill_state: "pending",
+    popbill_cert_registered: false,
+    popbill_cert_expire_date: null,
+    issue_day: null,
+    issue_hour: null,
+    issue_minute: null,
+    renewal_contact_mobile: "",
+    issue_complete_sms_template: "",
+    memo: "",
+    created_at: "2026-04-16T00:00:00.000Z",
+    updated_at: "2026-04-16T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function buildStoreCustomer(overrides: Partial<Customer> = {}): Customer {
+  return {
+    id: 7,
+    customerName: "테스트 고객",
+    businessNumber: "1234567890",
+    corpName: "테스트 고객",
+    ceoName: "대표자",
+    addr: "서울시 강남구 테헤란로 1",
+    bizType: "서비스",
+    bizClass: "개발",
+    popbillUserId: "POPBILL_7",
+    popbillPassword: "",
+    popbillState: "pending",
+    popbillCertRegistered: false,
+    popbillCertExpireDate: null,
+    issueMode: "review",
+    issueDay: null,
+    issueHour: null,
+    issueMinute: null,
+    renewalContactMobile: "",
+    issueCompleteSmsTemplate: "",
+    memo: "",
+    plantNames: [],
+    matchAddresses: [],
+    createdAt: "2026-04-16T00:00:00.000Z",
+    updatedAt: "2026-04-16T00:00:00.000Z",
+    ...overrides
+  };
+}
 
 test("getBootstrapWorkspace skips drafts, inbox, and logs reads while keeping bootstrap shape", async () => {
   const settings = { companyName: "AUTO-TAX" } as unknown as AppSettings;
@@ -273,4 +332,121 @@ test("updateSettings clears renewal certificate password instead of persisting i
   const integrationUpsert = upserts.find((entry) => entry.table === "organization_integrations");
   assert.equal(integrationUpsert?.payload.renewal_certificate_password_encrypted, "");
   assert.notEqual(integrationUpsert?.payload.renewal_issue_password_encrypted, "");
+});
+
+test("addCustomerMatchAddress inserts a normalized match address for the customer", async () => {
+  const matchAddress = "경기도 성남시 (분당구) 대왕판교로 1";
+  const inserts: Array<Record<string, unknown>> = [];
+  const currentRow = buildManagedCustomerRow();
+
+  const fakeClient = {
+    from(table: string) {
+      if (table === "managed_customer_match_addresses") {
+        return {
+          insert(payload: Record<string, unknown>) {
+            inserts.push(payload);
+            return Promise.resolve({ data: null, error: null });
+          },
+          select() {
+            return {
+              in() {
+                return {
+                  order() {
+                    return Promise.resolve({
+                      data: inserts.map((payload) => ({
+                        managed_customer_id: payload.managed_customer_id,
+                        match_address: payload.match_address
+                      })),
+                      error: null
+                    });
+                  }
+                };
+              }
+            };
+          }
+        };
+      }
+
+      assert.equal(table, "managed_customer_plants");
+      return {
+        select() {
+          return {
+            in() {
+              return {
+                order() {
+                  return Promise.resolve({ data: [], error: null });
+                }
+              };
+            }
+          };
+        }
+      };
+    }
+  };
+
+  const store = Object.create(SupabaseStore.prototype) as SupabaseStore;
+  Object.assign(store as object, {
+    client: fakeClient,
+    initialized: true,
+    customerCache: new Map(),
+    managedCustomerRowCache: new Map(),
+    getManagedCustomerRowByLegacyId: async () => currentRow,
+    findCustomerByMatchAddress: async () => null
+  });
+
+  const customer = await store.addCustomerMatchAddress(7, matchAddress);
+
+  assert.deepEqual(inserts, [
+    {
+      managed_customer_id: "customer-uuid-7",
+      match_address: toRoadAddress(matchAddress),
+      normalized_match_address: normalizeAddress(matchAddress)
+    }
+  ]);
+  assert.deepEqual(customer.matchAddresses, [toRoadAddress(matchAddress)]);
+});
+
+test("addCustomerMatchAddress is a no-op when the address already belongs to the same customer", async () => {
+  const existingCustomer = buildStoreCustomer({
+    matchAddresses: ["경기도 성남시 대왕판교로 1"]
+  });
+
+  const store = Object.create(SupabaseStore.prototype) as SupabaseStore;
+  Object.assign(store as object, {
+    getManagedCustomerRowByLegacyId: async () => buildManagedCustomerRow(),
+    findCustomerByMatchAddress: async () => existingCustomer,
+    client: {
+      from() {
+        throw new Error("duplicate same-customer address should not insert");
+      }
+    }
+  });
+
+  const customer = await store.addCustomerMatchAddress(7, "경기도 성남시 대왕판교로 1");
+
+  assert.equal(customer, existingCustomer);
+});
+
+test("addCustomerMatchAddress rejects an address already mapped to another customer", async () => {
+  const existingCustomer = buildStoreCustomer({
+    id: 8,
+    customerName: "기존 고객",
+    matchAddresses: ["경기도 성남시 대왕판교로 1"]
+  });
+
+  const store = Object.create(SupabaseStore.prototype) as SupabaseStore;
+  Object.assign(store as object, {
+    getManagedCustomerRowByLegacyId: async () => buildManagedCustomerRow(),
+    findCustomerByMatchAddress: async () => existingCustomer,
+    client: {
+      from() {
+        throw new Error("conflicting address should not insert");
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => store.addCustomerMatchAddress(7, "경기도 성남시 대왕판교로 1"),
+    /이미 다른 고객에 등록된 매칭 주소입니다\. 기존 고객: 기존 고객/
+  );
 });

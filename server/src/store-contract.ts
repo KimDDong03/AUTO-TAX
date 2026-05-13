@@ -53,6 +53,7 @@ export interface AppStore {
   getCustomer(customerId: number): Promise<Customer | null>;
   findCustomerByBusinessNumber(businessNumber: string): Promise<Customer | null>;
   findCustomerByMatchAddress(matchAddress: string): Promise<Customer | null>;
+  addCustomerMatchAddress(customerId: number, matchAddress: string): Promise<Customer>;
   saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer>;
   updateCustomerMemo(customerId: number, memo: string): Promise<Customer>;
   getCustomerReportDetail(customerId: number, reportYear: number): Promise<CustomerReportDetail>;

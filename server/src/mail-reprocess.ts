@@ -113,7 +113,7 @@ export async function reprocessInboxMessage(
 
     reprocessStage = "customer-match";
     const manualCustomerId = deps.customerId ?? null;
-    const customer = manualCustomerId
+    let customer = manualCustomerId
       ? await store.getCustomer(manualCustomerId)
       : await store.findCustomerByMatchAddress(parsedMail.plantAddress);
 
@@ -150,6 +150,44 @@ export async function reprocessInboxMessage(
         )
       );
       return { status: "unmatched" };
+    }
+
+    if (manualCustomerId) {
+      try {
+        customer = await store.addCustomerMatchAddress(customer.id, parsedMail.plantAddress);
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : "매칭 주소 저장 실패";
+        await store.updateInboxMatchResult({
+          messageId,
+          parseStatus: "failed",
+          parseError: messageText,
+          parsedMail,
+          customerId: customer.id,
+          draftId: null
+        });
+        await store.createLog(
+          "error",
+          "mail-reprocess",
+          "수동 선택 고객의 매칭 주소 저장에 실패했습니다.",
+          buildPilotLogContext(
+            {
+              messageId,
+              customerId: customer.id,
+              billingMonth: parsedMail.billingMonth,
+              plantAddress: parsedMail.plantAddress,
+              error: messageText
+            },
+            {
+              pipeline: "mail-reprocess",
+              draftSource: "mail-reprocess",
+              errorCategory: "customer-match",
+              reprocessStage: "customer-match",
+              status: "failed"
+            }
+          )
+        );
+        return { status: "failed" };
+      }
     }
 
     customerIdForLog = customer.id;
