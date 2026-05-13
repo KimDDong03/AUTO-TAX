@@ -16230,13 +16230,12 @@ button.issuance-list-item {
   background: var(--portal-surface-subtle);
 }
 
-.portal-shell .portal-term-item summary {
+.portal-shell .portal-term-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
-  cursor: pointer;
 }
 
 .portal-shell .portal-term-item label {
@@ -16258,11 +16257,23 @@ button.issuance-list-item {
   flex: 0 0 auto;
 }
 
-.portal-shell .portal-term-item small {
-  color: var(--portal-muted);
-  font-size: 11px;
-  font-weight: 800;
+.portal-shell .portal-term-toggle {
+  width: auto;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-control);
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--portal-primary-strong);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
   white-space: nowrap;
+}
+
+.portal-shell .portal-term-toggle:hover {
+  border-color: rgba(37, 99, 235, 0.36);
+  background: rgba(239, 246, 255, 0.92);
 }
 
 .portal-shell .portal-term-body {
@@ -17008,12 +17019,8 @@ button.issuance-list-item {
     grid-template-columns: 1fr;
   }
 
-  .portal-shell .portal-term-item summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .portal-shell .portal-term-item small {
-    padding-left: 24px;
+  .portal-shell .portal-term-head {
+    gap: 8px;
   }
 
   .portal-shell .portal-term-body {

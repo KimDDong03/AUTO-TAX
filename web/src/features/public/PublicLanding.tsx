@@ -252,12 +252,24 @@ export function PublicLanding({
   const [activeMode, setActiveMode] = useState<"login" | "signup">("login");
   const [signupForm, setSignupForm] = useState<PublicSignupFormState>(emptySignupForm);
   const [signupError, setSignupError] = useState("");
+  const [expandedTerms, setExpandedTerms] = useState<Set<PublicTermId>>(() => new Set());
 
   const updateSignupForm = <Key extends keyof PublicSignupFormState>(
     key: Key,
     value: PublicSignupFormState[Key]
   ) => {
     setSignupForm((prev) => ({ ...prev, [key]: value }));
+  };
+  const toggleTerm = (termId: PublicTermId) => {
+    setExpandedTerms((prev) => {
+      const next = new Set(prev);
+      if (next.has(termId)) {
+        next.delete(termId);
+      } else {
+        next.add(termId);
+      }
+      return next;
+    });
   };
   const signupPasswordMatches =
     signupForm.password.length > 0 &&
@@ -565,39 +577,54 @@ export function PublicLanding({
               </div>
 
               <div className="portal-terms-list" aria-label="회원가입 약관 동의">
-                {publicTerms.map((term) => (
-                  <details key={term.id} className="portal-term-item">
-                    <summary>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(signupForm[term.id])}
-                          onChange={(event) => updateSignupForm(term.id, event.target.checked)}
-                        />
-                        <span>
-                          {term.label}
-                          {term.required ? " (필수)" : " (선택)"}
-                        </span>
-                      </label>
-                      <small>{term.version}</small>
-                    </summary>
-                    <div className="portal-term-body">
-                      {term.sections.map((section) => (
-                        <section key={section.title}>
-                          <strong>{section.title}</strong>
-                          {section.body ? <p>{section.body}</p> : null}
-                          {section.items ? (
-                            <ul>
-                              {section.items.map((item) => (
-                                <li key={item}>{item}</li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </section>
-                      ))}
+                {publicTerms.map((term) => {
+                  const isExpanded = expandedTerms.has(term.id);
+                  const termBodyId = `public-term-${term.id}-body`;
+
+                  return (
+                    <div key={term.id} className="portal-term-item">
+                      <div className="portal-term-head">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(signupForm[term.id])}
+                            onChange={(event) => updateSignupForm(term.id, event.target.checked)}
+                          />
+                          <span>
+                            {term.label}
+                            {term.required ? " (필수)" : " (선택)"}
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          className="portal-term-toggle"
+                          aria-expanded={isExpanded}
+                          aria-controls={termBodyId}
+                          onClick={() => toggleTerm(term.id)}
+                        >
+                          {isExpanded ? "접기" : "펼치기"}
+                        </button>
+                      </div>
+                      {isExpanded ? (
+                        <div id={termBodyId} className="portal-term-body">
+                          {term.sections.map((section) => (
+                            <section key={section.title}>
+                              <strong>{section.title}</strong>
+                              {section.body ? <p>{section.body}</p> : null}
+                              {section.items ? (
+                                <ul>
+                                  {section.items.map((item) => (
+                                    <li key={item}>{item}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </section>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                  </details>
-                ))}
+                  );
+                })}
               </div>
 
               {signupError || (activeMode === "signup" && error) ? (
