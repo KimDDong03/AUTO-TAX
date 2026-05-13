@@ -461,9 +461,11 @@ textarea {
   gap: 0.12rem;
 }
 
-.portal-brand-copy strong {
+.portal-brand-copy strong,
+.portal-brand-copy h1 {
+  margin: 0;
   font-size: 1.08rem;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .portal-kicker,
@@ -3034,6 +3036,10 @@ textarea {
   font-size: 0.86rem;
   line-height: 1.5;
   white-space: pre-wrap;
+}
+
+.settings-message-template-preview .field-hint {
+  font-size: 0.78rem;
 }
 
 .settings-message-template-actions {
@@ -7849,6 +7855,19 @@ textarea {
   border-color: rgba(220, 38, 38, 0.16);
   background: rgba(220, 38, 38, 0.1);
   color: #b91c1c;
+}
+
+.customer-status-chip-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.customer-list-status-chip {
+  min-height: 1.38rem;
+  padding: 0 0.45rem;
+  font-size: 0.68rem;
 }
 
 .customer-console-metrics {
@@ -16073,11 +16092,14 @@ button.issuance-list-item {
   gap: 2px;
 }
 
-.portal-brand-copy strong {
+.portal-brand-copy strong,
+.portal-brand-copy h1 {
+  margin: 0;
   color: var(--portal-text);
   font-size: 22px;
   font-weight: 850;
   line-height: 1.2;
+  letter-spacing: 0;
 }
 
 .portal-brand-copy span {
@@ -16413,6 +16435,65 @@ button.issuance-list-item {
   color: var(--portal-muted);
   font-size: 14px;
   line-height: 1.55;
+}
+
+.portal-shell .portal-footer {
+  display: grid;
+  gap: 12px;
+  padding: 0 40px 32px;
+  color: var(--portal-muted);
+}
+
+.portal-shell .portal-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  padding-top: 18px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-shell .portal-footer-links a,
+.portal-shell .portal-footer-info a {
+  color: var(--portal-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.portal-shell .portal-footer-links a:hover,
+.portal-shell .portal-footer-info a:hover {
+  color: var(--portal-primary);
+}
+
+.portal-shell .portal-footer-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+}
+
+.portal-shell .portal-footer-info div {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.portal-shell .portal-footer-info dt,
+.portal-shell .portal-footer-info dd {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.portal-shell .portal-footer-info dt {
+  color: var(--portal-muted);
+  font-weight: 800;
+}
+
+.portal-shell .portal-footer-info dd {
+  color: var(--portal-text);
+  font-weight: 700;
 }
 
 /* Admin option 3 */
@@ -16886,6 +16967,10 @@ button.issuance-list-item {
     padding: 20px;
   }
 
+  .portal-shell .portal-footer {
+    padding: 0 20px 28px;
+  }
+
   .portal-login-card {
     margin: 0;
   }
@@ -16934,6 +17019,15 @@ button.issuance-list-item {
   .portal-shell .portal-term-body {
     max-height: 220px;
     margin: 0 10px 10px;
+  }
+
+  .portal-shell .portal-footer-links,
+  .portal-shell .portal-footer-info {
+    gap: 8px 12px;
+  }
+
+  .portal-shell .portal-footer-info div {
+    flex: 1 1 100%;
   }
 
   .app-shell-topnav .settings-option1-member-table {
@@ -28499,6 +28593,26 @@ button.issuance-list-item {
   width: 124px !important;
 }
 
+.app-shell-topnav .customer-console-table .customer-console-col-status {
+  width: 168px !important;
+}
+
+.app-shell-topnav .customer-status-chip-row {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  vertical-align: middle !important;
+}
+
+.app-shell-topnav .customer-list-status-chip {
+  min-height: 22px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+}
+
 .app-shell-topnav .customer-console-primary-cell,
 .app-shell-topnav .customer-console-cell-stack {
   display: block !important;
@@ -29509,4 +29623,693 @@ button.issuance-list-item {
 .app-shell-topnav .onboarding-step-list {
   max-height: none;
   overflow: visible;
+}
+
+/* Customer management responsive fit: the added status chips need a wider
+   desktop work area, while compact viewports should scroll vertically instead
+   of clipping the detail panel. */
+.app-shell-topnav .content-customers > .customers-screen.customer-console-screen {
+  width: min(100%, 1580px) !important;
+}
+
+.app-shell-topnav .customer-console-shell {
+  grid-template-columns: minmax(390px, 430px) minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .customer-console-table {
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .customer-console-col-check {
+  width: 38px !important;
+  padding-left: 10px !important;
+  padding-right: 4px !important;
+}
+
+.app-shell-topnav .customer-console-table .customer-console-col-name {
+  width: auto !important;
+}
+
+.app-shell-topnav .customer-console-table .customer-console-col-owner {
+  width: 64px !important;
+}
+
+.app-shell-topnav .customer-console-table .customer-console-col-status {
+  width: 154px !important;
+}
+
+.app-shell-topnav .customer-console-table th.customer-console-col-status,
+.app-shell-topnav .customer-console-table td.customer-console-col-status {
+  padding-left: 4px !important;
+}
+
+.app-shell-topnav .customer-status-chip-row {
+  gap: 4px !important;
+}
+
+.app-shell-topnav .customer-list-status-chip {
+  padding: 0 6px !important;
+  font-size: 10.5px !important;
+}
+
+@media (max-width: 1320px) {
+  .app-shell-topnav .content-customers {
+    overflow: auto !important;
+  }
+
+  .app-shell-topnav .content-customers > .customers-screen.customer-console-screen {
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .customer-console-shell {
+    grid-template-columns: minmax(360px, 410px) minmax(0, 1fr) !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .customer-console-main-column,
+  .app-shell-topnav .customer-detail-panel {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .customer-detail-panel {
+    grid-template-rows: auto !important;
+  }
+
+  .app-shell-topnav .panel.panel-customer-list.customer-console-panel {
+    height: min(720px, calc(100vh - 180px)) !important;
+    height: min(720px, calc(100dvh - 180px)) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body,
+  .app-shell-topnav .customer-detail-panel-body.customer-detail-option3-body {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  .app-shell-topnav .customer-console-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .customer-summary-grid,
+  .app-shell-topnav .customer-console-main-column,
+  .app-shell-topnav .customer-detail-panel {
+    grid-column: 1 !important;
+  }
+
+  .app-shell-topnav .panel.panel-customer-list.customer-console-panel {
+    height: min(620px, calc(100vh - 190px)) !important;
+    height: min(620px, calc(100dvh - 190px)) !important;
+  }
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card {
+  min-height: 156px !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-summary-card {
+  min-height: 112px !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-detail-section-head {
+  min-height: 24px !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-detail-section-head h3 {
+  line-height: 1.35 !important;
+}
+
+.app-shell-topnav .content-customers .customer-report-summary-card .customer-report-summary-totals {
+  margin-left: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-card {
+  height: auto !important;
+  align-self: start !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card {
+  display: grid !important;
+  grid-template-rows: auto auto auto !important;
+  align-content: start !important;
+  gap: 10px !important;
+  min-height: 210px !important;
+  height: auto !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-summary-card {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  align-self: stretch !important;
+  align-content: start !important;
+  min-height: 210px !important;
+  height: 100% !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card .customer-detail-basic-facts {
+  margin: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card .customer-detail-read-row {
+  align-self: start !important;
+  min-height: 34px !important;
+  margin-top: 0 !important;
+  padding-top: 10px !important;
+}
+
+.app-shell-topnav .content-customers .customer-report-summary-card .customer-report-summary-totals {
+  align-content: start !important;
+  align-self: start !important;
+  padding-top: 2px !important;
+}
+
+/* Settings page console alignment: keep settings visually in the same system as
+   customer management, issuance, and the home dashboard. */
+.app-shell-topnav .content-settings {
+  overflow: auto !important;
+  padding: 24px 28px 70px !important;
+  background: var(--lovable-bg, var(--console-bg)) !important;
+}
+
+.app-shell-topnav .content-settings > .settings-screen {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: 16px !important;
+  width: min(100%, 1580px) !important;
+  height: auto !important;
+  min-height: 100% !important;
+  margin: 0 auto !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .settings-page-header {
+  position: static !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 16px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+
+.app-shell-topnav .settings-page-header .home-page-header-copy {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 14px !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .settings-page-header .home-page-header-copy h2 {
+  margin: 0 !important;
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 24px !important;
+  font-weight: 800 !important;
+  line-height: 1.1 !important;
+  letter-spacing: 0 !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .settings-page-header .home-page-header-chips {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  overflow-x: auto !important;
+  scrollbar-width: none !important;
+}
+
+.app-shell-topnav .settings-page-header .home-page-header-chips::-webkit-scrollbar {
+  display: none !important;
+}
+
+.app-shell-topnav .settings-page-header .home-header-chip {
+  min-height: 30px !important;
+  padding: 0 12px !important;
+  border: 1px solid var(--lovable-border, var(--console-border)) !important;
+  border-radius: 999px !important;
+  background: var(--lovable-surface, var(--console-surface)) !important;
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .settings-page-header .home-header-chip.tone-success {
+  border-color: rgba(22, 163, 74, 0.22) !important;
+  background: var(--console-success-soft) !important;
+  color: var(--console-success) !important;
+}
+
+.app-shell-topnav .settings-page-header .home-header-chip.tone-warn {
+  border-color: rgba(245, 158, 11, 0.28) !important;
+  background: var(--console-warn-soft) !important;
+  color: var(--console-warn) !important;
+}
+
+.app-shell-topnav .settings-page-header .home-page-header-account {
+  flex: 0 0 auto !important;
+  min-height: 42px !important;
+  padding-left: 16px !important;
+  border-left: 1px solid var(--lovable-border, var(--console-border)) !important;
+}
+
+.app-shell-topnav .settings-page-header .home-page-header-account-avatar {
+  width: 38px !important;
+  height: 38px !important;
+  background: var(--lovable-text, var(--console-text)) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-page-header .home-page-header-account-avatar-icon {
+  width: 19px !important;
+  min-width: 19px !important;
+  height: 19px !important;
+}
+
+.app-shell-topnav .settings-layout.settings-option1-layout {
+  display: grid !important;
+  grid-template-columns: minmax(230px, 260px) minmax(0, 1fr) !important;
+  gap: 16px !important;
+  align-items: start !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .settings-sidebar-stack {
+  position: sticky !important;
+  top: 16px !important;
+  min-width: 0 !important;
+  max-height: calc(100vh - 138px) !important;
+  max-height: calc(100dvh - 138px) !important;
+  padding: 0 !important;
+  overflow: auto !important;
+}
+
+.app-shell-topnav .settings-sidebar-panel,
+.app-shell-topnav .settings-option1-card,
+.app-shell-topnav .settings-detail > .setup-panel,
+.app-shell-topnav .settings-account-stack > .panel {
+  border: 1px solid var(--lovable-border, var(--console-border)) !important;
+  border-radius: 8px !important;
+  background: var(--lovable-surface, var(--console-surface)) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-sidebar-panel {
+  display: grid !important;
+  gap: 12px !important;
+  padding: 12px !important;
+}
+
+.app-shell-topnav .settings-step-list {
+  display: grid !important;
+  gap: 6px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell-topnav .settings-step-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 44px !important;
+  padding: 10px 11px !important;
+  border: 1px solid transparent !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  color: var(--lovable-muted, var(--console-muted)) !important;
+  text-align: left !important;
+}
+
+.app-shell-topnav .settings-step-card:hover {
+  border-color: rgba(37, 99, 235, 0.22) !important;
+  background: var(--console-primary-soft) !important;
+}
+
+.app-shell-topnav .settings-step-card.active {
+  border-color: rgba(37, 99, 235, 0.34) !important;
+  background: var(--console-primary-soft) !important;
+  color: var(--console-primary-strong) !important;
+  box-shadow: inset 3px 0 0 var(--console-primary) !important;
+}
+
+.app-shell-topnav .settings-option1-nav-label,
+.app-shell-topnav .settings-option1-nav-state {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .settings-option1-nav-label {
+  color: inherit !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .settings-option1-nav-state {
+  min-height: 22px !important;
+  padding: 0 8px !important;
+  border: 1px solid var(--lovable-border, var(--console-border)) !important;
+  border-radius: 999px !important;
+  background: var(--lovable-surface, var(--console-surface)) !important;
+  color: var(--lovable-muted, var(--console-muted)) !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 20px !important;
+}
+
+.app-shell-topnav .settings-inline-note {
+  display: grid !important;
+  gap: 10px !important;
+  padding: 12px !important;
+  border: 1px solid var(--lovable-border, var(--console-border)) !important;
+  border-radius: 8px !important;
+  background: var(--lovable-bg, var(--console-surface-soft)) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-inline-copy {
+  display: grid !important;
+  gap: 3px !important;
+}
+
+.app-shell-topnav .settings-inline-copy strong {
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .settings-inline-copy span {
+  color: var(--lovable-muted, var(--console-muted)) !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+
+.app-shell-topnav .settings-inline-actions {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .settings-inline-actions button {
+  width: 100% !important;
+}
+
+.app-shell-topnav .settings-option1-main {
+  display: grid !important;
+  gap: 16px !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .settings-option1-top-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px) !important;
+  gap: 16px !important;
+  align-items: stretch !important;
+}
+
+.app-shell-topnav .settings-option1-card {
+  padding: 16px !important;
+}
+
+.app-shell-topnav .settings-option1-status-card {
+  display: grid !important;
+  gap: 14px !important;
+}
+
+.app-shell-topnav .settings-option1-status-title,
+.app-shell-topnav .settings-option1-card-head,
+.app-shell-topnav .settings-option1-member-head,
+.app-shell-topnav .settings-option1-save-row {
+  gap: 12px !important;
+}
+
+.app-shell-topnav .settings-option1-status-title strong,
+.app-shell-topnav .settings-option1-card-head strong,
+.app-shell-topnav .settings-option1-member-head strong,
+.app-shell-topnav .settings-option1-reopen-card strong,
+.app-shell-topnav .settings-detail .panel-header h2 {
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  line-height: 1.25 !important;
+  letter-spacing: 0 !important;
+}
+
+.app-shell-topnav .settings-option1-card-head span,
+.app-shell-topnav .settings-option1-reopen-card span,
+.app-shell-topnav .settings-option1-save-row span:last-child,
+.app-shell-topnav .settings-detail .panel-header p {
+  color: var(--lovable-muted, var(--console-muted)) !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+.app-shell-topnav .settings-option1-progress-row {
+  display: grid !important;
+  grid-template-columns: minmax(170px, 220px) minmax(0, 1fr) !important;
+  gap: 16px !important;
+  align-items: center !important;
+}
+
+.app-shell-topnav .settings-option1-progress-copy strong {
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 24px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+}
+
+.app-shell-topnav .settings-option1-status-metrics {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  border-left: 0 !important;
+}
+
+.app-shell-topnav .settings-option1-status-metrics > div {
+  display: grid !important;
+  gap: 5px !important;
+  min-width: 0 !important;
+  padding: 10px 12px !important;
+  border: 1px solid var(--lovable-border, var(--console-border)) !important;
+  border-radius: 7px !important;
+  background: var(--lovable-bg, var(--console-surface-soft)) !important;
+}
+
+.app-shell-topnav .settings-option1-status-metrics strong {
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 17px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .settings-option1-status-metrics > div:last-child strong {
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .settings-option1-reopen-card {
+  display: grid !important;
+  align-content: space-between !important;
+  gap: 12px !important;
+}
+
+.app-shell-topnav .settings-detail {
+  min-width: 0 !important;
+  overflow: visible !important;
+  padding: 0 !important;
+}
+
+.app-shell-topnav .settings-option1-detail-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1.05fr) minmax(300px, 0.95fr) !important;
+  gap: 16px !important;
+  align-items: start !important;
+}
+
+.app-shell-topnav .settings-detail > .setup-panel,
+.app-shell-topnav .settings-account-stack > .panel {
+  padding: 18px !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .settings-detail .panel-header,
+.app-shell-topnav .settings-detail .setup-panel-header {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 14px !important;
+  margin: -18px -18px 16px !important;
+  padding: 16px 18px !important;
+  border-bottom: 1px solid var(--lovable-border, var(--console-border)) !important;
+  background: var(--lovable-bg, var(--console-surface-soft)) !important;
+}
+
+.app-shell-topnav .settings-detail .panel-header > div,
+.app-shell-topnav .settings-detail .setup-panel-title {
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .settings-detail .setup-order {
+  width: 30px !important;
+  min-width: 30px !important;
+  height: 30px !important;
+  border-radius: 999px !important;
+  background: var(--console-primary-soft) !important;
+  color: var(--console-primary-strong) !important;
+}
+
+.app-shell-topnav .settings-field-stack,
+.app-shell-topnav .settings-account-stack,
+.app-shell-topnav .settings-option1-mail-card,
+.app-shell-topnav .settings-option1-account-card {
+  display: grid !important;
+  gap: 14px !important;
+}
+
+.app-shell-topnav .settings-field-group,
+.app-shell-topnav .workspace-member-create-box,
+.app-shell-topnav .workspace-member-card,
+.app-shell-topnav .settings-helper-status-card,
+.app-shell-topnav .settings-install-guide,
+.app-shell-topnav .settings-advanced-panel,
+.app-shell-topnav .settings-message-template-preview,
+.app-shell-topnav .settings-defaults-status,
+.app-shell-topnav .settings-action-feedback,
+.app-shell-topnav .helper-box-stack {
+  border: 1px solid var(--lovable-border, var(--console-border)) !important;
+  border-radius: 8px !important;
+  background: var(--lovable-surface, var(--console-surface)) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-field-group {
+  padding: 14px !important;
+}
+
+.app-shell-topnav .settings-field-group-head {
+  margin-bottom: 12px !important;
+}
+
+.app-shell-topnav .settings-field-group-head strong {
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .settings-field-group-head span,
+.app-shell-topnav .field-hint {
+  color: var(--lovable-muted, var(--console-muted)) !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+.app-shell-topnav .settings-defaults-grid,
+.app-shell-topnav .settings-option1-form-grid,
+.app-shell-topnav .workspace-member-create-grid,
+.app-shell-topnav .organization-withdrawal-summary,
+.app-shell-topnav .settings-message-template-editor {
+  gap: 12px !important;
+}
+
+.app-shell-topnav .settings-defaults-cell,
+.app-shell-topnav .settings-option1-field,
+.app-shell-topnav .workspace-member-create-grid label,
+.app-shell-topnav .organization-withdrawal-confirm-grid label {
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+.app-shell-topnav .settings-option1-save-row {
+  padding-top: 12px !important;
+  border-top: 1px solid var(--lovable-border, var(--console-border)) !important;
+}
+
+@media (max-width: 1280px) {
+  .app-shell-topnav .settings-layout.settings-option1-layout {
+    grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 1180px) {
+  .app-shell-topnav .settings-layout.settings-option1-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .settings-sidebar-stack {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .settings-step-list {
+    grid-template-columns: repeat(4, minmax(150px, 1fr)) !important;
+    overflow-x: auto !important;
+  }
+
+  .app-shell-topnav .settings-option1-detail-grid,
+  .app-shell-topnav .settings-option1-top-row {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell-topnav .settings-page-header {
+    align-items: flex-start !important;
+    flex-direction: column !important;
+  }
+
+  .app-shell-topnav .settings-page-header .home-page-header-account {
+    width: 100% !important;
+    padding-left: 0 !important;
+    border-left: 0 !important;
+    justify-content: flex-start !important;
+  }
+
+  .app-shell-topnav .settings-option1-progress-row,
+  .app-shell-topnav .settings-defaults-grid,
+  .app-shell-topnav .settings-option1-form-grid,
+  .app-shell-topnav .settings-message-template-editor {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell-topnav .content-settings {
+    padding: 16px 14px 44px !important;
+  }
+
+  .app-shell-topnav .settings-page-header .home-page-header-copy {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .app-shell-topnav .settings-page-header .home-page-header-copy h2 {
+    white-space: normal !important;
+  }
+
+  .app-shell-topnav .settings-step-list {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .settings-detail .panel-header,
+  .app-shell-topnav .settings-detail .setup-panel-header {
+    align-items: stretch !important;
+    flex-direction: column !important;
+  }
 }
