@@ -30495,3 +30495,97 @@ button.issuance-list-item {
     height: 44px;
   }
 }
+
+.app-shell-topnav .settings-install-details,
+.app-shell-topnav .onboarding-active-step-shell .settings-install-details {
+  margin-top: 14px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--lovable-border, var(--console-border)) !important;
+  border-radius: 8px !important;
+  background: var(--lovable-surface, var(--console-surface)) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-install-details summary,
+.app-shell-topnav .onboarding-active-step-shell .settings-install-details summary {
+  min-height: 42px !important;
+  padding: 0 14px !important;
+  color: var(--console-primary-strong) !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+}
+
+.app-shell-topnav .settings-install-details[open] summary,
+.app-shell-topnav .onboarding-active-step-shell .settings-install-details[open] summary {
+  border-bottom: 1px solid var(--lovable-border, var(--console-border)) !important;
+  background: var(--lovable-bg, var(--console-surface-soft)) !important;
+}
+
+.app-shell-topnav .settings-install-details > .settings-install-guide-body,
+.app-shell-topnav .onboarding-active-step-shell .settings-install-details > .settings-install-guide-body {
+  display: grid !important;
+  gap: 12px !important;
+  margin: 0 !important;
+  padding: 14px 16px 16px !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-install-guide-body > strong {
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+}
+
+.app-shell-topnav .settings-install-guide-body > span {
+  color: var(--lovable-muted, var(--console-muted)) !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+.app-shell-topnav .settings-install-guide-list {
+  display: grid !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+  counter-reset: install-step;
+}
+
+.app-shell-topnav .settings-install-guide-list li {
+  display: grid !important;
+  grid-template-columns: 22px minmax(0, 1fr) !important;
+  gap: 8px !important;
+  align-items: start !important;
+}
+
+.app-shell-topnav .settings-install-guide-list li > span {
+  min-width: 0 !important;
+  color: var(--lovable-muted, var(--console-muted)) !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+.app-shell-topnav .settings-install-guide-list li::before {
+  display: inline-grid !important;
+  place-items: center !important;
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 999px !important;
+  background: var(--console-primary-soft) !important;
+  color: var(--console-primary-strong) !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+  content: counter(install-step);
+  counter-increment: install-step;
+}
+
+.app-shell-topnav .settings-install-guide-list code,
+.app-shell-topnav .settings-install-guide-body code {
+  color: var(--lovable-text, var(--console-text)) !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+}

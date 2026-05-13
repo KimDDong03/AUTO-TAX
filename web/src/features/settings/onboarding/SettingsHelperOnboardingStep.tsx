@@ -113,23 +113,28 @@ export function SettingsHelperOnboardingStep({
         ) : null}
       </section>
 
-      <details className="settings-advanced-panel">
+      <details className="settings-advanced-panel settings-install-details">
         <summary>설치 안내는 필요할 때만 보기</summary>
-        <div className="helper-box-stack settings-install-guide">
+        <div className="settings-install-guide-body">
           <strong>설치 안내</strong>
-          <span>
-            고객 PC에서는 <code>renewal-local-helper</code> 압축을 푼 뒤{" "}
-            <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행하면 됩니다.
-          </span>
-          <span>
-            설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동으로 다시
-            실행됩니다.
-          </span>
-          <span>
-            문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>,{" "}
-            <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code>{" "}
-            바로가기로 확인할 수 있습니다.
-          </span>
+          <ol className="settings-install-guide-list">
+            <li>
+              <span>
+                고객 PC에서 <code>renewal-local-helper</code> 압축을 푼 뒤{" "}
+                <code>scripts\renewal-helper-install.cmd</code>를 한 번 실행합니다.
+              </span>
+            </li>
+            <li>
+              <span>설치 직후 바로 시작되고, 이후에는 Windows 로그인 시 자동 실행됩니다.</span>
+            </li>
+            <li>
+              <span>
+                문제가 생기면 바탕화면의 <code>AUTO-TAX Helper Status</code>,{" "}
+                <code>AUTO-TAX Helper Start</code>, <code>AUTO-TAX Helper Stop</code>{" "}
+                바로가기로 확인합니다.
+              </span>
+            </li>
+          </ol>
         </div>
       </details>
     </div>
