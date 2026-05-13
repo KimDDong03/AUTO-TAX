@@ -399,7 +399,7 @@ function isMissingMailSyncCheckpointsTableError(error: unknown): boolean {
   );
 }
 
-function isManagedCustomerRenewalContactMobileColumnMissingError(error: unknown): boolean {
+function isManagedCustomerOptionalColumnMissingError(error: unknown, columnName: string): boolean {
   if (!error || typeof error !== "object") {
     return false;
   }
@@ -411,8 +411,15 @@ function isManagedCustomerRenewalContactMobileColumnMissingError(error: unknown)
     code === "42703" ||
     code === "PGRST204" ||
     (message.includes("managed_customers") &&
-      message.includes("renewal_contact_mobile") &&
+      message.includes(columnName) &&
       (message.includes("schema cache") || message.includes("does not exist") || message.includes("column")))
+  );
+}
+
+function isManagedCustomerOptionalColumnsMissingError(error: unknown): boolean {
+  return (
+    isManagedCustomerOptionalColumnMissingError(error, "renewal_contact_mobile") ||
+    isManagedCustomerOptionalColumnMissingError(error, "issue_complete_sms_template")
   );
 }
 
@@ -470,6 +477,7 @@ function mapCustomer(row: Row, plantNames: string[], matchAddresses: string[]): 
     issueHour: row.issue_hour === null ? null : asNumber(row.issue_hour),
     issueMinute: row.issue_minute === null ? null : asNumber(row.issue_minute),
     renewalContactMobile: asString(row.renewal_contact_mobile),
+    issueCompleteSmsTemplate: asString(row.issue_complete_sms_template),
     memo: asString(row.memo),
     plantNames,
     matchAddresses,
@@ -1482,6 +1490,7 @@ export class SupabaseStore implements AppStore {
         issue_hour: input.issueHour,
         issue_minute: input.issueMinute,
         renewal_contact_mobile: input.renewalContactMobile,
+        issue_complete_sms_template: input.issueCompleteSmsTemplate ?? "",
         memo: input.memo,
         updated_at: timestamp
       };
@@ -1494,11 +1503,15 @@ export class SupabaseStore implements AppStore {
         .single();
 
       if (updatedCustomerError) {
-        if (!isManagedCustomerRenewalContactMobileColumnMissingError(updatedCustomerError)) {
+        if (!isManagedCustomerOptionalColumnsMissingError(updatedCustomerError)) {
           throw new Error(`고객 수정 실패: ${updatedCustomerError.message}`);
         }
 
-        const { renewal_contact_mobile: _ignoredRenewalContactMobile, ...fallbackUpdatePayload } = updatePayload;
+        const {
+          renewal_contact_mobile: _ignoredRenewalContactMobile,
+          issue_complete_sms_template: _ignoredIssueCompleteSmsTemplate,
+          ...fallbackUpdatePayload
+        } = updatePayload;
         persistedRow = await assertNoError(
           "고객 수정 실패",
           this.client
@@ -1535,6 +1548,7 @@ export class SupabaseStore implements AppStore {
         issue_hour: input.issueHour,
         issue_minute: input.issueMinute,
         renewal_contact_mobile: input.renewalContactMobile,
+        issue_complete_sms_template: input.issueCompleteSmsTemplate ?? "",
         memo: input.memo
       };
 
@@ -1546,11 +1560,15 @@ export class SupabaseStore implements AppStore {
 
       let createdRow: unknown;
       if (insertedCustomerError) {
-        if (!isManagedCustomerRenewalContactMobileColumnMissingError(insertedCustomerError)) {
+        if (!isManagedCustomerOptionalColumnsMissingError(insertedCustomerError)) {
           throw new Error(`고객 생성 실패: ${insertedCustomerError.message}`);
         }
 
-        const { renewal_contact_mobile: _ignoredRenewalContactMobile, ...fallbackInsertPayload } = insertPayload;
+        const {
+          renewal_contact_mobile: _ignoredRenewalContactMobile,
+          issue_complete_sms_template: _ignoredIssueCompleteSmsTemplate,
+          ...fallbackInsertPayload
+        } = insertPayload;
         createdRow = await assertNoError(
           "고객 생성 실패",
           this.client

@@ -1,6 +1,7 @@
 import type { RenewalBridgePreflightProbe, RenewalInfoSnapshot } from "../../types";
 import {
   deriveCustomerCertificateKind,
+  isCustomerCertificateExpired,
   matchesRenewalCertificate,
   normalizeRenewalCertificateKey
 } from "../renewal/customerRenewalCertificateUtils";
@@ -453,6 +454,14 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       continue;
     }
 
+    if (isCustomerCertificateExpired(matchedCertificate.todate || matchedCertificate.detailValidateTo || null)) {
+      errors.push(
+        `발전소 시트 (${certificateLabel}): 만료된 전자세금용 공동인증서는 고객 등록과 팝빌 가입에 사용할 수 없습니다. 갱신 후 다시 불러와 주세요.`
+      );
+      skippedCertificateCount += 1;
+      continue;
+    }
+
     const explicitPlantPasswords = Array.from(
       new Set(plantGroup.plantRows.map((row) => row.certificatePassword.trim()).filter(Boolean))
     );
@@ -502,7 +511,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       });
       const preflightProbe = response.result.bridge.preflightProbe;
       const decision = classifyOnboardingPreflightImportDecision(preflightProbe, {
-        certificateExpireDate: matchedCertificate.todate ?? matchedCertificate.detailValidateTo ?? null
+        certificateExpireDate: matchedCertificate.todate || matchedCertificate.detailValidateTo || null
       });
       if (!decision.canImport) {
         return {

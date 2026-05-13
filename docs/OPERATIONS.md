@@ -30,6 +30,7 @@ This file is for development, deployment, and runtime debugging work. It is not 
 
 - `VITE_API_BASE_URL`
 - `AUTO_TAX_ALLOWED_ORIGINS`
+- `AUTO_TAX_POPBILL_CONTACT_EMAIL` (falls back to the first `AUTO_TAX_OPS_EMAILS` address)
 - `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`
 - `AUTO_TAX_RENEWAL_AGENT_*`
 - `SUPABASE_DB_PASSWORD`

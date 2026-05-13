@@ -288,7 +288,7 @@ export function useRenewalAssistantState({
       const response = await requestLocalRenewalBridgeProbe();
       const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
       const availableCertificates = allCertificates.filter(
-        (certificate) => !isCustomerCertificateExpired(certificate.todate ?? certificate.detailValidateTo ?? null)
+        (certificate) => !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
       );
       const bridgeJob = buildLocalRenewalBridgeJob(
         response.result,
@@ -450,12 +450,14 @@ export function useRenewalAssistantState({
   const customerRenewalAssistantAllCertificates = customerRenewalAssistant?.certificates ?? [];
   const customerRenewalAssistantCertificates = useMemo(
     () =>
-      customerRenewalAssistantAllCertificates.filter((certificate) =>
-        certificate.usageToName
-          .trim()
-          .toLocaleLowerCase("ko-KR")
-          .replace(/\s+/g, "")
-          .includes("전자세금")
+      customerRenewalAssistantAllCertificates.filter(
+        (certificate) =>
+          certificate.usageToName
+            .trim()
+            .toLocaleLowerCase("ko-KR")
+            .replace(/\s+/g, "")
+            .includes("전자세금") &&
+          !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
       ),
     [customerRenewalAssistantAllCertificates]
   );
@@ -468,7 +470,9 @@ export function useRenewalAssistantState({
     : "지원되지 않는 로컬 헬퍼 버전입니다. 새 버전을 다시 설치한 뒤 상태를 다시 확인하세요.";
   const helperReady =
     Boolean(customerRenewalAssistant?.agentOnline) &&
-    customerRenewalAssistantAllCertificates.length > 0 &&
+    customerRenewalAssistantAllCertificates.some(
+      (certificate) => !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+    ) &&
     !helperVersionMismatch;
   const renewalHelperDownloadUrl =
     customerRenewalAssistant?.releaseDownloadUrl || defaultRenewalHelperDownloadUrl;

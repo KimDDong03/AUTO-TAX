@@ -20,6 +20,22 @@ type PublicSignupFormState = PublicSignupInput & {
   passwordConfirm: string;
 };
 
+type PublicTermId = "termsAccepted" | "privacyAccepted" | "thirdPartyAccepted" | "marketingConsent";
+
+type PublicTermSection = {
+  title: string;
+  body?: string;
+  items?: readonly string[];
+};
+
+type PublicTerm = {
+  id: PublicTermId;
+  label: string;
+  required: boolean;
+  version: string;
+  sections: readonly PublicTermSection[];
+};
+
 type PublicLandingProps = {
   signInAccount: string;
   setSignInAccount: React.Dispatch<React.SetStateAction<string>>;
@@ -46,34 +62,149 @@ const emptySignupForm: PublicSignupFormState = {
   marketingConsent: false
 };
 
-const publicTerms = [
+const publicTerms: readonly PublicTerm[] = [
   {
     id: "termsAccepted",
     label: "서비스 이용약관 동의",
     required: true,
-    version: "terms_2026-05-07",
-    body: "AUTO-TAX 작업공간 이용 조건, 계정 승인 절차, 서비스 제공 범위를 정리하는 약관 자리입니다. 실제 약관 전문은 운영 전 교체합니다."
+    version: "terms_2026-05-12",
+    sections: [
+      {
+        title: "목적",
+        body: "이 약관은 AUTO-TAX가 제공하는 전자세금계산서 업무 자동화 서비스의 이용 조건, 계정 승인 절차, 이용자의 책임, 서비스 제한 사항을 정하기 위한 초안입니다."
+      },
+      {
+        title: "서비스 범위",
+        items: [
+          "AUTO-TAX는 한전 수신 메일 분석, 고객 및 발전소 정보 관리, 전자세금계산서 초안 생성, 팝빌 연동 발행 보조, 인증서 갱신 점검 보조 기능을 제공합니다.",
+          "서비스는 세무, 회계, 법률 자문을 대체하지 않으며, 최종 발행 여부와 발행 내용 확인 책임은 이용자에게 있습니다.",
+          "인증서 갱신과 로컬 도구 기능은 Windows 환경에서의 점검과 보조 범위에 한정되며, 무인 갱신 완료를 보장하지 않습니다."
+        ]
+      },
+      {
+        title: "계정 신청과 승인",
+        items: [
+          "회원가입 신청은 운영자의 검토와 승인 후에만 실제 작업공간 접속으로 이어집니다.",
+          "이용자는 신청 정보와 업무 설정 정보를 정확하게 입력해야 하며, 타인의 사업자 정보, 메일 계정, 인증서 정보를 권한 없이 입력해서는 안 됩니다.",
+          "운영자는 허위 정보, 권한 불명확, 보안 위험, 서비스 제공 곤란 사유가 있는 신청을 보류하거나 거절할 수 있습니다."
+        ]
+      },
+      {
+        title: "보안과 비밀정보",
+        items: [
+          "이용자는 로그인 비밀번호, 메일 앱 비밀번호, 공동인증서 비밀번호 등 비밀정보를 안전하게 관리해야 합니다.",
+          "AUTO-TAX는 원칙적으로 원본 인증서 파일, 인증서 비밀번호, 홈택스 로그인 정보를 서버에 저장하거나 재표시하지 않는 구조로 운영합니다.",
+          "이용자가 로컬 PC에서 선택한 인증서 파일과 비밀번호는 해당 기능 수행에 필요한 범위에서만 처리되어야 합니다."
+        ]
+      },
+      {
+        title: "서비스 변경과 책임 제한",
+        items: [
+          "메일 양식, 외부 연동사 정책, 팝빌 또는 클라우드 인프라 상태에 따라 일부 기능이 지연되거나 실패할 수 있습니다.",
+          "AUTO-TAX는 고의 또는 중대한 과실이 없는 한 이용자의 입력 오류, 외부 서비스 장애, 권한 없는 정보 입력, 최종 확인 없이 진행한 발행으로 인한 손해에 대해 책임을 제한할 수 있습니다.",
+          "유료 요금제, 환불, 해지 정책은 별도 고지 또는 계약 조건에 따르며, 시범 운영 중에는 운영자가 별도로 안내할 수 있습니다."
+        ]
+      }
+    ]
   },
   {
     id: "privacyAccepted",
     label: "개인정보 수집 및 이용 동의",
     required: true,
-    version: "privacy_2026-05-07",
-    body: "가입 승인과 작업공간 개통을 위해 이름, 전화번호, 한전 수신 메일, 로그인 ID를 수집한다는 안내 자리입니다."
+    version: "privacy_2026-05-12",
+    sections: [
+      {
+        title: "수집 목적",
+        items: [
+          "회원가입 신청 접수, 본인 및 담당자 확인, 작업공간 개통 심사",
+          "계정 생성, 로그인, 서비스 이용 안내, 고객 지원 및 보안 알림",
+          "부정 이용 방지, 장애 조사, 서비스 운영 기록 관리"
+        ]
+      },
+      {
+        title: "수집 항목",
+        items: [
+          "필수: 로그인 ID, 비밀번호(인증 서비스에서 암호화 또는 해시 처리), 고객사명, 담당자 이름, 휴대폰 번호, 담당자 이메일 주소",
+          "자동 생성: 신청 일시, 동의 버전과 동의 일시, 접속 IP, 브라우저 및 기기 정보",
+          "승인 후 서비스 이용 과정에서 고객 사업자 정보, 발전소 주소, 메일 원문 또는 분석 결과, 세금계산서 발행 데이터가 추가로 처리될 수 있습니다."
+        ]
+      },
+      {
+        title: "보유 및 이용 기간",
+        items: [
+          "가입 신청 정보는 승인 또는 거절 처리와 분쟁 대응을 위해 신청일로부터 1년간 보관할 수 있습니다.",
+          "승인된 계정 및 작업공간 정보는 서비스 이용 기간 동안 보관하며, 계약 종료 또는 회원 탈퇴 후에는 관계 법령상 보존 의무가 있는 정보를 제외하고 지체 없이 파기합니다.",
+          "보안 로그와 접속 기록은 장애 대응, 침해사고 조사, 부정 이용 방지를 위해 내부 정책에 따라 일정 기간 보관할 수 있습니다."
+        ]
+      },
+      {
+        title: "동의 거부 권리",
+        body: "이용자는 개인정보 수집 및 이용 동의를 거부할 수 있습니다. 다만 필수 항목은 회원가입 신청, 계정 승인, 작업공간 개통에 필요한 정보이므로 동의하지 않으면 서비스 신청이 제한됩니다."
+      }
+    ]
   },
   {
     id: "thirdPartyAccepted",
-    label: "제3자 정보제공 동의",
+    label: "개인정보 처리위탁 및 외부 제공 동의",
     required: true,
-    version: "third_party_2026-05-07",
-    body: "전자세금계산서 발행과 메일 연동 준비 과정에서 필요한 외부 서비스 제공 범위를 안내하는 자리입니다."
+    version: "third_party_2026-05-12",
+    sections: [
+      {
+        title: "처리위탁 및 외부 제공 목적",
+        body: "AUTO-TAX는 계정 인증, 클라우드 호스팅, 데이터 보관, 전자세금계산서 발행 연동, 메일 수신 분석 등 서비스 제공에 필요한 범위에서 외부 서비스를 이용할 수 있습니다."
+      },
+      {
+        title: "예정 수탁자 및 제공처",
+        items: [
+          "Supabase: 로그인 인증, 세션 관리, 데이터베이스 운영",
+          "Vercel 등 클라우드 호스팅 사업자: 웹 애플리케이션 배포, API 실행, 접속 로그 처리",
+          "팝빌 또는 전자세금계산서 연동 사업자: 전자세금계산서 발행, 발행 결과 조회, 거래처 상태 확인",
+          "승인 후 이용자가 연결하는 메일 서비스 제공자: 한전 수신 메일 조회와 분석을 위한 IMAP 또는 관련 메일 접근"
+        ]
+      },
+      {
+        title: "처리되는 정보",
+        items: [
+          "계정 및 작업공간 식별 정보, 담당자 연락처, 서비스 접속 기록",
+          "고객 사업자 정보, 거래처 정보, 발전소 주소, 세금계산서 초안 및 발행 결과",
+          "메일 제목, 본문, 첨부 또는 분석 결과 중 세금계산서 업무 처리에 필요한 정보"
+        ]
+      },
+      {
+        title: "보유 기간과 고지",
+        items: [
+          "수탁자와 제공처는 위 목적 달성 또는 위탁 계약 종료 시까지 필요한 범위에서 정보를 처리합니다.",
+          "국외 클라우드 사업자를 이용하는 경우 국외 이전이 발생할 수 있으며, 실제 운영 수탁자, 이전 국가, 이전 일시와 방법은 개인정보처리방침에 최신 상태로 고지합니다.",
+          "전자세금계산서 발행을 위해 법령 또는 외부 연동사 정책상 필요한 정보는 해당 법령과 정책에서 정한 기간 동안 보관될 수 있습니다."
+        ]
+      }
+    ]
   },
   {
     id: "marketingConsent",
     label: "마케팅 정보 수신 동의",
     required: false,
-    version: "marketing_2026-05-07",
-    body: "업데이트, 운영 안내, 프로모션 정보를 받을 수 있다는 선택 동의 안내 자리입니다."
+    version: "marketing_2026-05-12",
+    sections: [
+      {
+        title: "수신 목적",
+        items: [
+          "신규 기능, 운영 팁, 요금제, 이벤트, 프로모션 안내",
+          "서비스 개선 설문, 도입 상담, 교육 또는 웨비나 안내"
+        ]
+      },
+      {
+        title: "이용 항목과 방법",
+        items: [
+          "이용 항목: 고객사명, 담당자 이름, 휴대폰 번호, 이메일 주소, 서비스 이용 상태",
+          "발송 방법: 이메일, 문자메시지, 전화, 서비스 내 알림"
+        ]
+      },
+      {
+        title: "보유 기간과 철회",
+        body: "마케팅 정보는 동의 철회 또는 서비스 종료 시까지 이용합니다. 선택 동의를 거부하거나 철회해도 회원가입 신청과 기본 서비스 이용에는 영향을 주지 않습니다."
+      }
+    ]
   }
 ] as const;
 
@@ -412,12 +543,12 @@ export function PublicLanding({
                   </span>
                 </label>
                 <label className="full">
-                  <span>한전 수신 메일</span>
+                  <span>담당자 이메일</span>
                   <input
                     type="email"
                     value={signupForm.kepcoEmail}
                     onChange={(event) => updateSignupForm("kepcoEmail", event.target.value)}
-                    placeholder="kepco-mail@example.com"
+                    placeholder="manager@example.com"
                     autoComplete="email"
                     required
                   />
@@ -452,7 +583,21 @@ export function PublicLanding({
                       </label>
                       <small>{term.version}</small>
                     </summary>
-                    <p>{term.body}</p>
+                    <div className="portal-term-body">
+                      {term.sections.map((section) => (
+                        <section key={section.title}>
+                          <strong>{section.title}</strong>
+                          {section.body ? <p>{section.body}</p> : null}
+                          {section.items ? (
+                            <ul>
+                              {section.items.map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </section>
+                      ))}
+                    </div>
                   </details>
                 ))}
               </div>

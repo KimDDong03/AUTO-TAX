@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type React from "react";
+import type { Customer } from "../../types";
 import type { SettingsFeatureOrchestration } from "./createSettingsActionAdapters";
 import type { SettingsTabModel } from "./SettingsTab";
 import type { SettingsFormState, SettingsScreenState, SettingsSectionId } from "./useSettingsScreenState";
@@ -12,6 +13,8 @@ export type SettingsScreenProps = {
   settingsState: SettingsScreenState;
   activeSettingsSection: SettingsSectionId;
   setActiveSettingsSection: React.Dispatch<React.SetStateAction<SettingsSectionId>>;
+  customers: Customer[];
+  onSaveCustomerIssueCompleteSmsTemplate: (customerId: number, issueCompleteSmsTemplate: string) => Promise<void>;
   customerRegistrationReady: boolean;
   customerCount: number;
   onboardingComplete: boolean;
@@ -212,7 +215,12 @@ export function useSettingsScreenModel(
           onLoadCurrentPopbillSharedPassword:
             props.settingsState.runLoadCurrentPopbillSharedPassword,
           onLoadCurrentRenewalIssuePassword:
-            props.settingsState.runLoadCurrentRenewalIssuePassword
+            props.settingsState.runLoadCurrentRenewalIssuePassword,
+          customerMessages: {
+            customers: props.customers,
+            busyKey: props.busyKey,
+            onSaveIssueCompleteSmsTemplate: props.onSaveCustomerIssueCompleteSmsTemplate
+          }
         },
         helper: {
           done:
@@ -253,6 +261,7 @@ export function useSettingsScreenModel(
       helperStatus,
       props.activeSettingsSection,
       props.busyKey,
+      props.customers,
       props.customerCount,
       props.customerRegistrationReady,
       props.customerRenewalAssistantOnline,
@@ -261,6 +270,7 @@ export function useSettingsScreenModel(
       props.onboardingComplete,
       props.onboardingPendingStepCount,
       props.onboardingProgressText,
+      props.onSaveCustomerIssueCompleteSmsTemplate,
       props.openCertificates,
       props.openOnboarding,
       props.popbillModeLabel,

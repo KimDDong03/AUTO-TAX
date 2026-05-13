@@ -319,10 +319,40 @@ textarea {
   min-height: 100vh;
   display: grid;
   place-items: center;
+  padding: 24px;
   background: var(--bg);
   color: var(--text-subtle);
   font-size: 0.95rem;
   font-weight: 600;
+}
+
+.loading-shell-stack {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+
+.loading-shell-stack strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.loading-shell-stack span {
+  color: var(--text-subtle);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.loading-shell-stack button {
+  width: auto;
+  margin-top: 4px;
 }
 
 .auth-shell {
@@ -2965,6 +2995,57 @@ textarea {
 .settings-defaults-status strong {
   color: var(--primary-strong);
   font-size: 0.8rem;
+}
+
+.settings-message-template-section {
+  gap: 0.8rem;
+}
+
+.settings-message-template-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.settings-message-template-field textarea {
+  min-height: 132px;
+  resize: vertical;
+}
+
+.settings-message-template-preview {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.settings-message-template-preview strong {
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.settings-message-template-preview p {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.settings-message-template-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.field-hint.tone-danger {
+  color: #b91c1c;
 }
 
 .settings-detected-provider {
@@ -16117,12 +16198,42 @@ button.issuance-list-item {
   white-space: nowrap;
 }
 
-.portal-shell .portal-term-item p {
+.portal-shell .portal-term-body {
+  display: grid;
+  gap: 12px;
+  max-height: 260px;
+  margin: 0 12px 12px 36px;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.portal-shell .portal-term-body section {
+  display: grid;
+  gap: 6px;
+}
+
+.portal-shell .portal-term-body strong {
+  color: var(--portal-text);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.portal-shell .portal-term-body p,
+.portal-shell .portal-term-body li {
   margin: 0;
-  padding: 0 12px 12px 36px;
   color: var(--portal-muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.portal-shell .portal-term-body ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
 }
 
 .portal-shell .portal-mode-link {
@@ -16765,6 +16876,19 @@ button.issuance-list-item {
   .app-shell-topnav .settings-option1-inline-control,
   .app-shell-topnav .settings-option1-account-facts > div {
     grid-template-columns: 1fr;
+  }
+
+  .portal-shell .portal-term-item summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .portal-shell .portal-term-item small {
+    padding-left: 24px;
+  }
+
+  .portal-shell .portal-term-body {
+    max-height: 220px;
+    margin: 0 10px 10px;
   }
 
   .app-shell-topnav .settings-option1-member-table {
@@ -29298,4 +29422,45 @@ button.issuance-list-item {
 
 .app-shell-topnav .issuance-filter-row {
   align-items: center !important;
+}
+
+/* Keep the onboarding dialog usable on short viewports. The modal header stays
+   fixed while the full task body scrolls, instead of hiding overflow inside
+   the active step card. */
+.onboarding-modal,
+.app-shell-topnav .onboarding-modal {
+  height: min(980px, calc(100vh - 56px));
+  height: min(980px, calc(100dvh - 56px));
+  max-height: calc(100vh - 56px);
+  max-height: calc(100dvh - 56px);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.onboarding-modal-body,
+.app-shell-topnav .onboarding-modal-body {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.onboarding-task-shell,
+.app-shell-topnav .onboarding-task-shell {
+  align-items: start;
+  height: auto;
+  min-height: 100%;
+  max-height: none;
+  overflow: visible;
+}
+
+.onboarding-active-step-shell,
+.app-shell-topnav .onboarding-active-step-shell,
+.onboarding-step-strip,
+.app-shell-topnav .onboarding-step-strip,
+.onboarding-flow-section,
+.app-shell-topnav .onboarding-flow-section,
+.onboarding-step-list,
+.app-shell-topnav .onboarding-step-list {
+  max-height: none;
+  overflow: visible;
 }

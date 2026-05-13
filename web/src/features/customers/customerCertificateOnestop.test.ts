@@ -32,6 +32,7 @@ function createCustomer(overrides: Partial<Customer> = {}): Customer {
     issueHour: null,
     issueMinute: null,
     renewalContactMobile: "",
+    issueCompleteSmsTemplate: "",
     memo: "",
     plantNames: [],
     matchAddresses: [],
@@ -59,6 +60,7 @@ function createCertificate(overrides: Partial<RenewalAgentCertificate> = {}): Re
 }
 
 function createDraft(overrides: Partial<CustomerCertificateOnestopDraft> = {}): CustomerCertificateOnestopDraft {
+  const { issueCompleteSmsTemplate, ...restOverrides } = overrides;
   return {
     customerName: "홍길동",
     businessNumber: "123-45-67890",
@@ -67,8 +69,9 @@ function createDraft(overrides: Partial<CustomerCertificateOnestopDraft> = {}): 
     bizType: "전기업",
     bizClass: "태양광발전",
     renewalContactMobile: "",
+    issueCompleteSmsTemplate: issueCompleteSmsTemplate ?? "",
     memo: "",
-    ...overrides
+    ...restOverrides
   };
 }
 
@@ -139,6 +142,47 @@ test("filterCustomerOnestopCertificates searches available certificates", () => 
 
   assert.deepEqual(result.availableCertificates.map((certificate) => certificate.index), ["1", "2"]);
   assert.deepEqual(result.visibleCertificates.map((certificate) => certificate.index), ["2"]);
+});
+
+test("runCustomerCertificateOnestopRegistration rejects expired certificate before customer creation or Popbill join", async () => {
+  const calls: string[] = [];
+
+  await assert.rejects(
+    () =>
+      runCustomerCertificateOnestopRegistration({
+        customers: [],
+        draft: createDraft(),
+        certificate: createCertificate({ todate: "2000-01-01" }),
+        certificatePassword: "pw",
+        createCustomer: async () => {
+          calls.push("create");
+          throw new Error("should not create");
+        },
+        joinPopbill: async () => {
+          calls.push("join");
+          throw new Error("should not join");
+        },
+        linkCertificate: async () => {
+          calls.push("link");
+          throw new Error("should not link");
+        },
+        loadAvailableCertificates: async () => {
+          calls.push("load-certs");
+          return [];
+        },
+        registerCertificate: async () => {
+          calls.push("register");
+          throw new Error("should not register");
+        },
+        refreshCertificateStatus: async () => {
+          calls.push("status");
+          throw new Error("should not refresh");
+        }
+      }),
+    /만료된 전자세금용 공동인증서/
+  );
+
+  assert.deepEqual(calls, []);
 });
 
 test("runCustomerCertificateOnestopRegistration uses existing customer without duplicate create", async () => {

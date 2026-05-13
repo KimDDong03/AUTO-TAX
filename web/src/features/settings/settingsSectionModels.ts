@@ -1,4 +1,5 @@
 import type React from "react";
+import type { Customer } from "../../types";
 import type {
   SettingsFeatureActionAdapters,
   SettingsFeatureRevealAdapters
@@ -90,6 +91,11 @@ export type SettingsDefaultsSectionModel = {
   onRenewalIssuePasswordChange: (value: string) => void;
   onLoadCurrentPopbillSharedPassword: () => Promise<void>;
   onLoadCurrentRenewalIssuePassword: () => Promise<void>;
+  customerMessages: {
+    customers: Customer[];
+    busyKey: string | null;
+    onSaveIssueCompleteSmsTemplate: (customerId: number, issueCompleteSmsTemplate: string) => Promise<void>;
+  };
 };
 
 export type SettingsHelperUpgradeNotice = {

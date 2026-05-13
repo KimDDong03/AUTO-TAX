@@ -141,6 +141,16 @@ type RouteDeps = {
 };
 
 type OpsWorkspaceCreateInput = z.infer<typeof opsWorkspaceCreateSchema>;
+type InitialWorkspaceContactSettings = {
+  contactName: string;
+  contactEmail: string;
+  contactTel: string;
+  mailAddress?: string;
+  sourceSignupRequestId?: string;
+};
+type OpsWorkspaceCreatePayload = OpsWorkspaceCreateInput & {
+  initialContactSettings?: InitialWorkspaceContactSettings;
+};
 type PlatformAuthContext = ReturnType<RequirePlatformAdmin>;
 
 export function registerOpsRoutes(deps: RouteDeps) {
@@ -163,9 +173,64 @@ export function registerOpsRoutes(deps: RouteDeps) {
     listAllAuthUsers
   } = deps;
 
+  const applyInitialWorkspaceContactSettings = async (
+    organizationId: string,
+    authContext: PlatformAuthContext,
+    input: InitialWorkspaceContactSettings
+  ) => {
+    const contactName = input.contactName.trim();
+    const contactEmail = input.contactEmail.trim();
+    const contactTel = input.contactTel.trim();
+    const mailAddress = input.mailAddress?.trim() ?? "";
+    const requestStore = await createOrganizationStore({
+      organizationId,
+      actorUserId: authContext.userId
+    });
+
+    try {
+      const currentSettings = await requestStore.getSettings();
+      const nextSettingsInput: Partial<AppSettings> = {
+        operatorContactName: contactName,
+        operatorContactEmail: contactEmail,
+        operatorContactTel: contactTel
+      };
+
+      if (mailAddress) {
+        const provider = inferMailProviderSettings(mailAddress);
+        Object.assign(nextSettingsInput, {
+          imapHost: provider.imapHost,
+          imapPort: provider.imapPort,
+          imapSecure: provider.imapSecure,
+          imapUser: mailAddress,
+          imapMailbox: currentSettings.imapMailbox || "INBOX",
+          smtpHost: provider.smtpHost,
+          smtpPort: provider.smtpPort,
+          smtpSecure: provider.smtpSecure,
+          smtpUser: mailAddress,
+          smtpFromName: contactName || currentSettings.smtpFromName || "AUTO-TAX",
+          smtpFromEmail: mailAddress
+        });
+      }
+
+      await requestStore.updateSettings(nextSettingsInput);
+      await requestStore.createLog(
+        "info",
+        "ops",
+        "회원가입 신청 담당자 정보로 작업공간 기본 담당자 설정을 채웠습니다.",
+        {
+          sourceSignupRequestId: input.sourceSignupRequestId ?? null,
+          contactEmail,
+          mailAddress: mailAddress || null
+        }
+      );
+    } finally {
+      await requestStore.close();
+    }
+  };
+
   const createOpsWorkspaceWithOwner = async (
     authContext: PlatformAuthContext,
-    payload: OpsWorkspaceCreateInput
+    payload: OpsWorkspaceCreatePayload
   ): Promise<{
     workspace: OpsWorkspaceSummary;
     ownerAction: "linked-existing-user" | "created-user";
@@ -293,6 +358,14 @@ export function registerOpsRoutes(deps: RouteDeps) {
         }
       }
 
+      if (payload.initialContactSettings) {
+        await applyInitialWorkspaceContactSettings(
+          createdOrganizationId,
+          authContext,
+          payload.initialContactSettings
+        );
+      }
+
       const workspace = await getOpsWorkspaceSummaryById(createdOrganizationId);
       if (!workspace) {
         throw new Error("개통 결과를 다시 읽지 못했습니다.");
@@ -346,7 +419,13 @@ export function registerOpsRoutes(deps: RouteDeps) {
       ownerDisplayName: signupRequest.name,
       ownerPassword: "",
       planCode: "free_trial",
-      status: "trial"
+      status: "trial",
+      initialContactSettings: {
+        contactName: signupRequest.name,
+        contactEmail: signupRequest.kepcoEmail,
+        contactTel: signupRequest.phone,
+        sourceSignupRequestId: signupRequest.id
+      }
     });
     const request = await updatePublicSignupRequestStatus(adminClient, {
       id: signupRequest.id,

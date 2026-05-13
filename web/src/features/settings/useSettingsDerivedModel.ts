@@ -208,7 +208,6 @@ export function buildSettingsOnboardingModel({
     helperStatusLine: onboardingHelperStatusLine,
     firstSyncBlockedSteps: [
       !settingsHealth.mailReady ? "운영팀 메일 설정" : null,
-      !(settingsHealth.popbillReady && settingsHealth.operatorReady) ? "담당자 정보 입력" : null,
       !helper.ready ? "로컬 헬퍼 준비" : null,
       !progress.customerRegistrationReady ? "고객 초기 등록" : null,
       !progress.certificateReady ? "인증서 연결 마무리" : null

@@ -52,6 +52,7 @@ type CustomerFormState = {
   popbillUserId: string;
   popbillPassword: string;
   renewalContactMobile: string;
+  issueCompleteSmsTemplate: string;
   memo: string;
 };
 
@@ -313,6 +314,7 @@ function createEmptyCustomerOnestopDraft(): CustomerCertificateOnestopDraft {
     bizType: "전기업",
     bizClass: "태양광발전(자가용PPA)",
     renewalContactMobile: "",
+    issueCompleteSmsTemplate: "",
     memo: ""
   };
 }
@@ -1690,7 +1692,9 @@ export function CustomersTab(props: CustomersTabProps) {
       ? `${formatCustomerMonthLabel(reportProfile.contractStartMonth)} ~ ${formatCustomerMonthLabel(contractEndMonth)}`
       : "미입력";
     const resetCustomerDetailEditDraft = () => {
-      props.setCustomerForm((prev) => (prev.id === selectedCustomer.id ? { ...prev, memo: selectedCustomer.memo } : prev));
+      props.setCustomerForm((prev) =>
+        prev.id === selectedCustomer.id ? { ...prev, memo: selectedCustomer.memo } : prev
+      );
       customerReportDetail.setDraft(
         customerReportDetail.detail ?? createEmptyCustomerReportDetail(selectedCustomer.id, customerReportYear)
       );
@@ -1704,7 +1708,12 @@ export function CustomersTab(props: CustomersTabProps) {
       setCustomerDetailEditing(false);
     };
     const saveCustomerDetailEdit = () => {
-      if (hasInvalidCustomerReportIssueDateDraft || customerReportDetail.loading || customerReportDetail.saving || props.busyKey !== null) {
+      if (
+        hasInvalidCustomerReportIssueDateDraft ||
+        customerReportDetail.loading ||
+        customerReportDetail.saving ||
+        props.busyKey !== null
+      ) {
         return;
       }
       void props.runAction(
@@ -1728,6 +1737,8 @@ export function CustomersTab(props: CustomersTabProps) {
     };
     const customerDetailSaving =
       props.busyKey !== null || props.isSavingCustomer || customerReportDetail.saving;
+    const customerDetailSaveBlocked =
+      customerDetailSaving || hasInvalidCustomerReportIssueDateDraft;
 
     return (
       <div
@@ -2080,7 +2091,7 @@ export function CustomersTab(props: CustomersTabProps) {
                   </button>
                   <button
                     type="button"
-                    disabled={customerDetailSaving || hasInvalidCustomerReportIssueDateDraft}
+                    disabled={customerDetailSaveBlocked}
                     onClick={saveCustomerDetailEdit}
                   >
                     저장

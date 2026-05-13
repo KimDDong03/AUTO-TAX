@@ -147,3 +147,22 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook fails closed when grouped p
     /같은 인증서에 서로 다른 인증서 비밀번호가 입력되어 있습니다/
   );
 });
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook skips expired certificates before preflight", async () => {
+  let preflightCalled = false;
+
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook(),
+    loadAvailableCertificates: async () => [createCertificate({ todate: "2000-01-01", detailValidateTo: null })],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => {
+      preflightCalled = true;
+      throw new Error("should not preflight expired certificates");
+    }
+  });
+
+  assert.equal(preflightCalled, false);
+  assert.equal(result.resolvedCertificateCount, 0);
+  assert.equal(result.skippedCertificateCount, 1);
+  assert.match(result.errors[0] ?? "", /만료된 전자세금용 공동인증서/);
+});

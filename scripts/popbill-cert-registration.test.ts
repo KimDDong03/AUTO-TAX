@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  extractRegistrationError,
   getPopbillDebugArtifactSupport,
   matchPopbillCandidateIdentifiers,
   pickPopbillCertificateCandidate,
@@ -32,6 +33,27 @@ function createSelectionDetailProbe(
     ...overrides
   };
 }
+
+test("extractRegistrationError classifies expired certificate dialog signals", () => {
+  assert.equal(
+    extractRegistrationError("확인\n만료된 공동인증서입니다.\n인증서를 다시 선택하세요."),
+    "만료된 공동인증서입니다."
+  );
+});
+
+test("extractRegistrationError classifies wrong password signals", () => {
+  assert.equal(
+    extractRegistrationError("비밀번호를 다시 입력하세요."),
+    "공동인증서 비밀번호가 올바르지 않습니다."
+  );
+});
+
+test("extractRegistrationError prefers expired certificate over generic password template text", () => {
+  assert.equal(
+    extractRegistrationError("비밀번호를 다시 입력하세요.\n만료된 공동인증서입니다."),
+    "만료된 공동인증서입니다."
+  );
+});
 
 test("pickPopbillCertificateCandidate prefers a unique serial metadata match", () => {
   const result = pickPopbillCertificateCandidate({

@@ -17,6 +17,7 @@ export type CustomerCertificateOnestopDraft = {
   bizType: string;
   bizClass: string;
   renewalContactMobile: string;
+  issueCompleteSmsTemplate: string;
   memo: string;
 };
 
@@ -210,6 +211,7 @@ export function buildCustomerCertificateOnestopCreatePayload(
     issueHour: null,
     issueMinute: null,
     renewalContactMobile: draft.renewalContactMobile.trim(),
+    issueCompleteSmsTemplate: draft.issueCompleteSmsTemplate.trim(),
     memo: draft.memo.trim(),
     plantNames: [],
     matchAddresses: addr ? [addr] : []
@@ -229,6 +231,7 @@ export function buildCustomerCertificateOnestopDraftFromCertificate(
     bizType: fallback?.bizType?.trim() || "전기업",
     bizClass: fallback?.bizClass?.trim() || "태양광발전(자가용PPA)",
     renewalContactMobile: fallback?.renewalContactMobile?.trim() || "",
+    issueCompleteSmsTemplate: fallback?.issueCompleteSmsTemplate?.trim() || "",
     memo: fallback?.memo?.trim() || ""
   };
 }
@@ -280,6 +283,9 @@ export async function runCustomerCertificateOnestopRegistration(
   }
   if (deriveCustomerCertificateKind(args.certificate) !== "electronic_tax") {
     throw new Error("전자세금용 공동인증서만 고객 원스톱 등록에 사용할 수 있습니다.");
+  }
+  if (isCustomerCertificateExpired(getCustomerOnestopCertificateExpireDate(args.certificate))) {
+    throw new Error("만료된 전자세금용 공동인증서는 고객 등록과 팝빌 가입에 사용할 수 없습니다. 갱신 후 다시 불러와 주세요.");
   }
 
   const steps: CustomerCertificateOnestopStepResult[] = [];

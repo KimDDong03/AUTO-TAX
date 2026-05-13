@@ -108,6 +108,7 @@ export interface Customer {
   issueHour: number | null;
   issueMinute: number | null;
   renewalContactMobile: string;
+  issueCompleteSmsTemplate?: string;
   memo: string;
   plantNames: string[];
   matchAddresses: string[];

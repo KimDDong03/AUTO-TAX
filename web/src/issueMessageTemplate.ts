@@ -1,0 +1,23 @@
+export const POPBILL_XMS_SMS_BYTE_LIMIT = 90;
+export const POPBILL_XMS_LMS_BYTE_LIMIT = 2000;
+
+export const DEFAULT_ISSUE_COMPLETE_SMS_TEMPLATE =
+  "{회사명}에서 {발전소명} 세금계산서 {금액}원 발행이 완료되었습니다.";
+
+export function getPopbillMessageByteLength(value: string): number {
+  let bytes = 0;
+  for (const char of value) {
+    const codePoint = char.codePointAt(0) ?? 0;
+    bytes += codePoint <= 0x7f ? 1 : 2;
+  }
+  return bytes;
+}
+
+export function normalizeIssueCompleteSmsTemplate(value: string | null | undefined): string {
+  return (value ?? "").replace(/\r\n/g, "\n").trim();
+}
+
+export function resolveIssueCompleteSmsTemplate(value: string | null | undefined): string {
+  const normalized = normalizeIssueCompleteSmsTemplate(value);
+  return normalized || DEFAULT_ISSUE_COMPLETE_SMS_TEMPLATE;
+}

@@ -5,6 +5,11 @@ import type { AppSettings, Customer, CustomerInput } from "../domain.js";
 import type { CertificateRefreshResult } from "../certificate-monitor.js";
 import { MAX_CUSTOMER_REPORT_YEAR, MIN_CUSTOMER_REPORT_YEAR } from "../customer-report-detail.js";
 import {
+  POPBILL_XMS_LMS_BYTE_LIMIT,
+  getPopbillMessageByteLength,
+  normalizeIssueCompleteSmsTemplate
+} from "../issue-message-template.js";
+import {
   CustomerContractRenewalConflictError,
   CustomerContractRenewalInvalidPeriodError,
   getCurrentKstYearMonth
@@ -111,6 +116,16 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     certificatePassword: zod.string().trim().optional(),
     isPrimary: zod.boolean().optional().default(false),
     linkSource: zod.enum(["auto", "manual"]).optional().default("manual")
+  });
+
+  const customerIssueCompleteSmsTemplateSchema = zod.object({
+    issueCompleteSmsTemplate: zod
+      .string()
+      .default("")
+      .refine(
+        (value) => getPopbillMessageByteLength(normalizeIssueCompleteSmsTemplate(value)) <= POPBILL_XMS_LMS_BYTE_LIMIT,
+        `문자 양식은 팝빌 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte 이내로 입력해야 합니다.`
+      )
   });
 
   const nullableTrimmedStringSchema = zod
@@ -387,6 +402,42 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     const payload = zod.object({ memo: zod.string().max(5000).default("") }).parse(req.body);
     const customer = await requestStore.updateCustomerMemo(customerId, payload.memo);
     await requestStore.createLog("info", "customers", "고객 메모를 수정했습니다.", { customerId });
+    res.json(toClientCustomer(customer));
+  });
+
+  app.patch("/api/customers/:id/issue-complete-sms-template", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const customerId = Number(req.params.id);
+    const current = await requestStore.getCustomer(customerId);
+    if (!current) {
+      res.status(404).json({ error: "고객을 찾지 못했습니다." });
+      return;
+    }
+
+    const payload = customerIssueCompleteSmsTemplateSchema.parse(req.body);
+    const customer = await requestStore.saveCustomer(
+      {
+        customerName: current.customerName,
+        businessNumber: current.businessNumber,
+        corpName: current.corpName,
+        ceoName: current.ceoName,
+        addr: current.addr,
+        bizType: current.bizType,
+        bizClass: current.bizClass,
+        issueMode: "review",
+        issueDay: null,
+        issueHour: null,
+        issueMinute: null,
+        renewalContactMobile: current.renewalContactMobile,
+        issueCompleteSmsTemplate: normalizeIssueCompleteSmsTemplate(payload.issueCompleteSmsTemplate),
+        memo: current.memo,
+        plantNames: current.plantNames,
+        matchAddresses: current.matchAddresses
+      },
+      customerId
+    );
+    await requestStore.createLog("info", "customers", "고객 발행 완료 문자 양식을 수정했습니다.", { customerId });
     res.json(toClientCustomer(customer));
   });
 

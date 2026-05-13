@@ -380,9 +380,23 @@ async function resolveTargetCertificate(input: PopbillCertificateRegistrationInp
   };
 }
 
-function extractRegistrationError(frameText: string): string | null {
-  const normalized = frameText.replace(/\s+/g, "");
-  if (normalized.includes("비밀번호를다시입력")) {
+export function extractRegistrationError(signals: string): string | null {
+  const normalized = signals.replace(/\s+/g, "");
+  if (
+    normalized.includes("만료된공동인증서") ||
+    normalized.includes("만료된인증서") ||
+    normalized.includes("유효기간이만료") ||
+    normalized.includes("인증서가만료")
+  ) {
+    return "만료된 공동인증서입니다.";
+  }
+
+  if (
+    normalized.includes("비밀번호를다시입력") ||
+    normalized.includes("비밀번호가올바르지") ||
+    normalized.includes("암호가올바르지") ||
+    normalized.includes("비밀번호를확인")
+  ) {
     return "공동인증서 비밀번호가 올바르지 않습니다.";
   }
 
@@ -1244,6 +1258,7 @@ async function writePopbillDebugArtifact(options: {
   candidates?: PopbillCertificateIframeCandidate[];
   selectionDetailProbes?: PopbillCertificateSelectionDetailProbe[];
   selectionActivationState?: PopbillSelectionActivationState | null;
+  dialogMessages?: string[];
   errorMessage?: string | null;
 }): Promise<{ jsonPath: string; htmlPath: string | null }> {
   const artifactDir = ensurePopbillDebugArtifactDir();
@@ -1269,7 +1284,8 @@ async function writePopbillDebugArtifact(options: {
         errorMessage: options.errorMessage ?? null,
         candidates: options.candidates ?? [],
         selectionDetailProbes: options.selectionDetailProbes ?? [],
-        selectionActivationState: options.selectionActivationState ?? null
+        selectionActivationState: options.selectionActivationState ?? null,
+        dialogMessages: options.dialogMessages ?? []
       },
       null,
       2
@@ -1898,6 +1914,7 @@ export async function registerPopbillCertificate(
         visibleMatchCount: frameInspection.visibleMatchCount,
         selectionReason: frameInspection.selectionReason,
         candidates: frameInspection.candidates,
+        dialogMessages,
         errorMessage: "팝빌 인증서 선택 화면에서 대상 전자세금용 공동인증서를 찾지 못했습니다."
       });
       console.warn(
@@ -1934,6 +1951,7 @@ export async function registerPopbillCertificate(
         selectionReason: selectedCandidate.reason,
         candidates: frameInspection.candidates,
         selectionDetailProbes,
+        dialogMessages,
         errorMessage: "iframe DOM에서 serial/userDN/index와 일치하는 고유 항목을 확인하지 못해 자동 등록을 중단했습니다."
       });
       console.warn(
@@ -1975,6 +1993,7 @@ export async function registerPopbillCertificate(
         candidates: frameInspection.candidates,
         selectionDetailProbes,
         selectionActivationState,
+        dialogMessages,
         errorMessage: "팝빌 인증서 선택 후 비밀번호 입력창이 활성화되지 않았습니다."
       });
       throw new Error(
@@ -2002,6 +2021,7 @@ export async function registerPopbillCertificate(
         candidates: frameInspection.candidates,
         selectionDetailProbes,
         selectionActivationState: refreshedSelectionActivationState,
+        dialogMessages,
         errorMessage:
           error instanceof Error
             ? error.message
@@ -2022,8 +2042,9 @@ export async function registerPopbillCertificate(
       await registrationResponse;
     } catch {
       const frameText = await childFrame.locator("body").innerText().catch(() => "");
+      const registrationSignals = [frameText, ...dialogMessages].filter((message) => message.trim() !== "").join("\n");
       const resolvedError =
-        extractRegistrationError(frameText) ??
+        extractRegistrationError(registrationSignals) ??
         "팝빌 인증서 등록 요청을 확인하지 못했습니다. 확인 버튼 클릭 후 서버 요청이 전송되지 않았습니다.";
       const artifact = await writePopbillDebugArtifact({
         stage: "registration-confirmation-failed",
@@ -2034,6 +2055,7 @@ export async function registerPopbillCertificate(
         selectionReason: selectedCandidate.reason ?? frameInspection.selectionReason,
         candidates: frameInspection.candidates,
         selectionDetailProbes,
+        dialogMessages,
         errorMessage: resolvedError
       });
       throw new Error(`${resolvedError} ${formatPopbillDebugArtifactSummary(artifact)}`);
@@ -2043,7 +2065,8 @@ export async function registerPopbillCertificate(
       await waitForPageText(page, "인증서가 등록", 30_000);
     } catch {
       const frameText = await childFrame.locator("body").innerText().catch(() => "");
-      const resolvedError = extractRegistrationError(frameText) ?? "팝빌 인증서 등록 완료를 확인하지 못했습니다.";
+      const registrationSignals = [frameText, ...dialogMessages].filter((message) => message.trim() !== "").join("\n");
+      const resolvedError = extractRegistrationError(registrationSignals) ?? "팝빌 인증서 등록 완료를 확인하지 못했습니다.";
       const artifact = await writePopbillDebugArtifact({
         stage: "registration-confirmation-failed",
         page,
@@ -2053,6 +2076,7 @@ export async function registerPopbillCertificate(
         selectionReason: selectedCandidate.reason ?? frameInspection.selectionReason,
         candidates: frameInspection.candidates,
         selectionDetailProbes,
+        dialogMessages,
         errorMessage: resolvedError
       });
       throw new Error(`${resolvedError} ${formatPopbillDebugArtifactSummary(artifact)}`);

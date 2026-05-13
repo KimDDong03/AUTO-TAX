@@ -173,12 +173,14 @@ Important fields:
 - `issue_hour`
 - `issue_minute`
 - `renewal_contact_mobile`
+- `issue_complete_sms_template`
 - `memo`
 
 Important invariant:
 
 - Uniqueness is effectively `(organization_id, business_number)`.
 - `issue_mode` and issue schedule columns are legacy compatibility fields. Current product behavior treats customers as review/manual issuance only.
+- `issue_complete_sms_template` stores the optional customer-specific tax-invoice issue-complete SMS/LMS body. Blank means the product default template is used.
 
 ### managed_customer_plants
 

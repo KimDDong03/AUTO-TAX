@@ -60,7 +60,7 @@ const publicSignupSchema = z.object({
   kepcoEmail: z.string().trim().email().max(160),
   termsAccepted: z.boolean().refine((value) => value, "서비스 이용약관에 동의해야 합니다."),
   privacyAccepted: z.boolean().refine((value) => value, "개인정보 수집/이용에 동의해야 합니다."),
-  thirdPartyAccepted: z.boolean().refine((value) => value, "제3자 정보제공에 동의해야 합니다."),
+  thirdPartyAccepted: z.boolean().refine((value) => value, "개인정보 처리위탁 및 외부 제공에 동의해야 합니다."),
   marketingConsent: z.boolean().default(false)
 });
 

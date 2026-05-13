@@ -14,6 +14,11 @@ import { issueDraftNow } from "./automation.js";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
 import type { AppSettings, Customer, CustomerInput, DashboardPayload } from "./domain.js";
 import { buildApiErrorBody, getErrorMessage, getErrorStatus, HttpError } from "./http-errors.js";
+import {
+  POPBILL_XMS_LMS_BYTE_LIMIT,
+  getPopbillMessageByteLength,
+  normalizeIssueCompleteSmsTemplate
+} from "./issue-message-template.js";
 import { testMailConnections } from "./mail-test.js";
 import { reprocessInboxMessage } from "./mail-reprocess.js";
 import { syncMailbox } from "./mail-sync.js";
@@ -572,6 +577,13 @@ const customerSchema = z.object({
   issueHour: z.number().int().min(0).max(23).nullable().optional().default(null),
   issueMinute: z.number().int().min(0).max(59).nullable().optional().default(null),
   renewalContactMobile: z.string().default(""),
+  issueCompleteSmsTemplate: z
+    .string()
+    .default("")
+    .refine(
+      (value) => getPopbillMessageByteLength(normalizeIssueCompleteSmsTemplate(value)) <= POPBILL_XMS_LMS_BYTE_LIMIT,
+      `문자 양식은 팝빌 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte 이내로 입력해야 합니다.`
+    ),
   memo: z.string().default(""),
   plantNames: z.array(z.string().min(1)).default([]),
   matchAddresses: z.array(z.string().min(1)).default([])
@@ -592,6 +604,7 @@ function normalizeCustomerInput(payload: z.infer<typeof customerSchema>): Custom
     issueHour: null,
     issueMinute: null,
     renewalContactMobile: payload.renewalContactMobile,
+    issueCompleteSmsTemplate: normalizeIssueCompleteSmsTemplate(payload.issueCompleteSmsTemplate),
     memo: payload.memo,
     plantNames: payload.plantNames,
     matchAddresses: payload.matchAddresses

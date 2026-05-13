@@ -38,7 +38,6 @@ export function OnboardingTab(props: OnboardingTabProps) {
     [props.steps]
   );
   const [activeStepId, setActiveStepId] = useState(recommendedStepId);
-  const previousRecommendedStepIdRef = useRef(recommendedStepId);
   const previousRequestedStepIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -50,14 +49,6 @@ export function OnboardingTab(props: OnboardingTabProps) {
       return current;
     });
   }, [recommendedStepId, props.steps]);
-
-  useEffect(() => {
-    const previousRecommendedStepId = previousRecommendedStepIdRef.current;
-    if (previousRecommendedStepId !== recommendedStepId && activeStepId === previousRecommendedStepId) {
-      setActiveStepId(recommendedStepId);
-    }
-    previousRecommendedStepIdRef.current = recommendedStepId;
-  }, [activeStepId, recommendedStepId]);
 
   useEffect(() => {
     if (!props.requestedStepId) {

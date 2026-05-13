@@ -2,10 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PublicSignupRequest, PublicSignupRequestStatus } from "./domain.js";
 import { nowIso } from "./utils.js";
 
-export const PUBLIC_SIGNUP_TERMS_VERSION = "terms_2026-05-07";
-export const PUBLIC_SIGNUP_PRIVACY_VERSION = "privacy_2026-05-07";
-export const PUBLIC_SIGNUP_THIRD_PARTY_VERSION = "third_party_2026-05-07";
-export const PUBLIC_SIGNUP_MARKETING_VERSION = "marketing_2026-05-07";
+export const PUBLIC_SIGNUP_TERMS_VERSION = "terms_2026-05-12";
+export const PUBLIC_SIGNUP_PRIVACY_VERSION = "privacy_2026-05-12";
+export const PUBLIC_SIGNUP_THIRD_PARTY_VERSION = "third_party_2026-05-12";
+export const PUBLIC_SIGNUP_MARKETING_VERSION = "marketing_2026-05-12";
 
 type Row = Record<string, unknown>;
 type AdminClient = Pick<SupabaseClient, "from">;

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { SettingsTab, type SettingsTabModel } from "./SettingsTab";
 
 type TestElement = React.ReactElement<
@@ -34,8 +35,7 @@ function collectText(node: React.ReactNode): string {
   }
 
   if (React.isValidElement(node)) {
-    const element = node as TestElement;
-    return collectText(readElementNode(element));
+    return renderToStaticMarkup(node).replace(/<[^>]*>/g, " ");
   }
 
   return "";
@@ -152,7 +152,12 @@ function createModel(
         onPopbillSharedPasswordChange: () => {},
         onRenewalIssuePasswordChange: () => {},
         onLoadCurrentPopbillSharedPassword: async () => {},
-        onLoadCurrentRenewalIssuePassword: async () => {}
+        onLoadCurrentRenewalIssuePassword: async () => {},
+        customerMessages: {
+          customers: [],
+          busyKey: null,
+          onSaveIssueCompleteSmsTemplate: async () => {}
+        }
       },
       helper: {
         done: false,

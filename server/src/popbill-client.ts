@@ -1,6 +1,21 @@
 import { createRequire } from "node:module";
 import type { AppSettings, Customer, InvoiceDraft } from "./domain.js";
+import {
+  POPBILL_XMS_LMS_BYTE_LIMIT,
+  buildIssueCompleteMessageContent as buildIssueCompleteMessageContentFromTemplate,
+  getPopbillMessageByteLength
+} from "./issue-message-template.js";
 import { digitsOnly, formatWriteDate } from "./utils.js";
+
+export {
+  DEFAULT_ISSUE_COMPLETE_SMS_TEMPLATE,
+  POPBILL_XMS_LMS_BYTE_LIMIT,
+  POPBILL_XMS_SMS_BYTE_LIMIT,
+  getPopbillMessageByteLength,
+  normalizeIssueCompleteSmsTemplate,
+  resolveIssueCompleteSmsTemplate,
+  validateIssueCompleteSmsTemplateByteLength
+} from "./issue-message-template.js";
 
 const require = createRequire(import.meta.url);
 const popbill = require("popbill");
@@ -10,6 +25,7 @@ export type PopbillOperation =
   | "join-member"
   | "check-member"
   | "quit-member"
+  | "contact-update"
   | "cert-url"
   | "cert-expire-date"
   | "partner-balance"
@@ -39,6 +55,24 @@ function formatPopbillCode(code: string): string {
 
 function appendCode(message: string, code: string): string {
   return `${message} [${formatPopbillCode(code)}]`;
+}
+
+function envString(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function resolvePopbillNoticeContactEmail(settings: AppSettings): string {
+  const explicitContactEmail = envString("AUTO_TAX_POPBILL_CONTACT_EMAIL");
+  if (explicitContactEmail) {
+    return explicitContactEmail;
+  }
+
+  const opsEmail = envString("AUTO_TAX_OPS_EMAILS")
+    ?.split(",")
+    .map((item) => item.trim())
+    .find(Boolean);
+  return opsEmail ?? settings.operatorContactEmail;
 }
 
 function matchesAny(source: string, patterns: string[]): boolean {
@@ -100,6 +134,7 @@ function mapPopbillError(operation: PopbillOperation, code: string, rawMessage: 
     "join-member": "발행 연동에 실패했습니다.",
     "check-member": "발행 연동 상태 확인에 실패했습니다.",
     "quit-member": "발행 연동 계정 해지에 실패했습니다.",
+    "contact-update": "팝빌 연락처를 갱신하지 못했습니다.",
     "cert-url": "전자세금용 공동인증서 등록 URL을 가져오지 못했습니다.",
     "cert-expire-date": "전자세금용 공동인증서 상태를 조회하지 못했습니다.",
     "partner-balance": "팝빌 파트너 포인트를 조회하지 못했습니다.",
@@ -225,9 +260,32 @@ function assertCustomerPopbillIdentity(customer: Customer): void {
 }
 
 function assertOperatorContact(settings: AppSettings): void {
-  if (!settings.operatorContactName || !settings.operatorContactEmail || !settings.operatorContactTel) {
+  if (!settings.operatorContactName || !resolvePopbillNoticeContactEmail(settings) || !settings.operatorContactTel) {
     throw new Error("시스템설정의 운영 담당자명, 이메일, 연락처를 먼저 입력하세요.");
   }
+}
+
+async function updatePopbillMemberContact(settings: AppSettings, customer: Customer): Promise<unknown> {
+  assertCustomerPopbillIdentity(customer);
+  assertOperatorContact(settings);
+  const service = getService(settings);
+  return await promisify("contact-update", (done) => {
+    service.updateContact(
+      digitsOnly(customer.businessNumber),
+      customer.popbillUserId,
+      {
+        personName: settings.operatorContactName,
+        tel: settings.operatorContactTel,
+        hp: "",
+        email: resolvePopbillNoticeContactEmail(settings),
+        fax: "",
+        searchAllAllowYN: true,
+        mgrYN: true
+      },
+      (response: unknown) => done({ response }),
+      (error: CallbackResult<never>["error"]) => done({ error })
+    );
+  });
 }
 
 function parsePointValue(value: unknown): number {
@@ -281,7 +339,7 @@ export async function joinMember(settings: AppSettings, customer: Customer): Pro
         BizType: customer.bizType,
         BizClass: customer.bizClass,
         ContactName: settings.operatorContactName,
-        ContactEmail: settings.operatorContactEmail,
+        ContactEmail: resolvePopbillNoticeContactEmail(settings),
         ContactTEL: settings.operatorContactTel,
         ID: customer.popbillUserId,
         PWD: customer.popbillPassword
@@ -307,9 +365,14 @@ export async function quitMember(settings: AppSettings, customer: Customer, quit
   if (!quitReason.trim()) {
     throw new Error("팝빌 탈퇴 사유가 비어 있습니다.");
   }
-  const service = getService(settings);
   const corpNum = digitsOnly(customer.businessNumber);
   const popbillUserId = customer.popbillUserId?.trim() ?? "";
+
+  if (popbillUserId) {
+    await updatePopbillMemberContact(settings, customer);
+  }
+
+  const service = getService(settings);
   const quitByCorpNumOnly = async () =>
     await promisify("quit-member", (done) => {
       service.quitMember(
@@ -559,9 +622,11 @@ export type IssueCompleteMessageInput = {
 
 export function buildIssueCompleteMessageContent(
   input: Pick<IssueCompleteMessageInput, "organizationName">,
-  customer: Pick<Customer, "customerName">,
+  customer: Pick<Customer, "customerName" | "issueCompleteSmsTemplate">,
   draft: Pick<InvoiceDraft, "plantName" | "totalAmount">
 ): string {
+  return buildIssueCompleteMessageContentFromTemplate(input, customer, draft);
+
   const senderName = input.organizationName.trim();
   const targetName = draft.plantName.trim() || customer.customerName.trim();
   const totalAmount = new Intl.NumberFormat("ko-KR").format(draft.totalAmount);
@@ -592,6 +657,10 @@ export async function sendIssueCompleteMessage(
 
   const service = getMessageService(settings);
   const content = buildIssueCompleteMessageContent(input, customer, draft);
+  const contentBytes = getPopbillMessageByteLength(content);
+  if (contentBytes > POPBILL_XMS_LMS_BYTE_LIMIT) {
+    throw new Error(`문자 내용이 팝빌 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte를 초과했습니다.`);
+  }
 
   return promisify("message-send", (done) => {
     service.sendXMS(

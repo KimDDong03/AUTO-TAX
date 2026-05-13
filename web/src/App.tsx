@@ -80,9 +80,11 @@ import {
   deriveCustomerCertificateKind,
   findCandidateCustomersForCertificate,
   findLocalCertificateForStoredCustomerCertificate,
+  findRenewalCertificatesByIdentity,
   findStoredCustomerCertificateForLocalCertificate,
   formatCustomerRenewalStatus,
   getLatestRenewalPreflightProbeForCertificate,
+  isCustomerCertificateExpired,
   isElectronicTaxCertificate,
   isRenewalPaymentReady,
   matchesRenewalCertificate,
@@ -676,6 +678,7 @@ type CustomerFormState = {
   popbillUserId: string;
   popbillPassword: string;
   renewalContactMobile: string;
+  issueCompleteSmsTemplate: string;
   memo: string;
 };
 
@@ -1061,6 +1064,7 @@ const baseCustomerForm: CustomerFormState = {
   popbillUserId: "",
   popbillPassword: "",
   renewalContactMobile: "",
+  issueCompleteSmsTemplate: "",
   memo: ""
 };
 
@@ -1080,6 +1084,7 @@ function isPristineCustomerForm(form: CustomerFormState): boolean {
     form.bizType === baseCustomerForm.bizType &&
     form.bizClass === baseCustomerForm.bizClass &&
     form.renewalContactMobile === "" &&
+    form.issueCompleteSmsTemplate === "" &&
     form.memo === ""
   );
 }
@@ -1097,6 +1102,7 @@ function customerToForm(customer?: Customer | null): CustomerFormState {
     popbillUserId: customer.popbillUserId,
     popbillPassword: customer.popbillPassword,
     renewalContactMobile: customer.renewalContactMobile,
+    issueCompleteSmsTemplate: customer.issueCompleteSmsTemplate ?? "",
     memo: customer.memo
   };
 }
@@ -1725,10 +1731,82 @@ function getOnboardingElectronicTaxBusinessNumbers(
   )];
 }
 
+function areOnboardingCustomersRegistered(customers: Customer[], targetBusinessNumbers: string[] = []): boolean {
+  if (customers.length === 0) {
+    return false;
+  }
+  const normalizedTargets = [...new Set(targetBusinessNumbers.map((businessNumber) => digitsOnly(businessNumber)).filter(Boolean))];
+  if (normalizedTargets.length === 0) {
+    return true;
+  }
+  const registeredBusinessNumbers = new Set(customers.map((customer) => digitsOnly(customer.businessNumber)).filter(Boolean));
+  return normalizedTargets.every((businessNumber) => registeredBusinessNumbers.has(businessNumber));
+}
+
+function getOnboardingElectronicTaxCertificateRowForCustomer(
+  workbook: CustomerOnboardingWorkbookInput | null,
+  customer: Customer
+): CustomerOnboardingWorkbookInput["certificates"][number] | null {
+  const businessNumber = digitsOnly(customer.businessNumber);
+  const matches = (workbook?.certificates ?? []).filter(
+    (certificate) =>
+      certificate.certificateKind === "electronic_tax" && digitsOnly(certificate.businessNumber) === businessNumber
+  );
+  return matches.find((certificate) => certificate.isPrimary) ?? matches[0] ?? null;
+}
+
+function getPrimaryElectronicTaxCertificateForCustomer(
+  customerCertificates: CustomerCertificate[],
+  customerId: number
+): CustomerCertificate | null {
+  const matches = customerCertificates.filter(
+    (certificate) => certificate.customerId === customerId && certificate.certificateKind === "electronic_tax"
+  );
+  return matches.find((certificate) => certificate.isPrimary) ?? matches[0] ?? null;
+}
+
+function hasExpiredOnboardingElectronicTaxCertificate(options: {
+  workbook: CustomerOnboardingWorkbookInput | null;
+  customer: Customer;
+  customerCertificates?: CustomerCertificate[];
+  localCertificates?: RenewalAgentCertificate[];
+}): boolean {
+  const linkedCertificate = getPrimaryElectronicTaxCertificateForCustomer(
+    options.customerCertificates ?? [],
+    options.customer.id
+  );
+  if (linkedCertificate?.expireDate && isCustomerCertificateExpired(linkedCertificate.expireDate)) {
+    return true;
+  }
+
+  const onboardingCertificateRow = getOnboardingElectronicTaxCertificateRowForCustomer(options.workbook, options.customer);
+  const certificateLabel =
+    onboardingCertificateRow?.certificateName.trim() ||
+    linkedCertificate?.certificateName.trim() ||
+    options.customer.corpName.trim() ||
+    options.customer.customerName.trim();
+  const identity = {
+    certificateIndex: onboardingCertificateRow?.certificateIndex ?? null,
+    certificateCn: certificateLabel || null,
+    serial: onboardingCertificateRow?.serial || linkedCertificate?.serial || null,
+    userDN: onboardingCertificateRow?.userDN || linkedCertificate?.userDN || null
+  };
+  return findRenewalCertificatesByIdentity(
+    (options.localCertificates ?? []).filter(
+      (certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax"
+    ),
+    identity
+  ).some((certificate) => isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null));
+}
+
 function getOnboardingPendingCertificateCustomers(
   workbook: CustomerOnboardingWorkbookInput | null,
   customers: Customer[],
-  fallbackBusinessNumbers: string[] = []
+  fallbackBusinessNumbers: string[] = [],
+  options: {
+    customerCertificates?: CustomerCertificate[];
+    localCertificates?: RenewalAgentCertificate[];
+  } = {}
 ): Customer[] {
   const workbookBusinessNumbers = getOnboardingElectronicTaxBusinessNumbers(workbook);
   const businessNumbers =
@@ -1743,16 +1821,29 @@ function getOnboardingPendingCertificateCustomers(
     .map((businessNumber) => customers.find((customer) => digitsOnly(customer.businessNumber) === businessNumber) ?? null)
     .filter(
       (customer): customer is Customer =>
-        Boolean(customer && (customer.popbillState !== "joined" || !customer.popbillCertRegistered))
+        Boolean(
+          customer &&
+            (customer.popbillState !== "joined" || !customer.popbillCertRegistered) &&
+            !hasExpiredOnboardingElectronicTaxCertificate({
+              workbook,
+              customer,
+              customerCertificates: options.customerCertificates,
+              localCertificates: options.localCertificates
+            })
+        )
     );
 }
 
 function getOnboardingCertificateRegistrationTargets(
   workbook: CustomerOnboardingWorkbookInput | null,
   customers: Customer[],
-  fallbackBusinessNumbers: string[] = []
+  fallbackBusinessNumbers: string[] = [],
+  options: {
+    customerCertificates?: CustomerCertificate[];
+    localCertificates?: RenewalAgentCertificate[];
+  } = {}
 ): Customer[] {
-  return getOnboardingPendingCertificateCustomers(workbook, customers, fallbackBusinessNumbers).filter(
+  return getOnboardingPendingCertificateCustomers(workbook, customers, fallbackBusinessNumbers, options).filter(
     (customer) => customer.popbillState === "joined" && !customer.popbillCertRegistered
   );
 }
@@ -1804,6 +1895,7 @@ function buildCustomerCreatePayloadFromRenewalSnapshot(
     issueHour: null,
     issueMinute: null,
     renewalContactMobile: draft.renewalContactMobile.trim(),
+    issueCompleteSmsTemplate: draft.issueCompleteSmsTemplate.trim(),
     memo: "",
     plantNames: [],
     matchAddresses: normalizedAddress ? [normalizedAddress] : []
@@ -2337,7 +2429,10 @@ export function App() {
         getOnboardingPendingCertificateCustomers(
           customerOnboardingWorkbook,
           payload.customers,
-          customerOnboardingSessionState.targetBusinessNumbers
+          customerOnboardingSessionState.targetBusinessNumbers,
+          {
+            customerCertificates: payload.customerCertificates
+          }
         ).length === 0;
       setCustomerOnboardingSessionState((prev) =>
         prev.certificateDone === certificateDone
@@ -2399,7 +2494,12 @@ export function App() {
     showAlert: showAppAlert
   });
   const customerRenewalAssistantElectronicTaxCertificateCount = customerRenewalAssistantAllCertificates.filter(
-    (certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax"
+    (certificate) =>
+      deriveCustomerCertificateKind(certificate) === "electronic_tax" &&
+      !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+  ).length;
+  const customerRenewalAssistantUsableCertificateCount = customerRenewalAssistantAllCertificates.filter(
+    (certificate) => !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
   ).length;
   const helperSetupCompleted =
     helperSetupPreference.organizationId === activeOrganizationId && helperSetupPreference.completed;
@@ -2418,7 +2518,7 @@ export function App() {
     busyKey,
     currentUserId: data?.auth.userId ?? null,
     helperReady: helperOnboardingReady,
-    helperCertificateCount: customerRenewalAssistantAllCertificates.length,
+    helperCertificateCount: customerRenewalAssistantUsableCertificateCount,
     customerRenewalAssistantOnline: customerRenewalAssistant?.agentOnline ?? false,
     customerRenewalAssistantUpgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
     setGlobalError: setError,
@@ -2453,15 +2553,59 @@ export function App() {
         ? getOnboardingPendingCertificateCustomers(
             customerOnboardingWorkbook,
             data.customers,
-            customerOnboardingSessionState.targetBusinessNumbers
+            customerOnboardingSessionState.targetBusinessNumbers,
+            {
+              customerCertificates: data.customerCertificates,
+              localCertificates: customerRenewalAssistantAllCertificates
+            }
           ).length
         : data.customers.filter(
             (customer) =>
               customer.popbillState !== "joined" || !customer.popbillCertRegistered
           ).length;
   const settingsDerivedCustomerRegistrationReady = customerOnboardingSessionActive
-    ? customerOnboardingSessionState.commitDone && (data?.customers.length ?? 0) > 0
+    ? data
+      ? customerOnboardingSessionState.commitDone ||
+        areOnboardingCustomersRegistered(data.customers, customerOnboardingSessionState.targetBusinessNumbers)
+      : false
     : (data?.customers.length ?? 0) > 0;
+  useEffect(() => {
+    if (!activeOrganizationId || !data || !customerOnboardingSessionActive) {
+      return;
+    }
+
+    if (!areOnboardingCustomersRegistered(data.customers, customerOnboardingSessionState.targetBusinessNumbers)) {
+      return;
+    }
+
+    const pendingCertificateCount = getOnboardingPendingCertificateCustomers(
+      customerOnboardingWorkbook,
+      data.customers,
+      customerOnboardingSessionState.targetBusinessNumbers,
+      {
+        customerCertificates: data.customerCertificates,
+        localCertificates: customerRenewalAssistantAllCertificates
+      }
+    ).length;
+    setCustomerOnboardingSessionState((prev) => {
+      const nextCommitDone = true;
+      const nextCertificateDone = pendingCertificateCount === 0 ? true : prev.certificateDone;
+      return prev.commitDone === nextCommitDone && prev.certificateDone === nextCertificateDone
+        ? prev
+        : {
+            ...prev,
+            commitDone: nextCommitDone,
+            certificateDone: nextCertificateDone
+          };
+    });
+  }, [
+    activeOrganizationId,
+    customerOnboardingSessionActive,
+    customerOnboardingSessionState.targetBusinessNumbers,
+    customerOnboardingWorkbook,
+    customerRenewalAssistantAllCertificates,
+    data
+  ]);
   const settingsDerivedModel = useSettingsDerivedModel({
     actionBar: {
       setupPendingCount: settingsScreenState.setupPendingCount,
@@ -2495,7 +2639,7 @@ export function App() {
       helper: {
         ready: helperOnboardingReady,
         online: customerRenewalAssistant?.agentOnline ?? false,
-        certificateCount: customerRenewalAssistantAllCertificates.length,
+        certificateCount: customerRenewalAssistantUsableCertificateCount,
         upgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
         actionBlockedReason: helperActionBlockedReason,
         upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null
@@ -2538,7 +2682,7 @@ export function App() {
       actionBlockedReason: helperActionBlockedReason,
       online: customerRenewalAssistant?.agentOnline ?? false,
       checkedAt: customerRenewalAssistant?.helperCheckedAt ?? null,
-      certificateCount: customerRenewalAssistantAllCertificates.length,
+      certificateCount: customerRenewalAssistantUsableCertificateCount,
       upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
       latestVersion: customerRenewalAssistant?.latestVersion ?? null,
       minSupportedVersion: customerRenewalAssistant?.minSupportedVersion ?? null
@@ -2584,9 +2728,26 @@ export function App() {
   useEffect(() => {
     if (!authReady || !authSession || recoveryMode) return;
 
-    void loadWithRetry().catch((loadError) => {
+    void loadWithRetry().catch(async (loadError) => {
       if (!isLoadCancelledError(loadError)) {
-        setError(loadError instanceof Error ? loadError.message : "초기 데이터를 불러오지 못했습니다.");
+        const message = loadError instanceof Error ? loadError.message : "초기 데이터를 불러오지 못했습니다.";
+        if (loadError instanceof ApiError && (loadError.status === 401 || loadError.status === 403)) {
+          invalidateActiveLoads();
+          authSessionRef.current = null;
+          setAuthSession(null);
+          setData(null);
+          setOpsConsole(null);
+          setCustomerContractRenewalsDue([]);
+          setActiveOrganizationId(null);
+          setAuthNotice(
+            loadError.status === 401
+              ? "로그인 세션이 만료되어 다시 로그인해야 합니다."
+              : "접속 가능한 작업공간이 없어 다시 로그인해야 합니다."
+          );
+          await signOutSafely({ scope: "local" });
+          return;
+        }
+        setError(message);
       }
     });
   }, [authReady, authSession, recoveryMode]);
@@ -3046,6 +3207,7 @@ export function App() {
       issueHour: null,
       issueMinute: null,
       renewalContactMobile: customerForm.renewalContactMobile,
+      issueCompleteSmsTemplate: customerForm.issueCompleteSmsTemplate,
       memo: customerForm.memo,
       plantNames: [],
       matchAddresses: normalizedAddress ? [normalizedAddress] : []
@@ -3090,6 +3252,28 @@ export function App() {
         : prev
     );
     setCustomerForm((prev) => (prev.id === savedCustomer.id ? customerToForm(savedCustomer) : prev));
+  };
+
+  const saveCustomerIssueCompleteSmsTemplate = async (customerId: number, issueCompleteSmsTemplate: string) => {
+    await runAction(
+      `save-customer-message-template-${customerId}`,
+      async () => {
+        const savedCustomer = await api<CustomerSaveResponse>(`/api/customers/${customerId}/issue-complete-sms-template`, {
+          method: "PATCH",
+          body: JSON.stringify({ issueCompleteSmsTemplate })
+        });
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                customers: prev.customers.map((customer) => (customer.id === savedCustomer.id ? savedCustomer : customer))
+              }
+            : prev
+        );
+        setCustomerForm((prev) => (prev.id === savedCustomer.id ? customerToForm(savedCustomer) : prev));
+      },
+      { reload: false }
+    );
   };
 
   const applyCustomerImportHeaderRow = (nextHeaderRowIndex: number) => {
@@ -3256,7 +3440,9 @@ export function App() {
         defaultRenewalHelperDownloadUrl
       })
     );
-    const electronicTaxCertificates = certificates.filter((certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax");
+    const electronicTaxCertificates = certificates.filter(
+      (certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax"
+    );
     customerOnboardingCertificatesRef.current = electronicTaxCertificates;
     return electronicTaxCertificates;
   };
@@ -3281,12 +3467,15 @@ export function App() {
       loadXlsxModule(),
       loadCustomerOnboardingAvailableCertificates({ forceRefresh: true })
     ]);
+    const activeCertificates = certificates.filter(
+      (certificate) => !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+    );
 
-    if (certificates.length === 0) {
+    if (activeCertificates.length === 0) {
       throw new Error("이 PC에서 전자세금용 공동인증서를 찾지 못했습니다.");
     }
 
-    downloadCustomerOnboardingTemplate(XLSX, certificates);
+    downloadCustomerOnboardingTemplate(XLSX, activeCertificates);
     setCustomerOnboardingFileName("");
     setCustomerOnboardingWorkbook(null);
     setCustomerOnboardingPreview(null);
@@ -3299,7 +3488,7 @@ export function App() {
       certificateDone: false,
       targetBusinessNumbers: []
     });
-    setCustomerOnboardingNotice(buildElectronicTaxOnboardingTemplateNotice(certificates.length));
+    setCustomerOnboardingNotice(buildElectronicTaxOnboardingTemplateNotice(activeCertificates.length));
     setCustomerOnboardingError("");
   };
 
@@ -3370,7 +3559,11 @@ export function App() {
       getOnboardingPendingCertificateCustomers(
         customerOnboardingWorkbook,
         latestPayload.customers,
-        customerOnboardingSessionState.targetBusinessNumbers
+        customerOnboardingSessionState.targetBusinessNumbers,
+        {
+          customerCertificates: latestPayload.customerCertificates,
+          localCertificates: customerRenewalAssistantAllCertificates
+        }
       ).length === 0;
     setCustomerOnboardingNotice(
       `${buildElectronicTaxOnboardingCommitNotice(result)}\n${
@@ -3811,7 +4004,7 @@ export function App() {
         operatorContactName: opsWorkspaceMailSettingsForm.operatorContactName.trim(),
         operatorContactTel: opsWorkspaceMailSettingsForm.operatorContactTel.trim(),
         operatorContactEmail,
-        notificationEmails: operatorContactEmail ? [operatorContactEmail] : [],
+        notificationEmails: [],
         testConnection: opsWorkspaceMailSettingsForm.testConnection
       })
     });
@@ -5118,7 +5311,21 @@ export function App() {
   }
 
   if (!data || !settingsForm) {
-    return <div className="loading-shell">AUTO-TAX 초기 데이터를 불러오는 중입니다.</div>;
+    return (
+      <div className="loading-shell">
+        {error ? (
+          <div className="loading-shell-stack">
+            <strong>초기 데이터를 불러오지 못했습니다.</strong>
+            <span>{error}</span>
+            <button type="button" onClick={() => void signOut()}>
+              로그인 화면으로 돌아가기
+            </button>
+          </div>
+        ) : (
+          "AUTO-TAX 초기 데이터를 불러오는 중입니다."
+        )}
+      </div>
+    );
   }
 
   const isPlatformAdmin = data.auth.isPlatformAdmin;
@@ -5257,7 +5464,11 @@ export function App() {
     ? getOnboardingCertificateRegistrationTargets(
         customerOnboardingWorkbook,
         data.customers,
-        customerOnboardingSessionState.targetBusinessNumbers
+        customerOnboardingSessionState.targetBusinessNumbers,
+        {
+          customerCertificates: data.customerCertificates,
+          localCertificates: customerRenewalAssistantAllCertificates
+        }
       )
     : data.customers.filter(
         (customer) => customer.popbillState === "joined" && !customer.popbillCertRegistered
@@ -5273,16 +5484,24 @@ export function App() {
       };
     });
   const hasRegisteredCustomers = data.customers.length > 0;
+  const sessionTargetCustomersRegistered = areOnboardingCustomersRegistered(
+    data.customers,
+    customerOnboardingSessionState.targetBusinessNumbers
+  );
   const onboardingCertificateFollowUpActive =
     customerOnboardingSessionActive || (hasRegisteredCustomers && popbillPendingCustomers.length > 0);
   const onboardingCustomerRegistrationReady = customerOnboardingSessionActive
-    ? customerOnboardingSessionState.commitDone && hasRegisteredCustomers
+    ? customerOnboardingSessionState.commitDone || sessionTargetCustomersRegistered
     : hasRegisteredCustomers;
   const onboardingPendingCertificateCustomers = customerOnboardingSessionActive
     ? getOnboardingPendingCertificateCustomers(
         customerOnboardingWorkbook,
         data.customers,
-        customerOnboardingSessionState.targetBusinessNumbers
+        customerOnboardingSessionState.targetBusinessNumbers,
+        {
+          customerCertificates: data.customerCertificates,
+          localCertificates: customerRenewalAssistantAllCertificates
+        }
       )
     : popbillPendingCustomers;
   const pendingOnboardingPopbillJoinCustomers = onboardingPendingCertificateCustomers.filter(
@@ -5513,6 +5732,9 @@ export function App() {
     }
   ) => {
     ensureLocalRenewalHelperActionAllowed("전자세금용 인증서 등록");
+    if (customer.popbillState !== "joined") {
+      throw new Error(`${customer.customerName} 고객은 팝빌 가입이 완료되지 않아 전자세금용 인증서 등록을 진행할 수 없습니다.`);
+    }
     const onboardingCertificateRow = options?.onboardingCertificateRow ?? getOnboardingElectronicTaxCertificateRow(customer);
     const linkedCertificate = getPrimaryElectronicTaxCustomerCertificate(customer.id);
     const effectivePassword =
@@ -5605,6 +5827,7 @@ export function App() {
       bizType: draft.bizType,
       bizClass: draft.bizClass,
       renewalContactMobile: draft.renewalContactMobile,
+      issueCompleteSmsTemplate: draft.issueCompleteSmsTemplate,
       memo: draft.memo
     };
   };
@@ -5785,6 +6008,9 @@ export function App() {
     if (pendingCustomers.length === 0) {
       throw new Error("전자세금용 인증서 등록이 필요한 고객이 없습니다.");
     }
+    const skippedBeforeJoinCount = onboardingPendingCertificateCustomers.filter(
+      (customer) => customer.popbillState !== "joined"
+    ).length;
 
     setCustomerOnboardingAttemptedCertificateBusinessNumbers((prev) =>
       Array.from(
@@ -5812,7 +6038,8 @@ export function App() {
         completedNames,
         alreadyRegisteredNames,
         failedDetails,
-        refreshWarnings
+        refreshWarnings,
+        skippedBeforeJoinCount
       })
     );
 
@@ -5824,8 +6051,6 @@ export function App() {
   };
   const canRunOnboardingFirstSync =
     settingsHealth.mailReady &&
-    settingsHealth.popbillReady &&
-    settingsHealth.operatorReady &&
     helperOnboardingReady &&
     onboardingCertificateReady;
   const onboardingImportableCount =
@@ -5851,7 +6076,6 @@ export function App() {
   const onboardingRegistrationPrimaryActionLabel = onboardingRegistrationFlow.primaryActionLabel;
   const onboardingRegistrationBlockedReason = onboardingRegistrationFlow.blockedReason;
   const onboardingFirstSyncBlockedSteps = settingsOnboardingModel.firstSyncBlockedSteps;
-  const onboardingDefaultsContent = settingsOnboardingContent.defaultsContent;
   const onboardingHelperContent = settingsOnboardingContent.helperContent;
   const onboardingCertificateAutoTargetCount = pendingOnboardingCertificateRegistrationTargets.length;
   const onboardingPendingPopbillJoinCount = pendingOnboardingPopbillJoinCustomers.length;
@@ -6058,20 +6282,8 @@ export function App() {
   );
   const onboardingSteps: OnboardingStep[] = [
     {
-      id: "defaults",
-      step: 1,
-      title: "담당자 정보 입력",
-      summary:
-        settingsHealth.popbillReady && settingsHealth.operatorReady
-          ? "완료"
-          : "입력 필요",
-      primaryActionLabel: settingsHealth.popbillReady && settingsHealth.operatorReady ? "담당자 정보 입력 완료" : "담당자 정보 입력",
-      done: settingsHealth.popbillReady && settingsHealth.operatorReady,
-      content: onboardingDefaultsContent
-    },
-    {
       id: "helper",
-      step: 2,
+      step: 1,
       title: "로컬 헬퍼 준비",
       summary: helperOnboardingReady
         ? customerRenewalAssistantElectronicTaxCertificateCount > 0
@@ -6089,7 +6301,7 @@ export function App() {
     },
     {
       id: "registration",
-      step: 3,
+      step: 2,
       title: "고객 초기 등록",
       summary: onboardingCustomerRegistrationReady
         ? `등록 ${data.customers.length}명`
@@ -6160,7 +6372,7 @@ export function App() {
     },
     {
       id: "certificates",
-      step: 4,
+      step: 3,
       title: "인증서 연결 마무리",
       summary: !onboardingCustomerRegistrationReady
         ? "고객 등록 후 진행"
@@ -6176,7 +6388,7 @@ export function App() {
     },
     {
       id: "first-sync",
-      step: 5,
+      step: 4,
       title: "첫 메일 동기화",
       summary: !onboardingCertificateReady
         ? "이전 단계 완료 후 실행"
@@ -6190,7 +6402,7 @@ export function App() {
     },
     {
       id: "exceptions",
-      step: 6,
+      step: 5,
       title: "미매칭 메일 예외 처리",
       summary: !onboardingFirstSyncReady
         ? "첫 동기화 후 확인"
@@ -6259,7 +6471,7 @@ export function App() {
     },
     {
       id: "first-issue",
-      step: 7,
+      step: 6,
       title: "첫 발행 확인",
       summary: !onboardingFirstSyncReady
         ? "첫 동기화 후 확인"
@@ -6282,7 +6494,6 @@ export function App() {
   ];
   const onboardingSetupSteps = onboardingSteps;
   const onboardingCompletionStepIds = new Set([
-    "defaults",
     "helper",
     "registration",
     ...(onboardingCertificateFollowUpActive ? (["certificates"] as const) : []),
@@ -6960,6 +7171,8 @@ export function App() {
             popbillModeLabel={workspacePopbillModeLabel}
             settingsState={settingsScreenState}
             activeSettingsSection={activeSettingsSection}
+            customers={data.customers}
+            onSaveCustomerIssueCompleteSmsTemplate={saveCustomerIssueCompleteSmsTemplate}
             customerRegistrationReady={customerRegistrationReady}
             customerCount={data.customers.length}
             onboardingComplete={onboardingComplete}
@@ -7063,7 +7276,7 @@ export function App() {
                               <th>신청자</th>
                               <th>로그인 ID</th>
                               <th>전화번호</th>
-                              <th>한전 수신 메일</th>
+                              <th>담당자 이메일</th>
                               <th>마케팅</th>
                               <th>신청일</th>
                               <th>액션</th>
@@ -7942,4 +8155,3 @@ export function App() {
     </>
   );
 }
-

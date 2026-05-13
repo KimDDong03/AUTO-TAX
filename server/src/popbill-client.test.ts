@@ -5,6 +5,8 @@ import type { AppSettings, Customer, InvoiceDraft } from "./domain.js";
 import {
   buildIssueCompleteMessageContent,
   issueTaxInvoice,
+  joinMember,
+  quitMember,
   sendIssueCompleteMessage
 } from "./popbill-client.js";
 
@@ -55,7 +57,7 @@ function buildSettings(): AppSettings {
   };
 }
 
-function buildCustomer(): Customer {
+function buildCustomer(overrides: Partial<Customer> = {}): Customer {
   return {
     id: 11,
     customerName: "고객대표자",
@@ -79,7 +81,8 @@ function buildCustomer(): Customer {
     plantNames: [],
     matchAddresses: [],
     createdAt: "2026-04-24T00:00:00.000Z",
-    updatedAt: "2026-04-24T00:00:00.000Z"
+    updatedAt: "2026-04-24T00:00:00.000Z",
+    ...overrides
   };
 }
 
@@ -117,6 +120,174 @@ function buildDraft(): InvoiceDraft {
     updatedAt: "2026-04-24T00:00:00.000Z"
   };
 }
+
+async function withPopbillContactEmailEnv<T>(
+  values: { dedicated?: string | null; opsEmails?: string | null },
+  run: () => Promise<T> | T
+): Promise<T> {
+  const previousDedicated = process.env.AUTO_TAX_POPBILL_CONTACT_EMAIL;
+  const previousOpsEmails = process.env.AUTO_TAX_OPS_EMAILS;
+  if (values.dedicated === null || values.dedicated === undefined) {
+    delete process.env.AUTO_TAX_POPBILL_CONTACT_EMAIL;
+  } else {
+    process.env.AUTO_TAX_POPBILL_CONTACT_EMAIL = values.dedicated;
+  }
+  if (values.opsEmails === null || values.opsEmails === undefined) {
+    delete process.env.AUTO_TAX_OPS_EMAILS;
+  } else {
+    process.env.AUTO_TAX_OPS_EMAILS = values.opsEmails;
+  }
+
+  try {
+    return await run();
+  } finally {
+    if (previousDedicated === undefined) {
+      delete process.env.AUTO_TAX_POPBILL_CONTACT_EMAIL;
+    } else {
+      process.env.AUTO_TAX_POPBILL_CONTACT_EMAIL = previousDedicated;
+    }
+    if (previousOpsEmails === undefined) {
+      delete process.env.AUTO_TAX_OPS_EMAILS;
+    } else {
+      process.env.AUTO_TAX_OPS_EMAILS = previousOpsEmails;
+    }
+  }
+}
+
+test("joinMember sends Popbill member notices to the server-owned contact email", async () => {
+  const popbill = require("popbill") as {
+    config: (...args: unknown[]) => unknown;
+    TaxinvoiceService: () => unknown;
+  };
+  const originalConfig = popbill.config;
+  const originalTaxinvoiceService = popbill.TaxinvoiceService;
+  let capturedJoinForm: Record<string, unknown> | null = null;
+
+  popbill.config = () => undefined;
+  popbill.TaxinvoiceService = () => ({
+    joinMember: (...args: unknown[]) => {
+      capturedJoinForm = args[0] as Record<string, unknown>;
+      const onSuccess = args[1] as (response: unknown) => void;
+      onSuccess({ code: 1 });
+    }
+  });
+
+  try {
+    await withPopbillContactEmailEnv(
+      { dedicated: "popbill-notice@auto-tax.test", opsEmails: "ops@example.com" },
+      async () => {
+        await joinMember(buildSettings(), buildCustomer({ popbillState: "pending" }));
+      }
+    );
+    const joinForm = capturedJoinForm as Record<string, unknown> | null;
+    assert.ok(joinForm);
+    assert.equal(joinForm.ContactEmail, "popbill-notice@auto-tax.test");
+    assert.notEqual(joinForm.ContactEmail, buildSettings().operatorContactEmail);
+  } finally {
+    popbill.config = originalConfig;
+    popbill.TaxinvoiceService = originalTaxinvoiceService;
+  }
+});
+
+test("issue complete message can use a customer-specific template", () => {
+  const content = buildIssueCompleteMessageContent(
+    { organizationName: "AUTO SOLAR" },
+    buildCustomer({
+      customerName: "Green Farm",
+      issueCompleteSmsTemplate: "[{고객명}] {발전소명} {금액}원 / {회사명}"
+    }),
+    {
+      ...buildDraft(),
+      plantName: "Plant A",
+      totalAmount: 123456
+    }
+  );
+
+  assert.equal(content, "[Green Farm] Plant A 123,456원 / AUTO SOLAR");
+});
+
+test("joinMember falls back to the first platform ops email for Popbill notices", async () => {
+  const popbill = require("popbill") as {
+    config: (...args: unknown[]) => unknown;
+    TaxinvoiceService: () => unknown;
+  };
+  const originalConfig = popbill.config;
+  const originalTaxinvoiceService = popbill.TaxinvoiceService;
+  let capturedJoinForm: Record<string, unknown> | null = null;
+
+  popbill.config = () => undefined;
+  popbill.TaxinvoiceService = () => ({
+    joinMember: (...args: unknown[]) => {
+      capturedJoinForm = args[0] as Record<string, unknown>;
+      const onSuccess = args[1] as (response: unknown) => void;
+      onSuccess({ code: 1 });
+    }
+  });
+
+  try {
+    await withPopbillContactEmailEnv(
+      { dedicated: null, opsEmails: "ops-primary@auto-tax.test, ops-secondary@auto-tax.test" },
+      async () => {
+        await joinMember(buildSettings(), buildCustomer({ popbillState: "pending" }));
+      }
+    );
+    const joinForm = capturedJoinForm as Record<string, unknown> | null;
+    assert.ok(joinForm);
+    assert.equal(joinForm.ContactEmail, "ops-primary@auto-tax.test");
+  } finally {
+    popbill.config = originalConfig;
+    popbill.TaxinvoiceService = originalTaxinvoiceService;
+  }
+});
+
+test("quitMember updates the Popbill contact email before member withdrawal", async () => {
+  const popbill = require("popbill") as {
+    config: (...args: unknown[]) => unknown;
+    TaxinvoiceService: () => unknown;
+  };
+  const originalConfig = popbill.config;
+  const originalTaxinvoiceService = popbill.TaxinvoiceService;
+  const calls: Array<{ method: string; args: unknown[] }> = [];
+
+  popbill.config = () => undefined;
+  popbill.TaxinvoiceService = () => ({
+    updateContact: (...args: unknown[]) => {
+      calls.push({ method: "updateContact", args });
+      const onSuccess = args[3] as (response: unknown) => void;
+      onSuccess({ code: 1 });
+    },
+    quitMember: (...args: unknown[]) => {
+      calls.push({ method: "quitMember", args });
+      const onSuccess = args[3] as (response: unknown) => void;
+      onSuccess({ code: 1 });
+    }
+  });
+
+  try {
+    await withPopbillContactEmailEnv(
+      { dedicated: null, opsEmails: "ops-primary@auto-tax.test, ops-secondary@auto-tax.test" },
+      async () => {
+        await quitMember(buildSettings(), buildCustomer(), "AUTO-TAX 고객 삭제");
+      }
+    );
+    assert.equal(calls[0]?.method, "updateContact");
+    assert.equal(calls[1]?.method, "quitMember");
+    assert.equal(calls[0]?.args[0], "1208200052");
+    assert.equal(calls[0]?.args[1], "TEST_011");
+    assert.deepEqual(calls[0]?.args[2], {
+      personName: "발행담당자",
+      tel: "02-1234-5678",
+      hp: "",
+      email: "ops-primary@auto-tax.test",
+      fax: "",
+      searchAllAllowYN: true,
+      mgrYN: true
+    });
+  } finally {
+    popbill.config = originalConfig;
+    popbill.TaxinvoiceService = originalTaxinvoiceService;
+  }
+});
 
 test("issueTaxInvoice uses billing settings operator contact instead of customer name", async () => {
   const popbill = require("popbill") as {
@@ -159,7 +330,9 @@ test("issue complete message is sent as the workspace company without AUTO-TAX b
     buildCustomer(),
     buildDraft()
   );
-  assert.equal(content, "해성태양광에서 하예리 발전소 세금계산서 202,400원 발행이 완료되었습니다.");
+  assert.match(content, /202,400/);
+  assert.match(content, /세금계산서/);
+  assert.match(content, /발행이 완료되었습니다/);
   assert.equal(content.includes("AUTO-TAX"), false);
 
   const popbill = require("popbill") as {

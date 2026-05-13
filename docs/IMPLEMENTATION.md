@@ -20,8 +20,9 @@ The product is multi-tenant. A logged-in session always operates against one act
 
 - `/` is a consultation-first access portal.
 - Anonymous users can submit a name and phone number through `POST /api/public/consultation-requests`.
+- Public signup requests collect organization name, contact name, phone, contact email, and required consents. Approval creates the owner workspace and seeds workspace contact defaults from those submitted values; KEPCO recipient mail credentials and internal notification recipients are configured separately.
 - Existing customers who already received an account can still use the secondary login form.
-- The anonymous flow does not create Supabase users, workspaces, or collect mail app passwords.
+- The anonymous signup flow creates a pending Supabase user but does not collect mail app passwords.
 
 ### Logged-in workspace tabs
 
@@ -135,6 +136,7 @@ The product is multi-tenant. A logged-in session always operates against one act
 - `server/src/routes/ops-routes.ts`
   - platform admin workspace management and ops console data
   - public consultation request review/status updates
+  - public signup approval, owner workspace creation, and signup-derived contact/mail defaults
   - platform-admin workspace mail/contact setup for 상담 후 개통
 - `server/src/routes/renewal-routes.ts`
   - renewal snapshots
@@ -180,14 +182,15 @@ The product is multi-tenant. A logged-in session always operates against one act
 
 ## 5. Primary Flows
 
-### A. Public consultation and login
+### A. Public consultation, signup, and login
 
 1. Public root renders a consultation request form first and the customer login form second.
 2. New prospects post `POST /api/public/consultation-requests` with only `name` and `phone`.
 3. Platform admins review requests in ops and change status through `GET/PATCH /api/ops/consultation-requests`.
-4. After 상담, an operator uses the existing ops workspace-create flow to create the workspace and first owner account.
-5. The platform admin can save the target workspace mail address/app password/contact values from ops and run a mail connection test.
-6. Existing customers post `POST /api/public/login`, receive a Supabase session, set the active workspace id, and load `GET /api/bootstrap`.
+4. Public signup requests post `POST /api/public/signup`, creating a pending auth user and signup request.
+5. Platform admins approve signup requests through `POST /api/ops/signup-requests/:id/approve`, which creates or links the owner workspace and seeds `operator_contact_*` from the submitted contact name, phone, and contact email.
+6. The platform admin can still save or override the target workspace mail app password/contact values from ops and run a mail connection test.
+7. Existing customers post `POST /api/public/login`, receive a Supabase session, set the active workspace id, and load `GET /api/bootstrap`.
 
 Main coupling:
 
@@ -239,6 +242,11 @@ Main files:
 - `server/src/services/customer-onboarding-import-service.ts`
 - `server/src/services/customer-onboarding-batch-service.ts`
 
+Operational invariants:
+
+- Certificate-driven onboarding and one-stop customer add use only non-expired electronic-tax certificates. Expired certificates are filtered before template generation/preflight and block customer creation, Popbill join, and Popbill certificate registration.
+- Follow-up Popbill certificate registration only targets customers whose Popbill join state is `joined`; pending or failed join customers are skipped until join completes.
+
 ### C-1. Customer report detail
 
 1. The customer screen shows a left customer selector and a right customer detail pane.
@@ -268,9 +276,10 @@ Main files:
 3. The issuance screen also synthesizes current-month `메일 미수신` rows for managed customers that have no draft or matched mail for the current billing month.
 4. The draft stays in review until a logged-in user issues it from the issuance screen.
 5. Route code calls the Popbill client for user-triggered issuance.
-6. Draft state, result payloads, and audit signals are persisted.
-7. Pilot reporting reads `app_logs` and `invoice_drafts` without a separate metrics table.
-8. Customer Popbill join failures shown to workspace users use support-contact copy, while raw Popbill cause, code, and operation stay in `app_logs.context_json` for the platform-admin `ops` screen.
+6. After successful issuance, the optional customer-specific `issue_complete_sms_template` is rendered for the Popbill `SendXMS` issue-complete message. Blank uses the default template. Rendered content must remain within Popbill LMS `2,000byte`.
+7. Draft state, result payloads, and audit signals are persisted.
+8. Pilot reporting reads `app_logs` and `invoice_drafts` without a separate metrics table.
+9. Customer Popbill join failures shown to workspace users use support-contact copy, while raw Popbill cause, code, and operation stay in `app_logs.context_json` for the platform-admin `ops` screen.
 
 Main files:
 
@@ -327,7 +336,8 @@ Do not debug these two systems as if they were one queue.
 ## 7. Non-Obvious Invariants
 
 1. Popbill runtime values are server-owned.
-   Workspace settings are supplemental. `AUTO_TAX_POPBILL_*` env values remain authoritative for credentials, mode, customer user-id prefix, and the shared new-customer password. Customer workspace browsers must not read or edit the prefix/shared password values.
+   Workspace settings are supplemental. `AUTO_TAX_POPBILL_*` env values remain authoritative for credentials, mode, customer user-id prefix, shared new-customer password, and the Popbill member notice contact email. Customer workspace browsers must not read or edit the prefix/shared password values.
+   Internal AUTO-TAX operational notifications prefer `AUTO_TAX_OPS_EMAILS`; customer contact email is not auto-seeded as an internal alert recipient.
 2. UI roles are narrower than DB roles.
    The DB still stores `owner/admin/operator/viewer`, but product behavior is mostly owner versus member.
 3. The public root is not a general landing page.

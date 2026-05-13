@@ -4,6 +4,7 @@ import test from "node:test";
 import express from "express";
 import { z } from "zod";
 import type { OpsWorkspaceSummary } from "./admin-types.js";
+import type { AppSettings } from "./domain.js";
 import { HttpError } from "./http-errors.js";
 import { registerCoreRoutes } from "./routes/core-routes.js";
 import { registerOpsRoutes } from "./routes/ops-routes.js";
@@ -48,7 +49,8 @@ function createSignupAdminClient() {
     authUsers: [] as AuthUser[],
     loginIndexRows: [] as Array<{ user_id: string; login_id: string; auth_email: string; display_name: string | null }>,
     organizations: [] as Array<{ id: string; name: string; status: string; plan_code: string; monthly_issue_limit: number }>,
-    members: [] as Array<{ organization_id: string; user_id: string; role: string; display_name: string | null; invited_by: string | null }>
+    members: [] as Array<{ organization_id: string; user_id: string; role: string; display_name: string | null; invited_by: string | null }>,
+    settingsByOrganization: new Map<string, AppSettings>()
   };
 
   class Builder {
@@ -262,6 +264,53 @@ function createPublicClient(state: ReturnType<typeof createSignupAdminClient>["s
   };
 }
 
+function createTestSettings(overrides: Partial<AppSettings> = {}): AppSettings {
+  const timestamp = "2026-05-07T00:00:00.000Z";
+  return {
+    id: 1,
+    imapHost: "imap.gmail.com",
+    imapPort: 993,
+    imapSecure: true,
+    imapUser: "",
+    imapPass: "",
+    imapMailbox: "INBOX",
+    smtpHost: "smtp.gmail.com",
+    smtpPort: 465,
+    smtpSecure: true,
+    smtpUser: "",
+    smtpPass: "",
+    smtpFromName: "AUTO-TAX",
+    smtpFromEmail: "",
+    mailConnectionVerifiedAt: null,
+    notificationEmails: [],
+    defaultIssueDay: 1,
+    defaultIssueHour: 9,
+    defaultIssueMinute: 0,
+    mailPollMinutes: 1440,
+    mailSyncStartAt: null,
+    timezone: "Asia/Seoul",
+    popbillLinkId: "",
+    popbillSecretKey: "",
+    popbillIsTest: true,
+    popbillPartnerCorpNum: "",
+    popbillUserIdPrefix: "",
+    popbillSharedPassword: "",
+    operatorContactName: "",
+    operatorContactEmail: "",
+    operatorContactTel: "",
+    renewalContactDepartment: "",
+    renewalContactFax: "",
+    renewalCertificatePassword: "",
+    renewalIssuePassword: "",
+    schedulerEnabled: false,
+    certLastCheckedAt: null,
+    certAlertLastSentAt: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...overrides
+  };
+}
+
 function getWorkspaceSummary(
   state: ReturnType<typeof createSignupAdminClient>["state"],
   organizationId: string
@@ -388,9 +437,24 @@ function registerSignupTestRoutes(app: express.Express, fixture: ReturnType<type
       isPlatformAdmin: true
     }) as never,
     createSupabaseAdminClient: () => fixture.client as never,
-    createOrganizationStore: async () => {
-      throw new Error("unused");
-    },
+    createOrganizationStore: async ({ organizationId }) => ({
+      initialize: async () => undefined,
+      getSettings: async () =>
+        fixture.state.settingsByOrganization.get(organizationId) ?? createTestSettings(),
+      updateSettings: async (input: Partial<AppSettings>) => {
+        const current =
+          fixture.state.settingsByOrganization.get(organizationId) ?? createTestSettings();
+        const next = createTestSettings({
+          ...current,
+          ...input,
+          updatedAt: "2026-05-07T01:00:00.000Z"
+        });
+        fixture.state.settingsByOrganization.set(organizationId, next);
+        return next;
+      },
+      createLog: async () => undefined,
+      close: async () => undefined
+    }) as never,
     listOpsWorkspaces: async () =>
       fixture.state.organizations.flatMap((organization) => {
         const workspace = getWorkspaceSummary(fixture.state, organization.id);
@@ -557,6 +621,17 @@ test("signup creates a pending auth user, blocks login until approval, then crea
     assert.equal(fixture.state.organizations[0]?.status, "trial");
     assert.equal(fixture.state.organizations[0]?.monthly_issue_limit, 10);
     assert.equal(fixture.state.members[0]?.role, "owner");
+    const organizationId = fixture.state.organizations[0]?.id;
+    assert.ok(organizationId);
+    const seededSettings = fixture.state.settingsByOrganization.get(organizationId);
+    assert.ok(seededSettings);
+    assert.equal(seededSettings.operatorContactName, validSignupPayload.name);
+    assert.equal(seededSettings.operatorContactTel, validSignupPayload.phone);
+    assert.equal(seededSettings.operatorContactEmail, validSignupPayload.kepcoEmail);
+    assert.equal(seededSettings.imapUser, "");
+    assert.equal(seededSettings.smtpUser, "");
+    assert.equal(seededSettings.smtpFromEmail, "");
+    assert.deepEqual(seededSettings.notificationEmails, []);
 
     const approvedLogin = await fetch(`${baseUrl}/api/public/login`, {
       method: "POST",
