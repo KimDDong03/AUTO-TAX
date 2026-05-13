@@ -349,7 +349,6 @@ export function PublicLanding({
           <div className="portal-brand">
             <img src="/logo-O2APlXk3.png" alt="AUTO-TAX" className="portal-brand-logo" />
           </div>
-          <p className="portal-header-note">회원가입 신청 후 운영자 승인부터 로그인이 가능합니다.</p>
         </header>
 
         <main className="portal-layout">

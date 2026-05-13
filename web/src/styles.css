@@ -465,19 +465,6 @@ textarea {
   text-transform: uppercase;
 }
 
-.portal-header-note {
-  margin: 0;
-  max-width: 320px;
-  color: var(--text-subtle);
-  font-size: 0.88rem;
-  font-weight: 600;
-  line-height: 1.5;
-  text-align: right;
-  word-break: keep-all;
-  line-break: strict;
-  text-wrap: pretty;
-}
-
 .portal-layout {
   display: grid;
   grid-template-columns: minmax(360px, 460px) minmax(0, 1fr);
@@ -606,10 +593,6 @@ textarea {
     flex-direction: column;
   }
 
-  .portal-header-note {
-    max-width: none;
-    text-align: left;
-  }
 }
 
 @media (max-width: 720px) {
@@ -16144,8 +16127,7 @@ button.issuance-list-item {
 }
 
 .portal-shell .auth-copy p,
-.portal-shell .portal-card p,
-.portal-shell .portal-header-note {
+.portal-shell .portal-card p {
   color: var(--portal-muted);
   font-size: 15px;
   line-height: 1.62;
@@ -28963,10 +28945,6 @@ button.issuance-list-item {
     flex-direction: column !important;
   }
 
-  .portal-header-note {
-    max-width: none !important;
-    text-align: left !important;
-  }
 }
 
 /* Header responsive repair: keep nav/search/profile compact instead of stacking context controls. */
