@@ -516,9 +516,7 @@ export function PublicLanding({
                   >
                     {signupNameFilled && !signupNameValid
                       ? "한글 실명 2~20자로 입력하세요."
-                      : signupNameValid
-                        ? "사용 가능한 이름입니다."
-                        : "\u00a0"}
+                      : "\u00a0"}
                   </span>
                 </label>
                 <label>
