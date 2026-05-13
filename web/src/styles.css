@@ -16334,10 +16334,6 @@ button.issuance-list-item {
   line-height: 1.4;
 }
 
-.portal-shell .portal-consistency.ready {
-  color: var(--portal-primary-strong);
-}
-
 .portal-shell .portal-field-error {
   color: #b42318;
 }

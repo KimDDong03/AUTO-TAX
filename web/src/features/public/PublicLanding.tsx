@@ -300,7 +300,7 @@ export function PublicLanding({
     signupForm.termsAccepted && signupForm.privacyAccepted && signupForm.thirdPartyAccepted;
   const signupReady = signupRequiredFieldsFilled && signupRequiredTermsAccepted;
   const signupConsistencyMessage = signupReady
-    ? "입력 정합성 확인 완료"
+    ? ""
     : !signupRequiredFieldsFilled
       ? "필수 입력값과 비밀번호 확인을 맞춰주세요."
       : "필수 약관 동의가 필요합니다.";
@@ -642,9 +642,11 @@ export function PublicLanding({
                 </div>
               ) : null}
 
-              <p className={`portal-consistency ${signupReady ? "ready" : ""}`} aria-live="polite">
-                {signupConsistencyMessage}
-              </p>
+              {signupConsistencyMessage ? (
+                <p className="portal-consistency" aria-live="polite">
+                  {signupConsistencyMessage}
+                </p>
+              ) : null}
 
               <div className="auth-actions portal-login-actions">
                 <button
