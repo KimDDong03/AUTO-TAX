@@ -664,7 +664,7 @@ export function PublicLanding({
                         : "\u00a0"}
                   </span>
                 </label>
-                <label className="full">
+                <label>
                   <span>이름</span>
                   <input
                     value={signupForm.name}
@@ -703,7 +703,7 @@ export function PublicLanding({
                         : "\u00a0"}
                   </span>
                 </label>
-                <label>
+                <label className="full">
                   <span>담당자 이메일</span>
                   <input
                     type="email"
