@@ -337,7 +337,7 @@ export function PublicLanding({
           <div className="portal-brand">
             <img src="/logo-O2APlXk3.png" alt="AUTO-TAX" className="portal-brand-logo" />
             <div className="portal-brand-copy">
-              <strong>AUTO-TAX</strong>
+              <h1>AUTO-TAX</h1>
               <span>고객 작업공간 로그인</span>
             </div>
           </div>
@@ -633,6 +633,35 @@ export function PublicLanding({
             </form>
           </section>
         </main>
+
+        <footer className="portal-footer" aria-label="AUTO-TAX 회사 및 정책 정보">
+          <nav className="portal-footer-links" aria-label="정책 문서">
+            <a href="#public-signup-card">서비스 이용약관</a>
+            <a href="#public-signup-card">개인정보처리방침</a>
+            <a href="#public-signup-card">개인정보 수집·이용 동의</a>
+            <a href="#public-signup-card">처리위탁 및 제3자 제공 안내</a>
+          </nav>
+          <dl className="portal-footer-info">
+            <div>
+              <dt>회사명</dt>
+              <dd>KIYO</dd>
+            </div>
+            <div>
+              <dt>대표자명</dt>
+              <dd>김성결</dd>
+            </div>
+            <div>
+              <dt>사업자등록번호</dt>
+              <dd>559-22-02292</dd>
+            </div>
+            <div>
+              <dt>고객지원</dt>
+              <dd>
+                <a href="mailto:auto-tax@kiyo.kr">auto-tax@kiyo.kr</a>
+              </dd>
+            </div>
+          </dl>
+        </footer>
       </div>
     </div>
   );

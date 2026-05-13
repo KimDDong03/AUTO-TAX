@@ -1,0 +1,18 @@
+{
+  "name": "AUTO-TAX",
+  "short_name": "AUTO-TAX",
+  "description": "태양광 발전사업자를 위한 전자세금계산서 업무 자동화 서비스",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f7fb",
+  "theme_color": "#2563eb",
+  "lang": "ko-KR",
+  "icons": [
+    {
+      "src": "/header-icon.png",
+      "sizes": "468x463",
+      "type": "image/png"
+    }
+  ]
+}
