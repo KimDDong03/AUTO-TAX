@@ -421,7 +421,7 @@ async function listOrganizationsWithJoinedPopbillCustomers(
   }
 
   const rows = await assertNoError(
-    "joined 팝빌 고객 조직 조회 실패",
+    "joined 발행 연동 고객 조직 조회 실패",
     client
       .from("managed_customers")
       .select("organization_id")
@@ -686,7 +686,7 @@ async function executeCustomerPopbillAutoJoinJob(job: QueueJob): Promise<Record<
 
   const result = await autoJoinCustomerPopbill(store, customer, getServerManagedSettings, getErrorMessage);
   if (result.status === "failed") {
-    throw new Error(result.error ?? "팝빌 자동 가입에 실패했습니다.");
+    throw new Error(result.error ?? "발행 연동 자동 가입에 실패했습니다.");
   }
 
   return {

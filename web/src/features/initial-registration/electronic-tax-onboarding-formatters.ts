@@ -99,7 +99,7 @@ export function buildElectronicTaxRegistrationFollowupNotice(options: {
     summarizedFailedDetails.length > 0 ? `\n\n실패 내역\n${summarizedFailedDetails.join("\n")}` : ""
   }${
     skippedBeforeJoinCount > 0
-      ? `\n\n가입 전 제외\n팝빌 가입이 끝나지 않은 ${skippedBeforeJoinCount}건은 전자세금용 인증서 등록을 시도하지 않았습니다. 가입 완료 후 다시 실행해 주세요.`
+      ? `\n\n가입 전 제외\n발행 연동 준비가 끝나지 않은 ${skippedBeforeJoinCount}건은 전자세금용 인증서 등록을 시도하지 않았습니다. 준비 완료 후 다시 실행해 주세요.`
       : ""
   }${
     summarizedRefreshWarnings.length > 0 ? `\n\n상태 반영 경고\n${summarizedRefreshWarnings.join("\n")}` : ""

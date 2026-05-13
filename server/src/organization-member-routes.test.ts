@@ -394,7 +394,7 @@ test("organization withdrawal stops before workspace deactivation when a Popbill
       ],
       quitCustomerPopbillMember: async (_settings, customer) => {
         if (customer.id === 2) {
-          throw new Error("팝빌 탈퇴 실패");
+          throw new Error("발행 연동 해지 실패");
         }
         return { ok: true };
       }
@@ -421,7 +421,7 @@ test("organization withdrawal stops before workspace deactivation when a Popbill
       assert.equal(state.members.filter((member) => member.organization_id === "org-1").length, 2);
       assert.deepEqual(state.deletedUsers, []);
       assert.equal(state.jobs.filter((job) => job.status === "cancelled").length, 0);
-      assert.equal(calls.logs.at(-1), "고객사 회원탈퇴가 팝빌 탈퇴 실패로 중단되었습니다.");
+      assert.equal(calls.logs.at(-1), "고객사 회원탈퇴가 발행 연동 해지 실패로 중단되었습니다.");
     }
   );
 });

@@ -1352,12 +1352,12 @@ function getOpsPopbillJoinDiagnostic(log: LogEntry): OpsLogDiagnostic | null {
   }
 
   return {
-    title: "Popbill 가입 오류 원인",
+    title: "발행 연동 가입 오류 원인",
     rows: [
       { label: "고객 ID", value: getLogContextText(context, "customerId") || "-" },
       { label: "단계", value: formatPopbillJoinOperation(operation) },
-      { label: "Popbill 오류 코드", value: getLogContextText(context, "errorCode") || "-" },
-      { label: "Popbill 원문", value: getLogContextText(context, "error") || "-" },
+      { label: "연동 오류 코드", value: getLogContextText(context, "errorCode") || "-" },
+      { label: "연동 원문", value: getLogContextText(context, "error") || "-" },
       { label: "고객 화면 안내", value: getLogContextText(context, "userFacingError") || "AUTO-TAX 운영팀 문의 안내" }
     ]
   };
@@ -3217,7 +3217,7 @@ export function App() {
     const confirmed = await showAppConfirm(
       [
         `${input.organizationName} 고객사 회원탈퇴를 진행합니다.`,
-        "팝빌 연동 고객 탈퇴가 먼저 실행되고, 실패가 있으면 작업공간 탈퇴는 중단됩니다.",
+        "발행 연동 고객 해지가 먼저 실행되고, 실패가 있으면 작업공간 탈퇴는 중단됩니다.",
         "완료 후 현재 작업공간 사용자들은 더 이상 접속할 수 없습니다."
       ].join("\n"),
       {
@@ -3248,7 +3248,7 @@ export function App() {
 
     const warnings = [
       result.popbill.localResetFailed > 0
-        ? `로컬 팝빌 상태 초기화 실패 ${result.popbill.localResetFailed}건은 로그에 남겼습니다.`
+        ? `로컬 발행 연동 상태 초기화 실패 ${result.popbill.localResetFailed}건은 로그에 남겼습니다.`
         : null,
       result.auth.authDeleteFailures.length > 0
         ? `인증 계정 삭제 실패 ${result.auth.authDeleteFailures.length}건은 접근 해지 후 로그에 남겼습니다.`
@@ -3258,7 +3258,7 @@ export function App() {
     await showAppAlert(
       [
         `${result.organizationName} 고객사 회원탈퇴를 완료했습니다.`,
-        `팝빌 탈퇴 대상 ${result.popbill.joinedTargets}건 중 탈퇴 ${result.popbill.quit}건, 이미 없음 ${result.popbill.alreadyMissing}건입니다.`,
+        `발행 연동 해지 대상 ${result.popbill.joinedTargets}건 중 해지 ${result.popbill.quit}건, 이미 없음 ${result.popbill.alreadyMissing}건입니다.`,
         `작업공간 사용자 ${result.auth.removedMemberships}명의 접근을 해지했고 대기 작업 ${result.cancelledJobs}건을 취소했습니다.`,
         ...warnings
       ].join("\n"),
@@ -5091,7 +5091,7 @@ export function App() {
 
     if (uniqueCustomers.length > 1) {
       const confirmed = await showAppConfirm(
-        `선택한 고객 ${uniqueCustomers.length}명을 삭제합니다.\n팝빌 가입 고객은 삭제 전에 팝빌 탈퇴 처리가 먼저 진행됩니다.\n관련된 로컬 메일 매칭/발행초안도 같이 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`,
+        `선택한 고객 ${uniqueCustomers.length}명을 삭제합니다.\n발행 연동 완료 고객은 삭제 전에 연동 해지 처리가 먼저 진행됩니다.\n관련된 로컬 메일 매칭/발행초안도 같이 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`,
         {
           title: "고객 일괄 삭제",
           tone: "danger",
@@ -5939,7 +5939,7 @@ export function App() {
   ) => {
     ensureLocalRenewalHelperActionAllowed("전자세금용 인증서 등록");
     if (customer.popbillState !== "joined") {
-      throw new Error(`${customer.customerName} 고객은 팝빌 가입이 완료되지 않아 전자세금용 인증서 등록을 진행할 수 없습니다.`);
+      throw new Error(`${customer.customerName} 고객은 발행 연동 준비가 완료되지 않아 전자세금용 인증서 등록을 진행할 수 없습니다.`);
     }
     const onboardingCertificateRow = options?.onboardingCertificateRow ?? getOnboardingElectronicTaxCertificateRow(customer);
     const linkedCertificate = getPrimaryElectronicTaxCustomerCertificate(customer.id);
@@ -7635,7 +7635,7 @@ export function App() {
                   <>
                 <section className={`alert ${opsPartnerIsTest ? "warn" : "success"} ops-mode-banner`}>
                   <div className="ops-mode-banner-head">
-                    <strong>팝빌 현재 연결 모드</strong>
+                    <strong>발행 연동 현재 연결 모드</strong>
                     <span className={`chip ${opsPartnerIsTest ? "chip-warn" : "chip-success"}`}>{opsPartnerModeLabel}</span>
                   </div>
                   <p>{opsPartnerModeDescription}</p>
@@ -7700,8 +7700,8 @@ export function App() {
                   <p className="ops-helper-text">
                     고객사별 발행 완료 건수를 기준으로 사용량을 집계합니다.
                     {partnerTaxInvoiceUnitCost !== null
-                      ? ` 현재 팝빌 전자세금계산서 단가 ${formatMoney(partnerTaxInvoiceUnitCost)}P 기준 추정 사용 포인트도 함께 표시합니다.`
-                      : " 팝빌 전자세금계산서 단가를 읽지 못해 추정 포인트는 아직 계산하지 못했습니다."}
+                      ? ` 현재 전자세금계산서 연동 단가 ${formatMoney(partnerTaxInvoiceUnitCost)}P 기준 추정 사용 포인트도 함께 표시합니다.`
+                      : " 전자세금계산서 연동 단가를 읽지 못해 추정 포인트는 아직 계산하지 못했습니다."}
                   </p>
                   <div className="ops-workspace-table-wrap">
                     {opsWorkspaces.length > 0 ? (
@@ -8083,7 +8083,7 @@ export function App() {
 
                   <Panel
                     className="panel-ops-partner"
-                    title="팝빌 파트너 운영"
+                    title="전자세금계산서 연동 운영"
                     subtitle="고객사 화면에는 보이지 않는 플랫폼 공통 운영 영역입니다."
                     actions={
                       <>

@@ -282,7 +282,7 @@ export function registerSettingsRoutes(deps: RouteDeps) {
         referenceCorpNum: null,
         partnerRemainPoint: null,
         taxInvoiceUnitCost: null,
-        message: "팝빌 연결이 아직 준비되지 않았습니다."
+        message: "전자세금계산서 연동이 아직 준비되지 않았습니다."
       });
       return;
     }
@@ -294,7 +294,7 @@ export function registerSettingsRoutes(deps: RouteDeps) {
         referenceCorpNum: null,
         partnerRemainPoint: null,
         taxInvoiceUnitCost: null,
-        message: "팝빌 파트너 결제 정보가 아직 준비되지 않았습니다."
+        message: "전자세금계산서 연동 결제 정보가 아직 준비되지 않았습니다."
       });
       return;
     }
@@ -311,10 +311,10 @@ export function registerSettingsRoutes(deps: RouteDeps) {
         referenceCorpNum: maskBusinessNumber(referenceCorpNum),
         partnerRemainPoint: partnerBalance.remainPoint,
         taxInvoiceUnitCost,
-        message: settings.popbillIsTest ? "팝빌 테스트 환경 파트너 포인트입니다." : "팝빌 운영 환경 파트너 포인트입니다."
+        message: settings.popbillIsTest ? "전자세금계산서 테스트 환경 연동 포인트입니다." : "전자세금계산서 운영 환경 연동 포인트입니다."
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "팝빌 파트너 포인트 조회에 실패했습니다.";
+      const message = error instanceof Error ? error.message : "전자세금계산서 연동 포인트 조회에 실패했습니다.";
       res.json({
         available: false,
         isTest: settings.popbillIsTest,
@@ -333,12 +333,12 @@ export function registerSettingsRoutes(deps: RouteDeps) {
     const referenceCorpNum = settings.popbillPartnerCorpNum.trim();
 
     if (!settings.popbillLinkId || !settings.popbillSecretKey) {
-      res.status(400).json({ error: "팝빌 연결이 아직 준비되지 않았습니다." });
+      res.status(400).json({ error: "전자세금계산서 연동이 아직 준비되지 않았습니다." });
       return;
     }
 
     if (!referenceCorpNum) {
-      res.status(400).json({ error: "팝빌 파트너 결제 정보가 아직 준비되지 않았습니다." });
+      res.status(400).json({ error: "전자세금계산서 연동 결제 정보가 아직 준비되지 않았습니다." });
       return;
     }
 

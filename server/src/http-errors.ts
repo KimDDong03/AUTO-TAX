@@ -18,25 +18,39 @@ export type ApiErrorBody = {
   errorOperation?: string;
 };
 
+function sanitizeExternalProviderText(value: string): string {
+  return sanitizeSensitiveText(value)
+    .replace(/팝빌\s*전자세금용\s*공동인증서/g, "전자세금용 공동인증서")
+    .replace(/팝빌\s*전자세금용\s*인증서/g, "전자세금용 인증서")
+    .replace(/팝빌\s*인증서/g, "전자세금용 인증서")
+    .replace(/팝빌\s*가입/g, "발행 연동 준비")
+    .replace(/팝빌\s*연동회원/g, "발행 연동 계정")
+    .replace(/팝빌\s*회원/g, "발행 연동 계정")
+    .replace(/팝빌\s*탈퇴/g, "발행 연동 해지")
+    .replace(/팝빌\s*연동/g, "발행 연동")
+    .replace(/팝빌/g, "외부 연동")
+    .replace(/Popbill|POPBILL/g, "외부 연동");
+}
+
 export function buildApiErrorBody(error: unknown, fallbackMessage = "요청에 실패했습니다."): ApiErrorBody {
   if (error instanceof PopbillApiError) {
     return {
-      error: sanitizeSensitiveText(error.message),
+      error: sanitizeExternalProviderText(error.message),
       errorCode: error.code,
-      errorDetails: error.rawMessage ? sanitizeSensitiveText(error.rawMessage) : undefined,
+      errorDetails: error.rawMessage ? sanitizeExternalProviderText(error.rawMessage) : undefined,
       errorOperation: error.operation
     };
   }
 
   if (error instanceof HttpError) {
     return {
-      error: sanitizeSensitiveText(error.message)
+      error: sanitizeExternalProviderText(error.message)
     };
   }
 
   if (error instanceof Error) {
     return {
-      error: sanitizeSensitiveText(error.message)
+      error: sanitizeExternalProviderText(error.message)
     };
   }
 

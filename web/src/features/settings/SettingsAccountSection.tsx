@@ -86,7 +86,7 @@ export function SettingsAccountSection({
 
       <Panel
         title="고객사 회원탈퇴"
-        subtitle="팝빌 연동 고객을 먼저 탈퇴 처리한 뒤 작업공간 접근을 해지합니다."
+        subtitle="발행 연동 고객을 먼저 해지 처리한 뒤 작업공간 접근을 해지합니다."
         className="settings-organization-withdrawal-panel"
       >
         {withdrawal.canWithdraw ? (
@@ -103,7 +103,7 @@ export function SettingsAccountSection({
                 <strong>{withdrawal.customerCount}명</strong>
               </div>
               <div>
-                <span>팝빌 탈퇴 대상</span>
+                <span>발행 연동 해지 대상</span>
                 <strong>{withdrawal.joinedPopbillCustomerCount}명</strong>
               </div>
               <div>
@@ -113,7 +113,7 @@ export function SettingsAccountSection({
             </div>
 
             <div className="helper-box-stack organization-withdrawal-warning">
-              <strong>팝빌 탈퇴 실패가 1건이라도 있으면 고객사 탈퇴를 중단합니다.</strong>
+              <strong>발행 연동 해지 실패가 1건이라도 있으면 고객사 탈퇴를 중단합니다.</strong>
               <span>
                 완료되면 작업공간은 탈퇴 상태가 되고, 이 작업공간의 사용자들은 더 이상 접속할 수 없습니다.
               </span>
@@ -155,7 +155,7 @@ export function SettingsAccountSection({
         ) : (
           <div className="helper-box-stack">
             <strong>최고 관리자만 고객사 회원탈퇴를 진행할 수 있습니다.</strong>
-            <span>팝빌 탈퇴와 작업공간 접근 해지가 함께 진행되는 작업입니다.</span>
+            <span>발행 연동 해지와 작업공간 접근 해지가 함께 진행되는 작업입니다.</span>
           </div>
         )}
       </Panel>

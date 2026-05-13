@@ -111,7 +111,7 @@ test("autoJoinCustomerPopbill writes explicit external-api logs for final join f
     {
       level: "error",
       scope: "popbill",
-      message: "고객 등록 직후 팝빌 자동 가입에 실패했습니다.",
+      message: "고객 등록 직후 발행 연동 자동 가입에 실패했습니다.",
       context: {
         customerId: 3,
         issueMode: "review",
@@ -165,7 +165,7 @@ test("autoJoinCustomerPopbill writes explicit external-api retry logs for user-i
 
   assert.equal(result.status, "joined");
   assert.deepEqual(updatedUserIds, ["TEST_003_2"]);
-  assert.equal(logs[0]?.message, "팝빌 회원 아이디 충돌 가능성으로 다른 아이디로 자동 재시도합니다.");
+  assert.equal(logs[0]?.message, "발행 연동 계정 아이디 충돌 가능성으로 다른 아이디로 자동 재시도합니다.");
   assert.deepEqual(logs[0]?.context, {
     customerId: 3,
     issueMode: "review",

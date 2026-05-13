@@ -27,7 +27,7 @@ export function resolveIssueCompleteSmsTemplate(value: string | null | undefined
 export function validateIssueCompleteSmsTemplateByteLength(template: string): string | null {
   const bytes = getPopbillMessageByteLength(resolveIssueCompleteSmsTemplate(template));
   if (bytes > POPBILL_XMS_LMS_BYTE_LIMIT) {
-    return `문자 양식은 팝빌 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte 이내로 입력해야 합니다.`;
+    return `문자 양식은 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte 이내로 입력해야 합니다.`;
   }
   return null;
 }

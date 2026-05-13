@@ -585,9 +585,9 @@ test("delete customer quits Popbill before local deletion in production", async 
         popbillCleanupStatus: "quit-on-delete"
       });
       assert.deepEqual([...events, ...calls.events], ["quit", "delete"]);
-      assert.equal(calls.logs.some((entry) => entry.message.includes("팝빌 연동회원을 먼저 탈퇴 처리")), true);
+      assert.equal(calls.logs.some((entry) => entry.message.includes("발행 연동 계정을 먼저 해지 처리")), true);
       assert.equal(calls.logs.some((entry) => entry.message.includes("고객과 관련 로컬 데이터를 삭제")), true);
-      const popbillLog = calls.logs.find((entry) => entry.message.includes("팝빌 연동회원을 먼저 탈퇴 처리"));
+      const popbillLog = calls.logs.find((entry) => entry.message.includes("발행 연동 계정을 먼저 해지 처리"));
       assert.deepEqual(popbillLog?.context, {
         customerId: customer.id,
         customerName: customer.customerName,
@@ -679,7 +679,7 @@ test("explicit Popbill quit route resets local state even in production when mem
         customer: buildCustomer({ popbillState: "pending", popbillCertRegistered: false })
       });
       assert.deepEqual([...events, ...calls.events], ["quit", "reset"]);
-      const popbillLog = calls.logs.find((entry) => entry.message.includes("팝빌 연동회원 탈퇴를 처리"));
+      const popbillLog = calls.logs.find((entry) => entry.message.includes("발행 연동 계정 해지를 처리"));
       assert.deepEqual(popbillLog?.context, {
         customerId: customer.id,
         customerName: customer.customerName,

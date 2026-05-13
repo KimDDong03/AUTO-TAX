@@ -582,7 +582,7 @@ const customerSchema = z.object({
     .default("")
     .refine(
       (value) => getPopbillMessageByteLength(normalizeIssueCompleteSmsTemplate(value)) <= POPBILL_XMS_LMS_BYTE_LIMIT,
-      `문자 양식은 팝빌 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte 이내로 입력해야 합니다.`
+      `문자 양식은 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte 이내로 입력해야 합니다.`
     ),
   memo: z.string().default(""),
   plantNames: z.array(z.string().min(1)).default([]),

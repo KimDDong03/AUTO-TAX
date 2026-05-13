@@ -212,7 +212,7 @@ async function quitOrganizationCustomerPopbillMemberships({
         customerId: customer.id,
         customerName: getCustomerWithdrawalLabel(customer),
         businessNumber: customer.businessNumber,
-        error: getErrorMessage(error, "팝빌 회원 탈퇴에 실패했습니다.")
+        error: getErrorMessage(error, "발행 연동 계정 해지에 실패했습니다.")
       });
     }
   }
@@ -553,13 +553,13 @@ export function registerOrganizationMemberRoutes(deps: RouteDeps) {
     });
 
     if (popbill.failures.length > 0) {
-      await requestStore.createLog("error", "organization-withdrawal", "고객사 회원탈퇴가 팝빌 탈퇴 실패로 중단되었습니다.", {
+      await requestStore.createLog("error", "organization-withdrawal", "고객사 회원탈퇴가 발행 연동 해지 실패로 중단되었습니다.", {
         organizationId: authContext.activeOrganizationId,
         organizationName: authContext.activeOrganizationName,
         popbill
       });
       res.status(409).json({
-        error: "팝빌 탈퇴 실패가 있어 고객사 회원탈퇴를 중단했습니다.",
+        error: "발행 연동 해지 실패가 있어 고객사 회원탈퇴를 중단했습니다.",
         errorDetails: buildPopbillFailureDetails(popbill.failures),
         popbill
       });

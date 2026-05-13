@@ -220,7 +220,7 @@ export function SettingsDefaultsSection({
                 </span>
                 {messageTemplateOverLimit ? (
                   <span className="field-hint tone-danger">
-                    팝빌 LMS 최대 {POPBILL_XMS_LMS_BYTE_LIMIT}byte를 넘었습니다.
+                    LMS 최대 {POPBILL_XMS_LMS_BYTE_LIMIT}byte를 넘었습니다.
                   </span>
                 ) : null}
               </label>

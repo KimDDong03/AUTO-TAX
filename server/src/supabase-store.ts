@@ -636,7 +636,7 @@ async function assertUniquePopbillUserPrefix(
   }
 
   const rows = await assertNoError(
-    "팝빌 사용자 ID 접두어 중복 확인 실패",
+    "연동 사용자 ID 접두어 중복 확인 실패",
     client
       .from("organization_integrations")
       .select("organization_id, popbill_user_id_prefix")
@@ -648,7 +648,7 @@ async function assertUniquePopbillUserPrefix(
   );
 
   if (duplicated) {
-    throw new Error(`팝빌 사용자 ID 접두어 '${normalizedPrefix}'는 이미 다른 고객사에서 사용 중입니다. 다른 접두어를 입력하세요.`);
+    throw new Error(`연동 사용자 ID 접두어 '${normalizedPrefix}'는 이미 다른 고객사에서 사용 중입니다. 다른 접두어를 입력하세요.`);
   }
 }
 
@@ -1585,7 +1585,7 @@ export class SupabaseStore implements AppStore {
       const created = createdRow as Row;
       const legacyId = asNumber(created.legacy_id);
       persistedRow = await assertNoError(
-        "고객 팝빌 정보 저장 실패",
+        "고객 발행 연동 정보 저장 실패",
         this.client
           .from("managed_customers")
           .update({
@@ -2261,7 +2261,7 @@ export class SupabaseStore implements AppStore {
     }
 
     const updatedRow = await assertNoError(
-      "고객 팝빌 상태 저장 실패",
+      "고객 발행 연동 상태 저장 실패",
       this.client
         .from("managed_customers")
         .update(payload)
@@ -2280,7 +2280,7 @@ export class SupabaseStore implements AppStore {
     }
 
     const updatedRow = await assertNoError(
-      "고객 팝빌 ID 저장 실패",
+      "고객 발행 연동 ID 저장 실패",
       this.client
         .from("managed_customers")
         .update({
@@ -2765,7 +2765,7 @@ export class SupabaseStore implements AppStore {
     }
 
     await assertNoError(
-      "초안 팝빌 환경 저장 실패",
+      "초안 발행 연동 환경 저장 실패",
       this.client
         .from("invoice_drafts")
         .update({
@@ -2777,7 +2777,7 @@ export class SupabaseStore implements AppStore {
 
     const updated = await this.getDraft(draftId);
     if (!updated) {
-      throw new Error("초안 팝빌 환경 저장 후 다시 읽지 못했습니다.");
+      throw new Error("초안 발행 연동 환경 저장 후 다시 읽지 못했습니다.");
     }
     return updated;
   }

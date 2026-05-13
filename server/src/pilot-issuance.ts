@@ -912,7 +912,7 @@ export function buildPilotIssuanceReport(args: {
       exceptionRate:
         "메일 동기화 기반 초안 생성 예외(parse/customer-match/draft-create)와 최종 발행 실패를 전체 초안 생성·최종 발행 시도 대비로 계산합니다.",
       draftPreviewOpened:
-        "draft-preview-opened는 웹 UI의 미리보기 버튼 클릭 시 POST /api/drafts/:id/pilot-preview-opened가 남기는 명시적 이벤트이며, Popbill 문서가 실제 렌더링되었는지까지는 보장하지 않습니다.",
+        "draft-preview-opened는 웹 UI의 미리보기 버튼 클릭 시 POST /api/drafts/:id/pilot-preview-opened가 남기는 명시적 이벤트이며, 연동 문서가 실제 렌더링되었는지까지는 보장하지 않습니다.",
       customerSummaries:
         "고객별 성공률/예외율은 같은 기간의 최종 발행 성공·실패 로그 기준입니다.",
       topFailureTypes:

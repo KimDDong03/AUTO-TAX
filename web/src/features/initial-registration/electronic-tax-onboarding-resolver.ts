@@ -456,7 +456,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
 
     if (isCustomerCertificateExpired(matchedCertificate.todate || matchedCertificate.detailValidateTo || null)) {
       errors.push(
-        `발전소 시트 (${certificateLabel}): 만료된 전자세금용 공동인증서는 고객 등록과 팝빌 가입에 사용할 수 없습니다. 갱신 후 다시 불러와 주세요.`
+        `발전소 시트 (${certificateLabel}): 만료된 전자세금용 공동인증서는 고객 등록과 발행 연동 준비에 사용할 수 없습니다. 갱신 후 다시 불러와 주세요.`
       );
       skippedCertificateCount += 1;
       continue;

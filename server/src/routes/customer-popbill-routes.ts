@@ -124,7 +124,7 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
       .default("")
       .refine(
         (value) => getPopbillMessageByteLength(normalizeIssueCompleteSmsTemplate(value)) <= POPBILL_XMS_LMS_BYTE_LIMIT,
-        `문자 양식은 팝빌 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte 이내로 입력해야 합니다.`
+        `문자 양식은 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte 이내로 입력해야 합니다.`
       )
   });
 
@@ -467,14 +467,14 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
 
       if (quitResult.status === "quit") {
         popbillCleanupStatus = "quit-on-delete";
-        await requestStore.createLog("warn", "popbill", "고객 삭제에 앞서 팝빌 연동회원을 먼저 탈퇴 처리했습니다.", {
+        await requestStore.createLog("warn", "popbill", "고객 삭제에 앞서 발행 연동 계정을 먼저 해지 처리했습니다.", {
           customerId,
           customerName: customer.customerName,
           environment: quitResult.environment
         });
       } else if (quitResult.status === "already-missing") {
         popbillCleanupStatus = "already-missing-on-delete";
-        await requestStore.createLog("warn", "popbill", "고객 삭제 전에 팝빌 회원 탈퇴를 시도했지만 이미 존재하지 않아 로컬 삭제만 진행했습니다.", {
+        await requestStore.createLog("warn", "popbill", "고객 삭제 전에 발행 연동 계정 해지를 시도했지만 이미 존재하지 않아 로컬 삭제만 진행했습니다.", {
           customerId,
           customerName: customer.customerName,
           environment: quitResult.environment,
@@ -531,7 +531,7 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     }
 
     const updated = await requestStore.resetCustomerPopbill(customerId);
-    await requestStore.createLog("warn", "popbill", "고객의 팝빌 로컬 연결 상태를 초기화했습니다.", {
+    await requestStore.createLog("warn", "popbill", "고객의 발행 연동 로컬 연결 상태를 초기화했습니다.", {
       customerId,
       customerName: customer.customerName
     });
@@ -551,7 +551,7 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     const settings = await getServerManagedSettings(requestStore);
     const quitResult = await quitCustomerPopbillMembership(settings, customer, quitCustomerPopbillMember, "AUTO-TAX 고객 정리");
     const updated = await requestStore.resetCustomerPopbill(customerId);
-    await requestStore.createLog("warn", "popbill", "팝빌 연동회원 탈퇴를 처리했습니다.", {
+    await requestStore.createLog("warn", "popbill", "발행 연동 계정 해지를 처리했습니다.", {
       customerId,
       customerName: customer.customerName,
       environment: quitResult.environment,

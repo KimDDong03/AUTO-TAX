@@ -64,7 +64,7 @@ export async function queueAutoJoinCustomerPopbillJob(options: {
   if (openJob.error) {
     return {
       status: "failed",
-      error: `팝빌 자동 가입 대기열 확인 실패: ${openJob.error.message}`
+      error: `발행 연동 자동 가입 대기열 확인 실패: ${openJob.error.message}`
     };
   }
 
@@ -93,7 +93,7 @@ export async function queueAutoJoinCustomerPopbillJob(options: {
   if (queued.error) {
     return {
       status: "failed",
-      error: `팝빌 자동 가입 작업 등록 실패: ${queued.error.message}`
+      error: `발행 연동 자동 가입 작업 등록 실패: ${queued.error.message}`
     };
   }
 
@@ -154,7 +154,7 @@ export async function autoJoinCustomerPopbill(
       await requestStore.createLog(
         "info",
         "popbill",
-        "고객 등록 직후 기존 팝빌 연동회원으로 확인되어 joined로 연결했습니다.",
+        "고객 등록 직후 기존 발행 연동 계정으로 확인되어 joined로 연결했습니다.",
         buildAutoJoinLogContext(updated, {})
       );
       return { customer: updated, status: "linked-existing-member" };
@@ -167,7 +167,7 @@ export async function autoJoinCustomerPopbill(
         await requestStore.createLog(
           "warn",
           "popbill",
-          "팝빌 회원 아이디 충돌 가능성으로 다른 아이디로 자동 재시도합니다.",
+          "발행 연동 계정 아이디 충돌 가능성으로 다른 아이디로 자동 재시도합니다.",
           buildAutoJoinLogContext(
             joinTarget,
             {
@@ -193,7 +193,7 @@ export async function autoJoinCustomerPopbill(
         await requestStore.createLog(
           "info",
           "popbill",
-          "고객 등록 직후 팝빌 연동회원 가입을 완료했습니다.",
+          "고객 등록 직후 발행 연동 계정 가입을 완료했습니다.",
           buildAutoJoinLogContext(updated, {
             popbillUserId: updated.popbillUserId,
             retryCount: attempt
@@ -202,7 +202,7 @@ export async function autoJoinCustomerPopbill(
         return { customer: updated, status: "joined" };
       } catch (error) {
         const errorMessage =
-          error instanceof PopbillApiError ? error.rawMessage : error instanceof Error ? error.message : "팝빌 자동 가입에 실패했습니다.";
+          error instanceof PopbillApiError ? error.rawMessage : error instanceof Error ? error.message : "발행 연동 자동 가입에 실패했습니다.";
         lastExternalApiFailure = {
           operation: "join-member",
           code: toErrorCode(error)
@@ -242,10 +242,10 @@ export async function autoJoinCustomerPopbill(
       }
     }
 
-    throw new Error("팝빌 자동 가입 재시도 한도를 초과했습니다.");
+    throw new Error("발행 연동 자동 가입 재시도 한도를 초과했습니다.");
   } catch (error) {
     const errorMessage =
-      error instanceof PopbillApiError ? error.rawMessage : error instanceof Error ? error.message : "팝빌 자동 가입에 실패했습니다.";
+      error instanceof PopbillApiError ? error.rawMessage : error instanceof Error ? error.message : "발행 연동 자동 가입에 실패했습니다.";
     const fallbackMemberState =
       settings ? await checkCustomerMembership(settings, customer.businessNumber).catch(() => false) : false;
     const failureContext = lastExternalApiFailure ?? (error instanceof PopbillApiError ? { operation: "join-member" as const, code: error.code } : null);
@@ -275,7 +275,7 @@ export async function autoJoinCustomerPopbill(
     await requestStore.createLog(
       "error",
       "popbill",
-      "고객 등록 직후 팝빌 자동 가입에 실패했습니다.",
+      "고객 등록 직후 발행 연동 자동 가입에 실패했습니다.",
       buildAutoJoinLogContext(
         failedCustomer,
         {

@@ -134,13 +134,13 @@ function mapPopbillError(operation: PopbillOperation, code: string, rawMessage: 
     "join-member": "발행 연동에 실패했습니다.",
     "check-member": "발행 연동 상태 확인에 실패했습니다.",
     "quit-member": "발행 연동 계정 해지에 실패했습니다.",
-    "contact-update": "팝빌 연락처를 갱신하지 못했습니다.",
+    "contact-update": "발행 연동 연락처를 갱신하지 못했습니다.",
     "cert-url": "전자세금용 공동인증서 등록 URL을 가져오지 못했습니다.",
     "cert-expire-date": "전자세금용 공동인증서 상태를 조회하지 못했습니다.",
-    "partner-balance": "팝빌 파트너 포인트를 조회하지 못했습니다.",
-    "unit-cost": "팝빌 단가를 조회하지 못했습니다.",
-    balance: "팝빌 잔액을 조회하지 못했습니다.",
-    "partner-charge-url": "팝빌 충전 페이지 URL을 가져오지 못했습니다.",
+    "partner-balance": "연동 포인트를 조회하지 못했습니다.",
+    "unit-cost": "전자세금계산서 연동 단가를 조회하지 못했습니다.",
+    balance: "연동 잔액을 조회하지 못했습니다.",
+    "partner-charge-url": "연동 충전 페이지 URL을 가져오지 못했습니다.",
     "invoice-info": "발행 문서 정보를 조회하지 못했습니다.",
     "invoice-view-url": "발행 문서 보기 URL을 가져오지 못했습니다.",
     "invoice-print-url": "발행 문서 인쇄 URL을 가져오지 못했습니다.",
@@ -163,7 +163,7 @@ export class PopbillApiError extends Error {
 
   constructor(operation: PopbillOperation, code: string | number | undefined, rawMessage: string | undefined) {
     const normalizedCode = String(code ?? "POPBILL");
-    const normalizedRawMessage = rawMessage?.trim() || "팝빌 호출 실패";
+    const normalizedRawMessage = rawMessage?.trim() || "외부 연동 호출 실패";
     const mapped = mapPopbillError(operation, normalizedCode, normalizedRawMessage);
     super(mapped.message);
     this.name = "PopbillApiError";
@@ -364,7 +364,7 @@ export async function checkIsMember(settings: AppSettings, businessNumber: strin
 
 export async function quitMember(settings: AppSettings, customer: Customer, quitReason: string): Promise<unknown> {
   if (!quitReason.trim()) {
-    throw new Error("팝빌 탈퇴 사유가 비어 있습니다.");
+    throw new Error("발행 연동 해지 사유가 비어 있습니다.");
   }
   const corpNum = digitsOnly(customer.businessNumber);
   const popbillUserId = customer.popbillUserId?.trim() ?? "";
@@ -660,7 +660,7 @@ export async function sendIssueCompleteMessage(
   const content = buildIssueCompleteMessageContent(input, customer, draft);
   const contentBytes = getPopbillMessageByteLength(content);
   if (contentBytes > POPBILL_XMS_LMS_BYTE_LIMIT) {
-    throw new Error(`문자 내용이 팝빌 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte를 초과했습니다.`);
+    throw new Error(`문자 내용이 LMS 최대 ${POPBILL_XMS_LMS_BYTE_LIMIT}byte를 초과했습니다.`);
   }
 
   return promisify("message-send", (done) => {
