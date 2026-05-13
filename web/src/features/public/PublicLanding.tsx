@@ -454,14 +454,12 @@ export function PublicLanding({
                   />
                   <span
                     className={`field-hint portal-password-hint ${
-                      signupOrganizationFilled && !signupOrganizationValid ? "portal-field-error" : signupOrganizationValid ? "portal-field-ok" : ""
+                      signupOrganizationFilled && !signupOrganizationValid ? "portal-field-error" : ""
                     }`}
                   >
                     {signupOrganizationFilled && !signupOrganizationValid
                       ? "한글을 포함한 실제 상호명을 입력하세요."
-                      : signupOrganizationValid
-                        ? "사용 가능한 고객사명입니다."
-                        : "\u00a0"}
+                      : "사업자등록증상에 기재된 회사명을 입력해주세요."}
                   </span>
                 </label>
                 <label>
