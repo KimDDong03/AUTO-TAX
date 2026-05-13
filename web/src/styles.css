@@ -456,18 +456,6 @@ textarea {
   gap: 0.85rem;
 }
 
-.portal-brand-copy {
-  display: grid;
-  gap: 0.12rem;
-}
-
-.portal-brand-copy strong,
-.portal-brand-copy h1 {
-  margin: 0;
-  font-size: 1.08rem;
-  letter-spacing: 0;
-}
-
 .portal-kicker,
 .portal-card-eyebrow {
   color: var(--primary-strong);
@@ -16086,27 +16074,6 @@ button.issuance-list-item {
   display: block;
   width: 176px;
   height: auto;
-}
-
-.portal-brand-copy {
-  gap: 2px;
-}
-
-.portal-brand-copy strong,
-.portal-brand-copy h1 {
-  margin: 0;
-  color: var(--portal-text);
-  font-size: 22px;
-  font-weight: 850;
-  line-height: 1.2;
-  letter-spacing: 0;
-}
-
-.portal-brand-copy span {
-  color: var(--portal-text);
-  font-size: 18px;
-  font-weight: 650;
-  line-height: 1.35;
 }
 
 .portal-layout {
