@@ -30483,3 +30483,15 @@ button.issuance-list-item {
     grid-row: 2 !important;
   }
 }
+
+.app-shell-topnav .settings-detail > .settings-account-stack::after {
+  content: "";
+  display: block;
+  height: 58px;
+}
+
+@media (max-width: 760px) {
+  .app-shell-topnav .settings-detail > .settings-account-stack::after {
+    height: 44px;
+  }
+}
