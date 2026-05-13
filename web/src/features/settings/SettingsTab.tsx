@@ -121,6 +121,54 @@ function SettingsOnboardingCard({ model }: SettingsTabProps) {
 function SettingsOption1MailDetail({ model }: SettingsTabProps) {
   const mail = model.sections.mail;
   const sidebar = model.sidebar;
+  const [mailEditing, setMailEditing] = React.useState(false);
+  const [mailDraft, setMailDraft] = React.useState(() => ({
+    mailAddress: mail.fields.mailAddress,
+    mailPassword: mail.fields.mailPassword,
+    notificationEmailsText: mail.fields.notificationEmailsText
+  }));
+
+  React.useEffect(() => {
+    if (mailEditing) {
+      return;
+    }
+
+    setMailDraft({
+      mailAddress: mail.fields.mailAddress,
+      mailPassword: mail.fields.mailPassword,
+      notificationEmailsText: mail.fields.notificationEmailsText
+    });
+  }, [
+    mail.fields.mailAddress,
+    mail.fields.mailPassword,
+    mail.fields.notificationEmailsText,
+    mailEditing
+  ]);
+
+  const startMailEdit = () => {
+    setMailDraft({
+      mailAddress: mail.fields.mailAddress,
+      mailPassword: mail.fields.mailPassword,
+      notificationEmailsText: mail.fields.notificationEmailsText
+    });
+    setMailEditing(true);
+  };
+
+  const cancelMailEdit = () => {
+    setMailDraft({
+      mailAddress: mail.fields.mailAddress,
+      mailPassword: mail.fields.mailPassword,
+      notificationEmailsText: mail.fields.notificationEmailsText
+    });
+    setMailEditing(false);
+  };
+
+  const saveMailEdit = () => {
+    mail.onMailAddressChange(mailDraft.mailAddress);
+    mail.onMailPasswordChange(mailDraft.mailPassword);
+    mail.onNotificationEmailsTextChange(mailDraft.notificationEmailsText);
+    setMailEditing(false);
+  };
 
   return (
     <div className="settings-option1-detail-grid">
@@ -133,7 +181,7 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
           <button
             type="button"
             className="btn-secondary"
-            disabled={mail.busyKey !== null}
+            disabled={mail.busyKey !== null || mailEditing}
             onClick={() => void mail.onRunMailSettingsTest()}
           >
             {mail.isMailTesting ? "테스트 중" : "연결 테스트"}
@@ -152,8 +200,14 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
             메일 계정
             <input
               placeholder="billing@company.co.kr"
-              value={mail.fields.mailAddress}
-              onChange={(event) => mail.onMailAddressChange(event.target.value)}
+              value={mailDraft.mailAddress}
+              readOnly={!mailEditing}
+              onChange={(event) =>
+                setMailDraft((prev) => ({
+                  ...prev,
+                  mailAddress: event.target.value
+                }))
+              }
             />
           </label>
           <label className="settings-option1-field">
@@ -161,8 +215,14 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
             <div className="password-field">
               <input
                 type={mail.mailPasswordReveal.visible ? "text" : "password"}
-                value={mail.fields.mailPassword}
-                onChange={(event) => mail.onMailPasswordChange(event.target.value)}
+                value={mailDraft.mailPassword}
+                readOnly={!mailEditing}
+                onChange={(event) =>
+                  setMailDraft((prev) => ({
+                    ...prev,
+                    mailPassword: event.target.value
+                  }))
+                }
                 placeholder={
                   mail.mailPasswordConfigured
                     ? "변경할 때만 다시 입력"
@@ -187,9 +247,13 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
             알림 수신 메일
             <textarea
               rows={3}
-              value={mail.fields.notificationEmailsText}
+              value={mailDraft.notificationEmailsText}
+              readOnly={!mailEditing}
               onChange={(event) =>
-                mail.onNotificationEmailsTextChange(event.target.value)
+                setMailDraft((prev) => ({
+                  ...prev,
+                  notificationEmailsText: event.target.value
+                }))
               }
             />
             <span className="field-hint">비워두면 메일 계정으로 받습니다.</span>
@@ -197,8 +261,36 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
         </div>
 
         <div className="settings-option1-save-row">
-          <span className="settings-option1-save-indicator">저장</span>
-          <span>{sidebar.settingsAutosaveLabel}. 변경사항은 즉시 적용됩니다.</span>
+          <span className="settings-option1-save-indicator">{mailEditing ? "수정 중" : "저장"}</span>
+          <span className="settings-option1-save-copy">
+            {mailEditing ? "수정 후 저장을 눌러 반영하세요." : `${sidebar.settingsAutosaveLabel}. 변경하려면 수정을 누르세요.`}
+          </span>
+          <div className="settings-option1-edit-actions">
+            {mailEditing ? (
+              <>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={mail.busyKey !== null}
+                  onClick={cancelMailEdit}
+                >
+                  취소
+                </button>
+                <button type="button" disabled={mail.busyKey !== null} onClick={saveMailEdit}>
+                  저장
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={mail.busyKey !== null}
+                onClick={startMailEdit}
+              >
+                수정
+              </button>
+            )}
+          </div>
         </div>
       </section>
 

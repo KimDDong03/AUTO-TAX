@@ -15629,7 +15629,8 @@ button.issuance-list-item {
 
 .app-shell-topnav .settings-option1-card-head span,
 .app-shell-topnav .settings-option1-reopen-card span,
-.app-shell-topnav .settings-option1-save-row span:last-child {
+.app-shell-topnav .settings-option1-save-row span:last-child,
+.app-shell-topnav .settings-option1-save-copy {
   color: var(--wf-muted);
   font-size: 12px;
   line-height: 1.45;
@@ -15778,6 +15779,7 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .settings-option1-field input[readonly],
+.app-shell-topnav .settings-option1-field textarea[readonly],
 .app-shell-topnav .settings-option1-field select:disabled {
   background: var(--wf-faint);
   color: var(--wf-muted);
@@ -15820,6 +15822,18 @@ button.issuance-list-item {
   color: var(--wf-text);
   font-size: 12px;
   font-weight: 800;
+}
+
+.app-shell-topnav .settings-option1-save-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-shell-topnav .settings-option1-edit-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .app-shell-topnav .settings-option1-account-facts {
@@ -30087,6 +30101,7 @@ button.issuance-list-item {
 .app-shell-topnav .settings-option1-card-head span,
 .app-shell-topnav .settings-option1-reopen-card span,
 .app-shell-topnav .settings-option1-save-row span:last-child,
+.app-shell-topnav .settings-option1-save-copy,
 .app-shell-topnav .settings-detail .panel-header p {
   color: var(--lovable-muted, var(--console-muted)) !important;
   font-size: 12px !important;
