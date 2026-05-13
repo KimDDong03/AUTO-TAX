@@ -230,7 +230,11 @@ function getToneBadgeClass(tone: CustomerConsoleTone) {
   ].join(" ");
 }
 
-function renderCustomerStatusChip(chip: CustomerStatusChip) {
+function renderCustomerStatusChip(chip: CustomerStatusChip | null) {
+  if (!chip) {
+    return null;
+  }
+
   return (
     <span className={`${getToneBadgeClass(chip.tone)} customer-list-status-chip`} title={chip.detail}>
       {chip.label}

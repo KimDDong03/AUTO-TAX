@@ -56,20 +56,20 @@ test("buildCustomerIssueStatusChip hides internal registration wording", () => {
   const now = new Date("2026-05-13T00:00:00+09:00");
 
   assert.equal(
-    buildCustomerIssueStatusChip(createCustomer({ popbillCertExpireDate: "2026-06-01" }), { canIssueNow: true }, now).label,
+    buildCustomerIssueStatusChip(createCustomer({ popbillCertExpireDate: "2026-06-01" }), { canIssueNow: true }, now)?.label,
     "인증서 임박"
   );
   assert.equal(
-    buildCustomerIssueStatusChip(createCustomer({ popbillCertExpireDate: "2026-05-01" }), { canIssueNow: false }, now).label,
+    buildCustomerIssueStatusChip(createCustomer({ popbillCertExpireDate: "2026-05-01" }), { canIssueNow: false }, now)?.label,
     "인증서 만료"
   );
   assert.equal(
-    buildCustomerIssueStatusChip(createCustomer({ popbillState: "pending", popbillCertRegistered: false }), { canIssueNow: false }, now).label,
+    buildCustomerIssueStatusChip(createCustomer({ popbillState: "pending", popbillCertRegistered: false }), { canIssueNow: false }, now)?.label,
     "인증서 필요"
   );
   assert.equal(
-    buildCustomerIssueStatusChip(createCustomer({ popbillCertExpireDate: "2026-12-31" }), { canIssueNow: true }, now).label,
-    "발행 가능"
+    buildCustomerIssueStatusChip(createCustomer({ popbillCertExpireDate: "2026-12-31" }), { canIssueNow: true }, now),
+    null
   );
 });
 
@@ -80,10 +80,10 @@ test("buildCustomerContractStatusChip distinguishes missing, due, overdue, and n
     contractEndMonth: "2027-06"
   };
 
-  assert.equal(buildCustomerContractStatusChip(null, null, "2026-05").label, "계약 미입력");
-  assert.equal(buildCustomerContractStatusChip(normalSummary, null, "2026-05").label, "계약 정상");
+  assert.equal(buildCustomerContractStatusChip(null, null, "2026-05")?.label, "계약 미입력");
+  assert.equal(buildCustomerContractStatusChip(normalSummary, null, "2026-05"), null);
   assert.equal(
-    buildCustomerContractStatusChip({ ...normalSummary, contractStartMonth: "2025-05", contractEndMonth: "2026-05" }, null, "2026-05").label,
+    buildCustomerContractStatusChip({ ...normalSummary, contractStartMonth: "2025-05", contractEndMonth: "2026-05" }, null, "2026-05")?.label,
     "계약 임박"
   );
   assert.equal(
@@ -91,7 +91,7 @@ test("buildCustomerContractStatusChip distinguishes missing, due, overdue, and n
       { ...normalSummary, contractStartMonth: "2025-04", contractEndMonth: "2026-04" },
       createDueItem({ status: "overdue", contractEndMonth: "2026-04" }),
       "2026-05"
-    ).label,
+    )?.label,
     "계약 만료"
   );
 });

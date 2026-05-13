@@ -59,7 +59,7 @@ export function buildCustomerIssueStatusChip(
   customer: Customer,
   readiness: CustomerIssueReadinessLike,
   now = new Date()
-): CustomerStatusChip {
+): CustomerStatusChip | null {
   const days = getDaysUntilDate(customer.popbillCertExpireDate, now);
 
   if (!readiness.canIssueNow) {
@@ -73,14 +73,14 @@ export function buildCustomerIssueStatusChip(
     return { label: "인증서 임박", tone: "warn", detail: `만료 ${days}일 전` };
   }
 
-  return { label: "발행 가능", tone: "success" };
+  return null;
 }
 
 export function buildCustomerContractStatusChip(
   summary: CustomerContractSummary | null | undefined,
   dueItem: CustomerContractRenewalDueItem | null | undefined,
   currentYearMonth = getCurrentSeoulYearMonth()
-): CustomerStatusChip {
+): CustomerStatusChip | null {
   const contractStartMonth = summary?.contractStartMonth ?? null;
   const contractEndMonth = summary?.contractEndMonth ?? null;
 
@@ -96,5 +96,5 @@ export function buildCustomerContractStatusChip(
     return { label: "계약 임박", tone: "warn" };
   }
 
-  return { label: "계약 정상", tone: "success" };
+  return null;
 }
