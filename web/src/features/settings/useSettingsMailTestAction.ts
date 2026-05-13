@@ -23,17 +23,27 @@ type UseSettingsMailTestActionArgs = {
   ) => Promise<void>;
 };
 
+type RunMailSettingsTestOptions = {
+  settingsFormOverride?: SettingsFormState;
+  successAlert?: {
+    title: string;
+    message: string;
+  };
+  syncFormOnSuccess?: boolean;
+};
+
 export function useSettingsMailTestAction({
   settingsForm,
   savedSettings,
   applySavedSettings,
   showAlert
 }: UseSettingsMailTestActionArgs) {
-  return useCallback(async () => {
-    if (!settingsForm) return;
+  return useCallback(async (options?: RunMailSettingsTestOptions) => {
+    const targetSettingsForm = options?.settingsFormOverride ?? settingsForm;
+    if (!targetSettingsForm) return false;
 
     const { normalized, payload } = buildMailSettingsSavePayload(
-      settingsForm,
+      targetSettingsForm,
       savedSettings
     );
     const result = await api<{
@@ -75,25 +85,30 @@ export function useSettingsMailTestAction({
         }
       );
       applySavedSettings(verifiedSettings, {
-        syncForm: false,
+        syncForm: options?.syncFormOnSuccess ?? false,
         baselineForm: normalized
       });
     }
 
+    const successAlert = options?.successAlert;
     await showAlert(
-      `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\n메일 읽기: ${
-        result.imapOk ? "성공" : "확인 필요"
-      }\n알림 메일 발송: ${
-        result.smtpOk && result.testMailSent ? "성공" : "확인 필요"
-      }\n\n${
-        testSucceeded
-          ? "설정을 저장했습니다."
-          : "메일 주소와 앱 비밀번호를 다시 확인해 주세요. 설정은 저장하지 않았습니다."
-      }`,
+      testSucceeded && successAlert
+        ? successAlert.message
+        : `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\n메일 읽기: ${
+            result.imapOk ? "성공" : "확인 필요"
+          }\n알림 메일 발송: ${
+            result.smtpOk && result.testMailSent ? "성공" : "확인 필요"
+          }\n\n${
+            testSucceeded
+              ? "설정을 저장했습니다."
+              : "메일 주소와 앱 비밀번호를 다시 확인해 주세요. 설정은 저장하지 않았습니다."
+          }`,
       {
-        title: "메일 연결 테스트 결과",
+        title: testSucceeded && successAlert ? successAlert.title : "메일 연결 테스트 결과",
         tone: testSucceeded ? "success" : "warn"
       }
     );
+
+    return testSucceeded;
   }, [applySavedSettings, savedSettings, settingsForm, showAlert]);
 }

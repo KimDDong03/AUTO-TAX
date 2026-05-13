@@ -19,6 +19,12 @@ export type SettingsSectionSummary = {
   summary: string;
 };
 
+export type SettingsMailEditableFields = {
+  mailAddress: string;
+  mailPassword: string;
+  notificationEmailsText: string;
+};
+
 export type SettingsSidebarModel = {
   settingsSections: SettingsSectionSummary[];
   activeSettingsSection: SettingsSectionId;
@@ -60,6 +66,9 @@ export type SettingsMailSectionModel = {
   onDefaultIssueHourChange: (value: string) => void;
   onDefaultIssueMinuteChange: (value: string) => void;
   onRunMailSettingsTest: () => Promise<void>;
+  onSaveAndTestMailSettings: (
+    fields: SettingsMailEditableFields
+  ) => Promise<boolean>;
 };
 
 export type SettingsDefaultsSectionModel = {

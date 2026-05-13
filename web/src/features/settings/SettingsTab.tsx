@@ -163,11 +163,11 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
     setMailEditing(false);
   };
 
-  const saveMailEdit = () => {
-    mail.onMailAddressChange(mailDraft.mailAddress);
-    mail.onMailPasswordChange(mailDraft.mailPassword);
-    mail.onNotificationEmailsTextChange(mailDraft.notificationEmailsText);
-    setMailEditing(false);
+  const saveMailEdit = async () => {
+    const testSucceeded = await mail.onSaveAndTestMailSettings(mailDraft);
+    if (testSucceeded) {
+      setMailEditing(false);
+    }
   };
 
   return (
@@ -276,8 +276,8 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
                 >
                   취소
                 </button>
-                <button type="button" disabled={mail.busyKey !== null} onClick={saveMailEdit}>
-                  저장
+                <button type="button" disabled={mail.busyKey !== null} onClick={() => void saveMailEdit()}>
+                  {mail.isMailTesting ? "테스트 중" : "저장"}
                 </button>
               </>
             ) : (

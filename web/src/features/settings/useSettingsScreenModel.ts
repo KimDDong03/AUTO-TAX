@@ -170,7 +170,9 @@ export function useSettingsScreenModel(
             setSettingsField("defaultIssueHour", value),
           onDefaultIssueMinuteChange: (value) =>
             setSettingsField("defaultIssueMinute", value),
-          onRunMailSettingsTest: props.settingsState.runMailSettingsTest
+          onRunMailSettingsTest: props.settingsState.runMailSettingsTest,
+          onSaveAndTestMailSettings:
+            props.settingsState.runSaveAndTestMailSettings
         },
         defaults: {
           busyKey: props.busyKey,
@@ -314,6 +316,7 @@ export function useSettingsScreenModel(
       props.settingsState.runLoadCurrentRenewalCertificatePassword,
       props.settingsState.runLoadCurrentRenewalIssuePassword,
       props.settingsState.runMailSettingsTest,
+      props.settingsState.runSaveAndTestMailSettings,
       props.settingsState.settingsAutosaveLabel,
       props.settingsState.settingsAutosaveState,
       props.settingsState.settingsHealth.mailReady,

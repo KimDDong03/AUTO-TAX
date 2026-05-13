@@ -13,6 +13,7 @@ import { useSettingsFormPersistence } from "./useSettingsFormPersistence";
 import { useSettingsAccountFacade } from "./useSettingsAccountFacade";
 import { useSettingsMailTestAction } from "./useSettingsMailTestAction";
 import { useSettingsStoredSecretLoaders } from "./useSettingsStoredSecretLoaders";
+import type { SettingsMailEditableFields } from "./settingsSectionModels";
 
 export type MailProvider = "gmail" | "naver" | "daum";
 export type SettingsSectionId = "gmail" | "popbill" | "helper" | "account";
@@ -251,8 +252,48 @@ export function useSettingsScreenState({
     [runAction]
   );
   const runMailSettingsTest = useCallback(
-    async () => runSettingsAction("mail-test", testMailSettings),
+    async () =>
+      runSettingsAction("mail-test", async () => {
+        await testMailSettings();
+      }),
     [runSettingsAction, testMailSettings]
+  );
+  const runSaveAndTestMailSettings = useCallback(
+    async (fields: SettingsMailEditableFields) => {
+      if (!settingsForm) return false;
+
+      const nextProvider = inferMailProviderFromAddress(
+        fields.mailAddress,
+        settingsForm.mailProvider
+      );
+      const config = MAIL_PROVIDER_CONFIG[nextProvider];
+      const nextSettingsForm: SettingsFormState = {
+        ...settingsForm,
+        ...fields,
+        mailProvider: nextProvider,
+        imapHost: config.imapHost,
+        imapPort: config.imapPort,
+        imapSecure: config.imapSecure,
+        smtpHost: config.smtpHost,
+        smtpPort: config.smtpPort,
+        smtpSecure: config.smtpSecure
+      };
+      let testSucceeded = false;
+
+      await runSettingsAction("mail-test", async () => {
+        testSucceeded = await testMailSettings({
+          settingsFormOverride: nextSettingsForm,
+          successAlert: {
+            title: "메일 연결 완료",
+            message: "이메일 연결 설정이 성공적으로 완료되었습니다."
+          },
+          syncFormOnSuccess: true
+        });
+      });
+
+      return testSucceeded;
+    },
+    [runSettingsAction, settingsForm, testMailSettings]
   );
   const runLoadCurrentPopbillSharedPassword = useCallback(
     async () =>
@@ -312,6 +353,7 @@ export function useSettingsScreenState({
     loadCurrentRenewalCertificatePassword,
     loadCurrentRenewalIssuePassword,
     runMailSettingsTest,
+    runSaveAndTestMailSettings,
     runLoadCurrentPopbillSharedPassword,
     runLoadCurrentRenewalCertificatePassword,
     runLoadCurrentRenewalIssuePassword,

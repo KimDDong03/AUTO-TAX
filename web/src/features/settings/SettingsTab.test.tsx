@@ -120,7 +120,8 @@ function createModel(
         onDefaultIssueDayChange: () => {},
         onDefaultIssueHourChange: () => {},
         onDefaultIssueMinuteChange: () => {},
-        onRunMailSettingsTest: async () => {}
+        onRunMailSettingsTest: async () => {},
+        onSaveAndTestMailSettings: async () => true
       },
       defaults: {
         busyKey: null,
