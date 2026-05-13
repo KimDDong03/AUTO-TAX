@@ -77,10 +77,7 @@ const publicConsultationRequestSchema = z.object({
     .regex(/^[0-9+\-()\s.]+$/, "전화번호 형식이 올바르지 않습니다.")
 });
 
-const PUBLIC_SIGNUP_RECEIVED_RESPONSE = {
-  request: null,
-  status: "received"
-} as const;
+const DUPLICATE_SIGNUP_LOGIN_ID_MESSAGE = "이미 사용중인 아이디입니다.";
 
 function isKoreanMobilePhone(value: string): boolean {
   const digits = value.replace(/\D/g, "");
@@ -277,8 +274,7 @@ export function registerCoreRoutes(deps: RouteDeps) {
       findPublicSignupRequestByLoginId(adminClient, loginId)
     ]);
     if (existingAuthUser || existingSignupRequest) {
-      res.status(202).json(PUBLIC_SIGNUP_RECEIVED_RESPONSE);
-      return;
+      throw new HttpError(409, DUPLICATE_SIGNUP_LOGIN_ID_MESSAGE);
     }
 
     const { data: createdUserResult, error: createUserError } = await adminClient.auth.admin.createUser({
@@ -296,8 +292,7 @@ export function registerCoreRoutes(deps: RouteDeps) {
     if (createUserError || !createdUserResult.user) {
       const message = createUserError?.message ?? "사용자 생성 실패";
       if (message.toLowerCase().includes("already")) {
-        res.status(202).json(PUBLIC_SIGNUP_RECEIVED_RESPONSE);
-        return;
+        throw new HttpError(409, DUPLICATE_SIGNUP_LOGIN_ID_MESSAGE);
       }
       throw new Error(`회원가입 계정 생성에 실패했습니다: ${message}`);
     }
