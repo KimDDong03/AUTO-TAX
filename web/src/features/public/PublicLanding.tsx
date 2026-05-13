@@ -46,6 +46,7 @@ type PublicLandingProps = {
   authBusy: boolean;
   onSignIn: (event: React.FormEvent<HTMLFormElement>) => void | Promise<void>;
   onSignUp: (input: PublicSignupInput) => Promise<boolean>;
+  onPasswordReset: (email: string) => Promise<boolean>;
 };
 
 const emptySignupForm: PublicSignupFormState = {
@@ -247,12 +248,16 @@ export function PublicLanding({
   error,
   authBusy,
   onSignIn,
-  onSignUp
+  onSignUp,
+  onPasswordReset
 }: PublicLandingProps) {
   const [activeMode, setActiveMode] = useState<"login" | "signup">("login");
   const [signupForm, setSignupForm] = useState<PublicSignupFormState>(emptySignupForm);
   const [signupError, setSignupError] = useState("");
   const [expandedTerms, setExpandedTerms] = useState<Set<PublicTermId>>(() => new Set());
+  const [passwordResetOpen, setPasswordResetOpen] = useState(false);
+  const [passwordResetEmail, setPasswordResetEmail] = useState("");
+  const [passwordResetError, setPasswordResetError] = useState("");
 
   const updateSignupForm = <Key extends keyof PublicSignupFormState>(
     key: Key,
@@ -308,6 +313,30 @@ export function PublicLanding({
     signupForm.password.length > 0 &&
     signupForm.passwordConfirm.length > 0 &&
     signupForm.password !== signupForm.passwordConfirm;
+
+  const togglePasswordReset = () => {
+    setActiveMode("login");
+    setPasswordResetError("");
+    setPasswordResetOpen((prev) => !prev);
+    setPasswordResetEmail((prev) => prev || (isValidEmail(signInAccount) ? signInAccount.trim() : ""));
+  };
+
+  const submitPasswordReset = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const email = passwordResetEmail.trim();
+    setPasswordResetError("");
+
+    if (!isValidEmail(email)) {
+      setPasswordResetError("가입 시 사용한 이메일 주소를 입력하세요.");
+      return;
+    }
+
+    const sent = await onPasswordReset(email);
+    if (sent) {
+      setPasswordResetEmail("");
+      setPasswordResetOpen(false);
+    }
+  };
 
   const submitSignup = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -388,6 +417,37 @@ export function PublicLanding({
                 </button>
               </div>
             </form>
+            <button type="button" className="portal-mode-link" onClick={togglePasswordReset}>
+              {passwordResetOpen ? "비밀번호 찾기 닫기" : "비밀번호 찾기"}
+            </button>
+
+            {passwordResetOpen ? (
+              <form className="auth-form portal-password-reset-form" onSubmit={(event) => void submitPasswordReset(event)}>
+                <label>
+                  <span>가입 이메일</span>
+                  <input
+                    type="email"
+                    value={passwordResetEmail}
+                    onChange={(event) => setPasswordResetEmail(event.target.value)}
+                    placeholder="manager@example.com"
+                    autoComplete="email"
+                    required
+                  />
+                </label>
+                {passwordResetError ? (
+                  <div className="alert error" role="alert">
+                    {passwordResetError}
+                  </div>
+                ) : (
+                  <p className="portal-password-reset-hint">메일의 링크에서 새 비밀번호를 설정하세요.</p>
+                )}
+                <div className="auth-actions portal-login-actions">
+                  <button type="submit" disabled={authBusy}>
+                    {authBusy ? "메일 발송 중..." : "재설정 메일 받기"}
+                  </button>
+                </div>
+              </form>
+            ) : null}
 
             {activeMode === "signup" ? (
               <button type="button" className="portal-mode-link" onClick={() => setActiveMode("login")}>

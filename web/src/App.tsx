@@ -137,7 +137,7 @@ import {
   isSupabaseRecoveryHash
 } from "./features/auth/auth-hash";
 import { useAuthSessionBootstrap } from "./features/auth/useAuthSessionBootstrap";
-import { setSessionSafely, signOutSafely, updateUserSafely } from "./supabase";
+import { resetPasswordForEmailSafely, setSessionSafely, signOutSafely, updateUserSafely } from "./supabase";
 import { assertSafeSpreadsheetFile, assertSafeSpreadsheetWorkbook } from "./spreadsheet-security";
 import type {
   BootstrapPayload,
@@ -1076,6 +1076,14 @@ function hasSupabaseAuthHash(hash: string): boolean {
     params.has("error_code") ||
     params.get("type") === "recovery"
   );
+}
+
+function getPasswordRecoveryRedirectUrl(): string | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  return `${window.location.origin}${window.location.pathname}`;
 }
 
 const baseCustomerForm: CustomerFormState = {
@@ -3150,6 +3158,30 @@ export function App() {
       return true;
     } catch (signupError) {
       setError(signupError instanceof Error ? signupError.message : "회원가입 신청에 실패했습니다.");
+      return false;
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const requestPasswordReset = async (email: string): Promise<boolean> => {
+    try {
+      setError("");
+      setAuthNotice("");
+      setAuthBusy(true);
+
+      const { error: resetError } = await resetPasswordForEmailSafely(email.trim(), {
+        redirectTo: getPasswordRecoveryRedirectUrl()
+      });
+
+      if (resetError) {
+        throw resetError;
+      }
+
+      setAuthNotice("비밀번호 재설정 메일을 보냈습니다. 메일의 링크에서 새 비밀번호를 설정하세요.");
+      return true;
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : "비밀번호 재설정 메일을 보내지 못했습니다.");
       return false;
     } finally {
       setAuthBusy(false);
@@ -5477,6 +5509,7 @@ export function App() {
           authBusy={authBusy}
           onSignIn={signIn}
           onSignUp={signUp}
+          onPasswordReset={requestPasswordReset}
         />
         {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
       </>

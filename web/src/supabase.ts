@@ -86,6 +86,25 @@ export async function updateUserSafely(
   }
 }
 
+export async function resetPasswordForEmailSafely(
+  email: string,
+  options?: Parameters<typeof supabase.auth.resetPasswordForEmail>[1]
+): Promise<{ error: Error | null }> {
+  try {
+    const { error } = await withSupabaseAuthTimeout(
+      supabase.auth.resetPasswordForEmail(email, options),
+      supabaseAuthTimeoutMs
+    );
+    return {
+      error: error ? toSupabaseSessionError(error, "비밀번호 재설정 메일을 보내지 못했습니다.") : null
+    };
+  } catch (error) {
+    return {
+      error: toSupabaseSessionError(error, "비밀번호 재설정 메일을 보내지 못했습니다.")
+    };
+  }
+}
+
 export async function clearLocalSupabaseSession() {
   const { error } = await signOutSafely({ scope: "local" });
   if (error) throw error;
