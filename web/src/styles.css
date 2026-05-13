@@ -30435,3 +30435,51 @@ button.issuance-list-item {
     min-height: 42px !important;
   }
 }
+
+.app-shell-topnav .settings-detail > .onboarding-task-shell {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px) !important;
+  gap: 18px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-detail > .onboarding-task-shell > .onboarding-active-step-shell,
+.app-shell-topnav .settings-detail > .onboarding-task-shell > .onboarding-step-strip {
+  border: 1px solid var(--lovable-border, var(--console-border)) !important;
+  border-radius: 8px !important;
+  background: var(--lovable-surface, var(--console-surface)) !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .settings-detail > .onboarding-task-shell > .onboarding-active-step-shell {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+
+.app-shell-topnav .settings-detail > .onboarding-task-shell > .onboarding-step-strip {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+}
+
+@media (max-width: 1180px) {
+  .app-shell-topnav .settings-detail > .onboarding-task-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 14px !important;
+  }
+
+  .app-shell-topnav .settings-detail > .onboarding-task-shell > .onboarding-active-step-shell,
+  .app-shell-topnav .settings-detail > .onboarding-task-shell > .onboarding-step-strip {
+    grid-column: 1 !important;
+  }
+
+  .app-shell-topnav .settings-detail > .onboarding-task-shell > .onboarding-active-step-shell {
+    grid-row: 1 !important;
+  }
+
+  .app-shell-topnav .settings-detail > .onboarding-task-shell > .onboarding-step-strip {
+    grid-row: 2 !important;
+  }
+}
