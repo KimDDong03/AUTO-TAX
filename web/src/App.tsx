@@ -30,7 +30,11 @@ import { buildHomeScreenModel, type HomeActionKey } from "./features/home/homeSc
 import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
 import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "./features/auth/passwordPolicy";
-import { PublicLanding, type PublicSignupInput } from "./features/public/PublicLanding";
+import {
+  PublicLanding,
+  type PublicSignupInput,
+  type PublicSignupLoginIdAvailability
+} from "./features/public/PublicLanding";
 import {
   downloadCustomerOnboardingTemplate,
   parseCustomerOnboardingWorkbook,
@@ -3160,6 +3164,11 @@ export function App() {
     }
   };
 
+  const checkSignupLoginIdAvailability = async (loginId: string): Promise<PublicSignupLoginIdAvailability> => {
+    const query = new URLSearchParams({ loginId: loginId.trim() });
+    return api<PublicSignupLoginIdAvailability>(`/api/public/signup/login-id-availability?${query.toString()}`);
+  };
+
   const requestPasswordReset = async (email: string): Promise<boolean> => {
     try {
       setError("");
@@ -5484,6 +5493,7 @@ export function App() {
           authBusy={authBusy}
           onSignIn={signIn}
           onSignUp={signUp}
+          onCheckLoginIdAvailability={checkSignupLoginIdAvailability}
           onPasswordReset={requestPasswordReset}
         />
         {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}

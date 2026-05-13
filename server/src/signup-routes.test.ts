@@ -702,6 +702,35 @@ test("rejected signup remains unable to login", async () => {
   });
 });
 
+test("public signup login id availability reports duplicate status", async () => {
+  await withSignupServer(async (baseUrl) => {
+    const available = await fetch(
+      `${baseUrl}/api/public/signup/login-id-availability?loginId=${encodeURIComponent(validSignupPayload.loginId)}`
+    );
+    assert.equal(available.status, 200);
+    assert.deepEqual(await available.json(), {
+      loginId: validSignupPayload.loginId,
+      available: true
+    });
+
+    const created = await fetch(`${baseUrl}/api/public/signup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(validSignupPayload)
+    });
+    assert.equal(created.status, 201);
+
+    const duplicate = await fetch(
+      `${baseUrl}/api/public/signup/login-id-availability?loginId=${encodeURIComponent(validSignupPayload.loginId.toUpperCase())}`
+    );
+    assert.equal(duplicate.status, 200);
+    assert.deepEqual(await duplicate.json(), {
+      loginId: validSignupPayload.loginId,
+      available: false
+    });
+  });
+});
+
 test("duplicate signup login id is rejected", async () => {
   await withSignupServer(async (baseUrl) => {
     const first = await fetch(`${baseUrl}/api/public/signup`, {

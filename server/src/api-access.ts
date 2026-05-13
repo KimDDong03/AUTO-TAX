@@ -31,6 +31,7 @@ export function isAnonymousApiPath(req: Request): boolean {
     req.path === "/health" ||
     req.path === "/public/login" ||
     req.path === "/public/signup" ||
+    req.path === "/public/signup/login-id-availability" ||
     req.path === "/public/consultation-requests"
   );
 }

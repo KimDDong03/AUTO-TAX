@@ -64,6 +64,10 @@ const publicSignupSchema = z.object({
   marketingConsent: z.boolean().default(false)
 });
 
+const publicSignupLoginIdAvailabilitySchema = z.object({
+  loginId: publicSignupSchema.shape.loginId
+});
+
 const DEFAULT_PUBLIC_LOGIN_TIMEOUT_MS = 5000;
 const MAX_INTERNAL_JOB_RUN_LIMIT = 25;
 
@@ -260,6 +264,22 @@ export function registerCoreRoutes(deps: RouteDeps) {
 
     res.json({
       session: signInResult.session
+    });
+  });
+
+  app.get("/api/public/signup/login-id-availability", publicSignupLimiter, async (req, res) => {
+    const payload = publicSignupLoginIdAvailabilitySchema.parse(req.query ?? {});
+    const adminClient = createSupabaseAdminClient();
+    const loginId = normalizeLoginId(payload.loginId);
+
+    const [existingAuthUser, existingSignupRequest] = await Promise.all([
+      findAuthUserByLoginId(adminClient, loginId),
+      findPublicSignupRequestByLoginId(adminClient, loginId)
+    ]);
+
+    res.json({
+      loginId,
+      available: !existingAuthUser && !existingSignupRequest
     });
   });
 

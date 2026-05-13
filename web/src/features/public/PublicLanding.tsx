@@ -1,5 +1,5 @@
 import type React from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "../auth/passwordPolicy";
 import { PUBLIC_PORTAL_COPY } from "./public-content";
 
@@ -16,8 +16,21 @@ export type PublicSignupInput = {
   marketingConsent: boolean;
 };
 
+export type PublicSignupLoginIdAvailability = {
+  loginId: string;
+  available: boolean;
+};
+
 type PublicSignupFormState = PublicSignupInput & {
   passwordConfirm: string;
+};
+
+type SignupLoginIdAvailabilityStatus = "idle" | "checking" | "available" | "duplicate" | "error";
+
+type SignupLoginIdAvailabilityState = {
+  loginId: string;
+  status: SignupLoginIdAvailabilityStatus;
+  message: string;
 };
 
 type PublicTermId = "termsAccepted" | "privacyAccepted" | "thirdPartyAccepted" | "marketingConsent";
@@ -46,6 +59,7 @@ type PublicLandingProps = {
   authBusy: boolean;
   onSignIn: (event: React.FormEvent<HTMLFormElement>) => void | Promise<void>;
   onSignUp: (input: PublicSignupInput) => Promise<boolean>;
+  onCheckLoginIdAvailability: (loginId: string) => Promise<PublicSignupLoginIdAvailability>;
   onPasswordReset: (email: string) => Promise<boolean>;
 };
 
@@ -249,11 +263,18 @@ export function PublicLanding({
   authBusy,
   onSignIn,
   onSignUp,
+  onCheckLoginIdAvailability,
   onPasswordReset
 }: PublicLandingProps) {
   const [activeMode, setActiveMode] = useState<"login" | "signup">("login");
   const [signupForm, setSignupForm] = useState<PublicSignupFormState>(emptySignupForm);
   const [signupError, setSignupError] = useState("");
+  const [signupLoginIdAvailability, setSignupLoginIdAvailability] = useState<SignupLoginIdAvailabilityState>({
+    loginId: "",
+    status: "idle",
+    message: ""
+  });
+  const latestSignupLoginIdRef = useRef("");
   const [expandedTerms, setExpandedTerms] = useState<Set<PublicTermId>>(() => new Set());
   const [passwordResetOpen, setPasswordResetOpen] = useState(false);
   const [passwordResetEmail, setPasswordResetEmail] = useState("");
@@ -263,6 +284,10 @@ export function PublicLanding({
     key: Key,
     value: PublicSignupFormState[Key]
   ) => {
+    if (key === "loginId") {
+      latestSignupLoginIdRef.current = String(value).trim().toLowerCase();
+      setSignupLoginIdAvailability({ loginId: latestSignupLoginIdRef.current, status: "idle", message: "" });
+    }
     setSignupForm((prev) => ({ ...prev, [key]: value }));
   };
   const toggleTerm = (termId: PublicTermId) => {
@@ -280,8 +305,21 @@ export function PublicLanding({
     signupForm.password.length > 0 &&
     signupForm.passwordConfirm.length > 0 &&
     signupForm.password === signupForm.passwordConfirm;
+  const normalizedSignupLoginId = signupForm.loginId.trim().toLowerCase();
   const signupLoginIdFilled = signupForm.loginId.trim().length > 0;
   const signupLoginIdValid = isValidLoginId(signupForm.loginId);
+  const signupLoginIdAvailabilityMatches =
+    signupLoginIdAvailability.loginId === normalizedSignupLoginId && signupLoginIdAvailability.status !== "idle";
+  const signupLoginIdAvailabilityMessage = signupLoginIdAvailabilityMatches ? signupLoginIdAvailability.message : "";
+  const signupLoginIdAvailabilityClass = signupLoginIdAvailabilityMatches
+    ? signupLoginIdAvailability.status === "available"
+      ? "portal-field-ok"
+      : signupLoginIdAvailability.status === "duplicate" || signupLoginIdAvailability.status === "error"
+        ? "portal-field-error"
+        : ""
+    : "";
+  const signupLoginIdDuplicate =
+    signupLoginIdAvailabilityMatches && signupLoginIdAvailability.status === "duplicate";
   const signupOrganizationFilled = signupForm.organizationName.trim().length > 0;
   const signupOrganizationValid = isReasonableOrganizationName(signupForm.organizationName);
   const signupNameFilled = signupForm.name.trim().length > 0;
@@ -303,12 +341,14 @@ export function PublicLanding({
   );
   const signupRequiredTermsAccepted =
     signupForm.termsAccepted && signupForm.privacyAccepted && signupForm.thirdPartyAccepted;
-  const signupReady = signupRequiredFieldsFilled && signupRequiredTermsAccepted;
+  const signupReady = signupRequiredFieldsFilled && signupRequiredTermsAccepted && !signupLoginIdDuplicate;
   const signupConsistencyMessage = signupReady
     ? ""
-    : !signupRequiredFieldsFilled
-      ? "필수 입력값과 비밀번호 확인을 맞춰주세요."
-      : "필수 약관 동의가 필요합니다.";
+    : signupLoginIdDuplicate
+      ? "다른 로그인 ID를 입력해주세요."
+      : !signupRequiredFieldsFilled
+        ? "필수 입력값과 비밀번호 확인을 맞춰주세요."
+        : "필수 약관 동의가 필요합니다.";
   const showPasswordMismatch =
     signupForm.password.length > 0 &&
     signupForm.passwordConfirm.length > 0 &&
@@ -335,6 +375,50 @@ export function PublicLanding({
     if (sent) {
       setPasswordResetEmail("");
       setPasswordResetOpen(false);
+    }
+  };
+
+  const checkSignupLoginId = async () => {
+    const loginId = signupForm.loginId.trim();
+    const normalizedLoginId = loginId.toLowerCase();
+    setSignupError("");
+
+    if (!isValidLoginId(loginId)) {
+      setSignupLoginIdAvailability({
+        loginId: normalizedLoginId,
+        status: "error",
+        message: "영문/숫자로 시작하는 3~32자 ID를 입력하세요."
+      });
+      return;
+    }
+
+    latestSignupLoginIdRef.current = normalizedLoginId;
+    setSignupLoginIdAvailability({
+      loginId: normalizedLoginId,
+      status: "checking",
+      message: "중복 확인 중..."
+    });
+
+    try {
+      const result = await onCheckLoginIdAvailability(loginId);
+      if (latestSignupLoginIdRef.current !== result.loginId) {
+        return;
+      }
+
+      setSignupLoginIdAvailability({
+        loginId: result.loginId,
+        status: result.available ? "available" : "duplicate",
+        message: result.available ? "사용 가능한 아이디입니다." : "이미 사용중인 아이디입니다."
+      });
+    } catch {
+      if (latestSignupLoginIdRef.current !== normalizedLoginId) {
+        return;
+      }
+      setSignupLoginIdAvailability({
+        loginId: normalizedLoginId,
+        status: "error",
+        message: "아이디 중복 확인에 실패했습니다. 잠시 후 다시 시도해주세요."
+      });
     }
   };
 
@@ -485,22 +569,36 @@ export function PublicLanding({
               <div className="portal-signup-grid">
                 <label>
                   <span>로그인 ID</span>
-                  <input
-                    value={signupForm.loginId}
-                    onChange={(event) => updateSignupForm("loginId", event.target.value)}
-                    placeholder="예: solaradmin"
-                    autoComplete="username"
-                    required
-                  />
+                  <div className="portal-login-id-control">
+                    <input
+                      value={signupForm.loginId}
+                      onChange={(event) => updateSignupForm("loginId", event.target.value)}
+                      placeholder="예: solaradmin"
+                      autoComplete="username"
+                      aria-describedby="public-signup-login-id-hint"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="portal-login-id-check"
+                      disabled={authBusy || signupLoginIdAvailability.status === "checking" || !signupLoginIdValid}
+                      onClick={() => void checkSignupLoginId()}
+                    >
+                      {signupLoginIdAvailability.status === "checking" ? "확인 중" : "중복 검사"}
+                    </button>
+                  </div>
                   <span
+                    id="public-signup-login-id-hint"
                     className={`field-hint portal-password-hint ${
-                      signupLoginIdFilled && !signupLoginIdValid ? "portal-field-error" : signupLoginIdValid ? "portal-field-ok" : ""
+                      signupLoginIdFilled && !signupLoginIdValid ? "portal-field-error" : signupLoginIdAvailabilityClass
                     }`}
                   >
                     {signupLoginIdFilled && !signupLoginIdValid
                       ? "영문/숫자로 시작하는 3~32자 ID를 입력하세요."
-                      : signupLoginIdValid
-                        ? "사용 가능한 ID 형식입니다."
+                      : signupLoginIdAvailabilityMessage
+                        ? signupLoginIdAvailabilityMessage
+                        : signupLoginIdValid
+                          ? "중복 검사를 진행해주세요."
                         : "\u00a0"}
                   </span>
                 </label>
@@ -566,7 +664,7 @@ export function PublicLanding({
                         : "\u00a0"}
                   </span>
                 </label>
-                <label>
+                <label className="full">
                   <span>이름</span>
                   <input
                     value={signupForm.name}
@@ -605,7 +703,7 @@ export function PublicLanding({
                         : "\u00a0"}
                   </span>
                 </label>
-                <label className="full">
+                <label>
                   <span>담당자 이메일</span>
                   <input
                     type="email"

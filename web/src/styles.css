@@ -16181,6 +16181,30 @@ button.issuance-list-item {
   grid-column: 1 / -1;
 }
 
+.portal-shell .portal-login-id-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.portal-shell .portal-login-id-check {
+  min-height: 46px;
+  padding: 0 12px;
+  border-color: var(--portal-border);
+  background: var(--portal-surface);
+  color: var(--portal-primary-strong);
+  font-size: 13px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.portal-shell .portal-login-id-check:not(:disabled):hover {
+  border-color: rgba(37, 99, 235, 0.36);
+  background: rgba(239, 246, 255, 0.92);
+  color: var(--portal-primary-strong);
+}
+
 .portal-shell .portal-terms-list {
   display: grid;
   gap: 8px;
@@ -16895,6 +16919,10 @@ button.issuance-list-item {
   .app-shell-topnav .settings-option1-progress-row,
   .app-shell-topnav .onboarding-task-shell,
   .portal-shell .portal-signup-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-shell .portal-login-id-control {
     grid-template-columns: 1fr;
   }
 
