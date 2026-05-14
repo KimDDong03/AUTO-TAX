@@ -91,9 +91,9 @@ test("HomeTab renders issued monthly trend year query and twelve line points", (
   assert.match(markup, /월별 발행 현황/);
   assert.match(markup, /연 조회/);
   assert.match(markup, /type="number"/);
-  assert.match(markup, /조회 연도/);
-  assert.match(markup, /선택월/);
   assert.match(markup, /연간 합계/);
+  assert.doesNotMatch(markup, /조회 연도/);
+  assert.doesNotMatch(markup, /선택월/);
   assert.equal((markup.match(/lovable-issued-trend-accessible-item/g) ?? []).length, 12);
   assert.match(markup, /2026-05 3건/);
   assert.doesNotMatch(markup, /25\.05/);
@@ -106,5 +106,6 @@ test("HomeTab shows reset action when the trend year is not the current year", (
   });
 
   assert.match(markup, /올해로 돌아가기/);
-  assert.match(markup, /선택월 2025-01 · 1건/);
+  assert.match(markup, /연간 합계/);
+  assert.doesNotMatch(markup, /선택월/);
 });

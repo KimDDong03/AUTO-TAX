@@ -205,10 +205,6 @@ function getDefaultSelectedTrendBillingMonth(anchorBillingYear: string, currentB
   return `${anchorBillingYear}-01`;
 }
 
-function getIssuedMonthlyTrendCount(months: IssuedMonthlyTrendMonth[], billingMonth: string): number {
-  return months.find((month) => month.billingMonth === billingMonth)?.issuedDraftCount ?? 0;
-}
-
 function getMetricValue(metrics: HomeScreenModel["chips"], labelKeyword: string, fallback: string): string {
   return metrics.find((metric) => metric.label.includes(labelKeyword))?.value ?? fallback;
 }
@@ -307,10 +303,6 @@ export function HomeTab(props: HomeTabProps) {
   const [selectedTrendBillingMonth, setSelectedTrendBillingMonth] = useState(defaultSelectedTrendBillingMonth);
   const trendMonths = props.issuedMonthlyTrend?.months ?? [];
   const trendTotalCount = trendMonths.reduce((sum, month) => sum + month.issuedDraftCount, 0);
-  const selectedTrendCount = useMemo(
-    () => getIssuedMonthlyTrendCount(trendMonths, selectedTrendBillingMonth),
-    [selectedTrendBillingMonth, trendMonths]
-  );
   const isTrendCustomAnchor = Boolean(props.issuedMonthlyTrend && props.issuedMonthlyTrend.anchorBillingYear !== currentTrendYear);
   const trendChartData: TrendChartDatum[] = useMemo(
     () =>
@@ -461,7 +453,7 @@ export function HomeTab(props: HomeTabProps) {
 
       <motion.section className="lovable-issued-trend" aria-labelledby="lovable-issued-trend-title" variants={homeSectionVariants}>
         <div className="lovable-issued-trend-head">
-          <div>
+          <div className="lovable-issued-trend-titleline">
             <h3 id="lovable-issued-trend-title">월별 발행 현황</h3>
           </div>
           <form
@@ -473,6 +465,9 @@ export function HomeTab(props: HomeTabProps) {
               }
             }}
           >
+            <span className="lovable-issued-trend-total">
+              연간 합계 <strong>{props.formatMoney(trendTotalCount)}건</strong>
+            </span>
             <label>
               <span>연 조회</span>
               <input
@@ -495,21 +490,6 @@ export function HomeTab(props: HomeTabProps) {
           </form>
         </div>
 
-        <div className="lovable-issued-trend-summary" aria-label="연도별 발행 요약">
-          <div>
-            <span>조회 연도</span>
-            <strong>{trendAnchorBillingYear}년</strong>
-          </div>
-          <div>
-            <span>선택월</span>
-            <strong>{formatBillingMonthLabel(selectedTrendBillingMonth)} {props.formatMoney(selectedTrendCount)}건</strong>
-          </div>
-          <div>
-            <span>연간 합계</span>
-            <strong>{props.formatMoney(trendTotalCount)}건</strong>
-          </div>
-        </div>
-
         {props.issuedMonthlyTrendError ? (
           <div className="lovable-issued-trend-message">{props.issuedMonthlyTrendError}</div>
         ) : null}
@@ -519,10 +499,10 @@ export function HomeTab(props: HomeTabProps) {
             {trendChartData.length > 0 ? (
               <>
                 <div className="lovable-issued-trend-recharts">
-                  <ResponsiveContainer width="100%" height={220}>
+                  <ResponsiveContainer width="100%" height={118}>
                     <LineChart
                       data={trendChartData}
-                      margin={{ top: 24, right: 20, left: 20, bottom: 8 }}
+                      margin={{ top: 12, right: 14, left: 14, bottom: 2 }}
                       onClick={handleTrendChartClick}
                     >
                       <defs>
@@ -599,9 +579,6 @@ export function HomeTab(props: HomeTabProps) {
               </div>
             )}
           </div>
-        </div>
-        <div className="lovable-issued-trend-selected" aria-live="polite">
-          선택월 {selectedTrendBillingMonth || "-"} · {props.formatMoney(selectedTrendCount)}건
         </div>
       </motion.section>
 
