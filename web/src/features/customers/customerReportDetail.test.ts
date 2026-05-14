@@ -5,6 +5,7 @@ import {
   createEmptyCustomerReportDetail,
   deriveContractEndMonth,
   formatCustomerReportIssueDay,
+  hasCustomerReportDetailChanges,
   normalizeCustomerReportDetail,
   parseCustomerReportIssueDay,
   toCustomerReportDetailInput
@@ -98,4 +99,19 @@ test("toCustomerReportDetailInput strips computed fields before save", () => {
     vatAmount: 100
   });
   assert.equal(toCustomerReportDetailInput(detail).profile.contractEndMonth, "2027-01");
+});
+
+test("hasCustomerReportDetailChanges compares save-relevant report detail fields", () => {
+  const current = createEmptyCustomerReportDetail(1, 2026);
+  const draft = createEmptyCustomerReportDetail(1, 2026);
+
+  assert.equal(hasCustomerReportDetailChanges(current, draft), false);
+
+  draft.months[0] = {
+    ...draft.months[0],
+    supplyAmount: 1000,
+    totalAmount: 1000
+  };
+
+  assert.equal(hasCustomerReportDetailChanges(current, draft), true);
 });

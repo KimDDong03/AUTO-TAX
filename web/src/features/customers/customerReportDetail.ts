@@ -173,6 +173,17 @@ export function toCustomerReportDetailInput(detail: CustomerReportDetail): Custo
   };
 }
 
+export function hasCustomerReportDetailChanges(
+  currentDetail: CustomerReportDetail | null,
+  draftDetail: CustomerReportDetail | null
+): boolean {
+  if (!currentDetail || !draftDetail) {
+    return false;
+  }
+
+  return JSON.stringify(toCustomerReportDetailInput(currentDetail)) !== JSON.stringify(toCustomerReportDetailInput(draftDetail));
+}
+
 export function parseNullableNumberInput(value: string): number | null {
   const trimmed = value.trim();
   if (trimmed === "") return null;

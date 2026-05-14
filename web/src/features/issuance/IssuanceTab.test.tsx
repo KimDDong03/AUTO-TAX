@@ -238,6 +238,12 @@ test("IssuanceTab exposes manual mail sync from the issuance toolbar", () => {
   assert.equal(syncClicked, true);
 });
 
+test("IssuanceTab defaults to the all filter", () => {
+  const { markup } = renderIssuanceTab();
+
+  assert.match(markup, /issuance-filter-chip active"[^>]*aria-pressed="true"[^>]*><span class="issuance-filter-label">전체<\/span>/);
+});
+
 test("IssuanceTab shows mail sync progress while sync is busy", () => {
   const { markup } = renderIssuanceTab({ busyKey: "sync" });
 
@@ -270,6 +276,39 @@ test("IssuanceTab labels the draft edit action as tax invoice info editing", () 
   assert.doesNotMatch(markup, /상세 구매일자/);
   assert.ok(buttons.some((button) => button.label.includes("세금계산서 정보 수정")));
   assert.ok(buttons.some((button) => button.label.includes("매칭 해제")));
+});
+
+test("IssuanceTab lays out unmatched mail details for side-by-side review", () => {
+  const { markup } = renderIssuanceTab({
+    requestedFilter: "unmatched",
+    unmatchedInboxMessages: [
+      buildInboxMessage({
+        customerId: null,
+        parseStatus: "unmatched"
+      })
+    ]
+  });
+
+  assert.match(markup, /issuance-invoice-compare issuance-unmatched-mail-grid/);
+  assert.match(markup, /aria-label="메일 정보"/);
+  assert.match(markup, /aria-label="자동 추출 정보"/);
+  assert.doesNotMatch(markup, /aria-label="예외 사유"/);
+});
+
+test("IssuanceTab keeps unmatched exception details out of the detail panel", () => {
+  const { markup } = renderIssuanceTab({
+    requestedFilter: "unmatched",
+    unmatchedInboxMessages: [
+      buildInboxMessage({
+        customerId: null,
+        parseStatus: "failed",
+        parseError: "공급가액을 찾을 수 없습니다."
+      })
+    ]
+  });
+
+  assert.doesNotMatch(markup, /aria-label="예외 사유"/);
+  assert.doesNotMatch(markup, /공급가액을 찾을 수 없습니다\./);
 });
 
 test("IssuanceTab shows current-month customers without mail as missing mail", () => {

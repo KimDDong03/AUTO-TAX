@@ -543,7 +543,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
   const failedCount = useMemo(() => props.drafts.filter((draft) => draft.status === "failed").length, [props.drafts]);
   const unmatchedMessageCount = props.unmatchedInboxMessages.length;
   const currentBillingMonth = useMemo(() => getCurrentSeoulBillingMonth(), []);
-  const defaultFilter: IssuanceFilter = "pending";
+  const defaultFilter: IssuanceFilter = "all";
   const [activeFilter, setActiveFilter] = useState<IssuanceFilter>(props.requestedFilter ?? defaultFilter);
   const [selectedEntryKey, setSelectedEntryKey] = useState<string | null>(null);
   const [issuanceSearchQuery, setIssuanceSearchQuery] = useState("");
@@ -1513,7 +1513,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                 </div>
 
                 <div className="issuance-detail-tabset">
-                  <div className="issuance-invoice-compare" aria-label="미매칭 메일 정보">
+                  <div className="issuance-invoice-compare issuance-unmatched-mail-grid" aria-label="미매칭 메일 정보">
                     <section className="issuance-detail-facts-shell" aria-label="메일 정보">
                       <div className="issuance-card-title">
                         <Icon name="mail" className="issuance-card-title-icon" />
@@ -1596,13 +1596,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
                       </dl>
                     </section>
 
-                    <section className="issuance-detail-facts-shell issuance-exception-reason" aria-label="예외 사유">
-                      <div className="issuance-card-title">
-                        <Icon name="warning" className="issuance-card-title-icon" />
-                        예외 사유
-                      </div>
-                      <p className="issuance-detail-error">{selectedUnmatchedMessage.parseError || "현재 표시할 예외 사유가 없습니다."}</p>
-                    </section>
                   </div>
                 </div>
 
