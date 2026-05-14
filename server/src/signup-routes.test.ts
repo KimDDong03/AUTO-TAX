@@ -9,6 +9,21 @@ import { HttpError } from "./http-errors.js";
 import { registerCoreRoutes } from "./routes/core-routes.js";
 import { registerOpsRoutes } from "./routes/ops-routes.js";
 
+for (const key of [
+  "AUTO_TAX_SIGNUP_EMAIL_PROVIDER",
+  "AUTO_TAX_SIGNUP_SMTP_HOST",
+  "AUTO_TAX_SIGNUP_SMTP_PORT",
+  "AUTO_TAX_SIGNUP_SMTP_SECURE",
+  "AUTO_TAX_SIGNUP_SMTP_USER",
+  "AUTO_TAX_SIGNUP_SMTP_PASS",
+  "AUTO_TAX_SIGNUP_EMAIL_FROM",
+  "AUTO_TAX_SIGNUP_EMAIL_FROM_NAME",
+  "AUTO_TAX_SUPPORT_TO_EMAIL",
+  "AUTO_TAX_SUPPORT_APP_PASSWORD"
+]) {
+  delete process.env[key];
+}
+
 type SignupRow = {
   id: string;
   user_id: string;
@@ -58,6 +73,23 @@ type PhoneVerificationRow = {
   updated_at: string;
 };
 
+type EmailVerificationRow = {
+  id: string;
+  email: string;
+  code_hash: string;
+  code_salt: string;
+  expires_at: string;
+  verified_at: string | null;
+  consumed_at: string | null;
+  attempt_count: number;
+  provider: string;
+  provider_message_id: string | null;
+  request_ip: string;
+  request_user_agent: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type AuthUser = {
   id: string;
   email: string;
@@ -70,6 +102,7 @@ function createSignupAdminClient() {
   const state = {
     signupRows: [] as SignupRow[],
     phoneVerificationRows: [] as PhoneVerificationRow[],
+    emailVerificationRows: [] as EmailVerificationRow[],
     authUsers: [] as AuthUser[],
     loginIndexRows: [] as Array<{ user_id: string; login_id: string; auth_email: string; display_name: string | null }>,
     organizations: [] as Array<{ id: string; name: string; status: string; plan_code: string; monthly_issue_limit: number }>,
@@ -167,6 +200,14 @@ function createSignupAdminClient() {
           });
         }
       }
+      if (this.table === "public_signup_email_verifications" && this.updatePayload) {
+        const row = state.emailVerificationRows.find((item) => field === "id" && item.id === value);
+        if (row) {
+          Object.assign(row, this.updatePayload, {
+            updated_at: "2026-05-07T01:00:00.000Z"
+          });
+        }
+      }
       return this;
     }
 
@@ -198,6 +239,27 @@ function createSignupAdminClient() {
           updated_at: timestamp
         };
         state.phoneVerificationRows.push(row);
+        return { data: row, error: null };
+      }
+
+      if (this.table === "public_signup_email_verifications") {
+        const row: EmailVerificationRow = {
+          id: `31000000-0000-4000-8000-${String(state.emailVerificationRows.length + 1).padStart(12, "0")}`,
+          email: String(this.insertPayload.email),
+          code_hash: String(this.insertPayload.code_hash),
+          code_salt: String(this.insertPayload.code_salt),
+          expires_at: String(this.insertPayload.expires_at),
+          verified_at: null,
+          consumed_at: null,
+          attempt_count: 0,
+          provider: String(this.insertPayload.provider),
+          provider_message_id: this.insertPayload.provider_message_id ? String(this.insertPayload.provider_message_id) : null,
+          request_ip: String(this.insertPayload.request_ip),
+          request_user_agent: String(this.insertPayload.request_user_agent),
+          created_at: timestamp,
+          updated_at: timestamp
+        };
+        state.emailVerificationRows.push(row);
         return { data: row, error: null };
       }
 
@@ -269,6 +331,13 @@ function createSignupAdminClient() {
         };
       }
 
+      if (this.table === "public_signup_email_verifications") {
+        return {
+          data: state.emailVerificationRows.find((item) => this.filters.id && item.id === this.filters.id) ?? null,
+          error: null
+        };
+      }
+
       if (this.table === "organizations" && this.insertPayload) {
         const row = {
           id: String(this.insertPayload.id),
@@ -314,6 +383,7 @@ function createSignupAdminClient() {
         ![
           "public_signup_requests",
           "public_signup_phone_verifications",
+          "public_signup_email_verifications",
           "auth_user_login_index",
           "organizations",
           "organization_members",
@@ -634,10 +704,12 @@ async function createVerifiedSignupPayload(
 ) {
   const payload = { ...validSignupPayload, ...overrides };
   const verificationId = await createVerifiedPhoneVerification(baseUrl, payload.phone);
+  const emailVerificationId = await createVerifiedEmailVerification(baseUrl, payload.kepcoEmail);
 
   return {
     ...payload,
-    phoneVerificationId: verificationId
+    phoneVerificationId: verificationId,
+    kepcoEmailVerificationId: emailVerificationId
   };
 }
 
@@ -658,6 +730,31 @@ async function createVerifiedPhoneVerification(baseUrl: string, phone: string): 
     body: JSON.stringify({
       verificationId: sent.verificationId,
       phone,
+      code: sent.devCode
+    })
+  });
+  assert.equal(confirm.status, 200);
+
+  return sent.verificationId;
+}
+
+async function createVerifiedEmailVerification(baseUrl: string, email: string): Promise<string> {
+  const send = await fetch(`${baseUrl}/api/public/signup/email-verifications/send`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email })
+  });
+  assert.equal(send.status, 201);
+  const sent = await send.json() as { verificationId: string; devCode?: string };
+  assert.ok(sent.verificationId);
+  assert.ok(sent.devCode);
+
+  const confirm = await fetch(`${baseUrl}/api/public/signup/email-verifications/confirm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      verificationId: sent.verificationId,
+      email,
       code: sent.devCode
     })
   });
@@ -696,10 +793,33 @@ test("public signup rejects uncommon Korean phone prefixes", async () => {
 
 test("public signup requires verified phone before creating auth user", async () => {
   await withSignupServer(async (baseUrl, fixture) => {
+    const emailVerificationId = await createVerifiedEmailVerification(baseUrl, validSignupPayload.kepcoEmail);
     const missingVerification = await fetch(`${baseUrl}/api/public/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...validSignupPayload, phoneVerificationId: "30000000-0000-4000-8000-000000000001" })
+      body: JSON.stringify({
+        ...validSignupPayload,
+        phoneVerificationId: "30000000-0000-4000-8000-000000000001",
+        kepcoEmailVerificationId: emailVerificationId
+      })
+    });
+    assert.equal(missingVerification.status, 400);
+    assert.equal(fixture.state.signupRows.length, 0);
+    assert.equal(fixture.state.authUsers.length, 0);
+  });
+});
+
+test("public signup requires verified kepco email before creating auth user", async () => {
+  await withSignupServer(async (baseUrl, fixture) => {
+    const phoneVerificationId = await createVerifiedPhoneVerification(baseUrl, validSignupPayload.phone);
+    const missingVerification = await fetch(`${baseUrl}/api/public/signup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...validSignupPayload,
+        phoneVerificationId,
+        kepcoEmailVerificationId: "31000000-0000-4000-8000-000000000001"
+      })
     });
     assert.equal(missingVerification.status, 400);
     assert.equal(fixture.state.signupRows.length, 0);
@@ -735,6 +855,42 @@ test("public signup phone verification rejects wrong codes and confirms dev code
       body: JSON.stringify({
         verificationId: sent.verificationId,
         phone: validSignupPayload.phone,
+        code: sent.devCode
+      })
+    });
+    assert.equal(confirmed.status, 200);
+    assert.deepEqual(await confirmed.json(), { verified: true });
+  });
+});
+
+test("public signup kepco email verification rejects wrong codes and confirms dev code", async () => {
+  await withSignupServer(async (baseUrl) => {
+    const send = await fetch(`${baseUrl}/api/public/signup/email-verifications/send`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: validSignupPayload.kepcoEmail })
+    });
+    assert.equal(send.status, 201);
+    const sent = await send.json() as { verificationId: string; devCode?: string };
+    assert.ok(sent.devCode);
+
+    const wrong = await fetch(`${baseUrl}/api/public/signup/email-verifications/confirm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        verificationId: sent.verificationId,
+        email: validSignupPayload.kepcoEmail,
+        code: "000000"
+      })
+    });
+    assert.equal(wrong.status, 400);
+
+    const confirmed = await fetch(`${baseUrl}/api/public/signup/email-verifications/confirm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        verificationId: sent.verificationId,
+        email: validSignupPayload.kepcoEmail,
         code: sent.devCode
       })
     });

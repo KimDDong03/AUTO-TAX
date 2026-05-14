@@ -16246,6 +16246,10 @@ button.issuance-list-item {
   grid-column: 1 / -1;
 }
 
+.portal-shell .portal-signup-grid .row-start {
+  grid-column: 1 / 2;
+}
+
 .portal-shell .portal-signup-section-title {
   display: flex;
   align-items: center;

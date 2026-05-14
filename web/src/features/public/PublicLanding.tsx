@@ -16,6 +16,7 @@ export type PublicSignupInput = {
   phone: string;
   phoneVerificationId: string;
   kepcoEmail: string;
+  kepcoEmailVerificationId: string;
   invoiceEmail: string;
   termsAccepted: boolean;
   privacyAccepted: boolean;
@@ -29,6 +30,12 @@ export type PublicSignupLoginIdAvailability = {
 };
 
 export type PublicSignupPhoneVerificationSendResult = {
+  verificationId: string;
+  expiresAt: string;
+  devCode?: string;
+};
+
+export type PublicSignupEmailVerificationSendResult = {
   verificationId: string;
   expiresAt: string;
   devCode?: string;
@@ -54,6 +61,15 @@ type SignupLoginIdAvailabilityState = {
 
 type SignupPhoneVerificationState = {
   phone: string;
+  verificationId: string;
+  code: string;
+  status: "idle" | "sending" | "sent" | "verifying" | "verified" | "error";
+  message: string;
+  devCode?: string;
+};
+
+type SignupEmailVerificationState = {
+  email: string;
   verificationId: string;
   code: string;
   status: "idle" | "sending" | "sent" | "verifying" | "verified" | "error";
@@ -102,6 +118,8 @@ type PublicLandingProps = {
   onCheckLoginIdAvailability: (loginId: string) => Promise<PublicSignupLoginIdAvailability>;
   onSendSignupPhoneVerification: (phone: string) => Promise<PublicSignupPhoneVerificationSendResult>;
   onConfirmSignupPhoneVerification: (input: { verificationId: string; phone: string; code: string }) => Promise<boolean>;
+  onSendSignupEmailVerification: (email: string) => Promise<PublicSignupEmailVerificationSendResult>;
+  onConfirmSignupEmailVerification: (input: { verificationId: string; email: string; code: string }) => Promise<boolean>;
   onFindLoginId: (input: { name: string; phone: string; phoneVerificationId: string }) => Promise<PublicLoginIdLookupResult>;
   onPasswordReset: (email: string) => Promise<boolean>;
 };
@@ -122,6 +140,7 @@ const emptySignupForm: PublicSignupFormState = {
   phone: "",
   phoneVerificationId: "",
   kepcoEmail: "",
+  kepcoEmailVerificationId: "",
   invoiceEmail: "",
   termsAccepted: false,
   privacyAccepted: false,
@@ -351,6 +370,8 @@ export function PublicLanding({
   onCheckLoginIdAvailability,
   onSendSignupPhoneVerification,
   onConfirmSignupPhoneVerification,
+  onSendSignupEmailVerification,
+  onConfirmSignupEmailVerification,
   onFindLoginId,
   onPasswordReset
 }: PublicLandingProps) {
@@ -365,6 +386,13 @@ export function PublicLanding({
   const latestSignupLoginIdRef = useRef("");
   const [signupPhoneVerification, setSignupPhoneVerification] = useState<SignupPhoneVerificationState>({
     phone: "",
+    verificationId: "",
+    code: "",
+    status: "idle",
+    message: ""
+  });
+  const [signupEmailVerification, setSignupEmailVerification] = useState<SignupEmailVerificationState>({
+    email: "",
     verificationId: "",
     code: "",
     status: "idle",
@@ -414,6 +442,15 @@ export function PublicLanding({
     if (key === "phone") {
       setSignupPhoneVerification({
         phone: "",
+        verificationId: "",
+        code: "",
+        status: "idle",
+        message: ""
+      });
+    }
+    if (key === "kepcoEmail") {
+      setSignupEmailVerification({
+        email: "",
         verificationId: "",
         code: "",
         status: "idle",
@@ -473,6 +510,11 @@ export function PublicLanding({
     signupPhoneVerification.verificationId.length > 0;
   const signupEmailFilled = signupForm.kepcoEmail.trim().length > 0;
   const signupEmailValid = isValidEmail(signupForm.kepcoEmail);
+  const signupEmailNormalized = signupForm.kepcoEmail.trim().toLowerCase();
+  const signupEmailVerified =
+    signupEmailVerification.status === "verified" &&
+    signupEmailVerification.email === signupEmailNormalized &&
+    signupEmailVerification.verificationId.length > 0;
   const signupPasswordFilled = signupForm.password.length > 0;
   const signupPasswordValid = isStrongEnoughSignupPassword(signupForm.password);
   const signupRequiredFieldsFilled = Boolean(
@@ -487,7 +529,8 @@ export function PublicLanding({
       signupNameValid &&
       signupPhoneValid &&
       signupPhoneVerified &&
-      signupEmailValid
+      signupEmailValid &&
+      signupEmailVerified
   );
   const signupRequiredTermsAccepted =
     signupForm.termsAccepted && signupForm.privacyAccepted && signupForm.thirdPartyAccepted;
@@ -498,6 +541,8 @@ export function PublicLanding({
       ? "다른 로그인 ID를 입력해주세요."
       : signupPhoneValid && !signupPhoneVerified
         ? "휴대폰 인증을 완료해주세요."
+        : signupEmailValid && !signupEmailVerified
+          ? "한전 수신메일 인증을 완료해주세요."
       : !signupRequiredFieldsFilled
         ? "필수 입력값과 비밀번호 확인을 맞춰주세요."
         : "필수 약관 동의가 필요합니다.";
@@ -800,6 +845,83 @@ export function PublicLanding({
     }
   };
 
+  const requestSignupEmailVerification = async () => {
+    if (!signupEmailValid) {
+      setSignupEmailVerification((prev) => ({
+        ...prev,
+        status: "error",
+        message: "한전 수신메일을 먼저 올바르게 입력하세요."
+      }));
+      return;
+    }
+
+    setSignupEmailVerification({
+      email: signupEmailNormalized,
+      verificationId: "",
+      code: "",
+      status: "sending",
+      message: "인증번호를 보내는 중입니다."
+    });
+
+    try {
+      const result = await onSendSignupEmailVerification(signupForm.kepcoEmail);
+      setSignupEmailVerification({
+        email: signupEmailNormalized,
+        verificationId: result.verificationId,
+        code: result.devCode ?? "",
+        status: "sent",
+        message: result.devCode
+          ? `개발용 인증번호 ${result.devCode}를 입력하세요.`
+          : "인증번호를 보냈습니다. 5분 안에 입력하세요.",
+        devCode: result.devCode
+      });
+    } catch (verificationError) {
+      setSignupEmailVerification({
+        email: signupEmailNormalized,
+        verificationId: "",
+        code: "",
+        status: "error",
+        message: verificationError instanceof Error ? verificationError.message : "인증번호 발송에 실패했습니다."
+      });
+    }
+  };
+
+  const confirmSignupEmailVerification = async () => {
+    if (!signupEmailVerification.verificationId || signupEmailVerification.code.trim().length !== 6) {
+      setSignupEmailVerification((prev) => ({
+        ...prev,
+        status: "error",
+        message: "인증번호 6자리를 입력하세요."
+      }));
+      return;
+    }
+
+    setSignupEmailVerification((prev) => ({
+      ...prev,
+      status: "verifying",
+      message: "인증번호를 확인하는 중입니다."
+    }));
+
+    try {
+      const verified = await onConfirmSignupEmailVerification({
+        verificationId: signupEmailVerification.verificationId,
+        email: signupForm.kepcoEmail,
+        code: signupEmailVerification.code
+      });
+      setSignupEmailVerification((prev) => ({
+        ...prev,
+        status: verified ? "verified" : "error",
+        message: verified ? "한전 수신메일 인증이 완료되었습니다." : "인증번호 확인에 실패했습니다."
+      }));
+    } catch (verificationError) {
+      setSignupEmailVerification((prev) => ({
+        ...prev,
+        status: "error",
+        message: verificationError instanceof Error ? verificationError.message : "인증번호 확인에 실패했습니다."
+      }));
+    }
+  };
+
   const checkSignupLoginId = async () => {
     const loginId = signupForm.loginId.trim();
     const normalizedLoginId = loginId.toLowerCase();
@@ -871,6 +993,7 @@ export function PublicLanding({
       phone: signupForm.phone,
       phoneVerificationId: signupPhoneVerification.verificationId,
       kepcoEmail: signupForm.kepcoEmail,
+      kepcoEmailVerificationId: signupEmailVerification.verificationId,
       invoiceEmail: signupForm.kepcoEmail,
       termsAccepted: signupForm.termsAccepted,
       privacyAccepted: signupForm.privacyAccepted,
@@ -882,6 +1005,13 @@ export function PublicLanding({
       setSignupForm(emptySignupForm);
       setSignupPhoneVerification({
         phone: "",
+        verificationId: "",
+        code: "",
+        status: "idle",
+        message: ""
+      });
+      setSignupEmailVerification({
+        email: "",
         verificationId: "",
         code: "",
         status: "idle",
@@ -1237,7 +1367,7 @@ export function PublicLanding({
                       : "\u00a0"}
                   </span>
                 </label>
-                <label>
+                <label className="row-start">
                   <span>대표자 전화번호</span>
                   <div className="portal-login-id-control portal-phone-verification-control">
                     <input
@@ -1314,26 +1444,85 @@ export function PublicLanding({
                     {signupPhoneVerified ? "휴대폰 인증이 완료되었습니다." : "\u00a0"}
                   </span>
                 </label>
-                <label className="full">
+                <label className="row-start">
                   <span>한전 수신메일</span>
-                  <input
-                    type="email"
-                    value={signupForm.kepcoEmail}
-                    onChange={(event) => updateSignupForm("kepcoEmail", event.target.value)}
-                    placeholder="kepco@example.com"
-                    autoComplete="email"
-                    required
-                  />
+                  <div className="portal-login-id-control portal-phone-verification-control">
+                    <input
+                      type="text"
+                      inputMode="email"
+                      aria-label="한전 수신메일"
+                      value={signupForm.kepcoEmail}
+                      onChange={(event) => updateSignupForm("kepcoEmail", event.target.value)}
+                      placeholder="kepco@example.com"
+                      autoComplete="email"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="portal-login-id-check"
+                      disabled={authBusy || !signupEmailValid || signupEmailVerification.status === "sending"}
+                      onClick={() => void requestSignupEmailVerification()}
+                    >
+                      {signupEmailVerification.status === "sending" ? "발송 중" : signupEmailVerified ? "재전송" : "인증번호"}
+                    </button>
+                  </div>
                   <span
                     className={`field-hint portal-password-hint ${
-                      signupEmailFilled && !signupEmailValid ? "portal-field-error" : signupEmailValid ? "portal-field-ok" : ""
+                      signupEmailFilled && !signupEmailValid
+                        ? "portal-field-error"
+                        : signupEmailVerified
+                          ? "portal-field-ok"
+                          : signupEmailVerification.status === "error"
+                            ? "portal-field-error"
+                            : ""
                     }`}
                   >
                     {signupEmailFilled && !signupEmailValid
                       ? "메일 주소 형식이 올바르지 않습니다."
-                      : signupEmailValid
-                        ? "사용 가능한 메일 주소입니다."
+                      : signupEmailVerification.message
+                        ? signupEmailVerification.message
+                        : signupEmailValid
+                          ? "인증번호를 받아 한전 수신메일 인증을 완료하세요."
                         : "\u00a0"}
+                  </span>
+                </label>
+                <label>
+                  <span>한전 수신메일 인증번호</span>
+                  <div className="portal-login-id-control portal-phone-verification-control">
+                    <input
+                      aria-label="한전 수신메일 인증번호"
+                      value={signupEmailVerification.code}
+                      onChange={(event) => {
+                        const code = event.target.value.replace(/\D/g, "").slice(0, 6);
+                        setSignupEmailVerification((prev) => ({
+                          ...prev,
+                          code,
+                          status: prev.status === "verified" ? "sent" : prev.status,
+                          message: prev.status === "verified" ? "인증번호를 다시 확인해주세요." : prev.message
+                        }));
+                      }}
+                      placeholder="6자리"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      disabled={!signupEmailVerification.verificationId || signupEmailVerified}
+                    />
+                    <button
+                      type="button"
+                      className="portal-login-id-check"
+                      disabled={
+                        authBusy ||
+                        signupEmailVerified ||
+                        signupEmailVerification.status === "verifying" ||
+                        !signupEmailVerification.verificationId ||
+                        signupEmailVerification.code.length !== 6
+                      }
+                      onClick={() => void confirmSignupEmailVerification()}
+                    >
+                      {signupEmailVerification.status === "verifying" ? "확인 중" : signupEmailVerified ? "완료" : "확인"}
+                    </button>
+                  </div>
+                  <span className={`field-hint portal-password-hint ${signupEmailVerified ? "portal-field-ok" : ""}`}>
+                    {signupEmailVerified ? "한전 수신메일 인증이 완료되었습니다." : "\u00a0"}
                   </span>
                 </label>
                 <div className="portal-signup-section-title full">

@@ -32,6 +32,7 @@ import { OnboardingTab, type OnboardingStep } from "./features/onboarding/Onboar
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "./features/auth/passwordPolicy";
 import {
   PublicLanding,
+  type PublicSignupEmailVerificationSendResult,
   type PublicLoginIdLookupResult,
   type PublicSignupInput,
   type PublicSignupLoginIdAvailability,
@@ -3245,6 +3246,25 @@ export function App() {
     return result.verified;
   };
 
+  const sendSignupEmailVerification = async (email: string): Promise<PublicSignupEmailVerificationSendResult> => {
+    return api<PublicSignupEmailVerificationSendResult>("/api/public/signup/email-verifications/send", {
+      method: "POST",
+      body: JSON.stringify({ email })
+    });
+  };
+
+  const confirmSignupEmailVerification = async (input: {
+    verificationId: string;
+    email: string;
+    code: string;
+  }): Promise<boolean> => {
+    const result = await api<{ verified: boolean }>("/api/public/signup/email-verifications/confirm", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    return result.verified;
+  };
+
   const findLoginId = async (input: {
     name: string;
     phone: string;
@@ -5574,6 +5594,8 @@ export function App() {
           onCheckLoginIdAvailability={checkSignupLoginIdAvailability}
           onSendSignupPhoneVerification={sendSignupPhoneVerification}
           onConfirmSignupPhoneVerification={confirmSignupPhoneVerification}
+          onSendSignupEmailVerification={sendSignupEmailVerification}
+          onConfirmSignupEmailVerification={confirmSignupEmailVerification}
           onFindLoginId={findLoginId}
           onPasswordReset={requestPasswordReset}
         />

@@ -16,6 +16,11 @@ import {
   consumeSignupPhoneVerification,
   createSignupPhoneVerification
 } from "../signup-phone-verifications.js";
+import {
+  confirmSignupEmailVerification,
+  consumeSignupEmailVerification,
+  createSignupEmailVerification
+} from "../signup-email-verifications.js";
 import { createSmsProvider } from "../sms-provider.js";
 import type {
   AppRateLimiter,
@@ -48,6 +53,18 @@ const publicSignupPhoneVerificationSendSchema = z.object({
 const publicSignupPhoneVerificationConfirmSchema = z.object({
   verificationId: z.uuid(),
   phone: publicSignupPhoneSchema,
+  code: z.string().trim().regex(/^\d{6}$/, "인증번호 6자리를 입력하세요.")
+});
+
+const publicSignupEmailSchema = z.string().trim().email().max(160);
+
+const publicSignupEmailVerificationSendSchema = z.object({
+  email: publicSignupEmailSchema
+});
+
+const publicSignupEmailVerificationConfirmSchema = z.object({
+  verificationId: z.uuid(),
+  email: publicSignupEmailSchema,
   code: z.string().trim().regex(/^\d{6}$/, "인증번호 6자리를 입력하세요.")
 });
 
@@ -93,7 +110,8 @@ const publicSignupSchema = z.object({
     .refine(isKoreanPersonName, "이름은 한글 실명 2~20자로 입력하세요."),
   phone: publicSignupPhoneSchema,
   phoneVerificationId: z.uuid(),
-  kepcoEmail: z.string().trim().email().max(160),
+  kepcoEmail: publicSignupEmailSchema,
+  kepcoEmailVerificationId: z.uuid(),
   invoiceEmail: z.string().trim().email().max(160),
   termsAccepted: z.boolean().refine((value) => value, "서비스 이용약관에 동의해야 합니다."),
   privacyAccepted: z.boolean().refine((value) => value, "개인정보 수집/이용에 동의해야 합니다."),
@@ -355,6 +373,23 @@ export function registerCoreRoutes(deps: RouteDeps) {
     res.json({ verified: true });
   });
 
+  app.post("/api/public/signup/email-verifications/send", publicSignupLimiter, async (req, res) => {
+    const payload = publicSignupEmailVerificationSendSchema.parse(req.body ?? {});
+    const result = await createSignupEmailVerification(createSupabaseAdminClient(), {
+      email: payload.email,
+      requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+      requestUserAgent: req.header("user-agent") ?? ""
+    });
+
+    res.status(201).json(result);
+  });
+
+  app.post("/api/public/signup/email-verifications/confirm", publicSignupLimiter, async (req, res) => {
+    const payload = publicSignupEmailVerificationConfirmSchema.parse(req.body ?? {});
+    await confirmSignupEmailVerification(createSupabaseAdminClient(), payload);
+    res.json({ verified: true });
+  });
+
   app.post("/api/public/signup/login-id-lookup", publicSignupLimiter, async (req, res) => {
     const payload = publicSignupLoginIdLookupSchema.parse(req.body ?? {});
     const adminClient = createSupabaseAdminClient();
@@ -398,6 +433,10 @@ export function registerCoreRoutes(deps: RouteDeps) {
     await consumeSignupPhoneVerification(adminClient, {
       verificationId: payload.phoneVerificationId,
       phone: payload.phone
+    });
+    await consumeSignupEmailVerification(adminClient, {
+      verificationId: payload.kepcoEmailVerificationId,
+      email: payload.kepcoEmail
     });
 
     const { data: createdUserResult, error: createUserError } = await adminClient.auth.admin.createUser({
