@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { CheckboxControl, Icon } from "../../components/ui";
 import type { LocalCertificateUploadSessionResult } from "../../local-renewal-helper";
 import type {
@@ -47,6 +48,12 @@ import {
   buildCustomerIssueStatusChip,
   type CustomerStatusChip
 } from "./customerStatusChips";
+import {
+  getSubtleHoverMotion,
+  getSubtleTapMotion,
+  pageContainerVariants,
+  pageSectionVariants
+} from "../pageMotion";
 
 type CustomerFormState = {
   id: number | null;
@@ -460,6 +467,7 @@ function formatCustomerCertificateExpireDateLabel(value: string | null | undefin
 }
 
 export function CustomersTab(props: CustomersTabProps) {
+  const shouldReduceMotion = useReducedMotion();
   const selectedCustomer = props.selectedCustomer;
   const selectedCustomerReadiness = props.selectedCustomerReadiness;
   const visibleCustomerIssues = props.selectedCustomerIssues.filter((issue) => issue.tone !== "success" || Boolean(issue.actionLabel));
@@ -2563,11 +2571,16 @@ export function CustomersTab(props: CustomersTabProps) {
   );
 
   return (
-    <div className="customers-screen customer-console-screen">
+    <motion.div
+      className="customers-screen customer-console-screen"
+      variants={pageContainerVariants}
+      initial={shouldReduceMotion ? false : "hidden"}
+      animate={shouldReduceMotion ? undefined : "visible"}
+    >
       <div className="customer-console-shell">
-        <section className="customer-summary-grid" aria-label="고객 운영 요약">
+        <motion.section className="customer-summary-grid" aria-label="고객 운영 요약" variants={pageSectionVariants}>
           {customerSummaryCards.map((card) => (
-            <button
+            <motion.button
               key={card.key}
               type="button"
               className={[
@@ -2584,13 +2597,15 @@ export function CustomersTab(props: CustomersTabProps) {
                 .filter(Boolean)
                 .join(" ")}
               aria-pressed={props.customerListFilter === card.filter}
+              whileHover={getSubtleHoverMotion(shouldReduceMotion)}
+              whileTap={getSubtleTapMotion(shouldReduceMotion)}
               onClick={() => props.setCustomerListFilter(card.filter)}
             >
               <span>{card.label}</span>
               <div className="customer-summary-card-row">
                 <strong>{card.value}</strong>
               </div>
-            </button>
+            </motion.button>
           ))}
           <div className="customer-summary-actions">
             <button
@@ -2674,9 +2689,9 @@ export function CustomersTab(props: CustomersTabProps) {
               {checkedVisibleCustomerCount > 1 ? `${checkedVisibleCustomerCount}명 삭제` : "고객 삭제"}
             </button>
           </div>
-        </section>
+        </motion.section>
 
-        <div ref={customerMainColumnRef} className="customer-console-main-column">
+        <motion.div ref={customerMainColumnRef} className="customer-console-main-column" variants={pageSectionVariants}>
           <header className="customer-console-page-header">
             <div ref={customerSearchFilterRef} className="customer-console-field-filter">
               <button
@@ -2732,7 +2747,7 @@ export function CustomersTab(props: CustomersTabProps) {
             </label>
           </header>
 
-          <section className="panel panel-customer-list customer-console-panel">
+          <motion.section className="panel panel-customer-list customer-console-panel" layout>
             <div className="customer-console-table-topbar">
               <div className="customer-console-table-title">
                 <strong>{activeFilterCopy[props.customerListFilter].title} ({visibleTableCustomers.length})</strong>
@@ -2787,20 +2802,22 @@ export function CustomersTab(props: CustomersTabProps) {
                 <tbody>{renderCustomerTableRows()}</tbody>
               </table>
             </div>
-          </section>
+          </motion.section>
 
-        </div>
+        </motion.div>
 
         {detailPanelOpen ? (
-          <section
+          <motion.section
             className={`panel customer-detail-panel ${props.creatingCustomer ? "is-create" : "is-detail"}`}
             aria-label={props.creatingCustomer ? "새 고객 등록" : "고객 상세"}
+            variants={pageSectionVariants}
+            layout
           >
             {props.creatingCustomer ? renderCreatePanel() : renderDetailPanel()}
-          </section>
+          </motion.section>
         ) : null}
       </div>
       {renderCustomerCertificateSelector()}
-    </div>
+    </motion.div>
   );
 }

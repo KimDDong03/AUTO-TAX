@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { CheckboxControl, Icon } from "../../components/ui";
 import { matchesCustomerSearchQuery } from "../customers/customerSearch";
 import type { Customer, InboxMessage, InvoiceDraft, MailPreviewImageResponse } from "../../types";
+import {
+  getSubtleHoverMotion,
+  getSubtleTapMotion,
+  pageCardVariants,
+  pageContainerVariants,
+  pageSectionVariants
+} from "../pageMotion";
 
 type IssuanceFilter = "pending" | "scheduled" | "issuing" | "issued" | "unmatched" | "missingMail" | "all";
 type IssuancePeriodFilter = "all" | "month" | "recent30";
@@ -511,6 +519,7 @@ function scoreCustomerForUnmatchedMessage(customer: Customer, message: InboxMess
 }
 
 export function IssuanceTab(props: IssuanceTabProps) {
+  const shouldReduceMotion = useReducedMotion();
   const pendingManualCount = useMemo(
     () => props.drafts.filter((draft) => draft.status === "review" || draft.status === "failed").length,
     [props.drafts]
@@ -975,15 +984,20 @@ export function IssuanceTab(props: IssuanceTabProps) {
   );
 
   return (
-    <div className="issuance-screen">
+    <motion.div
+      className="issuance-screen"
+      variants={pageContainerVariants}
+      initial={shouldReduceMotion ? false : "hidden"}
+      animate={shouldReduceMotion ? undefined : "visible"}
+    >
       <div className="issuance-main-column">
         {props.mailboxDataLoading ? (
-          <div className="helper-box import-helper-box">
+          <motion.div className="helper-box import-helper-box" variants={pageSectionVariants}>
             <strong>세금계산서 발행 데이터를 새로 읽는 중입니다.</strong>
-          </div>
+          </motion.div>
         ) : null}
 
-        <div className="issuance-console-toolbar">
+        <motion.div className="issuance-console-toolbar" variants={pageSectionVariants}>
           <div className="issuance-filter-row" role="tablist" aria-label="세금계산서 발행 필터">
             {ISSUANCE_FILTERS.map((filter) => {
               const count =
@@ -1002,7 +1016,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                           : props.drafts.length + unmatchedMessageCount + missingMailCount;
 
               return (
-                <button
+                <motion.button
                   key={filter.id}
                   type="button"
                   className={
@@ -1011,11 +1025,13 @@ export function IssuanceTab(props: IssuanceTabProps) {
                       : "home-header-chip issuance-filter-chip"
                   }
                   aria-pressed={activeFilter === filter.id}
+                  whileHover={getSubtleHoverMotion(shouldReduceMotion)}
+                  whileTap={getSubtleTapMotion(shouldReduceMotion)}
                   onClick={() => setActiveFilter(filter.id)}
                 >
                   <span className="issuance-filter-label">{filter.label}</span>
                   <span className="issuance-filter-count">{count}명</span>
-                </button>
+                </motion.button>
               );
             })}
           </div>
@@ -1030,45 +1046,45 @@ export function IssuanceTab(props: IssuanceTabProps) {
               {selectedIssueButtonLabel}
             </button>
           </div>
-        </div>
+        </motion.div>
 
-        <section className="issuance-summary-grid">
-          <article className="issuance-summary-card">
+        <motion.section className="issuance-summary-grid" variants={pageContainerVariants}>
+          <motion.article className="issuance-summary-card" variants={pageCardVariants}>
             <div className="issuance-summary-card-head">
               <span>발행 대기</span>
               <Icon name="issue" className="issuance-summary-card-icon" />
             </div>
             <strong>{pendingManualCount}건</strong>
             <p>수동 검토 후 바로 발행 가능한 초안과 실패 건입니다.</p>
-          </article>
-          <article className="issuance-summary-card">
+          </motion.article>
+          <motion.article className="issuance-summary-card" variants={pageCardVariants}>
             <div className="issuance-summary-card-head">
               <span>오늘 발행</span>
               <Icon name="complete" className="issuance-summary-card-icon" />
             </div>
             <strong>{props.formatMoney(todayIssuedAmount)}원</strong>
             <p>{todayIssuedDrafts.length}건 발행 완료</p>
-          </article>
-          <article className="issuance-summary-card">
+          </motion.article>
+          <motion.article className="issuance-summary-card" variants={pageCardVariants}>
             <div className="issuance-summary-card-head">
               <span>자동 대기</span>
               <Icon name="dashboard" className="issuance-summary-card-icon" />
             </div>
             <strong>{scheduledCount}건</strong>
             <p>고객 발행 주기 기준으로 예약된 초안입니다.</p>
-          </article>
-          <article className="issuance-summary-card tone-warn">
+          </motion.article>
+          <motion.article className="issuance-summary-card tone-warn" variants={pageCardVariants}>
             <div className="issuance-summary-card-head">
               <span>실패 / 발행 중</span>
               <Icon name="review" className="issuance-summary-card-icon" />
             </div>
             <strong>{failedCount + issuingCount}건</strong>
             <p>실패 {failedCount}건 · 발행 중 {issuingCount}건</p>
-          </article>
-        </section>
+          </motion.article>
+        </motion.section>
 
-        <div className="issuance-workspace">
-          <section className="issuance-list-panel">
+        <motion.div className="issuance-workspace" variants={pageSectionVariants}>
+          <motion.section className="issuance-list-panel" layout>
             <div className="issuance-panel-head">
               <CheckboxControl
                 checked={allVisibleIssueableEntriesChecked}
@@ -1300,9 +1316,9 @@ export function IssuanceTab(props: IssuanceTabProps) {
                 </table>
               )}
             </div>
-          </section>
+          </motion.section>
 
-          <section className="issuance-detail-panel">
+          <motion.section className="issuance-detail-panel" layout>
             <div className="issuance-detail-panel-head">
               <h2>상세</h2>
             </div>
@@ -1672,8 +1688,8 @@ export function IssuanceTab(props: IssuanceTabProps) {
                 <p>왼쪽 목록에서 세금계산서 초안, 고객 미매칭 메일, 메일 미수신 고객을 선택하면 상세 정보가 표시됩니다.</p>
               </div>
             )}
-          </section>
-        </div>
+          </motion.section>
+        </motion.div>
       </div>
       {customerFinderOpen && selectedUnmatchedMessage ? (
         <div className="issuance-picker-backdrop" role="presentation" onClick={() => setCustomerFinderOpen(false)}>
@@ -1768,6 +1784,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
           </section>
         </div>
       ) : null}
-    </div>
+    </motion.div>
   );
 }

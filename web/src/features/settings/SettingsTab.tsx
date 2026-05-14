@@ -8,6 +8,14 @@ import type {
   SettingsSidebarModel,
   SettingsTabSectionsModel
 } from "./settingsSectionModels";
+import {
+  getSubtleHoverMotion,
+  getSubtleTapMotion,
+  pageCardVariants,
+  pageContainerVariants,
+  pageDetailVariants,
+  pageSectionVariants
+} from "../pageMotion";
 
 export type SettingsTabModel = {
   context: {
@@ -350,19 +358,25 @@ function SettingsTabDetail({ model }: SettingsTabProps) {
   }
 }
 
-export function SettingsTab({ model }: SettingsTabProps) {
+function SettingsTabContent({ model }: SettingsTabProps) {
+  const shouldReduceMotion = useReducedMotion();
   const sidebar = model.sidebar;
   const activeSection = sidebar.settingsSections.find(
     (section) => section.id === sidebar.activeSettingsSection
   );
 
   return (
-    <div className="settings-layout settings-option1-layout">
-      <aside className="settings-sidebar-stack">
+    <motion.div
+      className="settings-layout settings-option1-layout"
+      variants={pageContainerVariants}
+      initial={shouldReduceMotion ? false : "hidden"}
+      animate={shouldReduceMotion ? undefined : "visible"}
+    >
+      <motion.aside className="settings-sidebar-stack" variants={pageSectionVariants}>
         <section className="panel settings-sidebar-panel">
-          <div className="settings-step-list">
+          <motion.div className="settings-step-list" variants={pageContainerVariants}>
             {sidebar.settingsSections.map((section) => (
-              <button
+              <motion.button
                 key={section.id}
                 className={
                   sidebar.activeSettingsSection === section.id
@@ -373,14 +387,17 @@ export function SettingsTab({ model }: SettingsTabProps) {
                 aria-current={
                   sidebar.activeSettingsSection === section.id ? "page" : undefined
                 }
+                variants={pageCardVariants}
+                whileHover={getSubtleHoverMotion(shouldReduceMotion)}
+                whileTap={getSubtleTapMotion(shouldReduceMotion)}
               >
                 <span className="settings-option1-nav-label">{section.title}</span>
                 <span className="settings-option1-nav-state">
                   {section.done ? "완료" : "확인 필요"}
                 </span>
-              </button>
+              </motion.button>
             ))}
-          </div>
+          </motion.div>
 
           <div className="settings-inline-note">
             <div className="settings-inline-copy">
@@ -397,16 +414,28 @@ export function SettingsTab({ model }: SettingsTabProps) {
             </div>
           </div>
         </section>
-      </aside>
+      </motion.aside>
 
-      <main className="settings-option1-main">
+      <motion.main className="settings-option1-main" variants={pageSectionVariants}>
         <div className="settings-option1-top-row">
           <SettingsReadinessSummary model={model} />
         </div>
-        <div className="settings-detail" aria-label={activeSection?.title ?? "설정"}>
+        <motion.div
+          key={sidebar.activeSettingsSection}
+          className="settings-detail"
+          aria-label={activeSection?.title ?? "설정"}
+          variants={pageDetailVariants}
+          initial={shouldReduceMotion ? false : "hidden"}
+          animate={shouldReduceMotion ? undefined : "visible"}
+          layout
+        >
           <SettingsTabDetail model={model} />
-        </div>
-      </main>
-    </div>
+        </motion.div>
+      </motion.main>
+    </motion.div>
   );
+}
+
+export function SettingsTab(props: SettingsTabProps) {
+  return <SettingsTabContent {...props} />;
 }

@@ -29993,8 +29993,23 @@ button.issuance-list-item {
   min-height: var(--console-current-top-row-height) !important;
 }
 
+.app-shell-topnav .content-issuance,
+.app-shell-topnav .content-customers {
+  padding-top: calc(var(--console-current-page-top) + 6px) !important;
+}
+
+.app-shell-topnav .issuance-console-toolbar {
+  overflow: visible !important;
+}
+
 .app-shell-topnav .issuance-filter-row {
   align-items: center !important;
+  padding: 6px 0 4px !important;
+}
+
+.app-shell-topnav .customer-summary-grid {
+  overflow: visible !important;
+  padding: 6px 0 4px !important;
 }
 
 /* Keep the onboarding dialog usable on short viewports. The modal header stays
