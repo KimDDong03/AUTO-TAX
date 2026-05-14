@@ -24983,6 +24983,7 @@ button.issuance-list-item {
   min-height: 98px;
   padding: 16px 20px;
   text-align: left;
+  transform-origin: center;
 }
 
 .lovable-metric-card span,
@@ -25045,8 +25046,9 @@ button.issuance-list-item {
   font-weight: 700;
 }
 
-.lovable-issued-trend-query input[type="month"] {
+.lovable-issued-trend-query input[type="number"] {
   min-height: 36px;
+  width: 118px;
   padding: 0 10px;
   border: 1px solid var(--lovable-border);
   border-radius: 2px;
@@ -25097,76 +25099,100 @@ button.issuance-list-item {
 
 .lovable-issued-trend-chart-wrap {
   min-width: 0;
-  overflow-x: auto;
+  overflow: hidden;
   padding-bottom: 2px;
 }
 
 .lovable-issued-trend-chart {
+  min-width: 0;
+  min-height: 220px;
+}
+
+.lovable-issued-trend-recharts {
+  height: 220px;
+}
+
+.lovable-issued-trend-recharts .recharts-cartesian-axis-tick-value {
+  fill: var(--lovable-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.lovable-issued-trend-recharts .recharts-cartesian-grid line {
+  stroke: #e5e9f2;
+}
+
+.lovable-issued-trend-recharts .recharts-line-curve {
+  filter: drop-shadow(0 8px 12px rgba(36, 87, 166, 0.18));
+}
+
+.lovable-issued-trend-dot {
+  fill: var(--lovable-surface);
+  stroke: #2457a6;
+  stroke-width: 3;
+  cursor: pointer;
+  transition:
+    fill 160ms ease,
+    stroke 160ms ease,
+    filter 160ms ease;
+  outline: none;
+}
+
+.lovable-issued-trend-dot:hover {
+  fill: #eaf2ff;
+  filter: drop-shadow(0 4px 7px rgba(36, 87, 166, 0.22));
+}
+
+.lovable-issued-trend-dot.is-selected,
+.lovable-issued-trend-dot:focus-visible {
+  fill: #2457a6;
+  stroke: #163f80;
+}
+
+.lovable-issued-trend-dot:focus-visible {
+  filter: drop-shadow(0 0 0.18rem rgba(37, 99, 235, 0.36));
+}
+
+.lovable-issued-trend-label-value {
+  fill: var(--lovable-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.lovable-issued-trend-tooltip {
   display: grid;
-  grid-template-columns: repeat(13, minmax(54px, 1fr));
-  align-items: end;
-  gap: 8px;
-  min-height: 214px;
+  gap: 4px;
+  min-width: 104px;
+  padding: 10px 12px;
+  border: 1px solid rgba(36, 87, 166, 0.18);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
+  color: var(--lovable-text);
 }
 
-.app-shell-topnav .lovable-issued-trend-bar {
-  display: grid;
-  grid-template-rows: 22px 150px 20px;
-  gap: 7px;
-  min-width: 54px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--lovable-muted);
-  text-align: center;
-}
-
-.app-shell-topnav .lovable-issued-trend-bar:hover,
-.app-shell-topnav .lovable-issued-trend-bar:focus-visible {
-  background: transparent;
-  box-shadow: none;
-  transform: none;
-}
-
-.lovable-issued-trend-value,
-.lovable-issued-trend-label {
-  overflow: hidden;
+.lovable-issued-trend-tooltip span {
   color: var(--lovable-muted);
   font-size: 11px;
-  font-weight: 700;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 750;
 }
 
-.lovable-issued-trend-track {
-  display: flex;
-  align-items: end;
-  justify-content: center;
-  min-height: 150px;
-  border-bottom: 1px solid var(--lovable-border);
-}
-
-.lovable-issued-trend-fill {
-  width: min(100%, 28px);
-  min-height: 4px;
-  border-radius: 2px 2px 0 0;
-  background: #8ea3c7;
-}
-
-.lovable-issued-trend-bar.is-anchor .lovable-issued-trend-fill {
-  background: #2457a6;
-}
-
-.lovable-issued-trend-bar.is-selected .lovable-issued-trend-track {
-  border-bottom-color: #2457a6;
-}
-
-.lovable-issued-trend-bar.is-selected .lovable-issued-trend-label,
-.lovable-issued-trend-bar.is-selected .lovable-issued-trend-value {
+.lovable-issued-trend-tooltip strong {
   color: var(--lovable-text);
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.lovable-issued-trend-accessible-list {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .lovable-issued-trend-empty {
@@ -25239,18 +25265,12 @@ button.issuance-list-item {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .lovable-issued-trend-chart-wrap {
+    overflow-x: auto;
+  }
+
   .lovable-issued-trend-chart {
-    grid-template-columns: repeat(13, 48px);
-    gap: 7px;
-  }
-
-  .app-shell-topnav .lovable-issued-trend-bar {
-    grid-template-rows: 20px 128px 18px;
-    min-width: 48px;
-  }
-
-  .lovable-issued-trend-track {
-    min-height: 128px;
+    min-width: 620px;
   }
 }
 
@@ -30606,6 +30626,7 @@ button.issuance-list-item {
    customer management, issuance, and the home dashboard. */
 .app-shell-topnav .content-settings {
   overflow: auto !important;
+  scrollbar-gutter: stable !important;
   padding: 24px 28px 70px !important;
   background: var(--lovable-bg, var(--console-bg)) !important;
 }
@@ -31447,6 +31468,49 @@ button.issuance-list-item {
 
 .app-shell-topnav .content-settings > .settings-screen {
   padding-bottom: var(--settings-gap-lg) !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-main {
+  grid-template-columns: minmax(0, 1fr) !important;
+  justify-items: stretch !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-top-row,
+.app-shell-topnav .content-settings .settings-detail {
+  justify-self: stretch !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-top-row {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-status-card,
+.app-shell-topnav .content-settings .settings-option1-detail-grid,
+.app-shell-topnav .content-settings .settings-detail > .setup-panel,
+.app-shell-topnav .content-settings .settings-detail > .settings-account-stack,
+.app-shell-topnav .content-settings .settings-detail > .onboarding-task-shell {
+  justify-self: stretch !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.app-shell-topnav .content-settings .settings-detail > .settings-account-stack {
+  height: auto !important;
+  overflow: visible !important;
+  padding-right: 0 !important;
+}
+
+.app-shell-topnav .content-settings .settings-detail > .settings-account-stack > .panel {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 .app-shell-topnav .content-settings .settings-detail > .onboarding-task-shell {

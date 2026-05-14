@@ -121,7 +121,7 @@ test("getIssuedMonthlyTrend counts issued drafts for each target billing month",
     filters: Array<[string, unknown]>;
   }> = [];
   const countsByBillingMonth = new Map([
-    ["2025-05", 1],
+    ["2026-01", 1],
     ["2026-04", 2],
     ["2026-05", 3]
   ]);
@@ -166,23 +166,18 @@ test("getIssuedMonthlyTrend counts issued drafts for each target billing month",
     organizationId: "org-1"
   });
 
-  const trend = await store.getIssuedMonthlyTrend("2026-05");
+  const trend = await store.getIssuedMonthlyTrend("2026");
 
-  assert.equal(trend.anchorBillingMonth, "2026-05");
-  assert.equal(trend.months.length, 13);
-  assert.equal(trend.months[0]?.billingMonth, "2025-05");
-  assert.equal(trend.months[12]?.billingMonth, "2026-05");
+  assert.equal(trend.anchorBillingYear, "2026");
+  assert.equal(trend.months.length, 12);
+  assert.equal(trend.months[0]?.billingMonth, "2026-01");
+  assert.equal(trend.months[11]?.billingMonth, "2026-12");
   assert.deepEqual(trend.months.filter((month) => month.issuedDraftCount > 0), [
-    { billingMonth: "2025-05", issuedDraftCount: 1 },
+    { billingMonth: "2026-01", issuedDraftCount: 1 },
     { billingMonth: "2026-04", issuedDraftCount: 2 },
     { billingMonth: "2026-05", issuedDraftCount: 3 }
   ]);
-  assert.deepEqual(trend.comparison, {
-    anchor: { billingMonth: "2026-05", issuedDraftCount: 3 },
-    previous: { billingMonth: "2026-04", issuedDraftCount: 2 },
-    sameMonthLastYear: { billingMonth: "2025-05", issuedDraftCount: 1 }
-  });
-  assert.equal(calls.length, 13);
+  assert.equal(calls.length, 12);
   assert.equal(calls.every((call) => call.table === "invoice_drafts"), true);
   assert.equal(calls.every((call) => call.selectColumns === "*"), true);
   assert.equal(calls.every((call) => call.selectOptions.count === "exact" && call.selectOptions.head === true), true);

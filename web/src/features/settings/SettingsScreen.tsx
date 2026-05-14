@@ -10,9 +10,6 @@ function getSettingsHeaderChipClassName(tone: "default" | "warn" | "success") {
 
 export function SettingsScreen(props: SettingsScreenProps) {
   const model = useSettingsScreenModel(props);
-  const activeSection = model.sidebar.settingsSections.find(
-    (section) => section.id === model.sidebar.activeSettingsSection
-  );
   const autosaveTone =
     model.sidebar.settingsAutosaveState === "error"
       ? "warn"
@@ -37,9 +34,6 @@ export function SettingsScreen(props: SettingsScreenProps) {
               {model.sidebar.setupPendingCount > 0
                 ? `${model.sidebar.setupPendingCount}개 남음`
                 : "설정 준비 완료"}
-            </span>
-            <span className="home-header-chip">
-              현재 {activeSection?.title ?? "설정"}
             </span>
             <span className={getSettingsHeaderChipClassName(autosaveTone)}>
               {model.sidebar.settingsAutosaveLabel}

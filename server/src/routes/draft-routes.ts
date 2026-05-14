@@ -7,7 +7,7 @@ import { buildPilotIssuanceReportCsv, buildPilotLogContext } from "../pilot-issu
 import { cancelTaxInvoice, getTaxInvoiceInfo, getTaxInvoicePrintURL, getTaxInvoiceViewURL } from "../popbill-client.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";
-import { getCurrentKstYearMonth, isValidYearMonth } from "../customer-contract-renewals.js";
+import { getCurrentKstYearMonth } from "../customer-contract-renewals.js";
 
 type RouteDeps = {
   app: Express;
@@ -54,22 +54,22 @@ function parsePilotReportFormat(value: unknown): "json" | "csv" {
   return normalized === "csv" ? "csv" : "json";
 }
 
-function parseIssuedMonthlyTrendAnchor(value: unknown): string {
+function parseIssuedMonthlyTrendYear(value: unknown): string {
   if (value === undefined) {
-    return getCurrentKstYearMonth();
+    return getCurrentKstYearMonth().slice(0, 4);
   }
 
   if (typeof value !== "string") {
-    throw new Error("정산월 형식이 올바르지 않습니다.");
+    throw new Error("연도 형식이 올바르지 않습니다.");
   }
 
   const trimmed = value.trim();
   if (!trimmed) {
-    return getCurrentKstYearMonth();
+    return getCurrentKstYearMonth().slice(0, 4);
   }
 
-  if (!isValidYearMonth(trimmed)) {
-    throw new Error("정산월 형식이 올바르지 않습니다.");
+  if (!/^\d{4}$/.test(trimmed)) {
+    throw new Error("연도 형식이 올바르지 않습니다.");
   }
 
   return trimmed;
@@ -211,16 +211,17 @@ export function registerDraftRoutes(deps: RouteDeps) {
   app.get("/api/drafts/issued-monthly-trend", async (req, res) => {
     const requestStore = getRequestStore(res, store);
 
-    let anchorBillingMonth: string;
+    let anchorBillingYear: string;
     try {
-      anchorBillingMonth = parseIssuedMonthlyTrendAnchor(req.query.anchor);
+      const requestedYear = req.query.year ?? (typeof req.query.anchor === "string" ? req.query.anchor.slice(0, 4) : undefined);
+      anchorBillingYear = parseIssuedMonthlyTrendYear(requestedYear);
     } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : "정산월 형식이 올바르지 않습니다." });
+      res.status(400).json({ error: error instanceof Error ? error.message : "연도 형식이 올바르지 않습니다." });
       return;
     }
 
     try {
-      res.json(await requestStore.getIssuedMonthlyTrend(anchorBillingMonth));
+      res.json(await requestStore.getIssuedMonthlyTrend(anchorBillingYear));
     } catch (error) {
       res.status(getErrorStatus(error, 500)).json(buildApiErrorBody(error, "월별 발행 현황을 불러오지 못했습니다."));
     }

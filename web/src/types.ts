@@ -290,25 +290,11 @@ export interface InvoiceDraft {
 }
 
 export interface IssuedMonthlyTrendPayload {
-  anchorBillingMonth: string;
+  anchorBillingYear: string;
   months: Array<{
     billingMonth: string;
     issuedDraftCount: number;
   }>;
-  comparison: {
-    anchor: {
-      billingMonth: string;
-      issuedDraftCount: number;
-    };
-    previous: {
-      billingMonth: string;
-      issuedDraftCount: number;
-    };
-    sameMonthLastYear: {
-      billingMonth: string;
-      issuedDraftCount: number;
-    };
-  };
 }
 
 export interface MailPreviewImageResponse {

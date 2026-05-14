@@ -2224,7 +2224,7 @@ export function App() {
     return status === "unmatched" || status === "failed" || status === "duplicate";
   };
   const loadIssuedMonthlyTrend = useCallback(
-    async (anchorBillingMonth?: string) => {
+    async (anchorBillingYear?: string) => {
       if (!activeOrganizationId) {
         setIssuedMonthlyTrend(null);
         setIssuedMonthlyTrendError("");
@@ -2235,7 +2235,7 @@ export function App() {
       setIssuedMonthlyTrendLoading(true);
       setIssuedMonthlyTrendError("");
       try {
-        const query = anchorBillingMonth ? `?anchor=${encodeURIComponent(anchorBillingMonth)}` : "";
+        const query = anchorBillingYear ? `?year=${encodeURIComponent(anchorBillingYear)}` : "";
         setIssuedMonthlyTrend(await api<IssuedMonthlyTrendPayload>(`/api/drafts/issued-monthly-trend${query}`));
       } catch (trendError) {
         setIssuedMonthlyTrendError(getDisplayErrorMessage(trendError, "월별 발행 현황을 불러오지 못했습니다."));
@@ -2516,7 +2516,7 @@ export function App() {
           if (shouldLoadMailboxData(activeTab, customerDetailTab)) {
             await loadMailboxData({ force: true });
           }
-          await loadIssuedMonthlyTrend(issuedMonthlyTrend?.anchorBillingMonth);
+          await loadIssuedMonthlyTrend(issuedMonthlyTrend?.anchorBillingYear);
         }
       } catch (actionError) {
         setError(getDisplayErrorMessage(actionError, "작업에 실패했습니다."));
@@ -2524,7 +2524,7 @@ export function App() {
         setBusyKey(null);
       }
     },
-    [activeTab, customerDetailTab, issuedMonthlyTrend?.anchorBillingMonth, load, loadIssuedMonthlyTrend, loadMailboxData]
+    [activeTab, customerDetailTab, issuedMonthlyTrend?.anchorBillingYear, load, loadIssuedMonthlyTrend, loadMailboxData]
   );
 
   const syncCustomerOnboardingCertificateDone = useCallback(
@@ -7174,7 +7174,7 @@ export function App() {
             reprocessableMessageCount={reprocessableMessages.length}
             busyKey={busyKey}
             onOpenAction={handleHomeAction}
-            onLoadIssuedMonthlyTrend={(anchorBillingMonth) => void loadIssuedMonthlyTrend(anchorBillingMonth)}
+            onLoadIssuedMonthlyTrend={(anchorBillingYear) => void loadIssuedMonthlyTrend(anchorBillingYear)}
             onResetIssuedMonthlyTrend={() => void loadIssuedMonthlyTrend()}
             onOpenCustomers={() => setActiveTab("customers")}
             onSelectFeedTab={setWorkFeedTab}

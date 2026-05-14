@@ -1,4 +1,5 @@
 import React from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { RevealIcon, StatusBadge, type StatusBadgeTone } from "../../components/ui";
 import { SettingsAccountSection } from "./SettingsAccountSection";
 import { SettingsDefaultsSection } from "./SettingsDefaultsSection";
@@ -47,6 +48,7 @@ function getAutosaveBadgeTone(state: SettingsSidebarModel["settingsAutosaveState
 }
 
 function SettingsReadinessSummary({ model }: SettingsTabProps) {
+  const shouldReduceMotion = useReducedMotion();
   const sidebar = model.sidebar;
   const onboarding = model.sections.onboarding;
   const parsedProgress = parseProgressText(onboarding.progressText);
@@ -78,7 +80,11 @@ function SettingsReadinessSummary({ model }: SettingsTabProps) {
             {completed} / {total} 완료
           </strong>
           <div className="settings-option1-progress-track" aria-hidden="true">
-            <span style={{ width: `${progressPercent}%` }} />
+            <motion.span
+              initial={shouldReduceMotion ? false : { width: 0 }}
+              animate={{ width: `${progressPercent}%` }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            />
           </div>
         </div>
         <div className="settings-option1-status-metrics">

@@ -111,7 +111,7 @@ export interface AppStore {
   }): Promise<InboxMessage>;
   getDraft(draftId: number): Promise<InvoiceDraft | null>;
   listDrafts(): Promise<InvoiceDraft[]>;
-  getIssuedMonthlyTrend(anchorBillingMonth: string): Promise<IssuedMonthlyTrendPayload>;
+  getIssuedMonthlyTrend(anchorBillingYear: string): Promise<IssuedMonthlyTrendPayload>;
   getMonthlyIssueLimit?(): Promise<number | null>;
   getCurrentMonthIssuedDraftCount?(): Promise<number>;
   getOrganizationIssueQuota?(): Promise<OrganizationIssueQuota>;

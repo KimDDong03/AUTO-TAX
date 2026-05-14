@@ -5,34 +5,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { HomeTab } from "./HomeTab";
 import type { IssuedMonthlyTrendPayload } from "../../types";
 
-function buildTrend(anchorBillingMonth = "2026-05"): IssuedMonthlyTrendPayload {
-  const months = [
-    "2025-05",
-    "2025-06",
-    "2025-07",
-    "2025-08",
-    "2025-09",
-    "2025-10",
-    "2025-11",
-    "2025-12",
-    "2026-01",
-    "2026-02",
-    "2026-03",
-    "2026-04",
-    "2026-05"
-  ].map((billingMonth, index) => ({
+function buildTrend(anchorBillingYear = "2026"): IssuedMonthlyTrendPayload {
+  const months = Array.from({ length: 12 }, (_, index) => `${anchorBillingYear}-${String(index + 1).padStart(2, "0")}`).map((billingMonth, index) => ({
     billingMonth,
     issuedDraftCount: index === 0 ? 1 : billingMonth === "2026-04" ? 2 : billingMonth === "2026-05" ? 3 : 0
   }));
 
   return {
-    anchorBillingMonth,
-    months,
-    comparison: {
-      anchor: { billingMonth: anchorBillingMonth, issuedDraftCount: anchorBillingMonth === "2026-05" ? 3 : 0 },
-      previous: { billingMonth: "2026-04", issuedDraftCount: 2 },
-      sameMonthLastYear: { billingMonth: "2025-05", issuedDraftCount: 1 }
-    }
+    anchorBillingYear,
+    months
   };
 }
 
@@ -104,25 +85,26 @@ function renderHomeTab(options: {
   );
 }
 
-test("HomeTab renders issued monthly trend summary and thirteen bars", () => {
+test("HomeTab renders issued monthly trend year query and twelve line points", () => {
   const markup = renderHomeTab();
 
   assert.match(markup, /월별 발행 현황/);
-  assert.match(markup, /연월 조회/);
-  assert.match(markup, /type="month"/);
-  assert.match(markup, /기준월/);
-  assert.match(markup, /전월/);
-  assert.match(markup, /전년 동월/);
-  assert.equal((markup.match(/lovable-issued-trend-bar/g) ?? []).length, 13);
-  assert.match(markup, /2026-05 발행 완료 3건/);
+  assert.match(markup, /연 조회/);
+  assert.match(markup, /type="number"/);
+  assert.match(markup, /조회 연도/);
+  assert.match(markup, /선택월/);
+  assert.match(markup, /연간 합계/);
+  assert.equal((markup.match(/lovable-issued-trend-accessible-item/g) ?? []).length, 12);
+  assert.match(markup, /2026-05 3건/);
+  assert.doesNotMatch(markup, /25\.05/);
 });
 
-test("HomeTab shows reset action when the trend anchor is not the current month", () => {
+test("HomeTab shows reset action when the trend year is not the current year", () => {
   const markup = renderHomeTab({
     currentBillingMonth: "2026-05",
-    trend: buildTrend("2026-03")
+    trend: buildTrend("2025")
   });
 
-  assert.match(markup, /최근 월로 돌아가기/);
-  assert.match(markup, /선택월 2026-03 · 0건/);
+  assert.match(markup, /올해로 돌아가기/);
+  assert.match(markup, /선택월 2025-01 · 1건/);
 });

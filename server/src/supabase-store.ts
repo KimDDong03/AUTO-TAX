@@ -35,11 +35,9 @@ import {
   normalizeCustomerReportDetailInput
 } from "./customer-report-detail.js";
 import {
-  addMonthsToYearMonth,
   buildCustomerContractRenewalDueItem,
   calculateCompletedContractRenewalPeriod,
-  CustomerContractRenewalConflictError,
-  isValidYearMonth
+  CustomerContractRenewalConflictError
 } from "./customer-contract-renewals.js";
 import { createSupabaseAdminClient } from "./supabase.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
@@ -2673,14 +2671,14 @@ export class SupabaseStore implements AppStore {
     return Promise.all((rows as Row[]).map((row) => this.buildDraftPayload(row)));
   }
 
-  async getIssuedMonthlyTrend(anchorBillingMonth: string) {
-    if (!isValidYearMonth(anchorBillingMonth)) {
-      throw new Error("정산월 형식이 올바르지 않습니다.");
+  async getIssuedMonthlyTrend(anchorBillingYear: string) {
+    if (!/^\d{4}$/.test(anchorBillingYear)) {
+      throw new Error("연도 형식이 올바르지 않습니다.");
     }
 
     await this.initialize();
     const organizationId = this.requireOrganizationId();
-    const targetMonths = Array.from({ length: 13 }, (_, index) => addMonthsToYearMonth(anchorBillingMonth, index - 12));
+    const targetMonths = Array.from({ length: 12 }, (_, index) => `${anchorBillingYear}-${String(index + 1).padStart(2, "0")}`);
     const months = await Promise.all(
       targetMonths.map(async (billingMonth) => {
         const { count, error } = await this.client
@@ -2700,20 +2698,10 @@ export class SupabaseStore implements AppStore {
         };
       })
     );
-    const countByMonth = new Map(months.map((month) => [month.billingMonth, month.issuedDraftCount]));
-    const buildComparisonMonth = (billingMonth: string) => ({
-      billingMonth,
-      issuedDraftCount: countByMonth.get(billingMonth) ?? 0
-    });
 
     return {
-      anchorBillingMonth,
-      months,
-      comparison: {
-        anchor: buildComparisonMonth(anchorBillingMonth),
-        previous: buildComparisonMonth(addMonthsToYearMonth(anchorBillingMonth, -1)),
-        sameMonthLastYear: buildComparisonMonth(addMonthsToYearMonth(anchorBillingMonth, -12))
-      }
+      anchorBillingYear,
+      months
     };
   }
 

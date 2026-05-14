@@ -11,22 +11,17 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-test("issued monthly trend route forwards the requested anchor month", async () => {
+test("issued monthly trend route forwards the requested year", async () => {
   const calls: string[] = [];
   const requestStore = {
-    getIssuedMonthlyTrend: async (anchorBillingMonth: string) => {
-      calls.push(anchorBillingMonth);
+    getIssuedMonthlyTrend: async (anchorBillingYear: string) => {
+      calls.push(anchorBillingYear);
       return {
-        anchorBillingMonth,
+        anchorBillingYear,
         months: [
-          { billingMonth: "2025-05", issuedDraftCount: 0 },
+          { billingMonth: "2026-01", issuedDraftCount: 0 },
           { billingMonth: "2026-05", issuedDraftCount: 3 }
-        ],
-        comparison: {
-          anchor: { billingMonth: anchorBillingMonth, issuedDraftCount: 3 },
-          previous: { billingMonth: "2026-04", issuedDraftCount: 1 },
-          sameMonthLastYear: { billingMonth: "2025-05", issuedDraftCount: 0 }
-        }
+        ]
       };
     }
   } as unknown as AppStore;
@@ -51,25 +46,20 @@ test("issued monthly trend route forwards the requested anchor month", async () 
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
   try {
-    const response = await fetch(`${baseUrl}/api/drafts/issued-monthly-trend?anchor=2026-05`);
+    const response = await fetch(`${baseUrl}/api/drafts/issued-monthly-trend?year=2026`);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
-      anchorBillingMonth: "2026-05",
+      anchorBillingYear: "2026",
       months: [
-        { billingMonth: "2025-05", issuedDraftCount: 0 },
+        { billingMonth: "2026-01", issuedDraftCount: 0 },
         { billingMonth: "2026-05", issuedDraftCount: 3 }
-      ],
-      comparison: {
-        anchor: { billingMonth: "2026-05", issuedDraftCount: 3 },
-        previous: { billingMonth: "2026-04", issuedDraftCount: 1 },
-        sameMonthLastYear: { billingMonth: "2025-05", issuedDraftCount: 0 }
-      }
+      ]
     });
-    assert.deepEqual(calls, ["2026-05"]);
+    assert.deepEqual(calls, ["2026"]);
 
-    const invalidResponse = await fetch(`${baseUrl}/api/drafts/issued-monthly-trend?anchor=2026-13`);
+    const invalidResponse = await fetch(`${baseUrl}/api/drafts/issued-monthly-trend?year=2026-13`);
     assert.equal(invalidResponse.status, 400);
-    assert.deepEqual(await invalidResponse.json(), { error: "정산월 형식이 올바르지 않습니다." });
+    assert.deepEqual(await invalidResponse.json(), { error: "연도 형식이 올바르지 않습니다." });
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
