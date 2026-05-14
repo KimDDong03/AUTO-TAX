@@ -31890,3 +31890,15 @@ button.issuance-list-item {
 .app-shell-topnav .settings-install-guide-list li::before {
   font-weight: var(--console-current-weight-strong) !important;
 }
+
+.app-shell-topnav .content-settings .settings-option1-nav-state {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  min-height: var(--settings-control-compact-height) !important;
+  padding: 0 var(--settings-gap-sm) !important;
+  line-height: 1 !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
