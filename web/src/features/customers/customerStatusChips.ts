@@ -30,7 +30,7 @@ function getDaysUntilDate(value: string | null, now = new Date()): number | null
 
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const end = new Date(target.getFullYear(), target.getMonth(), target.getDate());
-  return Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+  return Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
 }
 
 function isValidYearMonth(value: string | null | undefined): value is string {
@@ -63,10 +63,14 @@ export function buildCustomerIssueStatusChip(
   const days = getDaysUntilDate(customer.popbillCertExpireDate, now);
 
   if (!readiness.canIssueNow) {
-    if (days !== null && days < 0) {
+    if (days !== null && days <= 0) {
       return { label: "인증서 만료", tone: "danger" };
     }
     return { label: "인증서 필요", tone: "danger" };
+  }
+
+  if (days !== null && days <= 0) {
+    return { label: "인증서 만료", tone: "danger" };
   }
 
   if (days !== null && days >= 0 && days <= 30) {

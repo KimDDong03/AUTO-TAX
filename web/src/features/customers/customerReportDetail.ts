@@ -58,6 +58,15 @@ export function deriveContractEndMonth(contractStartMonth: string | null | undef
   return `${year + 1}-${String(month).padStart(2, "0")}`;
 }
 
+function isValidYearMonth(value: string | null | undefined): value is string {
+  const match = /^([0-9]{4})-([0-9]{2})$/.exec(value?.trim() ?? "");
+  if (!match) {
+    return false;
+  }
+  const month = Number(match[2]);
+  return month >= 1 && month <= 12;
+}
+
 export function formatCustomerReportIssueDay(issueDate: string | null | undefined): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(issueDate?.trim() ?? "");
   return match ? String(Number(match[3])) : "";
@@ -103,12 +112,15 @@ export function parseCustomerReportIssueDay(
 export function normalizeCustomerReportDetail(detail: CustomerReportDetail): CustomerReportDetail {
   const byMonth = new Map(detail.months.map((month) => [month.reportMonth, month]));
   const contractStartMonth = detail.profile.contractStartMonth?.trim() || null;
+  const storedContractEndMonth = detail.profile.contractEndMonth?.trim() || null;
   return {
     ...detail,
     profile: {
       ...detail.profile,
       contractStartMonth,
-      contractEndMonth: deriveContractEndMonth(contractStartMonth)
+      contractEndMonth: isValidYearMonth(storedContractEndMonth)
+        ? storedContractEndMonth
+        : deriveContractEndMonth(contractStartMonth)
     },
     months: Array.from({ length: 12 }, (_, index) => {
       const reportMonth = index + 1;

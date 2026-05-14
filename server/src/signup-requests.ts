@@ -171,26 +171,23 @@ export async function findPublicSignupRequestByLoginId(
   return data ? mapPublicSignupRequest(data as Row) : null;
 }
 
-export async function findPublicSignupRequestByNameAndPhone(
+export async function findPublicSignupRequestByKepcoEmail(
   adminClient: AdminClient,
-  input: { name: string; phone: string }
+  email: string
 ): Promise<PublicSignupRequest | null> {
-  const normalizedPhone = input.phone.replace(/\D/g, "");
   const { data, error } = await adminClient
     .from("public_signup_requests")
     .select("*")
-    .eq("name", input.name.trim())
+    .eq("kepco_email", email.trim().toLowerCase())
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(1);
 
   if (error) {
     throw new Error(`회원가입 신청 조회에 실패했습니다: ${error.message}`);
   }
 
-  const matchedRow =
-    ((data ?? []) as Row[]).find((row) => asString(row.phone).replace(/\D/g, "") === normalizedPhone) ?? null;
-
-  return matchedRow ? mapPublicSignupRequest(matchedRow) : null;
+  const row = ((data ?? []) as Row[])[0] ?? null;
+  return row ? mapPublicSignupRequest(row) : null;
 }
 
 export async function findPublicSignupRequestByUserId(

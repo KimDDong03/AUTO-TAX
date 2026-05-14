@@ -86,6 +86,40 @@ function createWithdrawalAdminClient() {
       { organization_id: "org-1", user_id: "user-1" },
       { organization_id: "org-1", user_id: "user-2" }
     ],
+    signupRows: [
+      {
+        id: "signup-1",
+        user_id: "user-1",
+        login_id: "owner",
+        auth_email: "owner@example.com",
+        organization_name: "테스트 고객사",
+        representative_name: "홍길동",
+        business_registration_number: "1234567890",
+        business_address: "서울시 테스트구",
+        business_type: "서비스",
+        business_item: "개발",
+        name: "홍길동",
+        phone: "01012345678",
+        kepco_email: "kepco@example.com",
+        invoice_email: "kepco@example.com",
+        status: "approved",
+        marketing_consent: false,
+        terms_version: "terms_2026-05-13",
+        privacy_version: "privacy_processing_2026-05-13",
+        third_party_version: "third_party_2026-05-13",
+        marketing_version: null,
+        terms_accepted_at: "2026-05-13T00:00:00.000Z",
+        privacy_accepted_at: "2026-05-13T00:00:00.000Z",
+        third_party_accepted_at: "2026-05-13T00:00:00.000Z",
+        marketing_accepted_at: null,
+        reviewed_by: "ops-user",
+        reviewed_at: "2026-05-13T00:00:00.000Z",
+        review_note: "",
+        created_at: "2026-05-13T00:00:00.000Z",
+        updated_at: "2026-05-13T00:00:00.000Z"
+      }
+    ],
+    phoneVerificationRows: [] as Array<Record<string, unknown>>,
     jobs: [
       { id: "job-1", organization_id: "org-1", status: "queued", error: null as string | null },
       { id: "job-2", organization_id: "org-1", status: "claimed", error: null as string | null },
@@ -95,7 +129,7 @@ function createWithdrawalAdminClient() {
   };
 
   type QueryResult = {
-    data?: unknown[] | null;
+    data?: unknown | unknown[] | null;
     count?: number | null;
     error: { message: string } | null;
   };
@@ -104,6 +138,7 @@ function createWithdrawalAdminClient() {
     private filters = new Map<string, unknown>();
     private notEquals = new Map<string, unknown>();
     private inFilters = new Map<string, unknown[]>();
+    private insertPayload: Record<string, unknown> | null = null;
     private updatePayload: Record<string, unknown> | null = null;
     private deleteRequested = false;
     private countHead = false;
@@ -112,6 +147,11 @@ function createWithdrawalAdminClient() {
 
     select(_columns?: string, options?: { count?: string; head?: boolean }) {
       this.countHead = Boolean(options?.head);
+      return this;
+    }
+
+    insert(payload: Record<string, unknown>) {
+      this.insertPayload = payload;
       return this;
     }
 
@@ -164,7 +204,54 @@ function createWithdrawalAdminClient() {
         return Promise.resolve(this.executeJobQueue());
       }
 
+      if (this.table === "public_signup_phone_verifications") {
+        return Promise.resolve(this.executePhoneVerifications());
+      }
+
       return Promise.resolve({ data: [], error: null });
+    }
+
+    async single() {
+      if (this.table === "public_signup_phone_verifications" && this.insertPayload) {
+        const timestamp = "2026-05-14T00:00:00.000Z";
+        const row = {
+          id: `30000000-0000-4000-8000-${String(state.phoneVerificationRows.length + 1).padStart(12, "0")}`,
+          phone: String(this.insertPayload.phone),
+          code_hash: String(this.insertPayload.code_hash),
+          code_salt: String(this.insertPayload.code_salt),
+          expires_at: String(this.insertPayload.expires_at),
+          verified_at: null,
+          consumed_at: null,
+          attempt_count: 0,
+          provider: String(this.insertPayload.provider),
+          provider_message_id: this.insertPayload.provider_message_id ? String(this.insertPayload.provider_message_id) : null,
+          request_ip: String(this.insertPayload.request_ip),
+          request_user_agent: String(this.insertPayload.request_user_agent),
+          created_at: timestamp,
+          updated_at: timestamp
+        };
+        state.phoneVerificationRows.push(row);
+        return { data: row, error: null };
+      }
+
+      return { data: null, error: { message: "unsupported single" } };
+    }
+
+    async maybeSingle() {
+      if (this.table === "public_signup_requests") {
+        const row = state.signupRows.find((item) =>
+          Object.entries(Object.fromEntries(this.filters)).every(([field, value]) => String(item[field as keyof typeof item]) === String(value))
+        ) ?? null;
+        return { data: row, error: null };
+      }
+
+      if (this.table === "public_signup_phone_verifications") {
+        const id = this.filters.get("id");
+        const row = state.phoneVerificationRows.find((item) => item.id === id) ?? null;
+        return { data: row, error: null };
+      }
+
+      return { data: null, error: null };
     }
 
     private executeOrganizationMembers(): QueryResult {
@@ -215,6 +302,18 @@ function createWithdrawalAdminClient() {
       }
 
       return { data: matches, error: null };
+    }
+
+    private executePhoneVerifications(): QueryResult {
+      if (this.updatePayload) {
+        const id = this.filters.get("id");
+        const row = state.phoneVerificationRows.find((item) => item.id === id);
+        if (row) {
+          Object.assign(row, this.updatePayload);
+        }
+      }
+
+      return { data: [], error: null };
     }
   }
 
@@ -339,6 +438,32 @@ async function withOrganizationMemberRoutes(
   }
 }
 
+async function createVerifiedWithdrawalPhoneVerification(baseUrl: string): Promise<string> {
+  const send = await fetch(`${baseUrl}/api/organization/withdrawal-phone-verifications/send`, {
+    method: "POST"
+  });
+  assert.equal(send.status, 201);
+  const sent = (await send.json()) as { verificationId: string; devCode?: string; maskedPhone: string };
+  assert.equal(sent.maskedPhone, "010-****-5678");
+  assert.ok(sent.devCode);
+
+  const confirm = await fetch(`${baseUrl}/api/organization/withdrawal-phone-verifications/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      verificationId: sent.verificationId,
+      code: sent.devCode
+    })
+  });
+  assert.equal(confirm.status, 200);
+  assert.deepEqual(await confirm.json(), {
+    verified: true,
+    maskedPhone: "010-****-5678"
+  });
+
+  return sent.verificationId;
+}
+
 test("organization withdrawal quits joined Popbill members before deactivating the workspace", async () => {
   await withOrganizationMemberRoutes(
     {
@@ -350,12 +475,14 @@ test("organization withdrawal quits joined Popbill members before deactivating t
       quitCustomerPopbillMember: async () => ({ ok: true })
     },
     async (baseUrl, state, calls) => {
+      const phoneVerificationId = await createVerifiedWithdrawalPhoneVerification(baseUrl);
       const response = await fetch(`${baseUrl}/api/organization/withdraw`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           organizationName: "테스트 고객사",
-          confirmText: "회원탈퇴"
+          confirmText: "회원탈퇴",
+          phoneVerificationId
         })
       });
       const payload = (await response.json()) as {
@@ -397,12 +524,14 @@ test("organization withdrawal stops before workspace deactivation when a Popbill
       }
     },
     async (baseUrl, state, calls) => {
+      const phoneVerificationId = await createVerifiedWithdrawalPhoneVerification(baseUrl);
       const response = await fetch(`${baseUrl}/api/organization/withdraw`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           organizationName: "테스트 고객사",
-          confirmText: "회원탈퇴"
+          confirmText: "회원탈퇴",
+          phoneVerificationId
         })
       });
       const payload = (await response.json()) as {
@@ -419,6 +548,33 @@ test("organization withdrawal stops before workspace deactivation when a Popbill
       assert.deepEqual(state.deletedUsers, []);
       assert.equal(state.jobs.filter((job) => job.status === "cancelled").length, 0);
       assert.equal(calls.logs.at(-1), "고객사 회원탈퇴가 발행 연동 해지 실패로 중단되었습니다.");
+    }
+  );
+});
+
+test("organization withdrawal requires registered representative phone verification", async () => {
+  await withOrganizationMemberRoutes(
+    {
+      customers: [buildCustomer({ id: 1, customerName: "가입 고객" })],
+      quitCustomerPopbillMember: async () => ({ ok: true })
+    },
+    async (baseUrl, state, calls) => {
+      const response = await fetch(`${baseUrl}/api/organization/withdraw`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organizationName: "테스트 고객사",
+          confirmText: "회원탈퇴",
+          phoneVerificationId: "30000000-0000-4000-8000-000000000099"
+        })
+      });
+      const payload = (await response.json()) as { error: string };
+
+      assert.equal(response.status, 400);
+      assert.match(payload.error, /휴대폰 인증/);
+      assert.deepEqual(calls.quits, []);
+      assert.deepEqual(calls.resets, []);
+      assert.equal(state.organizations[0]?.status, "active");
     }
   );
 });

@@ -7,6 +7,9 @@ import type {
   CustomerCertificateInput,
   CustomerContractRenewalCompletion,
   CustomerContractRenewalDueItem,
+  CustomerContractPeriod,
+  CustomerContractPeriodInput,
+  CustomerContractPeriodMutationResult,
   CustomerContractSummary,
   CustomerImportProfile,
   CustomerInput,
@@ -37,7 +40,11 @@ import {
 import {
   buildCustomerContractRenewalDueItem,
   calculateCompletedContractRenewalPeriod,
-  CustomerContractRenewalConflictError
+  CustomerContractRenewalConflictError,
+  getCustomerContractPeriodStatus,
+  isValidYearMonth,
+  normalizeCustomerContractPeriodInput,
+  selectCustomerContractSummaryPeriod
 } from "./customer-contract-renewals.js";
 import { createSupabaseAdminClient } from "./supabase.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
@@ -437,6 +444,22 @@ function isMissingCustomerCertificatesTableError(error: unknown): boolean {
   );
 }
 
+function isMissingCustomerContractPeriodsTableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? asString((error as { code?: unknown }).code) : "";
+  const message = "message" in error ? asString((error as { message?: unknown }).message).toLowerCase() : "";
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    (message.includes("customer_contract_periods") &&
+      (message.includes("schema cache") || message.includes("does not exist") || message.includes("relation")))
+  );
+}
+
 function isCustomerCertificatesPasswordColumnMissingError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
@@ -507,6 +530,7 @@ function mapCustomerCertificate(row: Row): CustomerCertificate {
 
 function mapCustomerReportProfile(row: Row, customerId: number): CustomerReportProfile {
   const contractStartMonth = asNullableString(row.contract_start_month);
+  const storedContractEndMonth = asNullableString(row.contract_end_month);
   return {
     customerId,
     certificateRenewalDate: asNullableString(row.certificate_renewal_date),
@@ -514,10 +538,64 @@ function mapCustomerReportProfile(row: Row, customerId: number): CustomerReportP
     hasTaxInvoiceBusinessCertificate: asBoolean(row.has_tax_invoice_business_certificate, false),
     solarCapacityKw: row.solar_capacity_kw === null || row.solar_capacity_kw === undefined ? null : asNumber(row.solar_capacity_kw),
     contractStartMonth,
-    contractEndMonth: deriveContractEndMonth(contractStartMonth),
+    contractEndMonth: isValidYearMonth(storedContractEndMonth) ? storedContractEndMonth : deriveContractEndMonth(contractStartMonth),
     otherNote: asString(row.other_note),
     createdAt: asNullableString(row.created_at),
     updatedAt: asNullableString(row.updated_at)
+  };
+}
+
+function mapCustomerContractPeriod(row: Row, customerId: number): CustomerContractPeriod {
+  const contractStartDate = asString(row.contract_start_date);
+  const contractEndDate = asString(row.contract_end_date);
+  return {
+    id: asString(row.id),
+    customerId,
+    contractStartDate,
+    contractEndDate,
+    status: getCustomerContractPeriodStatus(contractStartDate, contractEndDate),
+    createdAt: asString(row.created_at, nowIso()),
+    updatedAt: asString(row.updated_at, nowIso())
+  };
+}
+
+function getYearMonthEndDate(yearMonth: string | null): string | null {
+  if (!isValidYearMonth(yearMonth)) {
+    return null;
+  }
+
+  const [yearText, monthText] = yearMonth.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${yearText}-${monthText}-${String(lastDay).padStart(2, "0")}`;
+}
+
+function buildContractPeriodFromProfileRow(profileRow: Row | null, customerId: number): CustomerContractPeriod | null {
+  if (!profileRow) {
+    return null;
+  }
+
+  const contractStartMonth = asNullableString(profileRow.contract_start_month);
+  const contractEndMonth = asNullableString(profileRow.contract_end_month) ?? deriveContractEndMonth(contractStartMonth);
+  if (!isValidYearMonth(contractStartMonth) || !isValidYearMonth(contractEndMonth)) {
+    return null;
+  }
+
+  const contractStartDate = `${contractStartMonth}-01`;
+  const contractEndDate = getYearMonthEndDate(contractEndMonth);
+  if (!contractEndDate) {
+    return null;
+  }
+
+  return {
+    id: `profile-${customerId}-${contractStartDate}-${contractEndDate}`,
+    customerId,
+    contractStartDate,
+    contractEndDate,
+    status: getCustomerContractPeriodStatus(contractStartDate, contractEndDate),
+    createdAt: asString(profileRow.created_at, nowIso()),
+    updatedAt: asString(profileRow.updated_at, nowIso())
   };
 }
 
@@ -2008,10 +2086,150 @@ export class SupabaseStore implements AppStore {
         return {
           customerId: asNumber(customerRow.legacy_id),
           contractStartMonth,
-          contractEndMonth: deriveContractEndMonth(contractStartMonth)
+          contractEndMonth: isValidYearMonth(asNullableString(profileRow.contract_end_month))
+            ? asNullableString(profileRow.contract_end_month)
+            : deriveContractEndMonth(contractStartMonth)
         };
       })
       .filter((summary): summary is CustomerContractSummary => summary !== null);
+  }
+
+  async listCustomerContractPeriods(customerId: number): Promise<CustomerContractPeriod[]> {
+    await this.initialize();
+    const customerRow = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!customerRow) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const organizationId = this.requireOrganizationId();
+    const managedCustomerId = asString(customerRow.id);
+    const profileRow = await assertNoError(
+      "고객 계약 프로필 조회 실패",
+      this.client
+        .from("customer_report_profiles")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("managed_customer_id", managedCustomerId)
+        .maybeSingle()
+    ) as Row | null;
+    const profilePeriod = buildContractPeriodFromProfileRow(profileRow, customerId);
+
+    let periodRows: Row[];
+    try {
+      periodRows = ((await assertNoError(
+        "고객 계약 기간 상세 조회 실패",
+        this.client
+          .from("customer_contract_periods")
+          .select("*")
+          .eq("organization_id", organizationId)
+          .eq("managed_customer_id", managedCustomerId)
+          .order("contract_start_date", { ascending: true })
+      )) as Row[]) ?? [];
+    } catch (error) {
+      if (isMissingCustomerContractPeriodsTableError(error)) {
+        return profilePeriod ? [profilePeriod] : [];
+      }
+      throw error;
+    }
+
+    const periods = periodRows.map((row) => mapCustomerContractPeriod(row, customerId));
+    if (
+      profilePeriod &&
+      !periods.some(
+        (period) =>
+          period.contractStartDate === profilePeriod.contractStartDate &&
+          period.contractEndDate === profilePeriod.contractEndDate
+      )
+    ) {
+      periods.push(profilePeriod);
+    }
+
+    return periods.sort(
+      (left, right) =>
+        left.contractStartDate.localeCompare(right.contractStartDate) ||
+        left.contractEndDate.localeCompare(right.contractEndDate)
+    );
+  }
+
+  async addCustomerContractPeriod(
+    customerId: number,
+    input: CustomerContractPeriodInput
+  ): Promise<CustomerContractPeriodMutationResult> {
+    await this.initialize();
+    const customerRow = await this.getManagedCustomerRowByLegacyId(customerId);
+    if (!customerRow) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const normalized = normalizeCustomerContractPeriodInput(input);
+    const organizationId = this.requireOrganizationId();
+    const managedCustomerId = asString(customerRow.id);
+    const timestamp = nowIso();
+    let periodRow: Row;
+    try {
+      periodRow = await assertNoError(
+        "고객 계약 기간 저장 실패",
+        this.client
+          .from("customer_contract_periods")
+          .upsert(
+            {
+              organization_id: organizationId,
+              managed_customer_id: managedCustomerId,
+              contract_start_date: normalized.contractStartDate,
+              contract_end_date: normalized.contractEndDate,
+              updated_at: timestamp
+            },
+            { onConflict: "managed_customer_id,contract_start_date,contract_end_date" }
+          )
+          .select("*")
+          .single()
+      ) as Row;
+    } catch (error) {
+      if (isMissingCustomerContractPeriodsTableError(error)) {
+        throw new Error("고객 계약 기간 테이블이 아직 준비되지 않았습니다. 마이그레이션을 적용한 뒤 다시 시도하세요.");
+      }
+      throw error;
+    }
+
+    const period = mapCustomerContractPeriod(periodRow, customerId);
+    const persistedRows = await assertNoError(
+      "고객 계약 기간 상세 조회 실패",
+      this.client
+        .from("customer_contract_periods")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("managed_customer_id", managedCustomerId)
+        .order("contract_start_date", { ascending: true })
+    ) as Row[];
+    const periods = ((persistedRows as Row[]) ?? []).map((row) => mapCustomerContractPeriod(row, customerId));
+    const summaryPeriod = selectCustomerContractSummaryPeriod(periods);
+    const summary: CustomerContractSummary = {
+      customerId,
+      contractStartMonth: summaryPeriod?.contractStartDate.slice(0, 7) ?? null,
+      contractEndMonth: summaryPeriod?.contractEndDate.slice(0, 7) ?? null
+    };
+
+    await assertNoError(
+      "고객 계약 프로필 저장 실패",
+      this.client
+        .from("customer_report_profiles")
+        .upsert(
+          {
+            organization_id: organizationId,
+            managed_customer_id: managedCustomerId,
+            contract_start_month: summary.contractStartMonth,
+            contract_end_month: summary.contractEndMonth,
+            updated_at: timestamp
+          },
+          { onConflict: "managed_customer_id" }
+        )
+    );
+
+    return {
+      period,
+      periods,
+      summary
+    };
   }
 
   async completeCustomerContractRenewal(

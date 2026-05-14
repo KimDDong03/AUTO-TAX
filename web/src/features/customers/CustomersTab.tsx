@@ -7,6 +7,8 @@ import type {
   Customer,
   CustomerCertificate,
   CustomerCertificateKind,
+  CustomerContractPeriod,
+  CustomerContractPeriodMutationResult,
   CustomerContractRenewalDueItem,
   CustomerContractSummary,
   CustomerReportDetail,
@@ -16,6 +18,7 @@ import type {
 import type { CustomerCertificateCandidateView } from "../certificates/useCertificatesScreenModel";
 import {
   getCustomerCertificateTodayDateKey,
+  normalizeCustomerCertificateExpireDateKey,
   isCustomerCertificateExpired
 } from "../renewal/customerRenewalCertificateUtils";
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
@@ -214,6 +217,11 @@ type CustomersTabProps = {
   onShowDraftPopbillInfo: (draftId: number) => Promise<void>;
   onOpenDraftPopbillUrl: (draftId: number, path: "view-url" | "print-url") => Promise<void>;
   onCustomerReportDetailSaved: (detail: CustomerReportDetail) => void | Promise<void>;
+  onLoadCustomerContractPeriods: (customerId: number) => Promise<CustomerContractPeriod[]>;
+  onAddCustomerContractPeriod: (
+    customerId: number,
+    input: { contractStartDate: string; contractEndDate: string }
+  ) => Promise<CustomerContractPeriodMutationResult>;
   resolveCustomerAddress: () => Promise<string>;
   runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
   formatCertificateExpireDate: (value: string | null) => string;
@@ -250,18 +258,6 @@ function renderCustomerStatusChip(chip: CustomerStatusChip | null) {
   );
 }
 
-function parseCustomerTimestamp(value: string | null | undefined): number | null {
-  if (!value) return null;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
-}
-
-function formatCustomerDate(value: string | null | undefined): string {
-  const timestamp = parseCustomerTimestamp(value);
-  if (timestamp === null) return "-";
-  return new Date(timestamp).toLocaleDateString("ko-KR");
-}
-
 function formatCustomerMonthLabel(value: string | null | undefined): string {
   if (!value) return "-";
   const match = value.match(/^(\d{4})-(\d{2})$/);
@@ -269,20 +265,30 @@ function formatCustomerMonthLabel(value: string | null | undefined): string {
   return `${match[1]}년 ${Number(match[2])}월`;
 }
 
-function getCustomerDraftStatusLabel(status: InvoiceDraft["status"]): string {
+function formatCustomerContractDate(value: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value?.trim() ?? "");
+  if (!match) return value || "-";
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function getCustomerContractPeriodStatusLabel(status: CustomerContractPeriod["status"]): string {
   switch (status) {
-    case "review":
+    case "expired":
+      return "만료";
+    case "active":
+      return "진행 중";
     case "scheduled":
-      return "발행 대기";
-    case "failed":
-      return "발행 실패";
-    case "issuing":
-      return "발행 중";
-    case "issued":
-      return "발행 완료";
+      return "예정";
     default:
       return status;
   }
+}
+
+function getCustomerContractPeriodStatusClass(status: CustomerContractPeriod["status"]): string {
+  return [
+    "customer-contract-period-status",
+    status === "active" ? "tone-success" : status === "scheduled" ? "tone-info" : "tone-warn"
+  ].join(" ");
 }
 
 function getCurrentCustomerReportYear(): number {
@@ -484,6 +490,16 @@ export function CustomersTab(props: CustomersTabProps) {
   const [checkedCustomerIds, setCheckedCustomerIds] = useState<Set<number>>(() => new Set());
   const [customerReportYear, setCustomerReportYear] = useState(getCurrentCustomerReportYear);
   const [customerHistoryDetailOpen, setCustomerHistoryDetailOpen] = useState(false);
+  const [customerContractPeriods, setCustomerContractPeriods] = useState<CustomerContractPeriod[]>([]);
+  const [customerContractPeriodsLoading, setCustomerContractPeriodsLoading] = useState(false);
+  const [customerContractPeriodsError, setCustomerContractPeriodsError] = useState("");
+  const [customerContractAddOpen, setCustomerContractAddOpen] = useState(false);
+  const [customerContractAddForm, setCustomerContractAddForm] = useState({
+    contractStartDate: "",
+    contractEndDate: ""
+  });
+  const [customerContractAddError, setCustomerContractAddError] = useState("");
+  const [customerContractAdding, setCustomerContractAdding] = useState(false);
   const [customerDetailEditing, setCustomerDetailEditing] = useState(false);
   const customerReportDetail = useCustomerReportDetail(selectedCustomer?.id ?? null, customerReportYear, {
     onSaved: props.onCustomerReportDetailSaved,
@@ -565,12 +581,51 @@ export function CustomersTab(props: CustomersTabProps) {
     if (selectedCustomer) {
       setCustomerDetailEditing(false);
       setCustomerHistoryDetailOpen(false);
+      setCustomerContractPeriods([]);
+      setCustomerContractPeriodsError("");
+      setCustomerContractAddOpen(false);
+      setCustomerContractAddForm({
+        contractStartDate: "",
+        contractEndDate: ""
+      });
+      setCustomerContractAddError("");
       setCustomerCertificateSelectorOpen(false);
       setCustomerCertificateSearchQuery("");
       setCustomerCertificateSelectedKey(null);
       setCustomerCertificateActionNotice("");
     }
   }, [selectedCustomer?.id]);
+
+  useEffect(() => {
+    if (!customerHistoryDetailOpen || !selectedCustomer) {
+      return;
+    }
+
+    let cancelled = false;
+    setCustomerContractPeriodsLoading(true);
+    setCustomerContractPeriodsError("");
+    void props.onLoadCustomerContractPeriods(selectedCustomer.id)
+      .then((periods) => {
+        if (!cancelled) {
+          setCustomerContractPeriods(periods);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setCustomerContractPeriodsError(error instanceof Error ? error.message : "계약 기간 상세정보를 불러오지 못했습니다.");
+          setCustomerContractPeriods([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCustomerContractPeriodsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [customerHistoryDetailOpen, selectedCustomer?.id]);
 
   useEffect(() => {
     setCustomerReportIssueDateDrafts({});
@@ -641,6 +696,10 @@ export function CustomersTab(props: CustomersTabProps) {
       if (event.key !== "Escape") {
         return;
       }
+      if (customerHistoryDetailOpen) {
+        setCustomerHistoryDetailOpen(false);
+        return;
+      }
       if (customerCertificateSelectorOpen) {
         setCustomerCertificateSelectorOpen(false);
         setCustomerCertificateSelectedKey(null);
@@ -658,6 +717,7 @@ export function CustomersTab(props: CustomersTabProps) {
   }, [
     customerCertificateSelectorOpen,
     customerDetailPanelOpen,
+    customerHistoryDetailOpen,
     props.creatingCustomer,
     props.onCancelCreateCustomer,
     props.setCustomerDetailTab
@@ -694,10 +754,15 @@ export function CustomersTab(props: CustomersTabProps) {
   };
 
   const getCustomerCertificateDays = (customer: Customer) => {
-    if (!customer.popbillCertExpireDate) return null;
-    const expireTime = new Date(customer.popbillCertExpireDate).getTime();
-    if (!Number.isFinite(expireTime)) return null;
-    return Math.ceil((expireTime - Date.now()) / (1000 * 60 * 60 * 24));
+    const expireDateKey = normalizeCustomerCertificateExpireDateKey(customer.popbillCertExpireDate);
+    const todayDateKey = getCustomerCertificateTodayDateKey();
+    if (!expireDateKey) return null;
+    const expireDate = new Date(`${expireDateKey}T00:00:00Z`);
+    const todayDate = new Date(`${todayDateKey}T00:00:00Z`);
+    const expireTime = expireDate.getTime();
+    const todayTime = todayDate.getTime();
+    if (!Number.isFinite(expireTime) || !Number.isFinite(todayTime)) return null;
+    return Math.round((expireTime - todayTime) / (24 * 60 * 60 * 1000));
   };
   const customerListEmptyState = (() => {
     if (props.customerSearchQuery.trim() !== "") {
@@ -1034,7 +1099,7 @@ export function CustomersTab(props: CustomersTabProps) {
         tone: "warn"
       };
     }
-    if (days !== null && days < 0) {
+    if (days !== null && days <= 0) {
       return {
         label: "만료",
         tone: "danger",
@@ -1651,6 +1716,43 @@ export function CustomersTab(props: CustomersTabProps) {
       { reload: false }
     );
   };
+  const saveCustomerContractPeriod = () => {
+    if (!selectedCustomer || customerContractAdding) {
+      return;
+    }
+
+    const contractStartDate = customerContractAddForm.contractStartDate.trim();
+    const contractEndDate = customerContractAddForm.contractEndDate.trim();
+    if (!contractStartDate || !contractEndDate) {
+      setCustomerContractAddError("계약 시작일과 종료일을 입력하세요.");
+      return;
+    }
+    if (contractStartDate > contractEndDate) {
+      setCustomerContractAddError("계약 종료일은 시작일보다 빠를 수 없습니다.");
+      return;
+    }
+
+    setCustomerContractAdding(true);
+    setCustomerContractAddError("");
+    void props.onAddCustomerContractPeriod(selectedCustomer.id, {
+      contractStartDate,
+      contractEndDate
+    })
+      .then((result) => {
+        setCustomerContractPeriods(result.periods);
+        setCustomerContractAddForm({
+          contractStartDate: "",
+          contractEndDate: ""
+        });
+        setCustomerContractAddOpen(false);
+      })
+      .catch((error) => {
+        setCustomerContractAddError(error instanceof Error ? error.message : "계약 기간을 추가하지 못했습니다.");
+      })
+      .finally(() => {
+        setCustomerContractAdding(false);
+      });
+  };
   const updateCustomerReportIssueDay = (reportMonth: number, value: string) => {
     const sanitizedValue = value.replace(/\D/g, "").slice(0, 2);
     const parsed = parseCustomerReportIssueDay(sanitizedValue, customerReportYear, reportMonth);
@@ -1776,24 +1878,23 @@ export function CustomersTab(props: CustomersTabProps) {
       : customerMemoChanged
         ? "저장 대기"
         : "저장됨";
-    const contractEndMonth = deriveContractEndMonth(reportProfile.contractStartMonth);
+    const selectedContractSummary = customerContractSummaryById.get(selectedCustomer.id);
+    const displayContractStartMonth = selectedContractSummary?.contractStartMonth ?? reportProfile.contractStartMonth;
+    const displayContractEndMonth =
+      selectedContractSummary?.contractEndMonth ?? reportProfile.contractEndMonth ?? deriveContractEndMonth(reportProfile.contractStartMonth);
+    const contractEndMonth = reportProfile.contractEndMonth ?? deriveContractEndMonth(reportProfile.contractStartMonth);
     const customerHistorySummaryText =
       props.mailboxDataLoading && props.selectedCustomerIssuedDrafts.length === 0
         ? "발행 이력을 불러오는 중입니다."
         : selectedRecentIssuedDraft
           ? `최근 발행 ${props.formatDateTime(selectedRecentIssuedDraft.issuedAt)}`
           : "아직 발행 이력이 없습니다.";
-    const contractPeriodLabel = reportProfile.contractStartMonth
-      ? `${formatCustomerMonthLabel(reportProfile.contractStartMonth)} ~ ${formatCustomerMonthLabel(contractEndMonth)}`
-      : "계약기간 미입력";
-    const selectedContractRenewalDueItem =
-      props.contractRenewalDueItems.find((item) => item.customerId === selectedCustomer.id) ?? null;
     const solarCapacityLabel =
       reportProfile.solarCapacityKw !== null && reportProfile.solarCapacityKw !== undefined
         ? `${reportProfile.solarCapacityKw} KW`
         : "미입력";
-    const contractPeriodSummaryLabel = reportProfile.contractStartMonth
-      ? `${formatCustomerMonthLabel(reportProfile.contractStartMonth)} ~ ${formatCustomerMonthLabel(contractEndMonth)}`
+    const contractPeriodSummaryLabel = displayContractStartMonth
+      ? `${formatCustomerMonthLabel(displayContractStartMonth)} ~ ${formatCustomerMonthLabel(displayContractEndMonth)}`
       : "미입력";
     const customerBusinessAddress = selectedCustomer.addr.trim();
     const customerSolarAddress =
@@ -1858,7 +1959,15 @@ export function CustomersTab(props: CustomersTabProps) {
                     <strong>{props.selectedCustomerIssuedDrafts.length}건</strong>
                     <em>{customerHistorySummaryText}</em>
                   </div>
-                  <button type="button" className="btn-ghost customer-history-detail-button" onClick={() => setCustomerHistoryDetailOpen(true)}>
+                  <button
+                    type="button"
+                    className="btn-ghost customer-history-detail-button"
+                    onClick={() => {
+                      setCustomerContractAddOpen(false);
+                      setCustomerContractAddError("");
+                      setCustomerHistoryDetailOpen(true);
+                    }}
+                  >
                     상세정보보기
                   </button>
                 </div>
@@ -2157,77 +2266,105 @@ export function CustomersTab(props: CustomersTabProps) {
               >
                 <header className="customer-history-detail-head">
                   <div>
-                    <h3 id="customer-history-detail-title">고객 상세정보</h3>
+                    <h3 id="customer-history-detail-title">계약 기간 상세정보</h3>
                     <p>{selectedCustomer.corpName || selectedCustomer.customerName || "선택 고객"}</p>
                   </div>
-                  <button type="button" className="btn-ghost" onClick={() => setCustomerHistoryDetailOpen(false)}>
-                    닫기
-                  </button>
-                </header>
-                <div className="customer-history-detail-grid">
-                  <div className="customer-history-detail-column">
-                    <div className="customer-history-detail-column-head">
-                      <h4>운영 이력</h4>
-                      <span>{props.selectedCustomerIssuedDrafts.length}건</span>
-                    </div>
-                    {props.selectedCustomerIssuedDrafts.length > 0 ? (
-                      <div className="customer-history-detail-list">
-                        {props.selectedCustomerIssuedDrafts.map((draft) => (
-                          <div key={draft.id} className="customer-history-detail-row">
-                            <div>
-                              <strong>{formatCustomerMonthLabel(draft.billingMonth)}</strong>
-                              <span>{getCustomerDraftStatusLabel(draft.status)}</span>
-                            </div>
-                            <dl>
-                              <div>
-                                <dt>발행일</dt>
-                                <dd>{props.formatDateTime(draft.issuedAt ?? draft.issueRequestedAt ?? draft.createdAt)}</dd>
-                              </div>
-                              <div>
-                                <dt>합계액</dt>
-                                <dd>{props.formatMoney(draft.totalAmount)}원</dd>
-                              </div>
-                            </dl>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="customer-history-detail-empty">
-                        {props.mailboxDataLoading ? "발행 이력을 불러오는 중입니다." : "아직 발행 이력이 없습니다."}
-                      </p>
-                    )}
+                  <div className="customer-history-detail-head-actions">
+                    <button
+                      type="button"
+                      className="btn-secondary customer-contract-add-toggle"
+                      onClick={() => {
+                        setCustomerContractAddOpen((open) => !open);
+                        setCustomerContractAddError("");
+                      }}
+                    >
+                      <Icon name="plus" className="button-icon" />
+                      계약 추가
+                    </button>
+                    <button type="button" className="btn-ghost" onClick={() => setCustomerHistoryDetailOpen(false)}>
+                      닫기
+                    </button>
                   </div>
-                  <div className="customer-history-detail-column">
-                    <div className="customer-history-detail-column-head">
-                      <h4>계약기간</h4>
-                      <span>{selectedContractRenewalDueItem ? "갱신 예정" : "현재"}</span>
+                </header>
+                <div className="customer-contract-period-body">
+                  {customerContractAddOpen ? (
+                    <div className="customer-contract-period-add-form">
+                      <label>
+                        계약 시작일
+                        <input
+                          type="date"
+                          value={customerContractAddForm.contractStartDate}
+                          onChange={(event) =>
+                            setCustomerContractAddForm((prev) => ({
+                              ...prev,
+                              contractStartDate: event.target.value
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        계약 종료일
+                        <input
+                          type="date"
+                          value={customerContractAddForm.contractEndDate}
+                          onChange={(event) =>
+                            setCustomerContractAddForm((prev) => ({
+                              ...prev,
+                              contractEndDate: event.target.value
+                            }))
+                          }
+                        />
+                      </label>
+                      <div className="customer-contract-period-add-actions">
+                        <button type="button" className="btn-ghost" onClick={() => setCustomerContractAddOpen(false)}>
+                          취소
+                        </button>
+                        <button type="button" disabled={customerContractAdding} onClick={saveCustomerContractPeriod}>
+                          {customerContractAdding ? "저장 중" : "저장"}
+                        </button>
+                      </div>
+                      {customerContractAddError ? <p className="customer-contract-period-error">{customerContractAddError}</p> : null}
                     </div>
-                    <dl className="customer-history-contract-list">
-                      <div>
-                        <dt>현재 계약기간</dt>
-                        <dd>{contractPeriodLabel}</dd>
-                      </div>
-                      <div>
-                        <dt>태양광 용량</dt>
-                        <dd>{reportProfile.solarCapacityKw !== null ? `${reportProfile.solarCapacityKw} KW` : "-"}</dd>
-                      </div>
-                      {selectedContractRenewalDueItem ? (
-                        <>
-                          <div>
-                            <dt>다음 계약기간</dt>
-                            <dd>
-                              {formatCustomerMonthLabel(selectedContractRenewalDueItem.nextContractStartMonth)} ~{" "}
-                              {formatCustomerMonthLabel(selectedContractRenewalDueItem.nextContractEndMonth)}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>상태</dt>
-                            <dd>{selectedContractRenewalDueItem.status === "overdue" ? "계약 만료" : "계약 만료 예정"}</dd>
-                          </div>
-                        </>
-                      ) : null}
-                    </dl>
-                    <p className="customer-history-detail-empty">이전 계약기간 기록은 아직 저장된 항목이 없습니다.</p>
+                  ) : null}
+                  {customerContractPeriodsError ? (
+                    <p className="customer-contract-period-error">{customerContractPeriodsError}</p>
+                  ) : null}
+                  <div className="customer-contract-period-table-wrap">
+                    <table className="customer-contract-period-table">
+                      <thead>
+                        <tr>
+                          <th>번호</th>
+                          <th>계약기간</th>
+                          <th>상태</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {customerContractPeriodsLoading ? (
+                          <tr>
+                            <td colSpan={3}>계약 기간을 불러오는 중입니다.</td>
+                          </tr>
+                        ) : customerContractPeriods.length > 0 ? (
+                          customerContractPeriods.map((period, index) => (
+                            <tr key={period.id}>
+                              <td>{index + 1}</td>
+                              <td>
+                                {formatCustomerContractDate(period.contractStartDate)} ~{" "}
+                                {formatCustomerContractDate(period.contractEndDate)}
+                              </td>
+                              <td>
+                                <span className={getCustomerContractPeriodStatusClass(period.status)}>
+                                  {getCustomerContractPeriodStatusLabel(period.status)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={3}>저장된 계약 기간이 없습니다.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </section>

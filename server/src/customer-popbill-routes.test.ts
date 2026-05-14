@@ -8,6 +8,9 @@ import type {
   Customer,
   CustomerContractRenewalCompletion,
   CustomerContractRenewalDueItem,
+  CustomerContractPeriod,
+  CustomerContractPeriodInput,
+  CustomerContractPeriodMutationResult,
   CustomerContractSummary,
   CustomerInput,
   CustomerReportDetail,
@@ -101,6 +104,11 @@ async function withCustomerRoutes(
     getCustomerReportDetail?: (customerId: number, reportYear: number) => Promise<CustomerReportDetail> | CustomerReportDetail;
     saveCustomerReportDetail?: (customerId: number, input: CustomerReportDetailInput) => Promise<CustomerReportDetail> | CustomerReportDetail;
     listCustomerContractSummaries?: () => Promise<CustomerContractSummary[]> | CustomerContractSummary[];
+    listCustomerContractPeriods?: (customerId: number) => Promise<CustomerContractPeriod[]> | CustomerContractPeriod[];
+    addCustomerContractPeriod?: (
+      customerId: number,
+      input: CustomerContractPeriodInput
+    ) => Promise<CustomerContractPeriodMutationResult> | CustomerContractPeriodMutationResult;
     listCustomerContractRenewalsDue?: (currentYearMonth: string) => Promise<CustomerContractRenewalDueItem[]> | CustomerContractRenewalDueItem[];
     completeCustomerContractRenewal?: (
       customerId: number,
@@ -176,6 +184,24 @@ async function withCustomerRoutes(
         (await options.listCustomerContractSummaries?.()) ??
         (() => {
           throw new Error("listCustomerContractSummaries should not be used in this test");
+        })()
+      );
+    },
+    listCustomerContractPeriods: async (customerId: number) => {
+      calls.events.push("list-contract-periods");
+      return (
+        (await options.listCustomerContractPeriods?.(customerId)) ??
+        (() => {
+          throw new Error("listCustomerContractPeriods should not be used in this test");
+        })()
+      );
+    },
+    addCustomerContractPeriod: async (customerId: number, input: CustomerContractPeriodInput) => {
+      calls.events.push("add-contract-period");
+      return (
+        (await options.addCustomerContractPeriod?.(customerId, input)) ??
+        (() => {
+          throw new Error("addCustomerContractPeriod should not be used in this test");
         })()
       );
     },
@@ -476,6 +502,121 @@ test("GET customer contract summaries returns list contract status inputs", asyn
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), summaries);
       assert.deepEqual(calls.events, ["list-contract-summaries"]);
+    }
+  );
+});
+
+test("GET customer contract periods returns period detail rows", async () => {
+  const customer = buildCustomer();
+  const periods: CustomerContractPeriod[] = [
+    {
+      id: "period-1",
+      customerId: customer.id,
+      contractStartDate: "2019-09-27",
+      contractEndDate: "2023-09-26",
+      status: "expired",
+      createdAt: "2026-05-15T00:00:00.000Z",
+      updatedAt: "2026-05-15T00:00:00.000Z"
+    }
+  ];
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      listCustomerContractPeriods: (customerId) => {
+        assert.equal(customerId, customer.id);
+        return periods;
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/${customer.id}/contract-periods`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), periods);
+      assert.deepEqual(calls.events, ["list-contract-periods"]);
+    }
+  );
+});
+
+test("POST customer contract periods adds period and audit log", async () => {
+  const customer = buildCustomer();
+  const result: CustomerContractPeriodMutationResult = {
+    period: {
+      id: "period-2",
+      customerId: customer.id,
+      contractStartDate: "2023-09-27",
+      contractEndDate: "2027-09-27",
+      status: "active",
+      createdAt: "2026-05-15T00:00:00.000Z",
+      updatedAt: "2026-05-15T00:00:00.000Z"
+    },
+    periods: [],
+    summary: {
+      customerId: customer.id,
+      contractStartMonth: "2023-09",
+      contractEndMonth: "2027-09"
+    }
+  };
+  result.periods = [result.period];
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false),
+      addCustomerContractPeriod: (customerId, input) => {
+        assert.equal(customerId, customer.id);
+        assert.deepEqual(input, {
+          contractStartDate: "2023-09-27",
+          contractEndDate: "2027-09-27"
+        });
+        return result;
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/${customer.id}/contract-periods`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractStartDate: "2023-09-27",
+          contractEndDate: "2027-09-27"
+        })
+      });
+      assert.equal(response.status, 201);
+      assert.deepEqual(await response.json(), result);
+      assert.deepEqual(calls.events, ["add-contract-period"]);
+      const log = calls.logs.find((entry) => entry.message.includes("고객 계약 기간"));
+      assert.deepEqual(log?.context, {
+        eventType: "customer-contract-period-added",
+        actorUserId: "user-1",
+        organizationId: "org-1",
+        customerId: customer.id,
+        contractStartDate: "2023-09-27",
+        contractEndDate: "2027-09-27"
+      });
+    }
+  );
+});
+
+test("POST customer contract periods rejects invalid ranges", async () => {
+  const customer = buildCustomer();
+
+  await withCustomerRoutes(
+    {
+      customer,
+      settings: buildSettings(false)
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/${customer.id}/contract-periods`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractStartDate: "2027-09-27",
+          contractEndDate: "2023-09-27"
+        })
+      });
+      assert.equal(response.status, 400);
+      assert.deepEqual(calls.events, []);
+      assert.equal(calls.logs.length, 0);
     }
   );
 });

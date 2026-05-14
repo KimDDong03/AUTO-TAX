@@ -83,7 +83,7 @@ function createModel(
         {
           id: "account",
           step: 5,
-          title: "계정 / 작업공간",
+          title: "계정 설정",
           done: true,
           summary: "비밀번호 변경"
         }
@@ -234,6 +234,12 @@ function createModel(
           joinedPopbillCustomerCount: 0,
           memberCount: 0,
           canWithdraw: false,
+          onSendPhoneVerification: async () => ({
+            verificationId: "30000000-0000-4000-8000-000000000001",
+            expiresAt: "2026-05-14T00:05:00.000Z",
+            maskedPhone: "010-****-5678"
+          }),
+          onConfirmPhoneVerification: async () => true,
           onWithdrawOrganization: async () => {}
         },
         reveals: {

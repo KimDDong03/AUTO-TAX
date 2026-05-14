@@ -75,7 +75,7 @@ export function buildSettingsSectionSummary({
     {
       id: "account",
       step: 5,
-      title: "계정 / 작업공간",
+      title: "계정 설정",
       done: true,
       summary: canManageOrganizationMembers ? "사용자 / 비밀번호" : "비밀번호 변경"
     }

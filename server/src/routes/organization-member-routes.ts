@@ -5,8 +5,16 @@ import type { Customer } from "../domain.js";
 import { getErrorMessage, HttpError } from "../http-errors.js";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../password-policy.js";
 import { quitMember } from "../popbill-client.js";
+import { createSmsProvider } from "../sms-provider.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequireOrganizationOwner, RequestStoreGetter, ServerManagedSettingsGetter } from "../route-types.js";
+import { findPublicSignupRequestByUserId } from "../signup-requests.js";
+import {
+  confirmSignupPhoneVerification,
+  consumeSignupPhoneVerification,
+  createSignupPhoneVerification,
+  normalizeSignupPhone
+} from "../signup-phone-verifications.js";
 import { quitCustomerPopbillMembership } from "./customer-popbill-routes.js";
 
 const organizationMemberCreateSchema = z.object({
@@ -28,7 +36,13 @@ const organizationWithdrawConfirmText = "회원탈퇴";
 
 const organizationWithdrawSchema = z.object({
   organizationName: z.string().trim().min(1),
-  confirmText: z.string().trim()
+  confirmText: z.string().trim(),
+  phoneVerificationId: z.uuid()
+});
+
+const organizationWithdrawalPhoneVerificationConfirmSchema = z.object({
+  verificationId: z.uuid(),
+  code: z.string().trim().regex(/^\d{6}$/, "인증번호 6자리를 입력하세요.")
 });
 
 type SupabaseAdminClient = ReturnType<typeof import("../supabase.js").createSupabaseAdminClient>;
@@ -91,6 +105,29 @@ function buildPopbillFailureDetails(failures: OrganizationWithdrawalPopbillFailu
   return failures
     .map((failure) => `${failure.customerName}: ${failure.error}`)
     .join("\n");
+}
+
+function maskPhoneForDisplay(phone: string): string {
+  const normalized = normalizeSignupPhone(phone);
+  if (normalized.length === 11) {
+    return `${normalized.slice(0, 3)}-****-${normalized.slice(7)}`;
+  }
+  if (normalized.length >= 7) {
+    return `${normalized.slice(0, 3)}-****-${normalized.slice(-4)}`;
+  }
+  return "등록된 대표자 휴대폰";
+}
+
+async function getWithdrawalRepresentativePhone(
+  adminClient: SupabaseAdminClient,
+  userId: string
+): Promise<string> {
+  const signupRequest = await findPublicSignupRequestByUserId(adminClient, userId);
+  const phone = signupRequest?.phone?.trim() ?? "";
+  if (!phone) {
+    throw new HttpError(409, "가입 시 등록된 대표자 휴대폰 정보를 찾을 수 없습니다. 운영 관리자에게 문의하세요.");
+  }
+  return phone;
 }
 
 function parseOpsAdminEmails(): Set<string> {
@@ -337,6 +374,40 @@ export function registerOrganizationMemberRoutes(deps: RouteDeps) {
     res.json(await listOrganizationMembers(authContext.activeOrganizationId));
   });
 
+  app.post("/api/organization/withdrawal-phone-verifications/send", async (req, res) => {
+    const authContext = requireOrganizationOwner(res);
+    const adminClient = createSupabaseAdminClient();
+    const phone = await getWithdrawalRepresentativePhone(adminClient, authContext.userId);
+    const result = await createSignupPhoneVerification(adminClient, createSmsProvider(), {
+      phone,
+      requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+      requestUserAgent: req.header("user-agent") ?? ""
+    });
+
+    res.status(201).json({
+      ...result,
+      maskedPhone: maskPhoneForDisplay(phone)
+    });
+  });
+
+  app.post("/api/organization/withdrawal-phone-verifications/confirm", async (req, res) => {
+    const authContext = requireOrganizationOwner(res);
+    const payload = organizationWithdrawalPhoneVerificationConfirmSchema.parse(req.body ?? {});
+    const adminClient = createSupabaseAdminClient();
+    const phone = await getWithdrawalRepresentativePhone(adminClient, authContext.userId);
+
+    await confirmSignupPhoneVerification(adminClient, {
+      verificationId: payload.verificationId,
+      phone,
+      code: payload.code
+    });
+
+    res.json({
+      verified: true,
+      maskedPhone: maskPhoneForDisplay(phone)
+    });
+  });
+
   app.post("/api/organization/members", async (req, res) => {
     const requestStore = getRequestStore(res, store);
     const authContext = requireOrganizationOwner(res);
@@ -536,6 +607,12 @@ export function registerOrganizationMemberRoutes(deps: RouteDeps) {
     }
 
     const adminClient = createSupabaseAdminClient();
+    const representativePhone = await getWithdrawalRepresentativePhone(adminClient, authContext.userId);
+    await consumeSignupPhoneVerification(adminClient, {
+      verificationId: payload.phoneVerificationId,
+      phone: representativePhone
+    });
+
     const settings = await getServerManagedSettings(requestStore);
     const members = await listOrganizationMembers(authContext.activeOrganizationId);
     const allAuthUsers = await listAllAuthUsers(adminClient);

@@ -7,8 +7,8 @@ import type { AuthUserSummary } from "../admin-types.js";
 import { createPublicConsultationRequest } from "../consultation-requests.js";
 import {
   createPublicSignupRequest,
+  findPublicSignupRequestByKepcoEmail,
   findPublicSignupRequestByLoginId,
-  findPublicSignupRequestByNameAndPhone,
   findPublicSignupRequestByUserId
 } from "../signup-requests.js";
 import {
@@ -124,9 +124,8 @@ const publicSignupLoginIdAvailabilitySchema = z.object({
 });
 
 const publicSignupLoginIdLookupSchema = z.object({
-  name: publicSignupSchema.shape.name,
-  phone: publicSignupPhoneSchema,
-  phoneVerificationId: z.uuid()
+  email: publicSignupEmailSchema,
+  emailVerificationId: z.uuid()
 });
 
 const DEFAULT_PUBLIC_LOGIN_TIMEOUT_MS = 5000;
@@ -394,15 +393,12 @@ export function registerCoreRoutes(deps: RouteDeps) {
     const payload = publicSignupLoginIdLookupSchema.parse(req.body ?? {});
     const adminClient = createSupabaseAdminClient();
 
-    await consumeSignupPhoneVerification(adminClient, {
-      verificationId: payload.phoneVerificationId,
-      phone: payload.phone
+    await consumeSignupEmailVerification(adminClient, {
+      verificationId: payload.emailVerificationId,
+      email: payload.email
     });
 
-    const request = await findPublicSignupRequestByNameAndPhone(adminClient, {
-      name: payload.name,
-      phone: payload.phone
-    });
+    const request = await findPublicSignupRequestByKepcoEmail(adminClient, payload.email);
 
     if (!request || request.status === "rejected") {
       res.json({ found: false });

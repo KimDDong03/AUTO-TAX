@@ -16,7 +16,18 @@ export type SettingsScreenProps = {
   setActiveSettingsSection: React.Dispatch<React.SetStateAction<SettingsSectionId>>;
   customers: Customer[];
   onSaveCustomerIssueCompleteSmsTemplate: (customerId: number, issueCompleteSmsTemplate: string) => Promise<void>;
-  onWithdrawOrganization: (input: { organizationName: string; confirmText: string }) => Promise<void>;
+  onSendWithdrawalPhoneVerification: () => Promise<{
+    verificationId: string;
+    expiresAt: string;
+    maskedPhone: string;
+    devCode?: string;
+  }>;
+  onConfirmWithdrawalPhoneVerification: (input: { verificationId: string; code: string }) => Promise<boolean>;
+  onWithdrawOrganization: (input: {
+    organizationName: string;
+    confirmText: string;
+    phoneVerificationId: string;
+  }) => Promise<void>;
   customerRegistrationReady: boolean;
   customerCount: number;
   onboardingComplete: boolean;
@@ -282,6 +293,8 @@ export function useSettingsScreenModel(
             ).length,
             memberCount: props.settingsState.account.organizationMembers.length,
             canWithdraw: props.settingsState.account.canManageOrganizationMembers,
+            onSendPhoneVerification: props.onSendWithdrawalPhoneVerification,
+            onConfirmPhoneVerification: props.onConfirmWithdrawalPhoneVerification,
             onWithdrawOrganization: props.onWithdrawOrganization
           },
           reveals: {
@@ -310,7 +323,9 @@ export function useSettingsScreenModel(
       props.onboardingContent,
       props.onboardingPendingStepCount,
       props.onboardingProgressText,
+      props.onConfirmWithdrawalPhoneVerification,
       props.onSaveCustomerIssueCompleteSmsTemplate,
+      props.onSendWithdrawalPhoneVerification,
       props.onWithdrawOrganization,
       props.openCertificates,
       props.openOnboarding,

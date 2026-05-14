@@ -119,7 +119,7 @@ export function getSettingsSectionLabel(section: SettingsSectionId): string {
       return "로컬 헬퍼";
     case "account":
     default:
-      return "계정 / 작업공간";
+      return "계정 설정";
   }
 }
 

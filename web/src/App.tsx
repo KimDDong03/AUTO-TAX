@@ -154,6 +154,8 @@ import type {
   Customer,
   CustomerCertificate,
   CustomerCertificateKind,
+  CustomerContractPeriod,
+  CustomerContractPeriodMutationResult,
   CustomerContractRenewalCompletion,
   CustomerContractRenewalDueItem,
   CustomerContractSummary,
@@ -646,6 +648,12 @@ type OrganizationWithdrawalResponse = {
     }>;
   };
   cancelledJobs: number;
+};
+type OrganizationWithdrawalPhoneVerificationSendResult = {
+  verificationId: string;
+  expiresAt: string;
+  maskedPhone: string;
+  devCode?: string;
 };
 type OpsConsoleData = {
   partnerPoints: PartnerPointsPayload;
@@ -3266,9 +3274,8 @@ export function App() {
   };
 
   const findLoginId = async (input: {
-    name: string;
-    phone: string;
-    phoneVerificationId: string;
+    email: string;
+    emailVerificationId: string;
   }): Promise<PublicLoginIdLookupResult> => {
     try {
       setError("");
@@ -3332,10 +3339,25 @@ export function App() {
     }
   };
 
-  const withdrawOrganization = async (input: { organizationName: string; confirmText: string }) => {
+  const sendWithdrawalPhoneVerification = async (): Promise<OrganizationWithdrawalPhoneVerificationSendResult> => {
+    return api<OrganizationWithdrawalPhoneVerificationSendResult>("/api/organization/withdrawal-phone-verifications/send", {
+      method: "POST"
+    });
+  };
+
+  const confirmWithdrawalPhoneVerification = async (input: { verificationId: string; code: string }): Promise<boolean> => {
+    const result = await api<{ verified: boolean }>("/api/organization/withdrawal-phone-verifications/confirm", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    return result.verified;
+  };
+
+  const withdrawOrganization = async (input: { organizationName: string; confirmText: string; phoneVerificationId: string }) => {
     const confirmed = await showAppConfirm(
       [
         `${input.organizationName} 고객사 회원탈퇴를 진행합니다.`,
+        "등록된 대표자 휴대폰 인증이 확인된 경우에만 탈퇴가 진행됩니다.",
         "발행 연동 고객 해지가 먼저 실행되고, 실패가 있으면 작업공간 탈퇴는 중단됩니다.",
         "완료 후 현재 작업공간 사용자들은 더 이상 접속할 수 없습니다."
       ].join("\n"),
@@ -6796,6 +6818,21 @@ export function App() {
       contractEndMonth: completion.profile.contractEndMonth
     });
   };
+  const loadCustomerContractPeriods = async (customerId: number): Promise<CustomerContractPeriod[]> => {
+    return await api<CustomerContractPeriod[]>(`/api/customers/${customerId}/contract-periods`);
+  };
+  const addCustomerContractPeriod = async (
+    customerId: number,
+    input: { contractStartDate: string; contractEndDate: string }
+  ): Promise<CustomerContractPeriodMutationResult> => {
+    const result = await api<CustomerContractPeriodMutationResult>(`/api/customers/${customerId}/contract-periods`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    upsertCustomerContractSummary(result.summary);
+    await refreshCustomerContractRenewalsDue();
+    return result;
+  };
   const downloadCustomerContractRenewals = async () => {
     const XLSX = await loadXlsxModule();
     downloadCustomerContractRenewalsWorkbook(XLSX, customerContractRenewalsDue);
@@ -7334,6 +7371,8 @@ export function App() {
             onShowDraftPopbillInfo={showDraftPopbillInfo}
             onOpenDraftPopbillUrl={openDraftPopbillUrl}
             onCustomerReportDetailSaved={handleCustomerReportDetailSaved}
+            onLoadCustomerContractPeriods={loadCustomerContractPeriods}
+            onAddCustomerContractPeriod={addCustomerContractPeriod}
             resolveCustomerAddress={resolveCustomerAddress}
             runAction={runAction}
             formatCertificateExpireDate={formatCertificateExpireDate}
@@ -7355,6 +7394,8 @@ export function App() {
             activeSettingsSection={activeSettingsSection}
             customers={data.customers}
             onSaveCustomerIssueCompleteSmsTemplate={saveCustomerIssueCompleteSmsTemplate}
+            onSendWithdrawalPhoneVerification={sendWithdrawalPhoneVerification}
+            onConfirmWithdrawalPhoneVerification={confirmWithdrawalPhoneVerification}
             onWithdrawOrganization={withdrawOrganization}
             customerRegistrationReady={customerRegistrationReady}
             customerCount={data.customers.length}

@@ -4,6 +4,8 @@ import {
   buildCustomerContractRenewalDueItem,
   calculateCompletedContractRenewalPeriod,
   CustomerContractRenewalConflictError,
+  getCustomerContractPeriodStatus,
+  getCurrentKstDate,
   getCurrentKstYearMonth
 } from "./customer-contract-renewals.js";
 import type { CustomerReportProfile } from "./domain.js";
@@ -58,6 +60,21 @@ test("contract renewal due item keeps overdue customers until completed", () => 
   assert.equal(item?.contractEndMonth, "2027-04");
 });
 
+test("contract renewal due item accepts stored multi-year contract end months", () => {
+  const item = buildCustomerContractRenewalDueItem(
+    {
+      ...baseDueSource,
+      contractStartMonth: "2023-09",
+      contractEndMonth: "2027-09"
+    },
+    "2027-09"
+  );
+
+  assert.equal(item?.status, "due_this_month");
+  assert.equal(item?.contractStartMonth, "2023-09");
+  assert.equal(item?.contractEndMonth, "2027-09");
+});
+
 test("contract renewal due item excludes future and invalid contract months", () => {
   assert.equal(buildCustomerContractRenewalDueItem(baseDueSource, "2027-03"), null);
   assert.equal(buildCustomerContractRenewalDueItem({ ...baseDueSource, contractStartMonth: null }, "2027-04"), null);
@@ -87,4 +104,14 @@ test("complete contract renewal rejects stale expected contract end month", () =
 
 test("current KST month uses Seoul calendar boundaries", () => {
   assert.equal(getCurrentKstYearMonth(new Date("2027-03-31T15:00:00.000Z")), "2027-04");
+});
+
+test("current KST date uses Seoul calendar boundaries", () => {
+  assert.equal(getCurrentKstDate(new Date("2027-03-31T15:00:00.000Z")), "2027-04-01");
+});
+
+test("customer contract period status is derived from current date", () => {
+  assert.equal(getCustomerContractPeriodStatus("2019-09-27", "2023-09-26", "2026-05-15"), "expired");
+  assert.equal(getCustomerContractPeriodStatus("2023-09-27", "2027-09-27", "2026-05-15"), "active");
+  assert.equal(getCustomerContractPeriodStatus("2027-09-28", "2031-09-27", "2026-05-15"), "scheduled");
 });

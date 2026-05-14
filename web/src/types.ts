@@ -178,6 +178,24 @@ export interface CustomerContractSummary {
   contractEndMonth: string | null;
 }
 
+export type CustomerContractPeriodStatus = "expired" | "active" | "scheduled";
+
+export interface CustomerContractPeriod {
+  id: string;
+  customerId: number;
+  contractStartDate: string;
+  contractEndDate: string;
+  status: CustomerContractPeriodStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerContractPeriodMutationResult {
+  period: CustomerContractPeriod;
+  periods: CustomerContractPeriod[];
+  summary: CustomerContractSummary;
+}
+
 export interface CustomerContractRenewalDueItem {
   customerId: number;
   customerName: string;

@@ -12,7 +12,8 @@ import {
 import {
   CustomerContractRenewalConflictError,
   CustomerContractRenewalInvalidPeriodError,
-  getCurrentKstYearMonth
+  getCurrentKstYearMonth,
+  isValidIsoDate
 } from "../customer-contract-renewals.js";
 import { getCertificateExpireDate, getTaxCertURL, isPopbillMemberMissingError, quitMember } from "../popbill-client.js";
 import { RenewalAutomationManager } from "../renewal-automation.js";
@@ -214,6 +215,15 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
   const customerContractRenewalCompleteSchema = zod.object({
     expectedContractEndMonth: nullableMonthStringSchema.refine((value) => value !== null, "예상 계약 종료월이 필요합니다.")
   });
+  const customerContractPeriodSchema = zod
+    .object({
+      contractStartDate: zod.string().trim().refine(isValidIsoDate, "계약 시작일을 올바른 날짜로 입력하세요."),
+      contractEndDate: zod.string().trim().refine(isValidIsoDate, "계약 종료일을 올바른 날짜로 입력하세요.")
+    })
+    .refine((value) => value.contractStartDate <= value.contractEndDate, {
+      message: "계약 종료일은 시작일보다 빠를 수 없습니다.",
+      path: ["contractEndDate"]
+    });
 
   function parseCustomerIdParam(value: string): number | null {
     const customerId = Number(value);
@@ -237,6 +247,65 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
   app.get("/api/customers/contract-summaries", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
     res.json(await requestStore.listCustomerContractSummaries());
+  });
+
+  app.get("/api/customers/:id/contract-periods", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+    const customerId = parseCustomerIdParam(req.params.id);
+    if (customerId === null) {
+      res.status(400).json({ error: "고객 ID가 올바르지 않습니다." });
+      return;
+    }
+    const customer = await requestStore.getCustomer(customerId);
+    if (!customer) {
+      res.status(404).json({ error: "고객을 찾지 못했습니다." });
+      return;
+    }
+    res.json(await requestStore.listCustomerContractPeriods(customerId));
+  });
+
+  app.post("/api/customers/:id/contract-periods", async (req, res) => {
+    const authContext = requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const customerId = parseCustomerIdParam(req.params.id);
+    if (customerId === null) {
+      res.status(400).json({ error: "고객 ID가 올바르지 않습니다." });
+      return;
+    }
+    const customer = await requestStore.getCustomer(customerId);
+    if (!customer) {
+      res.status(404).json({ error: "고객을 찾지 못했습니다." });
+      return;
+    }
+
+    const parsedPayload = customerContractPeriodSchema.safeParse(req.body ?? {});
+    if (!parsedPayload.success) {
+      res.status(400).json({ error: parsedPayload.error.issues[0]?.message ?? "계약 기간 입력값이 올바르지 않습니다." });
+      return;
+    }
+    const payload = parsedPayload.data;
+    try {
+      const result = await requestStore.addCustomerContractPeriod(customerId, payload);
+      await requestStore.createLog("info", "customers", "고객 계약 기간을 추가했습니다.", {
+        eventType: "customer-contract-period-added",
+        actorUserId: authContext.userId,
+        organizationId: authContext.activeOrganizationId,
+        customerId,
+        contractStartDate: payload.contractStartDate,
+        contractEndDate: payload.contractEndDate
+      });
+      res.status(201).json(result);
+    } catch (error) {
+      if (error instanceof CustomerContractRenewalInvalidPeriodError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      if (error instanceof Error && error.message.includes("고객을 찾지 못했습니다")) {
+        res.status(404).json({ error: "고객을 찾지 못했습니다." });
+        return;
+      }
+      throw error;
+    }
   });
 
   app.get("/api/customers/:id/report-detail", async (req, res) => {

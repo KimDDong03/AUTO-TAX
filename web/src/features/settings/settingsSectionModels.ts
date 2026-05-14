@@ -157,7 +157,13 @@ export type SettingsAccountSectionModel = {
     joinedPopbillCustomerCount: number;
     memberCount: number;
     canWithdraw: boolean;
-    onWithdrawOrganization: (input: { organizationName: string; confirmText: string }) => Promise<void>;
+    onSendPhoneVerification: () => Promise<{ verificationId: string; expiresAt: string; maskedPhone: string; devCode?: string }>;
+    onConfirmPhoneVerification: (input: { verificationId: string; code: string }) => Promise<boolean>;
+    onWithdrawOrganization: (input: {
+      organizationName: string;
+      confirmText: string;
+      phoneVerificationId: string;
+    }) => Promise<void>;
   };
   reveals: Pick<
     SettingsFeatureRevealAdapters,

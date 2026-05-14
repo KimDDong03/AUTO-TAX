@@ -78,8 +78,7 @@ type SignupEmailVerificationState = {
 };
 
 type LoginIdLookupState = {
-  name: string;
-  phone: string;
+  email: string;
   verificationId: string;
   code: string;
   status: "idle" | "sending" | "sent" | "verifying" | "verified" | "looking-up" | "found" | "not-found" | "error";
@@ -120,7 +119,7 @@ type PublicLandingProps = {
   onConfirmSignupPhoneVerification: (input: { verificationId: string; phone: string; code: string }) => Promise<boolean>;
   onSendSignupEmailVerification: (email: string) => Promise<PublicSignupEmailVerificationSendResult>;
   onConfirmSignupEmailVerification: (input: { verificationId: string; email: string; code: string }) => Promise<boolean>;
-  onFindLoginId: (input: { name: string; phone: string; phoneVerificationId: string }) => Promise<PublicLoginIdLookupResult>;
+  onFindLoginId: (input: { email: string; emailVerificationId: string }) => Promise<PublicLoginIdLookupResult>;
   onPasswordReset: (email: string) => Promise<boolean>;
 };
 
@@ -149,8 +148,7 @@ const emptySignupForm: PublicSignupFormState = {
 };
 
 const emptyLoginIdLookup: LoginIdLookupState = {
-  name: "",
-  phone: "",
+  email: "",
   verificationId: "",
   code: "",
   status: "idle",
@@ -161,144 +159,245 @@ const emptyLoginIdLookup: LoginIdLookupState = {
 const publicTerms: readonly PublicTerm[] = [
   {
     id: "termsAccepted",
-    label: "서비스 이용약관 동의",
+    label: "서비스 이용약관",
     required: true,
-    version: "terms_2026-05-12",
+    version: "terms_2026-05-13",
     sections: [
       {
-        title: "목적",
-        body: "이 약관은 AUTO-TAX가 제공하는 전자세금계산서 업무 자동화 서비스의 이용 조건, 계정 승인 절차, 이용자의 책임, 서비스 제한 사항을 정하기 위한 초안입니다."
+        title: "제1조 목적",
+        body: "본 약관은 키요(KIYO)(이하 “회사”)가 제공하는 세금계산서 자동 발행 지원 서비스 AUTO-TAX(이하 “서비스”)의 이용과 관련하여 회사와 이용자 간의 권리, 의무 및 책임사항을 정함을 목적으로 합니다."
       },
       {
-        title: "서비스 범위",
+        title: "제2조 정의",
         items: [
-          "AUTO-TAX는 한전 수신 메일 분석, 고객 및 발전소 정보 관리, 전자세금계산서 초안 생성, 전자세금계산서 발행 보조, 인증서 갱신 점검 보조 기능을 제공합니다.",
-          "서비스는 세무, 회계, 법률 자문을 대체하지 않으며, 최종 발행 여부와 발행 내용 확인 책임은 이용자에게 있습니다.",
-          "인증서 갱신과 로컬 도구 기능은 Windows 환경에서의 점검과 보조 범위에 한정되며, 무인 갱신 완료를 보장하지 않습니다."
+          "“이용자”란 본 약관에 동의하고 서비스를 이용하는 개인 또는 사업자를 말합니다.",
+          "“고객사”란 회사와 서비스 이용계약을 체결하거나 서비스 이용 승인을 받은 사업자를 말합니다.",
+          "“담당자”란 고객사를 대표하거나 고객사를 대신하여 서비스를 이용하는 자를 말합니다.",
+          "“외부 연동 서비스”란 전자세금계산서 발행, 문자 발송, 이메일 연동, 클라우드 운영 등을 위해 서비스와 연동되는 외부 시스템을 말합니다."
         ]
       },
       {
-        title: "계정 신청과 승인",
+        title: "제3조 서비스의 성격",
         items: [
-          "회원가입 신청은 운영자의 검토와 승인 후에만 실제 작업공간 접속으로 이어집니다.",
-          "이용자는 신청 정보와 업무 설정 정보를 정확하게 입력해야 하며, 타인의 사업자 정보, 메일 계정, 인증서 정보를 권한 없이 입력해서는 안 됩니다.",
-          "운영자는 허위 정보, 권한 불명확, 보안 위험, 서비스 제공 곤란 사유가 있는 신청을 보류하거나 거절할 수 있습니다."
+          "서비스는 한전 수신메일 분석, 고객 정보 관리, 전자세금계산서 발행 준비, 팝빌(Popbill) 연동, 발행 완료 알림, 인증서 및 계약 상태 관리 등을 지원하는 업무 보조 도구입니다.",
+          "서비스는 세무, 회계, 법률 자문을 제공하는 서비스가 아니며, 세금계산서 발행 여부와 발행 내용에 대한 최종 확인 책임은 이용자에게 있습니다.",
+          "회사는 이용자가 입력하거나 승인한 정보, 연동된 외부 시스템의 응답, 이용자가 부여한 권한 범위 내에서 서비스를 제공합니다."
         ]
       },
       {
-        title: "보안과 비밀정보",
+        title: "제4조 계정 및 이용 승인",
         items: [
-          "이용자는 로그인 비밀번호, 메일 앱 비밀번호, 공동인증서 비밀번호 등 비밀정보를 안전하게 관리해야 합니다.",
-          "AUTO-TAX는 원칙적으로 원본 인증서 파일, 인증서 비밀번호, 홈택스 로그인 정보를 서버에 저장하거나 재표시하지 않는 구조로 운영합니다.",
-          "이용자가 로컬 PC에서 선택한 인증서 파일과 비밀번호는 해당 기능 수행에 필요한 범위에서만 처리되어야 합니다."
+          "서비스 이용을 위해 이용자는 회사가 요구하는 정보를 정확하게 제공하여야 합니다.",
+          "회사는 운영상 필요, 보안상 위험, 정보 불명확, 권한 확인 불가 등의 사유가 있는 경우 가입 신청을 보류하거나 거절할 수 있습니다.",
+          "이용자는 본인의 계정, 비밀번호, 이메일 계정, 인증정보 등을 안전하게 관리하여야 하며, 관리 소홀로 발생한 손해는 이용자가 부담합니다."
         ]
       },
       {
-        title: "서비스 변경과 책임 제한",
+        title: "제5조 세금계산서 발행 위탁 및 권한",
         items: [
-          "메일 양식, 외부 연동사 정책, 전자세금계산서 연동 또는 클라우드 인프라 상태에 따라 일부 기능이 지연되거나 실패할 수 있습니다.",
-          "AUTO-TAX는 고의 또는 중대한 과실이 없는 한 이용자의 입력 오류, 외부 서비스 장애, 권한 없는 정보 입력, 최종 확인 없이 진행한 발행으로 인한 손해에 대해 책임을 제한할 수 있습니다.",
-          "유료 요금제, 환불, 해지 정책은 별도 고지 또는 계약 조건에 따르며, 시범 운영 중에는 운영자가 별도로 안내할 수 있습니다."
+          "이용자는 서비스 이용 과정에서 회사에 전자세금계산서 발행 준비 또는 발행 관련 업무를 위탁할 수 있습니다.",
+          "이용자는 세금계산서 발행 업무를 수행하거나 회사에 위탁할 적법한 권한을 보유하여야 합니다.",
+          "회사는 이용자가 제공한 정보와 권한 범위 내에서 발행 업무를 수행하며, 이용자가 제공한 정보의 오류, 누락, 권한 부족으로 발생한 문제에 대해서는 책임을 부담하지 않습니다.",
+          "회사는 서비스 오류, 시스템 장애, 외부 연동 실패 등 발행에 영향을 줄 수 있는 사유를 확인한 경우 합리적인 범위 내에서 이용자에게 알리고 복구 또는 재처리를 지원합니다."
         ]
+      },
+      {
+        title: "제6조 외부 연동 서비스",
+        items: [
+          "서비스는 전자세금계산서 발행, 문자 발송, 이메일 수신·발송, 클라우드 운영 등을 위해 팝빌, 이용자가 설정한 이메일 서비스, 클라우드 서비스 등 외부 시스템과 연동될 수 있습니다.",
+          "외부 연동 서비스의 장애, 정책 변경, 점검, 응답 오류로 인해 서비스 일부가 지연되거나 제한될 수 있습니다.",
+          "회사의 귀책사유 없이 외부 연동 서비스에서 발생한 장애 또는 오류로 인한 손해에 대해서는 회사가 책임을 부담하지 않습니다."
+        ]
+      },
+      {
+        title: "제7조 데이터 처리 및 보관",
+        items: [
+          "회사는 서비스 제공을 위해 고객사 정보, 담당자 정보, 거래처 정보, 발행 요청 및 처리 이력, 서비스 이용 기록 등을 저장·처리할 수 있습니다.",
+          "회사는 원본 공동인증서 파일, 공동인증서 비밀번호, 홈택스 로그인 정보 등 민감한 인증정보를 원칙적으로 서버에 저장하지 않습니다.",
+          "이메일 연동에 필요한 앱비밀번호 등 일부 인증정보는 서비스 제공을 위해 필요한 경우 암호화 또는 마스킹 처리하여 저장될 수 있습니다.",
+          "이용자는 서비스 이용과 관련하여 필요한 원본 자료, 증빙, 회계 자료를 별도로 보관·관리할 책임이 있습니다."
+        ]
+      },
+      {
+        title: "제8조 이용자의 의무",
+        items: [
+          "허위 또는 부정확한 정보 입력",
+          "권한 없이 타인의 사업자 정보, 담당자 정보, 인증정보 사용",
+          "관련 법령을 위반하는 세금계산서 발행 요청",
+          "서비스의 정상 운영을 방해하는 행위",
+          "회사 또는 제3자의 권리, 정보, 영업상 이익을 침해하는 행위"
+        ]
+      },
+      {
+        title: "제9조 이용요금 및 결제",
+        items: [
+          "서비스는 월 단위 또는 연 단위 구독 형태로 제공될 수 있습니다.",
+          "이용요금, 결제일, 제공 범위는 회사가 별도로 정한 정책 또는 개별 계약에 따릅니다.",
+          "이용자가 이용요금을 기한 내 납부하지 않을 경우 회사는 서비스 이용을 제한하거나 계약을 해지할 수 있습니다."
+        ]
+      },
+      {
+        title: "제10조 환불 및 해지",
+        items: [
+          "이용자는 언제든지 서비스 해지를 요청할 수 있습니다.",
+          "월 구독의 경우 해지 시 다음 결제일부터 서비스 이용이 중단됩니다.",
+          "연 구독의 경우 계약 기간 중 해지하더라도 이미 제공된 기간 또는 계약상 정한 조건에 따라 환불이 제한될 수 있습니다.",
+          "다만 관계 법령에서 청약철회, 환불 또는 손해배상을 인정하는 경우에는 해당 법령에 따릅니다."
+        ]
+      },
+      {
+        title: "제11조 서비스 변경 및 중단",
+        items: [
+          "회사는 안정적인 서비스 제공을 위해 노력합니다.",
+          "회사는 운영상 필요, 보안상 위험, 외부 서비스 정책 변경, 시스템 점검 등의 사유로 서비스의 일부 또는 전부를 변경하거나 일시 중단할 수 있습니다.",
+          "회사는 중대한 변경 또는 장기간 중단이 예상되는 경우 가능한 방법으로 이용자에게 사전 또는 사후 안내합니다."
+        ]
+      },
+      {
+        title: "제12조 책임 제한",
+        items: [
+          "회사는 회사의 고의 또는 중대한 과실로 인해 이용자에게 손해가 발생한 경우 관계 법령에 따라 책임을 부담합니다.",
+          "회사는 이용자가 제공한 정보의 오류 또는 누락, 이용자의 권한 부족 또는 부정한 권한 사용, 외부 연동 서비스의 장애, 오류, 정책 변경, 이용자의 계정, 이메일, 인증정보 관리 소홀, 천재지변, 통신 장애, 클라우드 장애 등 회사가 합리적으로 통제하기 어려운 사유로 발생한 손해에 대해서는 회사의 귀책사유가 없는 한 책임을 부담하지 않습니다.",
+          "회사는 세금계산서 발행 결과의 세무상 적정성, 회계상 판단, 법률상 효과를 보증하지 않습니다."
+        ]
+      },
+      {
+        title: "제13조 비밀유지",
+        body: "회사는 서비스 제공 과정에서 알게 된 이용자의 정보를 정당한 사유 없이 외부에 공개하거나 제3자에게 제공하지 않습니다. 다만 이용자의 동의가 있거나 법령상 의무가 있는 경우는 예외로 합니다."
+      },
+      {
+        title: "제14조 계약 종료 후 처리",
+        items: [
+          "서비스 이용 종료 시 회사는 서비스 제공을 위해 보유하던 정보를 관계 법령 및 회사 정책에 따라 파기합니다.",
+          "다만 법령상 보관이 필요한 정보는 해당 기간 동안 보관할 수 있습니다.",
+          "이용자는 계약 종료 전 필요한 자료를 사전에 확보하여야 합니다."
+        ]
+      },
+      {
+        title: "제15조 준거법 및 관할",
+        body: "본 약관은 대한민국 법을 따르며, 분쟁 발생 시 민사소송법 등 관련 법령에 따른 관할 법원을 관할 법원으로 합니다."
+      },
+      {
+        title: "제16조 시행일",
+        body: "본 약관은 2026년 5월 13일부터 시행합니다."
+      },
+      {
+        title: "동의 확인",
+        body: "본인은 위 서비스 이용약관을 확인하고 이에 동의합니다."
       }
     ]
   },
   {
     id: "privacyAccepted",
-    label: "개인정보 수집 및 이용 동의",
+    label: "개인정보 수집·이용 동의 및 처리위탁 안내",
     required: true,
-    version: "privacy_2026-05-14",
+    version: "privacy_processing_2026-05-13",
     sections: [
       {
-        title: "수집 목적",
+        title: "제1조 수집 항목",
         items: [
-          "회원가입 신청 접수, 본인 및 대표자 확인, 작업공간 개통 심사",
-          "계정 생성, 로그인, 서비스 이용 안내, 고객 지원 및 보안 알림",
-          "부정 이용 방지, 장애 조사, 서비스 운영 기록 관리"
+          "계정 정보: 로그인 ID, 비밀번호 또는 비밀번호 해시, 가입 신청일, 승인 상태",
+          "담당자 정보: 담당자명, 이메일, 전화번호",
+          "고객사 정보: 고객사명, 사업자등록번호, 대표자명, 사업장 정보",
+          "서비스 이용 정보: 접속 기록, 이용 기록, 설정 정보, 발행 요청 및 처리 이력, 오류 로그",
+          "전자세금계산서 업무 정보: 거래처 정보, 발전소명, 거래 금액, 공급가액, 부가세, 발행일, 발행 결과",
+          "이메일 연동 정보: 이용자가 등록한 이메일 주소, IMAP/SMTP 연동에 필요한 정보",
+          "알림 발송 정보: 문자 수신번호, 발행 완료 알림 내용, 발송 결과",
+          "회사는 원본 공동인증서 파일, 공동인증서 비밀번호, 홈택스 로그인 정보 등 민감한 인증정보를 원칙적으로 서버에 저장하지 않습니다. 다만 서비스 제공에 필요한 일부 연동 인증정보는 암호화 또는 마스킹 처리하여 저장될 수 있습니다."
         ]
       },
       {
-        title: "수집 항목",
+        title: "제2조 이용 목적",
         items: [
-          "필수: 로그인 ID, 비밀번호(인증 서비스에서 암호화 또는 해시 처리), 상호명, 대표자명, 대표자 휴대폰 번호, 사업자등록번호, 사업장 주소, 업태, 종목, 한전 수신메일 주소",
-          "자동 생성: 신청 일시, 동의 버전과 동의 일시, 접속 IP, 브라우저 및 기기 정보",
-          "승인 후 서비스 이용 과정에서 고객 사업자 정보, 발전소 주소, 메일 원문 또는 분석 결과, 세금계산서 발행 데이터가 추가로 처리될 수 있습니다."
+          "회원가입 신청 접수, 본인 및 담당자 확인",
+          "계정 생성, 로그인, 작업공간 관리",
+          "고객사 및 거래처 관리",
+          "한전 수신메일 조회 및 분석",
+          "전자세금계산서 발행 준비, 발행 요청, 발행 결과 확인",
+          "발행 완료 문자 또는 이메일 알림 발송",
+          "고객 문의 대응 및 서비스 운영 지원",
+          "보안 관리, 장애 대응, 부정 이용 방지",
+          "요금 정산, 계약 관리, 법령상 의무 이행"
         ]
       },
       {
-        title: "보유 및 이용 기간",
+        title: "제3조 보유 및 이용 기간",
         items: [
-          "가입 신청 정보는 승인 또는 거절 처리와 분쟁 대응을 위해 신청일로부터 1년간 보관할 수 있습니다.",
-          "승인된 계정 및 작업공간 정보는 서비스 이용 기간 동안 보관하며, 계약 종료 또는 회원 탈퇴 후에는 관계 법령상 보존 의무가 있는 정보를 제외하고 지체 없이 파기합니다.",
-          "보안 로그와 접속 기록은 장애 대응, 침해사고 조사, 부정 이용 방지를 위해 내부 정책에 따라 일정 기간 보관할 수 있습니다."
+          "개인정보는 서비스 이용 기간 동안 보유·이용됩니다.",
+          "이용자가 탈퇴하거나 계약이 종료된 경우 회사는 지체 없이 개인정보를 파기합니다.",
+          "다만 관계 법령상 보관이 필요한 정보는 해당 법령에서 정한 기간 동안 보관할 수 있습니다.",
+          "서비스 운영 로그, 오류 기록, 보안 기록은 장애 대응, 분쟁 대응, 부정 이용 방지를 위해 필요한 범위에서 일정 기간 보관될 수 있습니다."
         ]
       },
       {
-        title: "동의 거부 권리",
-        body: "이용자는 개인정보 수집 및 이용 동의를 거부할 수 있습니다. 다만 필수 항목은 회원가입 신청, 계정 승인, 작업공간 개통에 필요한 정보이므로 동의하지 않으면 서비스 신청이 제한됩니다."
+        title: "제4조 개인정보 처리위탁 안내",
+        items: [
+          "Supabase: 회원 인증, 데이터베이스 운영, 서비스 데이터 보관",
+          "Vercel: 웹 서비스 배포, API 실행, 접속 로그 처리",
+          "팝빌(Popbill): 발행 완료 문자 발송",
+          "이용자가 설정한 이메일 서비스 제공자: 한전 수신메일 조회, 알림 메일 발송을 위한 IMAP/SMTP 연동",
+          "이용자가 설정한 이메일 서비스 제공자는 이용자가 직접 선택한 메일 서비스 제공자를 의미하며, 예를 들어 네이버, Google, 카카오/다음 등일 수 있습니다. 해당 이메일 서비스 자체의 개인정보 처리 및 보관은 이용자가 선택한 이메일 서비스 제공자의 정책을 따릅니다.",
+          "회사는 수탁자가 위탁받은 업무 목적 외 개인정보를 처리하지 않도록 관리·감독합니다. 위탁업무 또는 수탁자가 변경되는 경우 서비스 화면, 이메일, 공지사항 등 합리적인 방법으로 안내할 수 있습니다."
+        ]
+      },
+      {
+        title: "제5조 동의 거부 권리",
+        body: "이용자는 개인정보 수집·이용에 대한 동의를 거부할 권리가 있습니다. 다만 필수 정보에 대한 동의를 거부하는 경우 회원가입, 작업공간 개설, 전자세금계산서 발행 지원 등 서비스 이용이 제한될 수 있습니다."
+      },
+      {
+        title: "동의 확인",
+        body: "본인은 위 개인정보 수집·이용에 동의하며, 서비스 제공을 위한 개인정보 처리위탁 내용을 확인했습니다."
       }
     ]
   },
   {
     id: "thirdPartyAccepted",
-    label: "개인정보 처리위탁 및 외부 제공 동의",
+    label: "개인정보 제3자 제공 동의서",
     required: true,
-    version: "third_party_2026-05-12",
+    version: "third_party_2026-05-13",
     sections: [
       {
-        title: "처리위탁 및 외부 제공 목적",
-        body: "AUTO-TAX는 계정 인증, 클라우드 호스팅, 데이터 보관, 전자세금계산서 발행 연동, 메일 수신 분석 등 서비스 제공에 필요한 범위에서 외부 서비스를 이용할 수 있습니다."
-      },
-      {
-        title: "예정 수탁자 및 제공처",
+        title: "제1조 제공받는 자",
         items: [
-          "Supabase: 로그인 인증, 세션 관리, 데이터베이스 운영",
-          "Vercel 등 클라우드 호스팅 사업자: 웹 애플리케이션 배포, API 실행, 접속 로그 처리",
-          "전자세금계산서 연동 사업자: 전자세금계산서 발행, 발행 결과 조회, 거래처 상태 확인",
-          "승인 후 이용자가 연결하는 메일 서비스 제공자: 한전 수신 메일 조회와 분석을 위한 IMAP 또는 관련 메일 접근"
+          "팝빌(Popbill)",
+          "국세청 등 전자세금계산서 발행·전송과 관련된 법령상 기관"
         ]
       },
       {
-        title: "처리되는 정보",
+        title: "제2조 제공 목적",
         items: [
-          "계정 및 작업공간 식별 정보, 대표자 및 가입자 연락처, 서비스 접속 기록",
-          "고객 사업자 정보, 거래처 정보, 발전소 주소, 세금계산서 초안 및 발행 결과",
-          "메일 제목, 본문, 첨부 또는 분석 결과 중 세금계산서 업무 처리에 필요한 정보"
+          "전자세금계산서 발행",
+          "전자세금계산서 국세청 전송",
+          "발행 결과 확인",
+          "전자세금계산서 취소, 수정, 재발행 등 후속 처리",
+          "팝빌 회원 가입, 인증서 등록, 거래처 상태 확인 등 발행 연동에 필요한 업무"
         ]
       },
       {
-        title: "보유 기간과 고지",
+        title: "제3조 제공 항목",
         items: [
-          "수탁자와 제공처는 위 목적 달성 또는 위탁 계약 종료 시까지 필요한 범위에서 정보를 처리합니다.",
-          "국외 클라우드 사업자를 이용하는 경우 국외 이전이 발생할 수 있으며, 실제 운영 수탁자, 이전 국가, 이전 일시와 방법은 개인정보처리방침에 최신 상태로 고지합니다.",
-          "전자세금계산서 발행을 위해 법령 또는 외부 연동사 정책상 필요한 정보는 해당 법령과 정책에서 정한 기간 동안 보관될 수 있습니다."
-        ]
-      }
-    ]
-  },
-  {
-    id: "marketingConsent",
-    label: "마케팅 정보 수신 동의",
-    required: false,
-    version: "marketing_2026-05-12",
-    sections: [
-      {
-        title: "수신 목적",
-        items: [
-          "신규 기능, 운영 팁, 요금제, 이벤트, 프로모션 안내",
-          "서비스 개선 설문, 도입 상담, 교육 또는 웨비나 안내"
+          "고객사 정보: 고객사명, 사업자등록번호, 대표자명, 사업장 정보, 업태, 종목",
+          "담당자 정보: 담당자명, 이메일, 전화번호",
+          "거래 정보: 거래처 정보, 공급가액, 부가세, 합계금액, 발행일, 품목 정보",
+          "발행 처리 정보: 발행 요청 정보, 발행 결과, 승인번호, 오류 내역",
+          "전자세금계산서 발행 연동에 필요한 식별 정보"
         ]
       },
       {
-        title: "이용 항목과 방법",
-        items: [
-          "이용 항목: 고객사명, 대표자명, 대표자 휴대폰 번호, 한전 수신메일 주소, 서비스 이용 상태",
-          "발송 방법: 이메일, 문자메시지, 전화, 서비스 내 알림"
-        ]
+        title: "제4조 보유 및 이용 기간",
+        body: "제3자는 제공 목적 달성 시까지 개인정보를 보유·이용합니다. 다만 전자세금계산서, 세무, 회계, 전자문서 관련 법령 또는 해당 제3자의 법적 의무에 따라 보관이 필요한 경우에는 해당 기간 동안 보관할 수 있습니다."
       },
       {
-        title: "보유 기간과 철회",
-        body: "마케팅 정보는 동의 철회 또는 서비스 종료 시까지 이용합니다. 선택 동의를 거부하거나 철회해도 회원가입 신청과 기본 서비스 이용에는 영향을 주지 않습니다."
+        title: "제5조 동의 거부 권리",
+        body: "이용자는 개인정보 제3자 제공에 대한 동의를 거부할 권리가 있습니다. 다만 본 동의는 전자세금계산서 발행, 국세청 전송, 팝빌 연동 등 서비스 핵심 기능 제공에 필요한 사항이므로 동의를 거부할 경우 서비스 이용이 제한될 수 있습니다."
+      },
+      {
+        title: "제6조 제공 시점",
+        body: "개인정보는 이용자가 서비스 이용을 신청하거나, 전자세금계산서 발행 기능을 이용하거나, 회사에 발행 관련 업무를 위탁하는 경우 필요한 범위 내에서 제공됩니다."
+      },
+      {
+        title: "동의 확인",
+        body: "본인은 위 개인정보 제3자 제공에 동의합니다."
       }
     ]
   }
@@ -550,16 +649,14 @@ export function PublicLanding({
     signupForm.password.length > 0 &&
     signupForm.passwordConfirm.length > 0 &&
     signupForm.password !== signupForm.passwordConfirm;
-  const loginIdLookupNameFilled = loginIdLookup.name.trim().length > 0;
-  const loginIdLookupNameValid = isKoreanPersonName(loginIdLookup.name);
-  const loginIdLookupPhoneFilled = loginIdLookup.phone.trim().length > 0;
-  const loginIdLookupPhoneValid = isKoreanMobilePhone(loginIdLookup.phone);
-  const loginIdLookupPhoneNormalized = loginIdLookup.phone.replace(/\D/g, "");
-  const loginIdLookupPhoneVerified =
+  const loginIdLookupEmailFilled = loginIdLookup.email.trim().length > 0;
+  const loginIdLookupEmailValid = isValidEmail(loginIdLookup.email);
+  const loginIdLookupEmailNormalized = loginIdLookup.email.trim().toLowerCase();
+  const loginIdLookupEmailVerified =
     loginIdLookup.status === "verified" &&
-    loginIdLookup.phone.replace(/\D/g, "") === loginIdLookupPhoneNormalized &&
+    loginIdLookup.email === loginIdLookupEmailNormalized &&
     loginIdLookup.verificationId.length > 0;
-  const loginIdLookupReady = loginIdLookupNameValid && loginIdLookupPhoneValid && loginIdLookupPhoneVerified;
+  const loginIdLookupReady = loginIdLookupEmailValid && loginIdLookupEmailVerified;
 
   const togglePasswordReset = () => {
     navigatePublicAuthMode("login");
@@ -586,9 +683,10 @@ export function PublicLanding({
         [key]: value
       };
 
-      if (key === "phone") {
+      if (key === "email") {
         return {
           ...next,
+          email: String(value).trim().toLowerCase(),
           verificationId: "",
           code: "",
           status: "idle",
@@ -596,16 +694,6 @@ export function PublicLanding({
           loginId: "",
           requestStatus: undefined,
           devCode: undefined
-        };
-      }
-
-      if (key === "name") {
-        return {
-          ...next,
-          status: prev.status === "found" || prev.status === "not-found" ? "verified" : prev.status,
-          message: prev.status === "found" || prev.status === "not-found" ? "" : prev.message,
-          loginId: "",
-          requestStatus: undefined
         };
       }
 
@@ -630,12 +718,12 @@ export function PublicLanding({
     }
   };
 
-  const requestLoginIdLookupPhoneVerification = async () => {
-    if (!loginIdLookupPhoneValid) {
+  const requestLoginIdLookupEmailVerification = async () => {
+    if (!loginIdLookupEmailValid) {
       setLoginIdLookup((prev) => ({
         ...prev,
         status: "error",
-        message: "휴대폰 번호를 먼저 올바르게 입력하세요."
+        message: "한전 수신메일을 먼저 올바르게 입력하세요."
       }));
       return;
     }
@@ -652,10 +740,10 @@ export function PublicLanding({
     }));
 
     try {
-      const result = await onSendSignupPhoneVerification(loginIdLookup.phone);
+      const result = await onSendSignupEmailVerification(loginIdLookup.email);
       setLoginIdLookup((prev) => ({
         ...prev,
-        phone: loginIdLookupPhoneNormalized,
+        email: loginIdLookupEmailNormalized,
         verificationId: result.verificationId,
         code: result.devCode ?? "",
         status: "sent",
@@ -675,7 +763,7 @@ export function PublicLanding({
     }
   };
 
-  const confirmLoginIdLookupPhoneVerification = async () => {
+  const confirmLoginIdLookupEmailVerification = async () => {
     if (!loginIdLookup.verificationId || loginIdLookup.code.trim().length !== 6) {
       setLoginIdLookup((prev) => ({
         ...prev,
@@ -692,15 +780,15 @@ export function PublicLanding({
     }));
 
     try {
-      const verified = await onConfirmSignupPhoneVerification({
+      const verified = await onConfirmSignupEmailVerification({
         verificationId: loginIdLookup.verificationId,
-        phone: loginIdLookup.phone,
+        email: loginIdLookup.email,
         code: loginIdLookup.code
       });
       setLoginIdLookup((prev) => ({
         ...prev,
         status: verified ? "verified" : "error",
-        message: verified ? "휴대폰 인증이 완료되었습니다." : "인증번호 확인에 실패했습니다."
+        message: verified ? "한전 수신메일 인증이 완료되었습니다." : "인증번호 확인에 실패했습니다."
       }));
     } catch (verificationError) {
       setLoginIdLookup((prev) => ({
@@ -714,11 +802,11 @@ export function PublicLanding({
   const submitLoginIdLookup = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!loginIdLookupNameValid) {
+    if (!loginIdLookupEmailValid) {
       setLoginIdLookup((prev) => ({
         ...prev,
         status: "error",
-        message: "가입 시 입력한 한글 이름을 입력하세요."
+        message: "가입 시 입력한 한전 수신메일을 입력하세요."
       }));
       return;
     }
@@ -727,7 +815,7 @@ export function PublicLanding({
       setLoginIdLookup((prev) => ({
         ...prev,
         status: "error",
-        message: "휴대폰 인증을 완료한 뒤 아이디를 찾을 수 있습니다."
+        message: "한전 수신메일 인증을 완료한 뒤 아이디를 찾을 수 있습니다."
       }));
       return;
     }
@@ -742,9 +830,8 @@ export function PublicLanding({
 
     try {
       const result = await onFindLoginId({
-        name: loginIdLookup.name.trim(),
-        phone: loginIdLookup.phone,
-        phoneVerificationId: loginIdLookup.verificationId
+        email: loginIdLookup.email,
+        emailVerificationId: loginIdLookup.verificationId
       });
 
       setLoginIdLookup((prev) => ({
@@ -1083,65 +1170,49 @@ export function PublicLanding({
                 onSubmit={(event) => void submitLoginIdLookup(event)}
               >
                 <label>
-                  <span>대표자명</span>
-                  <input
-                    value={loginIdLookup.name}
-                    onChange={(event) => updateLoginIdLookup("name", event.target.value)}
-                    placeholder="대표자 이름"
-                    autoComplete="name"
-                    required
-                  />
-                  <span
-                    className={`field-hint portal-password-hint ${
-                      loginIdLookupNameFilled && !loginIdLookupNameValid ? "portal-field-error" : ""
-                    }`}
-                  >
-                    {loginIdLookupNameFilled && !loginIdLookupNameValid ? "한글 실명 2~20자로 입력하세요." : "\u00a0"}
-                  </span>
-                </label>
-                <label>
-                  <span>대표자 전화번호</span>
+                  <span>한전 수신메일</span>
                   <div className="portal-login-id-control portal-phone-verification-control">
                     <input
-                      value={loginIdLookup.phone}
-                      onChange={(event) => updateLoginIdLookup("phone", event.target.value)}
-                      placeholder="010-1234-5678"
-                      autoComplete="tel"
+                      type="email"
+                      value={loginIdLookup.email}
+                      onChange={(event) => updateLoginIdLookup("email", event.target.value)}
+                      placeholder="kepco@example.com"
+                      autoComplete="email"
                       required
                     />
                     <button
                       type="button"
                       className="portal-login-id-check"
-                      disabled={authBusy || !loginIdLookupPhoneValid || loginIdLookup.status === "sending"}
-                      onClick={() => void requestLoginIdLookupPhoneVerification()}
+                      disabled={authBusy || !loginIdLookupEmailValid || loginIdLookup.status === "sending"}
+                      onClick={() => void requestLoginIdLookupEmailVerification()}
                     >
                       {loginIdLookup.status === "sending"
                         ? "발송 중"
-                        : loginIdLookupPhoneVerified
+                        : loginIdLookupEmailVerified
                           ? "재전송"
                           : "인증번호"}
                     </button>
                   </div>
                   <span
                     className={`field-hint portal-password-hint ${
-                      loginIdLookupPhoneFilled && !loginIdLookupPhoneValid
+                      loginIdLookupEmailFilled && !loginIdLookupEmailValid
                         ? "portal-field-error"
-                        : loginIdLookupPhoneVerified
+                        : loginIdLookupEmailVerified
                           ? "portal-field-ok"
                           : loginIdLookup.status === "error"
                             ? "portal-field-error"
                             : ""
                     }`}
                   >
-                    {loginIdLookupPhoneFilled && !loginIdLookupPhoneValid
-                      ? "휴대폰 번호 형식이 올바르지 않습니다."
+                    {loginIdLookupEmailFilled && !loginIdLookupEmailValid
+                      ? "이메일 형식이 올바르지 않습니다."
                       : loginIdLookup.message && ["sending", "sent", "verifying", "verified", "error"].includes(loginIdLookup.status)
                         ? loginIdLookup.message
                         : "\u00a0"}
                   </span>
                 </label>
                 <label>
-                  <span>휴대폰 인증번호</span>
+                  <span>한전 수신메일 인증번호</span>
                   <div className="portal-login-id-control portal-phone-verification-control">
                     <input
                       value={loginIdLookup.code}
@@ -1159,21 +1230,21 @@ export function PublicLanding({
                       placeholder="6자리"
                       inputMode="numeric"
                       autoComplete="one-time-code"
-                      disabled={!loginIdLookup.verificationId || loginIdLookupPhoneVerified}
+                      disabled={!loginIdLookup.verificationId || loginIdLookupEmailVerified}
                     />
                     <button
                       type="button"
                       className="portal-login-id-check"
                       disabled={
                         authBusy ||
-                        loginIdLookupPhoneVerified ||
+                        loginIdLookupEmailVerified ||
                         loginIdLookup.status === "verifying" ||
                         !loginIdLookup.verificationId ||
                         loginIdLookup.code.length !== 6
                       }
-                      onClick={() => void confirmLoginIdLookupPhoneVerification()}
+                      onClick={() => void confirmLoginIdLookupEmailVerification()}
                     >
-                      {loginIdLookup.status === "verifying" ? "확인 중" : loginIdLookupPhoneVerified ? "완료" : "확인"}
+                      {loginIdLookup.status === "verifying" ? "확인 중" : loginIdLookupEmailVerified ? "완료" : "확인"}
                     </button>
                   </div>
                 </label>
@@ -1708,9 +1779,8 @@ export function PublicLanding({
         <footer className="portal-footer" aria-label="AUTO-TAX 회사 및 정책 정보">
           <nav className="portal-footer-links" aria-label="정책 문서">
             <a href="#signup">서비스 이용약관</a>
-            <a href="#signup">개인정보처리방침</a>
-            <a href="#signup">개인정보 수집·이용 동의</a>
-            <a href="#signup">처리위탁 및 제3자 제공 안내</a>
+            <a href="#signup">개인정보 수집·이용 및 처리위탁 안내</a>
+            <a href="#signup">개인정보 제3자 제공 동의서</a>
           </nav>
           <dl className="portal-footer-info">
             <div>

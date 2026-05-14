@@ -988,7 +988,7 @@ test("signup creates a pending auth user, blocks login until approval, then crea
   });
 });
 
-test("public login id lookup returns matching signup login id after phone verification", async () => {
+test("public login id lookup returns matching signup login id after email verification", async () => {
   await withSignupServer(async (baseUrl) => {
     const signupPayload = await createVerifiedSignupPayload(baseUrl);
     const created = await fetch(`${baseUrl}/api/public/signup`, {
@@ -998,14 +998,13 @@ test("public login id lookup returns matching signup login id after phone verifi
     });
     assert.equal(created.status, 201);
 
-    const lookupVerificationId = await createVerifiedPhoneVerification(baseUrl, validSignupPayload.phone);
+    const lookupVerificationId = await createVerifiedEmailVerification(baseUrl, validSignupPayload.kepcoEmail);
     const lookup = await fetch(`${baseUrl}/api/public/signup/login-id-lookup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        name: validSignupPayload.name,
-        phone: "01012345678",
-        phoneVerificationId: lookupVerificationId
+        email: validSignupPayload.kepcoEmail,
+        emailVerificationId: lookupVerificationId
       })
     });
     assert.equal(lookup.status, 200);
@@ -1015,14 +1014,14 @@ test("public login id lookup returns matching signup login id after phone verifi
       status: "pending"
     });
 
-    const missingVerificationId = await createVerifiedPhoneVerification(baseUrl, validSignupPayload.phone);
+    const missingEmail = "missing@example.com";
+    const missingVerificationId = await createVerifiedEmailVerification(baseUrl, missingEmail);
     const missing = await fetch(`${baseUrl}/api/public/signup/login-id-lookup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        name: "김없음",
-        phone: validSignupPayload.phone,
-        phoneVerificationId: missingVerificationId
+        email: missingEmail,
+        emailVerificationId: missingVerificationId
       })
     });
     assert.equal(missing.status, 200);
