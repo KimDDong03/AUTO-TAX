@@ -21,7 +21,6 @@ function buildParsedMail(overrides: Partial<ParsedMail> = {}): ParsedMail {
     kepcoAddr: "서울특별시 중구 세종대로 1",
     kepcoBizType: "전기",
     kepcoBizClass: "전력",
-    recipientEmail: "tax@example.com",
     rawText: "raw",
     ...overrides
   };
@@ -166,7 +165,6 @@ test("mail reprocess can use a manually selected customer when names or addresse
     kepcoAddr: parsedMail.kepcoAddr,
     kepcoBizType: parsedMail.kepcoBizType,
     kepcoBizClass: parsedMail.kepcoBizClass,
-    recipientEmail: parsedMail.recipientEmail,
     popbillMgtKey: "MGT-77",
     popbillEnvironment: null,
     popbillResultJson: "{}",
@@ -395,7 +393,6 @@ test("mail reprocess records draft-created events for successful draft recreatio
     kepcoAddr: parsedMail.kepcoAddr,
     kepcoBizType: parsedMail.kepcoBizType,
     kepcoBizClass: parsedMail.kepcoBizClass,
-    recipientEmail: parsedMail.recipientEmail,
     popbillMgtKey: "MGT-55",
     popbillEnvironment: null,
     popbillResultJson: "{}",

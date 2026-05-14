@@ -53,7 +53,6 @@ test("parseKepcoMail extracts scoped KEPCO recipient fields", () => {
   assert.equal(parsed.kepcoAddr, "전라남도 나주시 전력로 55 (빛가람동, 한국전력공사)");
   assert.equal(parsed.kepcoBizType, "전기가스");
   assert.equal(parsed.kepcoBizClass, "전기공급");
-  assert.equal(parsed.recipientEmail, "ppa0194@kepco.co.kr");
 });
 
 test("parseKepcoMail accepts common date, VAT, and colon variants", () => {
@@ -85,6 +84,5 @@ Subject: 신재생에너지 요금안내
   assert.equal(parsed.billingMonth, "2026-02");
   assert.equal(parsed.supplyCost, 121867);
   assert.equal(parsed.taxTotal, 12186);
-  assert.equal(parsed.recipientEmail, "ppa0194@kepco.co.kr");
   assert.equal(parsed.kepcoBranchId, "0194");
 });

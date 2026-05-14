@@ -120,7 +120,7 @@ export function getSettingsSectionLabel(section: SettingsSectionId): string {
     case "gmail":
       return "메일 연결하기";
     case "popbill":
-      return "담당자 정보 및 발행 설정";
+      return "운영 연락처 및 발행 설정";
     case "helper":
       return "로컬 헬퍼";
     case "account":
@@ -229,8 +229,8 @@ export function buildSettingsOnboardingModel({
     defaults: {
       headline:
         settingsHealth.popbillReady && settingsHealth.operatorReady
-          ? "담당자 정보 입력 완료"
-          : "담당자 정보를 먼저 입력하세요.",
+          ? "운영 연락처 입력 완료"
+          : "운영 연락처를 먼저 입력하세요.",
       popbillReadyLabel: settingsHealth.popbillReady ? "준비됨" : "입력 필요",
       operatorReadyLabel: settingsHealth.operatorReady ? "준비됨" : "입력 필요",
       popbillPrefix: {

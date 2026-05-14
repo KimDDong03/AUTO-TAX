@@ -39,7 +39,7 @@ export function buildSettingsSectionSummary({
     {
       id: "popbill",
       step: 2,
-      title: "담당자 정보 및 발행 설정",
+      title: "운영 연락처 및 발행 설정",
       done: settingsHealth.popbillReady && settingsHealth.operatorReady,
       summary:
         settingsHealth.popbillReady && settingsHealth.operatorReady

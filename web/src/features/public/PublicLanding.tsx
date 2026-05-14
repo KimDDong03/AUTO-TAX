@@ -193,7 +193,7 @@ const publicTerms: readonly PublicTerm[] = [
       {
         title: "수집 목적",
         items: [
-          "회원가입 신청 접수, 본인 및 담당자 확인, 작업공간 개통 심사",
+          "회원가입 신청 접수, 본인 및 대표자 확인, 작업공간 개통 심사",
           "계정 생성, 로그인, 서비스 이용 안내, 고객 지원 및 보안 알림",
           "부정 이용 방지, 장애 조사, 서비스 운영 기록 관리"
         ]
@@ -201,7 +201,7 @@ const publicTerms: readonly PublicTerm[] = [
       {
         title: "수집 항목",
         items: [
-          "필수: 로그인 ID, 비밀번호(인증 서비스에서 암호화 또는 해시 처리), 상호명, 대표자명, 사업자등록번호, 사업장 주소, 업태, 종목, 담당자 이름, 휴대폰 번호, 담당자 이메일 주소, 세금계산서 수신 이메일 주소",
+          "필수: 로그인 ID, 비밀번호(인증 서비스에서 암호화 또는 해시 처리), 상호명, 대표자명, 대표자 휴대폰 번호, 사업자등록번호, 사업장 주소, 업태, 종목, 한전 수신메일 주소",
           "자동 생성: 신청 일시, 동의 버전과 동의 일시, 접속 IP, 브라우저 및 기기 정보",
           "승인 후 서비스 이용 과정에서 고객 사업자 정보, 발전소 주소, 메일 원문 또는 분석 결과, 세금계산서 발행 데이터가 추가로 처리될 수 있습니다."
         ]
@@ -242,7 +242,7 @@ const publicTerms: readonly PublicTerm[] = [
       {
         title: "처리되는 정보",
         items: [
-          "계정 및 작업공간 식별 정보, 담당자 연락처, 서비스 접속 기록",
+          "계정 및 작업공간 식별 정보, 대표자 및 가입자 연락처, 서비스 접속 기록",
           "고객 사업자 정보, 거래처 정보, 발전소 주소, 세금계산서 초안 및 발행 결과",
           "메일 제목, 본문, 첨부 또는 분석 결과 중 세금계산서 업무 처리에 필요한 정보"
         ]
@@ -273,7 +273,7 @@ const publicTerms: readonly PublicTerm[] = [
       {
         title: "이용 항목과 방법",
         items: [
-          "이용 항목: 고객사명, 담당자 이름, 휴대폰 번호, 이메일 주소, 서비스 이용 상태",
+          "이용 항목: 고객사명, 대표자명, 대표자 휴대폰 번호, 한전 수신메일 주소, 서비스 이용 상태",
           "발송 방법: 이메일, 문자메시지, 전화, 서비스 내 알림"
         ]
       },
@@ -301,10 +301,6 @@ function isReasonableOrganizationName(value: string): boolean {
     /^[가-힣A-Za-z0-9\s().,&·_\-]+$/.test(normalized) &&
     normalized.replace(/\s+/g, "").length >= 2
   );
-}
-
-function isReasonableRepresentativeName(value: string): boolean {
-  return /^[가-힣A-Za-z\s·.-]{2,40}$/.test(value.trim());
 }
 
 function normalizeBusinessRegistrationNumber(value: string): string {
@@ -458,8 +454,6 @@ export function PublicLanding({
     signupLoginIdAvailabilityMatches && signupLoginIdAvailability.status === "duplicate";
   const signupOrganizationFilled = signupForm.organizationName.trim().length > 0;
   const signupOrganizationValid = isReasonableOrganizationName(signupForm.organizationName);
-  const signupRepresentativeFilled = signupForm.representativeName.trim().length > 0;
-  const signupRepresentativeValid = isReasonableRepresentativeName(signupForm.representativeName);
   const signupBusinessNumberFilled = signupForm.businessRegistrationNumber.trim().length > 0;
   const signupBusinessNumberValid = isValidBusinessRegistrationNumber(signupForm.businessRegistrationNumber);
   const signupBusinessAddressFilled = signupForm.businessAddress.trim().length > 0;
@@ -479,8 +473,6 @@ export function PublicLanding({
     signupPhoneVerification.verificationId.length > 0;
   const signupEmailFilled = signupForm.kepcoEmail.trim().length > 0;
   const signupEmailValid = isValidEmail(signupForm.kepcoEmail);
-  const signupInvoiceEmailFilled = signupForm.invoiceEmail.trim().length > 0;
-  const signupInvoiceEmailValid = isValidEmail(signupForm.invoiceEmail);
   const signupPasswordFilled = signupForm.password.length > 0;
   const signupPasswordValid = isStrongEnoughSignupPassword(signupForm.password);
   const signupRequiredFieldsFilled = Boolean(
@@ -488,7 +480,6 @@ export function PublicLanding({
       signupPasswordValid &&
       signupPasswordMatches &&
       signupOrganizationValid &&
-      signupRepresentativeValid &&
       signupBusinessNumberValid &&
       signupBusinessAddressValid &&
       signupBusinessTypeValid &&
@@ -496,8 +487,7 @@ export function PublicLanding({
       signupNameValid &&
       signupPhoneValid &&
       signupPhoneVerified &&
-      signupEmailValid &&
-      signupInvoiceEmailValid
+      signupEmailValid
   );
   const signupRequiredTermsAccepted =
     signupForm.termsAccepted && signupForm.privacyAccepted && signupForm.thirdPartyAccepted;
@@ -872,7 +862,7 @@ export function PublicLanding({
       loginId: signupForm.loginId,
       password: signupForm.password,
       organizationName: signupForm.organizationName,
-      representativeName: signupForm.representativeName,
+      representativeName: signupForm.name,
       businessRegistrationNumber: normalizeBusinessRegistrationNumber(signupForm.businessRegistrationNumber),
       businessAddress: signupForm.businessAddress,
       businessType: signupForm.businessType,
@@ -881,7 +871,7 @@ export function PublicLanding({
       phone: signupForm.phone,
       phoneVerificationId: signupPhoneVerification.verificationId,
       kepcoEmail: signupForm.kepcoEmail,
-      invoiceEmail: signupForm.invoiceEmail,
+      invoiceEmail: signupForm.kepcoEmail,
       termsAccepted: signupForm.termsAccepted,
       privacyAccepted: signupForm.privacyAccepted,
       thirdPartyAccepted: signupForm.thirdPartyAccepted,
@@ -963,11 +953,11 @@ export function PublicLanding({
                 onSubmit={(event) => void submitLoginIdLookup(event)}
               >
                 <label>
-                  <span>이름</span>
+                  <span>대표자명</span>
                   <input
                     value={loginIdLookup.name}
                     onChange={(event) => updateLoginIdLookup("name", event.target.value)}
-                    placeholder="가입 담당자 이름"
+                    placeholder="대표자 이름"
                     autoComplete="name"
                     required
                   />
@@ -980,7 +970,7 @@ export function PublicLanding({
                   </span>
                 </label>
                 <label>
-                  <span>휴대폰 번호</span>
+                  <span>대표자 전화번호</span>
                   <div className="portal-login-id-control portal-phone-verification-control">
                     <input
                       value={loginIdLookup.phone}
@@ -1133,7 +1123,6 @@ export function PublicLanding({
             <div className="portal-signup-head">
               <div className="auth-copy">
                 <span className="auth-badge">회원가입</span>
-                <h2>{PUBLIC_PORTAL_COPY.signupTitle}</h2>
                 <p>{PUBLIC_PORTAL_COPY.signupDescription}</p>
               </div>
               <button type="button" className="portal-back-login" onClick={() => navigatePublicAuthMode("login")}>
@@ -1227,15 +1216,15 @@ export function PublicLanding({
                   </span>
                 </label>
                 <div className="portal-signup-section-title full">
-                  <strong>담당자 정보</strong>
+                  <strong>대표자 정보</strong>
                   <span>휴대폰 인증 필수</span>
                 </div>
                 <label>
-                  <span>이름</span>
+                  <span>대표자명</span>
                   <input
                     value={signupForm.name}
                     onChange={(event) => updateSignupForm("name", event.target.value)}
-                    placeholder="담당자 이름"
+                    placeholder="예: 홍길동"
                     required
                   />
                   <span
@@ -1249,7 +1238,7 @@ export function PublicLanding({
                   </span>
                 </label>
                 <label>
-                  <span>전화번호</span>
+                  <span>대표자 전화번호</span>
                   <div className="portal-login-id-control portal-phone-verification-control">
                     <input
                       value={signupForm.phone}
@@ -1326,12 +1315,12 @@ export function PublicLanding({
                   </span>
                 </label>
                 <label className="full">
-                  <span>담당자 이메일</span>
+                  <span>한전 수신메일</span>
                   <input
                     type="email"
                     value={signupForm.kepcoEmail}
                     onChange={(event) => updateSignupForm("kepcoEmail", event.target.value)}
-                    placeholder="manager@example.com"
+                    placeholder="kepco@example.com"
                     autoComplete="email"
                     required
                   />
@@ -1370,24 +1359,6 @@ export function PublicLanding({
                   </span>
                 </label>
                 <label>
-                  <span>대표자명</span>
-                  <input
-                    value={signupForm.representativeName}
-                    onChange={(event) => updateSignupForm("representativeName", event.target.value)}
-                    placeholder="예: 홍길동"
-                    required
-                  />
-                  <span
-                    className={`field-hint portal-password-hint ${
-                      signupRepresentativeFilled && !signupRepresentativeValid ? "portal-field-error" : signupRepresentativeValid ? "portal-field-ok" : ""
-                    }`}
-                  >
-                    {signupRepresentativeFilled && !signupRepresentativeValid
-                      ? "대표자명을 2~40자로 입력하세요."
-                      : "\u00a0"}
-                  </span>
-                </label>
-                <label>
                   <span>사업자등록번호</span>
                   <input
                     value={signupForm.businessRegistrationNumber}
@@ -1405,28 +1376,6 @@ export function PublicLanding({
                       ? "사업자등록번호 숫자 10자리를 입력하세요."
                       : signupBusinessNumberValid
                         ? "사업자등록번호 형식이 맞습니다."
-                        : "\u00a0"}
-                  </span>
-                </label>
-                <label>
-                  <span>세금계산서 수신 이메일</span>
-                  <input
-                    type="email"
-                    value={signupForm.invoiceEmail}
-                    onChange={(event) => updateSignupForm("invoiceEmail", event.target.value)}
-                    placeholder="tax@example.com"
-                    autoComplete="email"
-                    required
-                  />
-                  <span
-                    className={`field-hint portal-password-hint ${
-                      signupInvoiceEmailFilled && !signupInvoiceEmailValid ? "portal-field-error" : signupInvoiceEmailValid ? "portal-field-ok" : ""
-                    }`}
-                  >
-                    {signupInvoiceEmailFilled && !signupInvoiceEmailValid
-                      ? "메일 주소 형식이 올바르지 않습니다."
-                      : signupInvoiceEmailValid
-                        ? "사용 가능한 메일 주소입니다."
                         : "\u00a0"}
                   </span>
                 </label>

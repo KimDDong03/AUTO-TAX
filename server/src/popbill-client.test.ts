@@ -18,7 +18,7 @@ function buildSettings(): AppSettings {
     imapHost: "",
     imapPort: 993,
     imapSecure: true,
-    imapUser: "",
+    imapUser: "kepco-mail@example.com",
     imapPass: "",
     imapMailbox: "INBOX",
     smtpHost: "",
@@ -112,7 +112,6 @@ function buildDraft(): InvoiceDraft {
     kepcoAddr: "전라남도 나주시",
     kepcoBizType: "전기업",
     kepcoBizClass: "전력",
-    recipientEmail: "billing@example.com",
     popbillMgtKey: "MGT-21",
     popbillEnvironment: "test",
     popbillResultJson: "",
@@ -317,6 +316,7 @@ test("issueTaxInvoice leaves optional supplier contact fields blank", async () =
     assert.equal(taxinvoice.invoicerContactName, "");
     assert.equal(taxinvoice.invoicerTEL, "");
     assert.equal(taxinvoice.invoicerEmail, "");
+    assert.equal(taxinvoice.invoiceeEmail1, settings.imapUser);
     assert.notEqual(taxinvoice.invoicerContactName, customer.customerName);
   } finally {
     popbill.config = originalConfig;

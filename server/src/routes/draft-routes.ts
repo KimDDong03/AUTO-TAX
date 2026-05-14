@@ -7,6 +7,7 @@ import { buildPilotIssuanceReportCsv, buildPilotLogContext } from "../pilot-issu
 import { cancelTaxInvoice, getTaxInvoiceInfo, getTaxInvoicePrintURL, getTaxInvoiceViewURL } from "../popbill-client.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";
+import { getCurrentKstYearMonth, isValidYearMonth } from "../customer-contract-renewals.js";
 
 type RouteDeps = {
   app: Express;
@@ -51,6 +52,27 @@ function parsePilotReportFormat(value: unknown): "json" | "csv" {
 
   const normalized = value.trim().toLowerCase();
   return normalized === "csv" ? "csv" : "json";
+}
+
+function parseIssuedMonthlyTrendAnchor(value: unknown): string {
+  if (value === undefined) {
+    return getCurrentKstYearMonth();
+  }
+
+  if (typeof value !== "string") {
+    throw new Error("정산월 형식이 올바르지 않습니다.");
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return getCurrentKstYearMonth();
+  }
+
+  if (!isValidYearMonth(trimmed)) {
+    throw new Error("정산월 형식이 올바르지 않습니다.");
+  }
+
+  return trimmed;
 }
 
 function parseDraftTextField(value: unknown, label: string): string {
@@ -98,14 +120,6 @@ function parseDraftBusinessNumber(value: unknown): string {
   return trimmed;
 }
 
-function parseDraftRecipientEmail(value: unknown): string {
-  const trimmed = parseDraftOptionalTextField(value);
-  if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-    throw new Error("수신 이메일 형식이 올바르지 않습니다.");
-  }
-  return trimmed;
-}
-
 function buildEditedParsedMail(draft: InvoiceDraft, body: unknown): ParsedMail {
   const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   const supplyCost = parseDraftMoneyField(payload.supplyCost, "공급가액");
@@ -127,7 +141,6 @@ function buildEditedParsedMail(draft: InvoiceDraft, body: unknown): ParsedMail {
     kepcoAddr: parseDraftOptionalTextFieldWithFallback(payload.kepcoAddr, draft.kepcoAddr),
     kepcoBizType: parseDraftOptionalTextFieldWithFallback(payload.kepcoBizType, draft.kepcoBizType),
     kepcoBizClass: parseDraftOptionalTextFieldWithFallback(payload.kepcoBizClass, draft.kepcoBizClass),
-    recipientEmail: parseDraftRecipientEmail(payload.recipientEmail),
     rawText: ""
   };
 }
@@ -142,7 +155,6 @@ type DraftValueSnapshot = {
   invoicerBusinessNumber: string;
   invoiceeCorpNum: string;
   invoiceeTaxRegId: string | null;
-  recipientEmail: string;
 };
 
 function buildManualIssueAuditContext(
@@ -162,7 +174,7 @@ function buildDraftValueSnapshot(
   customer: Pick<Customer, "businessNumber">,
   draft: Pick<
     InvoiceDraft,
-    "supplyCost" | "taxTotal" | "totalAmount" | "writeDate" | "kepcoCorpNum" | "kepcoBranchId" | "recipientEmail"
+    "supplyCost" | "taxTotal" | "totalAmount" | "writeDate" | "kepcoCorpNum" | "kepcoBranchId"
   >
 ): DraftValueSnapshot {
   return {
@@ -172,8 +184,7 @@ function buildDraftValueSnapshot(
     writeDate: draft.writeDate ?? null,
     invoicerBusinessNumber: customer.businessNumber,
     invoiceeCorpNum: draft.kepcoCorpNum,
-    invoiceeTaxRegId: draft.kepcoBranchId || null,
-    recipientEmail: draft.recipientEmail
+    invoiceeTaxRegId: draft.kepcoBranchId || null
   };
 }
 
@@ -195,6 +206,24 @@ export function registerDraftRoutes(deps: RouteDeps) {
   app.get("/api/drafts", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
     res.json(await requestStore.listDrafts());
+  });
+
+  app.get("/api/drafts/issued-monthly-trend", async (req, res) => {
+    const requestStore = getRequestStore(res, store);
+
+    let anchorBillingMonth: string;
+    try {
+      anchorBillingMonth = parseIssuedMonthlyTrendAnchor(req.query.anchor);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "정산월 형식이 올바르지 않습니다." });
+      return;
+    }
+
+    try {
+      res.json(await requestStore.getIssuedMonthlyTrend(anchorBillingMonth));
+    } catch (error) {
+      res.status(getErrorStatus(error, 500)).json(buildApiErrorBody(error, "월별 발행 현황을 불러오지 못했습니다."));
+    }
   });
 
   app.get("/api/drafts/pilot-report", async (req, res) => {

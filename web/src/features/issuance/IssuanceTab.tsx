@@ -19,7 +19,6 @@ export type DraftTaxInvoiceInfoUpdateInput = {
   plantName: string;
   supplyCost: number;
   taxTotal: number;
-  recipientEmail: string;
 };
 
 type DraftTaxInvoiceInfoFormState = {
@@ -36,7 +35,6 @@ type DraftTaxInvoiceInfoFormState = {
   plantName: string;
   supplyCost: string;
   taxTotal: string;
-  recipientEmail: string;
 };
 
 type IssuanceListEntry =
@@ -79,9 +77,7 @@ type IssuanceTabProps = {
   userLabel: string;
   workspaceLabel: string;
   popbillModeLabel: string;
-  operatorContactName: string;
-  operatorContactTel: string;
-  operatorContactEmail: string;
+  kepcoMailAddress: string;
   requestedFilter?: IssuanceFilter | null;
   onConsumeRequestedFilter?: () => void;
   drafts: InvoiceDraft[];
@@ -251,8 +247,7 @@ function draftToTaxInvoiceInfoForm(draft: InvoiceDraft): DraftTaxInvoiceInfoForm
     itemName: draft.itemName,
     plantName: draft.plantName,
     supplyCost: formatDraftMoneyInput(draft.supplyCost),
-    taxTotal: formatDraftMoneyInput(draft.taxTotal),
-    recipientEmail: draft.recipientEmail
+    taxTotal: formatDraftMoneyInput(draft.taxTotal)
   };
 }
 
@@ -275,14 +270,6 @@ function validateDraftBusinessNumber(value: string): string {
   const digits = trimmed.replace(/\D/g, "");
   if (digits.length !== 10) {
     throw new Error("사업자번호는 숫자 10자리로 입력해주세요.");
-  }
-  return trimmed;
-}
-
-function validateDraftRecipientEmail(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-    throw new Error("수신 이메일 형식이 올바르지 않습니다.");
   }
   return trimmed;
 }
@@ -377,7 +364,6 @@ function getIssuanceEntrySearchText(entry: IssuanceListEntry): string {
       draft.plantName,
       draft.itemName,
       draft.billingMonth,
-      draft.recipientEmail,
       draft.popbillMgtKey
     ]
       .filter(Boolean)
@@ -924,8 +910,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
         itemName,
         plantName: taxInvoiceInfoForm.plantName.trim(),
         supplyCost: parseDraftMoneyInput(taxInvoiceInfoForm.supplyCost, "공급가액"),
-        taxTotal: parseDraftMoneyInput(taxInvoiceInfoForm.taxTotal, "부가세"),
-        recipientEmail: validateDraftRecipientEmail(taxInvoiceInfoForm.recipientEmail)
+        taxTotal: parseDraftMoneyInput(taxInvoiceInfoForm.taxTotal, "부가세")
       };
 
       setTaxInvoiceInfoSaving(true);
@@ -1404,9 +1389,6 @@ export function IssuanceTab(props: IssuanceTabProps) {
                               {renderTaxInvoiceValueRow("주소", formatOptionalInvoiceValue(selectedDraftCustomer?.addr))}
                               {renderTaxInvoiceValueRow("업태", formatOptionalInvoiceValue(selectedDraftCustomer?.bizType))}
                               {renderTaxInvoiceValueRow("종목", formatOptionalInvoiceValue(selectedDraftCustomer?.bizClass))}
-                              {renderTaxInvoiceValueRow("담당자명", formatOptionalInvoiceValue(props.operatorContactName))}
-                              {renderTaxInvoiceValueRow("연락처", formatOptionalInvoiceValue(props.operatorContactTel))}
-                              {renderTaxInvoiceValueRow("이메일", formatOptionalInvoiceValue(props.operatorContactEmail))}
                             </>
                           )}
                           {renderTaxInvoiceSection(
@@ -1423,10 +1405,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                                 {renderTaxInvoiceInputRow("주소", "kepcoAddr")}
                                 {renderTaxInvoiceInputRow("업태", "kepcoBizType")}
                                 {renderTaxInvoiceInputRow("종목", "kepcoBizClass")}
-                                {renderTaxInvoiceInputRow("수신 이메일", "recipientEmail", {
-                                  type: "email",
-                                  placeholder: "kepco-mail@example.com"
-                                })}
+                                {renderTaxInvoiceValueRow("한전 수신메일", formatOptionalInvoiceValue(props.kepcoMailAddress))}
                               </>
                             ) : (
                               <>
@@ -1437,7 +1416,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                                 {renderTaxInvoiceValueRow("주소", formatOptionalInvoiceValue(selectedDraft.kepcoAddr))}
                                 {renderTaxInvoiceValueRow("업태", formatOptionalInvoiceValue(selectedDraft.kepcoBizType))}
                                 {renderTaxInvoiceValueRow("종목", formatOptionalInvoiceValue(selectedDraft.kepcoBizClass))}
-                                {renderTaxInvoiceValueRow("수신 이메일", formatOptionalInvoiceValue(selectedDraft.recipientEmail))}
+                                {renderTaxInvoiceValueRow("한전 수신메일", formatOptionalInvoiceValue(props.kepcoMailAddress))}
                               </>
                             )
                           )}

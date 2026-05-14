@@ -285,12 +285,33 @@ export interface InvoiceDraft {
   kepcoAddr: string;
   kepcoBizType: string;
   kepcoBizClass: string;
-  recipientEmail: string;
   popbillMgtKey: string;
   popbillEnvironment: PopbillEnvironment | null;
   popbillResultJson: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface IssuedMonthlyTrendPayload {
+  anchorBillingMonth: string;
+  months: Array<{
+    billingMonth: string;
+    issuedDraftCount: number;
+  }>;
+  comparison: {
+    anchor: {
+      billingMonth: string;
+      issuedDraftCount: number;
+    };
+    previous: {
+      billingMonth: string;
+      issuedDraftCount: number;
+    };
+    sameMonthLastYear: {
+      billingMonth: string;
+      issuedDraftCount: number;
+    };
+  };
 }
 
 export interface MailPreviewImageResponse {

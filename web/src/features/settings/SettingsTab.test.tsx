@@ -62,7 +62,7 @@ function createModel(
         {
           id: "popbill",
           step: 2,
-          title: "담당자 정보 및 발행 설정",
+          title: "운영 연락처 및 발행 설정",
           done: false,
           summary: "필수값 입력"
         },
@@ -278,7 +278,7 @@ test("SettingsTab renders onboarding as the first settings detail section", () =
   const text = collectText(tree);
 
   assert.match(text, /도입 준비 본문/);
-  assert.match(text, /담당자 정보 및 발행 설정/);
+  assert.match(text, /운영 연락처 및 발행 설정/);
   assert.match(text, /메일 연결하기/);
   assert.match(text, /로컬 헬퍼/);
   assert.doesNotMatch(text, /메일 연결 설정/);

@@ -820,12 +820,12 @@ test("signup creates a pending auth user, blocks login until approval, then crea
     assert.ok(organizationId);
     const seededSettings = fixture.state.settingsByOrganization.get(organizationId);
     assert.ok(seededSettings);
-    assert.equal(seededSettings.operatorContactName, validSignupPayload.name);
-    assert.equal(seededSettings.operatorContactTel, validSignupPayload.phone);
-    assert.equal(seededSettings.operatorContactEmail, validSignupPayload.kepcoEmail);
-    assert.equal(seededSettings.imapUser, "");
-    assert.equal(seededSettings.smtpUser, "");
-    assert.equal(seededSettings.smtpFromEmail, "");
+    assert.equal(seededSettings.operatorContactName, "");
+    assert.equal(seededSettings.operatorContactTel, "");
+    assert.equal(seededSettings.operatorContactEmail, "");
+    assert.equal(seededSettings.imapUser, validSignupPayload.kepcoEmail);
+    assert.equal(seededSettings.smtpUser, validSignupPayload.kepcoEmail);
+    assert.equal(seededSettings.smtpFromEmail, validSignupPayload.kepcoEmail);
     assert.deepEqual(seededSettings.notificationEmails, []);
 
     const approvedLogin = await fetch(`${baseUrl}/api/public/login`, {

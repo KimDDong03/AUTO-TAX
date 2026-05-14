@@ -106,7 +106,6 @@ function buildDraft(): InvoiceDraft {
     kepcoAddr: "전라남도 나주시",
     kepcoBizType: "전기업",
     kepcoBizClass: "전력",
-    recipientEmail: "billing@example.com",
     popbillMgtKey: "MGT-21",
     popbillEnvironment: null,
     popbillResultJson: "",

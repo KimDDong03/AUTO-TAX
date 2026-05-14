@@ -67,7 +67,7 @@ export function SettingsDefaultsSection({
     <SetupPanel
       step={2}
       className="panel-settings-popbill"
-      title="담당자 정보 및 발행 설정"
+      title="운영 연락처 및 발행 설정"
       done={model.done}
       note="신규 고객 기본 발행값을 확인합니다."
     >
@@ -75,22 +75,22 @@ export function SettingsDefaultsSection({
         <section className="settings-field-group">
           <div className="settings-field-group-head">
             <strong>필수 공통값</strong>
-            <span>담당자 정보와 인증서 발급용 값을 관리합니다.</span>
+            <span>운영 연락처와 인증서 발급용 값을 관리합니다.</span>
           </div>
           <div className="settings-defaults-grid">
             <label className="settings-defaults-cell">
-              담당자 이름
+              운영 이름
               <input
                 value={model.fields.operatorContactName}
                 onChange={(event) =>
                   model.onOperatorContactNameChange(event.target.value)
                 }
-                placeholder="담당자 이름"
+                placeholder="운영 이름"
               />
             </label>
 
             <label className="settings-defaults-cell">
-              담당자 연락처
+              운영 연락처
               <input
                 value={model.fields.operatorContactTel}
                 onChange={(event) =>
@@ -101,7 +101,7 @@ export function SettingsDefaultsSection({
             </label>
 
             <label className="settings-defaults-cell">
-              담당자 이메일
+              운영 이메일
               <input
                 type="email"
                 value={model.fields.operatorContactEmail}

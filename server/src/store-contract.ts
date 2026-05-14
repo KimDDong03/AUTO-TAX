@@ -15,6 +15,7 @@ import type {
   DraftStatus,
   InboxMessage,
   InvoiceDraft,
+  IssuedMonthlyTrendPayload,
   LogEntry,
   MailParseStatus,
   ParsedMail,
@@ -110,6 +111,7 @@ export interface AppStore {
   }): Promise<InboxMessage>;
   getDraft(draftId: number): Promise<InvoiceDraft | null>;
   listDrafts(): Promise<InvoiceDraft[]>;
+  getIssuedMonthlyTrend(anchorBillingMonth: string): Promise<IssuedMonthlyTrendPayload>;
   getMonthlyIssueLimit?(): Promise<number | null>;
   getCurrentMonthIssuedDraftCount?(): Promise<number>;
   getOrganizationIssueQuota?(): Promise<OrganizationIssueQuota>;

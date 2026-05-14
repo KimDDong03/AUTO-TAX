@@ -34,7 +34,6 @@ test("toClientInboxMessage removes raw mail payload before API response", () => 
       kepcoAddr: "",
       kepcoBizType: "",
       kepcoBizClass: "",
-      recipientEmail: "",
       rawText: "raw parsed text"
     },
     customerId: 10,

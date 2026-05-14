@@ -262,7 +262,7 @@ function assertCustomerPopbillIdentity(customer: Customer): void {
 
 function assertOperatorContact(settings: AppSettings): void {
   if (!settings.operatorContactName || !resolvePopbillNoticeContactEmail(settings) || !settings.operatorContactTel) {
-    throw new Error("시스템설정의 운영 담당자명, 이메일, 연락처를 먼저 입력하세요.");
+    throw new Error("시스템설정의 운영 이름, 이메일, 연락처를 먼저 입력하세요.");
   }
 }
 
@@ -581,7 +581,7 @@ export async function issueTaxInvoice(
     invoiceeBizType: draft.kepcoBizType,
     invoiceeContactName1: "",
     invoiceeTEL1: "",
-    invoiceeEmail1: draft.recipientEmail,
+    invoiceeEmail1: settings.imapUser,
     invoiceeSMSSendYN: false,
     taxTotal: String(draft.taxTotal),
     supplyCostTotal: String(draft.supplyCost),

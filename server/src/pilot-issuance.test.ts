@@ -333,8 +333,7 @@ test("buildPilotDraftTimeline keeps manual issue audit context visible with lega
     writeDate: "20260416",
     invoicerBusinessNumber: "1112233333",
     invoiceeCorpNum: "1234567890",
-    invoiceeTaxRegId: "0010",
-    recipientEmail: "kepco-901@example.com"
+    invoiceeTaxRegId: "0010"
   };
   const timeline = buildPilotDraftTimeline({
     organizationId: "org-1",
@@ -395,8 +394,7 @@ test("buildPilotDraftTimeline keeps review preview snapshots visible for later i
     writeDate: "20260416",
     invoicerBusinessNumber: "1112233333",
     invoiceeCorpNum: "1234567890",
-    invoiceeTaxRegId: "0010",
-    recipientEmail: "kepco-901@example.com"
+    invoiceeTaxRegId: "0010"
   };
   const timeline = buildPilotDraftTimeline({
     organizationId: "org-1",

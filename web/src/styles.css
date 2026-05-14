@@ -25000,6 +25000,187 @@ button.issuance-list-item {
   font-size: 12px;
 }
 
+.lovable-issued-trend {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--lovable-border);
+  border-radius: 2px;
+  background: var(--lovable-surface);
+}
+
+.lovable-issued-trend-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.lovable-issued-trend-head h3 {
+  margin: 0;
+  color: var(--lovable-text);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.lovable-issued-trend-query {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lovable-issued-trend-query label {
+  display: grid;
+  gap: 6px;
+  color: var(--lovable-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lovable-issued-trend-query input[type="month"] {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--lovable-border);
+  border-radius: 2px;
+  background: var(--lovable-surface);
+  color: var(--lovable-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.lovable-issued-trend-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lovable-issued-trend-summary div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--lovable-border);
+  border-radius: 2px;
+  background: #fbfbfc;
+}
+
+.lovable-issued-trend-summary span {
+  color: var(--lovable-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lovable-issued-trend-summary strong {
+  color: var(--lovable-text);
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.lovable-issued-trend-message {
+  padding: 10px 12px;
+  border: 1px solid var(--lovable-danger-soft);
+  border-radius: 2px;
+  background: #fff5f5;
+  color: var(--lovable-danger);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lovable-issued-trend-chart-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.lovable-issued-trend-chart {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(54px, 1fr));
+  align-items: end;
+  gap: 8px;
+  min-height: 214px;
+}
+
+.app-shell-topnav .lovable-issued-trend-bar {
+  display: grid;
+  grid-template-rows: 22px 150px 20px;
+  gap: 7px;
+  min-width: 54px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--lovable-muted);
+  text-align: center;
+}
+
+.app-shell-topnav .lovable-issued-trend-bar:hover,
+.app-shell-topnav .lovable-issued-trend-bar:focus-visible {
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.lovable-issued-trend-value,
+.lovable-issued-trend-label {
+  overflow: hidden;
+  color: var(--lovable-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lovable-issued-trend-track {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  min-height: 150px;
+  border-bottom: 1px solid var(--lovable-border);
+}
+
+.lovable-issued-trend-fill {
+  width: min(100%, 28px);
+  min-height: 4px;
+  border-radius: 2px 2px 0 0;
+  background: #8ea3c7;
+}
+
+.lovable-issued-trend-bar.is-anchor .lovable-issued-trend-fill {
+  background: #2457a6;
+}
+
+.lovable-issued-trend-bar.is-selected .lovable-issued-trend-track {
+  border-bottom-color: #2457a6;
+}
+
+.lovable-issued-trend-bar.is-selected .lovable-issued-trend-label,
+.lovable-issued-trend-bar.is-selected .lovable-issued-trend-value {
+  color: var(--lovable-text);
+}
+
+.lovable-issued-trend-empty {
+  display: grid;
+  place-items: center;
+  grid-column: 1 / -1;
+  min-height: 180px;
+  color: var(--lovable-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lovable-issued-trend-selected {
+  color: var(--lovable-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .lovable-home-lower-grid {
   grid-template-columns: minmax(0, 1.9fr) minmax(328px, 0.95fr);
   gap: 16px;
@@ -25031,6 +25212,42 @@ button.issuance-list-item {
   min-height: 178px;
   margin: 0 20px 20px;
   padding: 30px 22px;
+}
+
+@media (max-width: 760px) {
+  .lovable-issued-trend {
+    padding: 16px;
+  }
+
+  .lovable-issued-trend-head {
+    display: grid;
+  }
+
+  .lovable-issued-trend-query {
+    justify-content: stretch;
+  }
+
+  .lovable-issued-trend-query label {
+    min-width: 170px;
+  }
+
+  .lovable-issued-trend-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lovable-issued-trend-chart {
+    grid-template-columns: repeat(13, 48px);
+    gap: 7px;
+  }
+
+  .app-shell-topnav .lovable-issued-trend-bar {
+    grid-template-rows: 20px 128px 18px;
+    min-width: 48px;
+  }
+
+  .lovable-issued-trend-track {
+    min-height: 128px;
+  }
 }
 
 /* Lovable remaining pages pass: issuance, customers, settings, and ops. */

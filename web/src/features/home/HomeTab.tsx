@@ -1,5 +1,6 @@
+import React, { useEffect, useMemo, useState } from "react";
 import { Icon } from "../../components/ui";
-import type { Customer, CustomerContractRenewalDueItem, InboxMessage, InvoiceDraft } from "../../types";
+import type { Customer, CustomerContractRenewalDueItem, InboxMessage, InvoiceDraft, IssuedMonthlyTrendPayload } from "../../types";
 import type { HomeActionKey, HomeScreenModel } from "./homeScreenModel";
 
 type HomeTabProps = {
@@ -16,11 +17,17 @@ type HomeTabProps = {
   issuedDraftsByCustomerId: Map<number, InvoiceDraft[]>;
   contractRenewalDueItems: CustomerContractRenewalDueItem[];
   currentMonthIssuedDraftCount: number;
+  currentBillingMonth: string;
+  issuedMonthlyTrend: IssuedMonthlyTrendPayload | null;
+  issuedMonthlyTrendLoading: boolean;
+  issuedMonthlyTrendError: string;
   monthlyIssueLimit: number;
   workFeedTab: "inbox" | "issued";
   reprocessableMessageCount: number;
   busyKey: string | null;
   onOpenAction: (actionKey: HomeActionKey) => void;
+  onLoadIssuedMonthlyTrend: (anchorBillingMonth: string) => void;
+  onResetIssuedMonthlyTrend: () => void;
   onOpenCustomers: () => void;
   onSelectFeedTab: (tab: "inbox" | "issued") => void;
   onIssueAllReviewDrafts: () => void;
@@ -57,6 +64,8 @@ type RecentCustomerRow = {
   sortTime: number;
 };
 
+type IssuedMonthlyTrendMonth = IssuedMonthlyTrendPayload["months"][number];
+
 function isMockHomeRow(id: number): boolean {
   return id < 0;
 }
@@ -82,6 +91,16 @@ function formatDateOnly(value: string | null): string {
   const timestamp = new Date(value).getTime();
   if (!Number.isFinite(timestamp)) return "-";
   return new Date(timestamp).toLocaleDateString("ko-KR");
+}
+
+function formatBillingMonthLabel(billingMonth: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(billingMonth);
+  if (!match) return billingMonth || "-";
+  return `${match[1].slice(2)}.${match[2]}`;
+}
+
+function getIssuedMonthlyTrendCount(months: IssuedMonthlyTrendMonth[], billingMonth: string): number {
+  return months.find((month) => month.billingMonth === billingMonth)?.issuedDraftCount ?? 0;
 }
 
 function getMetricValue(metrics: HomeScreenModel["chips"], labelKeyword: string, fallback: string): string {
@@ -156,6 +175,21 @@ export function HomeTab(props: HomeTabProps) {
   const certificateAttentionValue = getMetricValue(props.model.chips, "인증서", "0명");
   const contractRenewalValue = `${props.contractRenewalDueItems.length}명`;
   const hasReviewDrafts = liveReviewDrafts.length > 0;
+  const trendAnchorBillingMonth = props.issuedMonthlyTrend?.anchorBillingMonth ?? props.currentBillingMonth;
+  const [trendQueryBillingMonth, setTrendQueryBillingMonth] = useState(trendAnchorBillingMonth);
+  const [selectedTrendBillingMonth, setSelectedTrendBillingMonth] = useState(trendAnchorBillingMonth);
+  const trendMonths = props.issuedMonthlyTrend?.months ?? [];
+  const maxTrendCount = Math.max(1, ...trendMonths.map((month) => month.issuedDraftCount));
+  const selectedTrendCount = useMemo(
+    () => getIssuedMonthlyTrendCount(trendMonths, selectedTrendBillingMonth),
+    [selectedTrendBillingMonth, trendMonths]
+  );
+  const isTrendCustomAnchor = Boolean(props.issuedMonthlyTrend && props.issuedMonthlyTrend.anchorBillingMonth !== props.currentBillingMonth);
+
+  useEffect(() => {
+    setTrendQueryBillingMonth(trendAnchorBillingMonth);
+    setSelectedTrendBillingMonth(trendAnchorBillingMonth);
+  }, [trendAnchorBillingMonth]);
 
   const metricCards: HomeMetricCard[] = [
     {
@@ -219,6 +253,99 @@ export function HomeTab(props: HomeTabProps) {
               <em>{metric.description}</em>
             </button>
           ))}
+        </div>
+      </section>
+
+      <section className="lovable-issued-trend" aria-labelledby="lovable-issued-trend-title">
+        <div className="lovable-issued-trend-head">
+          <div>
+            <h3 id="lovable-issued-trend-title">월별 발행 현황</h3>
+          </div>
+          <form
+            className="lovable-issued-trend-query"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (trendQueryBillingMonth) {
+                props.onLoadIssuedMonthlyTrend(trendQueryBillingMonth);
+              }
+            }}
+          >
+            <label>
+              <span>연월 조회</span>
+              <input
+                type="month"
+                value={trendQueryBillingMonth}
+                onChange={(event) => setTrendQueryBillingMonth(event.target.value)}
+              />
+            </label>
+            <button type="submit" className="btn-secondary" disabled={props.issuedMonthlyTrendLoading || !trendQueryBillingMonth}>
+              조회
+            </button>
+            {isTrendCustomAnchor ? (
+              <button type="button" className="lovable-link-button" onClick={props.onResetIssuedMonthlyTrend}>
+                최근 월로 돌아가기
+              </button>
+            ) : null}
+          </form>
+        </div>
+
+        <div className="lovable-issued-trend-summary" aria-label="월별 발행 비교">
+          <div>
+            <span>기준월</span>
+            <strong>{props.formatMoney(props.issuedMonthlyTrend?.comparison.anchor.issuedDraftCount ?? 0)}건</strong>
+          </div>
+          <div>
+            <span>전월</span>
+            <strong>{props.formatMoney(props.issuedMonthlyTrend?.comparison.previous.issuedDraftCount ?? 0)}건</strong>
+          </div>
+          <div>
+            <span>전년 동월</span>
+            <strong>{props.formatMoney(props.issuedMonthlyTrend?.comparison.sameMonthLastYear.issuedDraftCount ?? 0)}건</strong>
+          </div>
+        </div>
+
+        {props.issuedMonthlyTrendError ? (
+          <div className="lovable-issued-trend-message">{props.issuedMonthlyTrendError}</div>
+        ) : null}
+
+        <div className="lovable-issued-trend-chart-wrap">
+          <div className="lovable-issued-trend-chart" aria-label="최근 13개월 발행 완료 건수">
+            {trendMonths.map((month) => {
+              const isAnchor = month.billingMonth === trendAnchorBillingMonth;
+              const isSelected = month.billingMonth === selectedTrendBillingMonth;
+              const barHeight = Math.max(6, Math.round((month.issuedDraftCount / maxTrendCount) * 100));
+              return (
+                <button
+                  key={month.billingMonth}
+                  type="button"
+                  className={[
+                    "lovable-issued-trend-bar",
+                    isAnchor ? "is-anchor" : "",
+                    isSelected ? "is-selected" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onClick={() => setSelectedTrendBillingMonth(month.billingMonth)}
+                  aria-pressed={isSelected}
+                  aria-label={`${month.billingMonth} 발행 완료 ${props.formatMoney(month.issuedDraftCount)}건`}
+                >
+                  <span className="lovable-issued-trend-value">{props.formatMoney(month.issuedDraftCount)}</span>
+                  <span className="lovable-issued-trend-track">
+                    <span className="lovable-issued-trend-fill" style={{ height: `${barHeight}%` }} />
+                  </span>
+                  <span className="lovable-issued-trend-label">{formatBillingMonthLabel(month.billingMonth)}</span>
+                </button>
+              );
+            })}
+            {trendMonths.length === 0 ? (
+              <div className="lovable-issued-trend-empty">
+                {props.issuedMonthlyTrendLoading ? "월별 발행 현황을 불러오는 중입니다." : "월별 발행 현황이 없습니다."}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="lovable-issued-trend-selected" aria-live="polite">
+          선택월 {selectedTrendBillingMonth || "-"} · {props.formatMoney(selectedTrendCount)}건
         </div>
       </section>
 

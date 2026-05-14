@@ -160,6 +160,7 @@ import type {
   CustomerReportDetail,
   InboxMessage,
   InvoiceDraft,
+  IssuedMonthlyTrendPayload,
   LogEntry,
   MailPreviewImageResponse,
   OpsWorkspaceSubscriptionUpdateResponse,
@@ -274,7 +275,7 @@ function buildHomeMockReviewDraft(index: number): InvoiceDraft {
     scheduledFor: null,
     issueRequestedAt: status === "issuing" ? updatedAt : null,
     issuedAt: null,
-    issueError: status === "failed" ? "목업 발행 실패: 담당자 확인 대기" : "",
+    issueError: status === "failed" ? "목업 발행 실패: 발행 확인 대기" : "",
     billingMonth,
     writeDate: `${billingMonth}-25`,
     itemName: `${billingMonth.replace("-", "년")}월전력`,
@@ -289,7 +290,6 @@ function buildHomeMockReviewDraft(index: number): InvoiceDraft {
     kepcoAddr: buildHomeMockAddress(index),
     kepcoBizType: "전기 생산업",
     kepcoBizClass: "태양광 발전",
-    recipientEmail: `billing${index + 1}@demo.auto-tax.local`,
     popbillMgtKey: `MOCK-REVIEW-${index + 1}`,
     popbillEnvironment: "test",
     popbillResultJson: "",
@@ -331,7 +331,6 @@ function buildHomeMockIssuedDraft(index: number): InvoiceDraft {
     kepcoAddr: buildHomeMockAddress(index + 20),
     kepcoBizType: "전기 생산업",
     kepcoBizClass: "신재생 발전",
-    recipientEmail: `issued${index + 1}@demo.auto-tax.local`,
     popbillMgtKey: `MOCK-ISSUED-${index + 1}`,
     popbillEnvironment: "test",
     popbillResultJson: "",
@@ -2052,6 +2051,9 @@ export function App() {
   const [customerImportPreview, setCustomerImportPreview] = useState<CustomerImportPreviewResponse | null>(null);
   const [customerImportProfile, setCustomerImportProfile] = useState<CustomerImportProfile | null>(null);
   const [completedBillingMonths, setCompletedBillingMonths] = useState<CompletedBillingMonth[]>([]);
+  const [issuedMonthlyTrend, setIssuedMonthlyTrend] = useState<IssuedMonthlyTrendPayload | null>(null);
+  const [issuedMonthlyTrendLoading, setIssuedMonthlyTrendLoading] = useState(false);
+  const [issuedMonthlyTrendError, setIssuedMonthlyTrendError] = useState("");
   const [customerContractRenewalsDue, setCustomerContractRenewalsDue] = useState<CustomerContractRenewalDueItem[]>([]);
   const [customerContractSummaries, setCustomerContractSummaries] = useState<CustomerContractSummary[]>([]);
   const [customerImportError, setCustomerImportError] = useState("");
@@ -2226,6 +2228,38 @@ export function App() {
     const status = getInboxDisplayParseStatus(message);
     return status === "unmatched" || status === "failed" || status === "duplicate";
   };
+  const loadIssuedMonthlyTrend = useCallback(
+    async (anchorBillingMonth?: string) => {
+      if (!activeOrganizationId) {
+        setIssuedMonthlyTrend(null);
+        setIssuedMonthlyTrendError("");
+        setIssuedMonthlyTrendLoading(false);
+        return;
+      }
+
+      setIssuedMonthlyTrendLoading(true);
+      setIssuedMonthlyTrendError("");
+      try {
+        const query = anchorBillingMonth ? `?anchor=${encodeURIComponent(anchorBillingMonth)}` : "";
+        setIssuedMonthlyTrend(await api<IssuedMonthlyTrendPayload>(`/api/drafts/issued-monthly-trend${query}`));
+      } catch (trendError) {
+        setIssuedMonthlyTrendError(getDisplayErrorMessage(trendError, "월별 발행 현황을 불러오지 못했습니다."));
+      } finally {
+        setIssuedMonthlyTrendLoading(false);
+      }
+    },
+    [activeOrganizationId]
+  );
+  useEffect(() => {
+    if (!activeOrganizationId) {
+      setIssuedMonthlyTrend(null);
+      setIssuedMonthlyTrendError("");
+      setIssuedMonthlyTrendLoading(false);
+      return;
+    }
+
+    void loadIssuedMonthlyTrend();
+  }, [activeOrganizationId, loadIssuedMonthlyTrend]);
   const invalidateActiveLoads = () => {
     activeLoadTokenRef.current += 1;
   };
@@ -2487,6 +2521,7 @@ export function App() {
           if (shouldLoadMailboxData(activeTab, customerDetailTab)) {
             await loadMailboxData({ force: true });
           }
+          await loadIssuedMonthlyTrend(issuedMonthlyTrend?.anchorBillingMonth);
         }
       } catch (actionError) {
         setError(getDisplayErrorMessage(actionError, "작업에 실패했습니다."));
@@ -2494,7 +2529,7 @@ export function App() {
         setBusyKey(null);
       }
     },
-    [activeTab, customerDetailTab, load, loadMailboxData]
+    [activeTab, customerDetailTab, issuedMonthlyTrend?.anchorBillingMonth, load, loadIssuedMonthlyTrend, loadMailboxData]
   );
 
   const syncCustomerOnboardingCertificateDone = useCallback(
@@ -4191,13 +4226,13 @@ export function App() {
       throw new Error("메일 주소를 입력하세요.");
     }
     if (!opsWorkspaceMailSettingsForm.operatorContactName.trim()) {
-      throw new Error("담당자 이름을 입력하세요.");
+      throw new Error("운영 이름을 입력하세요.");
     }
     if (!opsWorkspaceMailSettingsForm.operatorContactTel.trim()) {
-      throw new Error("담당자 연락처를 입력하세요.");
+      throw new Error("운영 연락처를 입력하세요.");
     }
     if (!operatorContactEmail) {
-      throw new Error("담당자 이메일을 입력하세요.");
+      throw new Error("운영 이메일을 입력하세요.");
     }
 
     const result = await api<{
@@ -4226,7 +4261,7 @@ export function App() {
       : "\n연결 테스트는 실행하지 않았습니다.";
 
     await showAppAlert(
-      `${opsWorkspaceMailSettingsTarget.organizationName} 작업공간의 메일/담당자 설정을 저장했습니다.${mailTestSummary}`,
+      `${opsWorkspaceMailSettingsTarget.organizationName} 작업공간의 메일/운영 연락처 설정을 저장했습니다.${mailTestSummary}`,
       {
         title: "작업공간 메일 설정",
         tone: result.mailTest && (!result.mailTest.imapOk || !result.mailTest.smtpOk) ? "warn" : "success"
@@ -7253,11 +7288,17 @@ export function App() {
             issuedDraftsByCustomerId={issuedDraftsByCustomerId}
             contractRenewalDueItems={customerContractRenewalsDue}
             currentMonthIssuedDraftCount={currentMonthIssuedDraftCount}
+            currentBillingMonth={currentHomeBillingMonth}
+            issuedMonthlyTrend={issuedMonthlyTrend}
+            issuedMonthlyTrendLoading={issuedMonthlyTrendLoading}
+            issuedMonthlyTrendError={issuedMonthlyTrendError}
             monthlyIssueLimit={homeMonthlyIssueLimit}
             workFeedTab={workFeedTab}
             reprocessableMessageCount={reprocessableMessages.length}
             busyKey={busyKey}
             onOpenAction={handleHomeAction}
+            onLoadIssuedMonthlyTrend={(anchorBillingMonth) => void loadIssuedMonthlyTrend(anchorBillingMonth)}
+            onResetIssuedMonthlyTrend={() => void loadIssuedMonthlyTrend()}
             onOpenCustomers={() => setActiveTab("customers")}
             onSelectFeedTab={setWorkFeedTab}
             onIssueAllReviewDrafts={() => void runAction("issue-all", issueAllReviewDrafts)}
@@ -7297,9 +7338,7 @@ export function App() {
             userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
             workspaceLabel={activeWorkspaceName}
             popbillModeLabel={workspacePopbillModeLabel}
-            operatorContactName={data.settings.operatorContactName}
-            operatorContactTel={data.settings.operatorContactTel}
-            operatorContactEmail={data.settings.operatorContactEmail}
+            kepcoMailAddress={data.settings.imapUser}
             requestedFilter={requestedIssuanceFilter}
             onConsumeRequestedFilter={() => setRequestedIssuanceFilter(null)}
             drafts={data.drafts}
@@ -7547,7 +7586,7 @@ export function App() {
                               <th>상태</th>
                               <th>회사 정보</th>
                               <th>사업자 정보</th>
-                              <th>담당자</th>
+                              <th>가입자</th>
                               <th>연락처</th>
                               <th>마케팅</th>
                               <th>신청일</th>
@@ -7906,7 +7945,7 @@ export function App() {
 
                     return (
                       <div id="ops-mail-settings" className="helper-box-stack inline-password-reset ops-mail-settings-panel">
-                        <strong>{workspace.organizationName} 메일/담당자 설정</strong>
+                        <strong>{workspace.organizationName} 메일/운영 연락처 설정</strong>
                         <span className="field-hint">메일 앱 비밀번호는 저장 후 다시 표시하지 않습니다. 비워두면 기존 저장값을 유지합니다.</span>
                         <div className="form-grid">
                           <label>
@@ -7947,7 +7986,7 @@ export function App() {
                             </div>
                           </label>
                           <label>
-                            담당자 이름
+                            운영 이름
                             <input
                               value={opsWorkspaceMailSettingsForm.operatorContactName}
                               onChange={(event) =>
@@ -7956,11 +7995,11 @@ export function App() {
                                   operatorContactName: event.target.value
                                 }))
                               }
-                              placeholder="담당자 이름"
+                              placeholder="운영 이름"
                             />
                           </label>
                           <label>
-                            담당자 연락처
+                            운영 연락처
                             <input
                               value={opsWorkspaceMailSettingsForm.operatorContactTel}
                               onChange={(event) =>
@@ -7973,7 +8012,7 @@ export function App() {
                             />
                           </label>
                           <label className="full">
-                            담당자 이메일
+                            운영 이메일
                             <input
                               type="email"
                               value={opsWorkspaceMailSettingsForm.operatorContactEmail}

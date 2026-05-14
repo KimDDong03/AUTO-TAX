@@ -11,6 +11,78 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+test("issued monthly trend route forwards the requested anchor month", async () => {
+  const calls: string[] = [];
+  const requestStore = {
+    getIssuedMonthlyTrend: async (anchorBillingMonth: string) => {
+      calls.push(anchorBillingMonth);
+      return {
+        anchorBillingMonth,
+        months: [
+          { billingMonth: "2025-05", issuedDraftCount: 0 },
+          { billingMonth: "2026-05", issuedDraftCount: 3 }
+        ],
+        comparison: {
+          anchor: { billingMonth: anchorBillingMonth, issuedDraftCount: 3 },
+          previous: { billingMonth: "2026-04", issuedDraftCount: 1 },
+          sameMonthLastYear: { billingMonth: "2025-05", issuedDraftCount: 0 }
+        }
+      };
+    }
+  } as unknown as AppStore;
+
+  const app = express();
+  registerDraftRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireWorkspaceEditor: () => ({}) as never,
+    getServerManagedSettings: async () => ({}) as never,
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorStatus: () => 500,
+    buildApiErrorBody: () => ({ error: "unused" }),
+    assertDraftPopbillEnvironment: async () => undefined,
+    backfillDraftPopbillEnvironmentIfMissing: async () => undefined
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/drafts/issued-monthly-trend?anchor=2026-05`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      anchorBillingMonth: "2026-05",
+      months: [
+        { billingMonth: "2025-05", issuedDraftCount: 0 },
+        { billingMonth: "2026-05", issuedDraftCount: 3 }
+      ],
+      comparison: {
+        anchor: { billingMonth: "2026-05", issuedDraftCount: 3 },
+        previous: { billingMonth: "2026-04", issuedDraftCount: 1 },
+        sameMonthLastYear: { billingMonth: "2025-05", issuedDraftCount: 0 }
+      }
+    });
+    assert.deepEqual(calls, ["2026-05"]);
+
+    const invalidResponse = await fetch(`${baseUrl}/api/drafts/issued-monthly-trend?anchor=2026-13`);
+    assert.equal(invalidResponse.status, 400);
+    assert.deepEqual(await invalidResponse.json(), { error: "정산월 형식이 올바르지 않습니다." });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
 test("draft pilot report route forwards normalized period filters", async () => {
   const calls: Array<{ from: string | null; to: string | null }> = [];
   const requestStore = {
@@ -257,8 +329,7 @@ test("draft tax invoice info route updates editable draft values", async () => {
     kepcoCeoName: "하예리",
     kepcoAddr: "충청남도 아산시",
     kepcoBizType: "전기업",
-    kepcoBizClass: "태양광발전",
-    recipientEmail: ""
+    kepcoBizClass: "태양광발전"
   };
   const requestStore = {
     getPilotIssuanceReport: async () => ({ ok: true }),
@@ -303,8 +374,7 @@ test("draft tax invoice info route updates editable draft values", async () => {
         kepcoCorpNum: "120-82-00052",
         itemName: "전력 판매",
         supplyCost: "1,000",
-        taxTotal: 100,
-        recipientEmail: "bill@example.com"
+        taxTotal: 100
       })
     });
 
@@ -326,7 +396,6 @@ test("draft tax invoice info route updates editable draft values", async () => {
       kepcoAddr: "충청남도 아산시",
       kepcoBizType: "전기업",
       kepcoBizClass: "태양광발전",
-      recipientEmail: "bill@example.com",
       rawText: ""
     });
   } finally {
@@ -356,8 +425,7 @@ test("draft tax invoice info route updates recipient detail and issue note field
     kepcoCeoName: "하예리",
     kepcoAddr: "충청남도 아산시",
     kepcoBizType: "전기업",
-    kepcoBizClass: "태양광발전",
-    recipientEmail: ""
+    kepcoBizClass: "태양광발전"
   };
   const requestStore = {
     getPilotIssuanceReport: async () => ({ ok: true }),
@@ -407,8 +475,7 @@ test("draft tax invoice info route updates recipient detail and issue note field
         itemName: "2026년4월전력",
         plantName: "하예리발전소",
         supplyCost: 121867,
-        taxTotal: 12186,
-        recipientEmail: "ppa0206@kepco.co.kr"
+        taxTotal: 12186
       })
     });
 
@@ -448,8 +515,7 @@ test("draft tax invoice info route keeps business number and recipient email val
     kepcoCeoName: "하예리",
     kepcoAddr: "충청남도 아산시",
     kepcoBizType: "전기업",
-    kepcoBizClass: "태양광발전",
-    recipientEmail: ""
+    kepcoBizClass: "태양광발전"
   };
   const requestStore = {
     getPilotIssuanceReport: async () => ({ ok: true }),
@@ -484,8 +550,7 @@ test("draft tax invoice info route keeps business number and recipient email val
     kepcoCorpNum: "120-82-00052",
     itemName: "전력 판매",
     supplyCost: 1000,
-    taxTotal: 100,
-    recipientEmail: "bill@example.com"
+    taxTotal: 100
   };
 
   try {
@@ -497,19 +562,8 @@ test("draft tax invoice info route keeps business number and recipient email val
         kepcoCorpNum: "120"
       })
     });
-    const invalidEmail = await fetch(`${baseUrl}/api/drafts/503/tax-invoice-info`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ...validBody,
-        recipientEmail: "not-an-email"
-      })
-    });
-
     assert.equal(invalidBusinessNumber.status, 400);
     assert.equal(asRecord(await invalidBusinessNumber.json()).error, "사업자번호는 숫자 10자리로 입력해주세요.");
-    assert.equal(invalidEmail.status, 400);
-    assert.equal(asRecord(await invalidEmail.json()).error, "수신 이메일 형식이 올바르지 않습니다.");
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -736,8 +790,7 @@ test("draft pilot timeline route preserves actor and context evidence without re
     writeDate: "20260416",
     invoicerBusinessNumber: "1112233333",
     invoiceeCorpNum: "1234567890",
-    invoiceeTaxRegId: "0010",
-    recipientEmail: "kepco-501@example.com"
+    invoiceeTaxRegId: "0010"
   };
   const expectedTimeline = {
     organizationId: "org-1",
@@ -833,8 +886,7 @@ test("draft preview opened route records an explicit frontend pilot event", asyn
     writeDate: "20260416",
     invoicerBusinessNumber: "1112233333",
     invoiceeCorpNum: "1234567890",
-    invoiceeTaxRegId: "0010",
-    recipientEmail: "kepco-501@example.com"
+    invoiceeTaxRegId: "0010"
   };
   const requestStore = {
     getPilotIssuanceReport: async () => ({ ok: true }),
@@ -849,8 +901,7 @@ test("draft preview opened route records an explicit frontend pilot event", asyn
         totalAmount: 110000,
         writeDate: "20260416",
         kepcoCorpNum: "1234567890",
-        kepcoBranchId: "0010",
-        recipientEmail: "kepco-501@example.com"
+        kepcoBranchId: "0010"
       }) as Awaited<ReturnType<AppStore["getDraft"]>>,
     getCustomer: async () =>
       ({
@@ -1069,8 +1120,7 @@ test("single manual issue route records audit-ready manual issue context", async
     taxTotal: 10000,
     totalAmount: 110000,
     kepcoCorpNum: "1234567890",
-    kepcoBranchId: "0010",
-    recipientEmail: "kepco-501@example.com"
+    kepcoBranchId: "0010"
   };
   const claimedDraft = {
     ...draft,
@@ -1090,8 +1140,7 @@ test("single manual issue route records audit-ready manual issue context", async
     writeDate,
     invoicerBusinessNumber: customer.businessNumber,
     invoiceeCorpNum: "1234567890",
-    invoiceeTaxRegId: "0010",
-    recipientEmail: "kepco-501@example.com"
+    invoiceeTaxRegId: "0010"
   };
   const requestStore = {
     getPilotIssuanceReport: async () => ({ ok: true }),
@@ -1182,8 +1231,7 @@ test("bulk manual issue route records per-draft manual issue evidence", async ()
       taxTotal: 20000,
       totalAmount: 220000,
       kepcoCorpNum: "2223344445",
-      kepcoBranchId: "1000",
-      recipientEmail: "kepco-601@example.com"
+      kepcoBranchId: "1000"
     },
     {
       id: 602,
@@ -1194,8 +1242,7 @@ test("bulk manual issue route records per-draft manual issue evidence", async ()
       taxTotal: 30000,
       totalAmount: 330000,
       kepcoCorpNum: "3334455556",
-      kepcoBranchId: "",
-      recipientEmail: "kepco-602@example.com"
+      kepcoBranchId: ""
     }
   ];
   const customer = {
@@ -1223,8 +1270,7 @@ test("bulk manual issue route records per-draft manual issue evidence", async ()
     writeDate,
     invoicerBusinessNumber: customer.businessNumber,
     invoiceeCorpNum: "2223344445",
-    invoiceeTaxRegId: "1000",
-    recipientEmail: "kepco-601@example.com"
+    invoiceeTaxRegId: "1000"
   };
 
   const requestStore = {

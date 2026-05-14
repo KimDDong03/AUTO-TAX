@@ -113,6 +113,84 @@ test("getBootstrapWorkspace skips drafts, inbox, and logs reads while keeping bo
   });
 });
 
+test("getIssuedMonthlyTrend counts issued drafts for each target billing month", async () => {
+  const calls: Array<{
+    table: string;
+    selectColumns: string;
+    selectOptions: Record<string, unknown>;
+    filters: Array<[string, unknown]>;
+  }> = [];
+  const countsByBillingMonth = new Map([
+    ["2025-05", 1],
+    ["2026-04", 2],
+    ["2026-05", 3]
+  ]);
+  const fakeClient = {
+    from(table: string) {
+      const call = {
+        table,
+        selectColumns: "",
+        selectOptions: {} as Record<string, unknown>,
+        filters: [] as Array<[string, unknown]>
+      };
+      calls.push(call);
+      const query = {
+        select(columns: string, options: Record<string, unknown>) {
+          call.selectColumns = columns;
+          call.selectOptions = options;
+          return query;
+        },
+        eq(column: string, value: unknown) {
+          call.filters.push([column, value]);
+          return query;
+        },
+        then<TResult1 = { count: number; error: null }, TResult2 = never>(
+          onfulfilled?: ((value: { count: number; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
+          onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+        ) {
+          const billingMonth = call.filters.find(([column]) => column === "billing_month")?.[1];
+          const result = {
+            count: typeof billingMonth === "string" ? countsByBillingMonth.get(billingMonth) ?? 0 : 0,
+            error: null
+          };
+          return Promise.resolve(result).then(onfulfilled, onrejected);
+        }
+      };
+      return query;
+    }
+  };
+  const store = Object.create(SupabaseStore.prototype) as SupabaseStore;
+  Object.assign(store as object, {
+    client: fakeClient,
+    initialized: true,
+    organizationId: "org-1"
+  });
+
+  const trend = await store.getIssuedMonthlyTrend("2026-05");
+
+  assert.equal(trend.anchorBillingMonth, "2026-05");
+  assert.equal(trend.months.length, 13);
+  assert.equal(trend.months[0]?.billingMonth, "2025-05");
+  assert.equal(trend.months[12]?.billingMonth, "2026-05");
+  assert.deepEqual(trend.months.filter((month) => month.issuedDraftCount > 0), [
+    { billingMonth: "2025-05", issuedDraftCount: 1 },
+    { billingMonth: "2026-04", issuedDraftCount: 2 },
+    { billingMonth: "2026-05", issuedDraftCount: 3 }
+  ]);
+  assert.deepEqual(trend.comparison, {
+    anchor: { billingMonth: "2026-05", issuedDraftCount: 3 },
+    previous: { billingMonth: "2026-04", issuedDraftCount: 2 },
+    sameMonthLastYear: { billingMonth: "2025-05", issuedDraftCount: 1 }
+  });
+  assert.equal(calls.length, 13);
+  assert.equal(calls.every((call) => call.table === "invoice_drafts"), true);
+  assert.equal(calls.every((call) => call.selectColumns === "*"), true);
+  assert.equal(calls.every((call) => call.selectOptions.count === "exact" && call.selectOptions.head === true), true);
+  assert.equal(calls.every((call) => call.filters.some(([column, value]) => column === "organization_id" && value === "org-1")), true);
+  assert.equal(calls.every((call) => call.filters.some(([column, value]) => column === "status" && value === "issued")), true);
+  assert.equal(calls.some((call) => call.filters.some(([column]) => column === "source_message_id")), false);
+});
+
 test("getPilotIssuanceReport enriches Phase 5 customer summaries with current customer catalog", async () => {
   const store = Object.create(SupabaseStore.prototype) as SupabaseStore;
   Object.assign(store as object, {

@@ -81,7 +81,7 @@ export function SettingsDefaultsOnboardingStep({
             <strong>{autosaveLabel}</strong>
           </div>
           <div>
-            <span>담당자 정보</span>
+            <span>운영 연락처</span>
             <strong>{onboarding.operatorReadyLabel}</strong>
           </div>
         </div>
@@ -103,7 +103,7 @@ export function SettingsDefaultsOnboardingStep({
                   onboarding.operatorName.hasError
                 )}
               >
-                담당자 이름
+                운영 이름
               </span>
               <input
                 className={getOnboardingRequiredInputClassName(
@@ -113,7 +113,7 @@ export function SettingsDefaultsOnboardingStep({
                 aria-invalid={onboarding.operatorName.hasError || undefined}
                 aria-describedby="onboarding-operator-name-hint"
                 onChange={(event) => onOperatorContactNameChange(event.target.value)}
-                placeholder="담당자 이름"
+                placeholder="운영 이름"
               />
               {renderOnboardingRequiredHint("onboarding-operator-name-hint", {
                 missing: onboarding.operatorName.missing
@@ -130,7 +130,7 @@ export function SettingsDefaultsOnboardingStep({
                   onboarding.operatorTel.hasError
                 )}
               >
-                담당자 연락처
+                운영 연락처
               </span>
               <input
                 className={getOnboardingRequiredInputClassName(
@@ -157,7 +157,7 @@ export function SettingsDefaultsOnboardingStep({
                   onboarding.operatorEmail.hasError
                 )}
               >
-                담당자 이메일
+                운영 이메일
               </span>
               <input
                 type="email"

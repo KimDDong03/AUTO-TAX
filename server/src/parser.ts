@@ -67,12 +67,6 @@ export function parseKepcoMail(rawText: string): ParsedMail {
   const vatMatch = normalized.match(/(?:VAT|부가세|부가가치세)\s*[:：]?\s*([\d,]+)원/i);
   const taxTotal = vatMatch ? parseAmount(vatMatch[1]) : Math.floor(supplyCost * 0.1);
 
-  const recipientEmail =
-    normalized.match(/그 외\s*[:：]\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i)?.[1] ??
-    normalized.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\s*\(타 기관 이용 시\)/i)?.[1] ??
-    normalized.match(/전자세금계산서\s*메일주소\s*[:：]?\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i)?.[1] ??
-    "";
-
   const kepcoCorpNum = matchRequired(normalized, /등록번호\s*[:：]\s*([\d-]+)/, "한전 등록번호");
   const kepcoBranchId = ensureBranchId(matchRequired(normalized, /종사업장(?:번호)?\s*[:：]\s*(\d+)/, "한전 종사업장번호"));
   const kepcoCorpName = matchScoped(normalized, "상호", ["성명", "사업장 주소", "업태"]);
@@ -100,7 +94,6 @@ export function parseKepcoMail(rawText: string): ParsedMail {
     kepcoAddr,
     kepcoBizType,
     kepcoBizClass,
-    recipientEmail: recipientEmail.trim(),
     rawText: original
   };
 }

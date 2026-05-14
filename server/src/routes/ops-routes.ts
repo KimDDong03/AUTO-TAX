@@ -216,7 +216,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
       await requestStore.createLog(
         "info",
         "ops",
-        "회원가입 신청 담당자 정보로 작업공간 기본 담당자 설정을 채웠습니다.",
+        "회원가입 신청 정보로 작업공간 한전 수신메일 설정을 채웠습니다.",
         {
           sourceSignupRequestId: input.sourceSignupRequestId ?? null,
           contactEmail,
@@ -421,9 +421,10 @@ export function registerOpsRoutes(deps: RouteDeps) {
       planCode: "free_trial",
       status: "trial",
       initialContactSettings: {
-        contactName: signupRequest.name,
-        contactEmail: signupRequest.kepcoEmail,
-        contactTel: signupRequest.phone,
+        contactName: "",
+        contactEmail: "",
+        contactTel: "",
+        mailAddress: signupRequest.kepcoEmail,
         sourceSignupRequestId: signupRequest.id
       }
     });
@@ -602,7 +603,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
         }
       }
 
-      await requestStore.createLog("info", "ops", "플랫폼 관리자가 작업공간 메일/담당자 설정을 저장했습니다.", {
+      await requestStore.createLog("info", "ops", "플랫폼 관리자가 작업공간 메일/운영 연락처 설정을 저장했습니다.", {
         mailAddress: payload.mailAddress,
         testConnection: payload.testConnection,
         testSucceeded: mailTestResult ? Boolean(mailTestResult.imapOk && mailTestResult.smtpOk) : null

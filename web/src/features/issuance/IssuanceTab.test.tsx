@@ -125,7 +125,6 @@ function buildDraft(overrides: Partial<InvoiceDraft> = {}): InvoiceDraft {
     kepcoAddr: "충청남도 아산시",
     kepcoBizType: "전기업",
     kepcoBizClass: "태양광발전",
-    recipientEmail: "kepco-mail@example.com",
     popbillMgtKey: "mgt-501",
     popbillEnvironment: null,
     popbillResultJson: "",
@@ -178,9 +177,7 @@ function renderIssuanceTab(options: RenderIssuanceTabOptions = {}) {
         userLabel="테스트 사용자"
         workspaceLabel="테스트 작업공간"
         popbillModeLabel="테스트"
-        operatorContactName="운영자"
-        operatorContactTel="010-1111-2222"
-        operatorContactEmail="operator@example.com"
+        kepcoMailAddress="kepco-mail@example.com"
         requestedFilter={requestedFilter}
         onConsumeRequestedFilter={() => {}}
         drafts={drafts}
@@ -262,11 +259,11 @@ test("IssuanceTab labels the draft edit action as tax invoice info editing", () 
   assert.match(markup, /발행 내용/);
   assert.match(markup, /등록번호/);
   assert.match(markup, /종사업장번호/);
-  assert.match(markup, /수신 이메일/);
+  assert.match(markup, /한전 수신메일/);
   assert.match(markup, /하예리발전소/);
   assert.match(markup, /4490303746/);
   assert.match(markup, /제주특별자치도 서귀포시/);
-  assert.match(markup, /operator@example\.com/);
+  assert.match(markup, /kepco-mail@example\.com/);
   assert.match(markup, /품목/);
   assert.match(markup, /비고\/발전소명/);
   assert.match(markup, /공급가액/);

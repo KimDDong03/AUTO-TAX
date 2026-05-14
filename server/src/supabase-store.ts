@@ -35,9 +35,11 @@ import {
   normalizeCustomerReportDetailInput
 } from "./customer-report-detail.js";
 import {
+  addMonthsToYearMonth,
   buildCustomerContractRenewalDueItem,
   calculateCompletedContractRenewalPeriod,
-  CustomerContractRenewalConflictError
+  CustomerContractRenewalConflictError,
+  isValidYearMonth
 } from "./customer-contract-renewals.js";
 import { createSupabaseAdminClient } from "./supabase.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
@@ -585,7 +587,6 @@ function mapDraft(row: Row): InvoiceDraft {
     kepcoAddr: asString(row.kepco_addr),
     kepcoBizType: asString(row.kepco_biz_type),
     kepcoBizClass: asString(row.kepco_biz_class),
-    recipientEmail: asString(row.recipient_email),
     popbillMgtKey: asString(row.popbill_mgt_key),
     popbillEnvironment: asNullableString(row.popbill_environment) as PopbillEnvironment | null,
     popbillResultJson: typeof row.popbill_result_json === "string" ? row.popbill_result_json : JSON.stringify(row.popbill_result_json ?? ""),
@@ -2466,7 +2467,6 @@ export class SupabaseStore implements AppStore {
           kepco_addr: args.parsedMail.kepcoAddr,
           kepco_biz_type: args.parsedMail.kepcoBizType,
           kepco_biz_class: args.parsedMail.kepcoBizClass,
-          recipient_email: args.parsedMail.recipientEmail,
           popbill_mgt_key: mgtKey
         })
         .select("*")
@@ -2549,7 +2549,6 @@ export class SupabaseStore implements AppStore {
           kepco_addr: parsedMail.kepcoAddr,
           kepco_biz_type: parsedMail.kepcoBizType,
           kepco_biz_class: parsedMail.kepcoBizClass,
-          recipient_email: parsedMail.recipientEmail,
           updated_at: nowIso()
         })
         .eq("id", asString(draftRow.id))
@@ -2678,6 +2677,50 @@ export class SupabaseStore implements AppStore {
         .limit(200)
     );
     return Promise.all((rows as Row[]).map((row) => this.buildDraftPayload(row)));
+  }
+
+  async getIssuedMonthlyTrend(anchorBillingMonth: string) {
+    if (!isValidYearMonth(anchorBillingMonth)) {
+      throw new Error("정산월 형식이 올바르지 않습니다.");
+    }
+
+    await this.initialize();
+    const organizationId = this.requireOrganizationId();
+    const targetMonths = Array.from({ length: 13 }, (_, index) => addMonthsToYearMonth(anchorBillingMonth, index - 12));
+    const months = await Promise.all(
+      targetMonths.map(async (billingMonth) => {
+        const { count, error } = await this.client
+          .from("invoice_drafts")
+          .select("*", { count: "exact", head: true })
+          .eq("organization_id", organizationId)
+          .eq("status", "issued")
+          .eq("billing_month", billingMonth);
+
+        if (error) {
+          throw new Error(`${billingMonth} 발행 건수 조회 실패: ${error.message}`);
+        }
+
+        return {
+          billingMonth,
+          issuedDraftCount: count ?? 0
+        };
+      })
+    );
+    const countByMonth = new Map(months.map((month) => [month.billingMonth, month.issuedDraftCount]));
+    const buildComparisonMonth = (billingMonth: string) => ({
+      billingMonth,
+      issuedDraftCount: countByMonth.get(billingMonth) ?? 0
+    });
+
+    return {
+      anchorBillingMonth,
+      months,
+      comparison: {
+        anchor: buildComparisonMonth(anchorBillingMonth),
+        previous: buildComparisonMonth(addMonthsToYearMonth(anchorBillingMonth, -1)),
+        sameMonthLastYear: buildComparisonMonth(addMonthsToYearMonth(anchorBillingMonth, -12))
+      }
+    };
   }
 
   async listInbox(): Promise<InboxMessage[]> {

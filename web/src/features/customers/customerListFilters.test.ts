@@ -61,7 +61,6 @@ function createIssuedDraft(customerId: number, billingMonth: string, overrides: 
     kepcoAddr: "",
     kepcoBizType: "",
     kepcoBizClass: "",
-    recipientEmail: "",
     popbillMgtKey: "",
     popbillEnvironment: null,
     popbillResultJson: "",

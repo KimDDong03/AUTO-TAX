@@ -209,9 +209,9 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on operator contac
       element.props["aria-describedby"] === "onboarding-operator-name-hint"
   );
 
-  assert.match(configuredText, /담당자 이름/);
-  assert.match(configuredText, /담당자 연락처/);
-  assert.match(configuredText, /담당자 이메일/);
+  assert.match(configuredText, /운영 이름/);
+  assert.match(configuredText, /운영 연락처/);
+  assert.match(configuredText, /운영 이메일/);
   assert.doesNotMatch(configuredText, /발급용 임시번호/);
   assert.doesNotMatch(configuredText, /팝빌/);
   assert.doesNotMatch(configuredText, /접두어/);
