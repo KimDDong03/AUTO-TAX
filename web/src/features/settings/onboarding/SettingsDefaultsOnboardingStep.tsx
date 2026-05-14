@@ -1,7 +1,9 @@
 import React from "react";
+import { RevealIcon } from "../../../components/ui";
 import type { SettingsFeatureRevealAdapters } from "../createSettingsActionAdapters";
 import type { SettingsOnboardingModel } from "../useSettingsDerivedModel";
 import {
+  getOnboardingPasswordFieldClassName,
   getOnboardingRequiredFieldClassName,
   getOnboardingRequiredInputClassName,
   getOnboardingRequiredLabelClassName,
@@ -13,9 +15,6 @@ type SettingsDefaultsOnboardingStepProps = {
   hasSavedDefaults: boolean;
   autosaveLabel: string;
   popbillUserIdPrefix: string;
-  operatorContactName: string;
-  operatorContactTel: string;
-  operatorContactEmail: string;
   popbillSharedPassword: string;
   renewalIssuePassword: string;
   renewalCertificatePassword: string;
@@ -30,9 +29,6 @@ type SettingsDefaultsOnboardingStepProps = {
   >;
   busy: boolean;
   onPopbillUserIdPrefixChange: (value: string) => void;
-  onOperatorContactNameChange: (value: string) => void;
-  onOperatorContactTelChange: (value: string) => void;
-  onOperatorContactEmailChange: (value: string) => void;
   onPopbillSharedPasswordChange: (value: string) => void;
   onRenewalIssuePasswordChange: (value: string) => void;
   onRenewalCertificatePasswordChange: (value: string) => void;
@@ -46,9 +42,6 @@ export function SettingsDefaultsOnboardingStep({
   hasSavedDefaults,
   autosaveLabel,
   popbillUserIdPrefix,
-  operatorContactName,
-  operatorContactTel,
-  operatorContactEmail,
   popbillSharedPassword,
   renewalIssuePassword,
   renewalCertificatePassword,
@@ -58,9 +51,6 @@ export function SettingsDefaultsOnboardingStep({
   reveals,
   busy,
   onPopbillUserIdPrefixChange,
-  onOperatorContactNameChange,
-  onOperatorContactTelChange,
-  onOperatorContactEmailChange,
   onPopbillSharedPasswordChange,
   onRenewalIssuePasswordChange,
   onRenewalCertificatePasswordChange,
@@ -81,7 +71,7 @@ export function SettingsDefaultsOnboardingStep({
             <strong>{autosaveLabel}</strong>
           </div>
           <div>
-            <span>운영 연락처</span>
+            <span>발행 설정</span>
             <strong>{onboarding.operatorReadyLabel}</strong>
           </div>
         </div>
@@ -89,91 +79,59 @@ export function SettingsDefaultsOnboardingStep({
         <section className="onboarding-section">
           <div className="onboarding-section-head">
             <strong>필수 입력</strong>
-            <span>먼저 채울 값</span>
+            <span>공동인증서 발급/갱신 요청에 쓰는 값</span>
           </div>
           <div className="onboarding-field-grid">
             <label
               className={getOnboardingRequiredFieldClassName(
-                onboarding.operatorName.hasError
+                onboarding.renewalIssuePassword.hasError
               )}
-              data-required-empty={onboarding.operatorName.missing ? "true" : undefined}
+              data-required-empty={onboarding.renewalIssuePassword.missing ? "true" : undefined}
             >
               <span
                 className={getOnboardingRequiredLabelClassName(
-                  onboarding.operatorName.hasError
+                  onboarding.renewalIssuePassword.hasError
                 )}
               >
-                운영 이름
+                공동인증서 발급용 임시 비밀번호
               </span>
-              <input
-                className={getOnboardingRequiredInputClassName(
-                  onboarding.operatorName.hasError
-                )}
-                value={operatorContactName}
-                aria-invalid={onboarding.operatorName.hasError || undefined}
-                aria-describedby="onboarding-operator-name-hint"
-                onChange={(event) => onOperatorContactNameChange(event.target.value)}
-                placeholder="운영 이름"
-              />
-              {renderOnboardingRequiredHint("onboarding-operator-name-hint", {
-                missing: onboarding.operatorName.missing
-              })}
-            </label>
-            <label
-              className={getOnboardingRequiredFieldClassName(
-                onboarding.operatorTel.hasError
-              )}
-              data-required-empty={onboarding.operatorTel.missing ? "true" : undefined}
-            >
-              <span
-                className={getOnboardingRequiredLabelClassName(
-                  onboarding.operatorTel.hasError
-                )}
-              >
-                운영 연락처
-              </span>
-              <input
-                className={getOnboardingRequiredInputClassName(
-                  onboarding.operatorTel.hasError
-                )}
-                value={operatorContactTel}
-                aria-invalid={onboarding.operatorTel.hasError || undefined}
-                aria-describedby="onboarding-operator-tel-hint"
-                onChange={(event) => onOperatorContactTelChange(event.target.value)}
-                placeholder="01012345678"
-              />
-              {renderOnboardingRequiredHint("onboarding-operator-tel-hint", {
-                missing: onboarding.operatorTel.missing
-              })}
-            </label>
-            <label
-              className={getOnboardingRequiredFieldClassName(
-                onboarding.operatorEmail.hasError
-              )}
-              data-required-empty={onboarding.operatorEmail.missing ? "true" : undefined}
-            >
-              <span
-                className={getOnboardingRequiredLabelClassName(
-                  onboarding.operatorEmail.hasError
-                )}
-              >
-                운영 이메일
-              </span>
-              <input
-                type="email"
-                className={getOnboardingRequiredInputClassName(
-                  onboarding.operatorEmail.hasError
-                )}
-                value={operatorContactEmail}
-                aria-invalid={onboarding.operatorEmail.hasError || undefined}
-                aria-describedby="onboarding-operator-email-hint"
-                onChange={(event) => onOperatorContactEmailChange(event.target.value)}
-                placeholder="operator@example.com"
-              />
-              {renderOnboardingRequiredHint("onboarding-operator-email-hint", {
-                missing: onboarding.operatorEmail.missing,
-                invalid: onboarding.operatorEmail.invalid,
-                invalidText: "메일 형식이 올바르지 않습니다."
+              <div className={getOnboardingPasswordFieldClassName(onboarding.renewalIssuePassword.hasError)}>
+                <input
+                  type={reveals.renewalIssuePassword.visible ? "text" : "password"}
+                  className={getOnboardingRequiredInputClassName(
+                    onboarding.renewalIssuePassword.hasError
+                  )}
+                  value={renewalIssuePassword}
+                  inputMode="numeric"
+                  maxLength={6}
+                  aria-invalid={onboarding.renewalIssuePassword.hasError || undefined}
+                  aria-describedby="onboarding-renewal-issue-password-hint"
+                  onChange={(event) => onRenewalIssuePasswordChange(event.target.value)}
+                  placeholder={
+                    renewalIssuePasswordConfigured
+                      ? "변경할 때만 다시 입력"
+                      : "숫자 6자리 입력"
+                  }
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  aria-label={
+                    reveals.renewalIssuePassword.visible
+                      ? "발급용 임시 비밀번호 숨기기"
+                      : "발급용 임시 비밀번호 보기"
+                  }
+                  onClick={reveals.renewalIssuePassword.toggle}
+                  disabled={busy}
+                >
+                  <RevealIcon open={reveals.renewalIssuePassword.visible} />
+                </button>
+              </div>
+              {renderOnboardingRequiredHint("onboarding-renewal-issue-password-hint", {
+                missing: onboarding.renewalIssuePassword.missing,
+                defaultText: renewalIssuePasswordConfigured
+                  ? "이미 저장된 값이 있습니다."
+                  : "숫자 6자리입니다."
               })}
             </label>
           </div>

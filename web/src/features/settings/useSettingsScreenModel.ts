@@ -218,9 +218,6 @@ export function useSettingsScreenModel(
           },
           fields: {
             popbillUserIdPrefix: settingsForm.popbillUserIdPrefix,
-            operatorContactName: settingsForm.operatorContactName,
-            operatorContactTel: settingsForm.operatorContactTel,
-            operatorContactEmail: settingsForm.operatorContactEmail,
             popbillSharedPassword: settingsForm.popbillSharedPassword,
             renewalIssuePassword: settingsForm.renewalIssuePassword
           },
@@ -238,12 +235,6 @@ export function useSettingsScreenModel(
           },
           onPopbillUserIdPrefixChange: (value) =>
             setSettingsField("popbillUserIdPrefix", value),
-          onOperatorContactNameChange: (value) =>
-            setSettingsField("operatorContactName", value),
-          onOperatorContactTelChange: (value) =>
-            setSettingsField("operatorContactTel", value),
-          onOperatorContactEmailChange: (value) =>
-            setSettingsField("operatorContactEmail", value),
           onPopbillSharedPasswordChange: (value) =>
             setSettingsField("popbillSharedPassword", value),
           onRenewalIssuePasswordChange:
@@ -364,9 +355,6 @@ export function useSettingsScreenModel(
       settingsForm.mailAddress,
       settingsForm.mailPassword,
       settingsForm.notificationEmailsText,
-      settingsForm.operatorContactEmail,
-      settingsForm.operatorContactName,
-      settingsForm.operatorContactTel,
       settingsForm.popbillSharedPassword,
       settingsForm.popbillUserIdPrefix,
       settingsForm.renewalCertificatePassword,

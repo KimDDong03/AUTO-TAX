@@ -40,20 +40,14 @@ export function buildRenewalComparisonProfile(customer: Customer): RenewalPrefli
 }
 
 export function buildRenewalSubmissionProfile(
-  settings: Pick<
-    AppSettings,
-    | "operatorContactName"
-    | "operatorContactEmail"
-    | "operatorContactTel"
-    | "renewalIssuePassword"
-  >,
+  settings: Pick<AppSettings, "renewalIssuePassword">,
   customer: Pick<Customer, "renewalContactMobile">
 ): RenewalPreflightSubmissionProfile {
   return {
-    contactName: settings.operatorContactName,
+    contactName: "",
     contactDepartment: "",
-    contactEmail: settings.operatorContactEmail,
-    contactTel: settings.operatorContactTel,
+    contactEmail: "",
+    contactTel: "",
     contactFax: "",
     contactMobile: customer.renewalContactMobile,
     issuePassword: settings.renewalIssuePassword

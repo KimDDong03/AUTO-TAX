@@ -189,8 +189,8 @@ The product is multi-tenant. A logged-in session always operates against one act
 2. New prospects post `POST /api/public/consultation-requests` with only `name` and `phone`.
 3. Platform admins review requests in ops and change status through `GET/PATCH /api/ops/consultation-requests`.
 4. Public signup requests post `POST /api/public/signup`, creating a pending auth user and signup request.
-5. Platform admins approve signup requests through `POST /api/ops/signup-requests/:id/approve`, which creates or links the owner workspace and seeds `operator_contact_*` from the submitted contact name, phone, and contact email.
-6. The platform admin can still save or override the target workspace mail app password/contact values from ops and run a mail connection test.
+5. Platform admins approve signup requests through `POST /api/ops/signup-requests/:id/approve`, which creates or links the owner workspace and seeds the KEPCO receiving mail address.
+6. The platform admin can still save or override the target workspace mail app password from ops and run a mail connection test.
 7. Existing customers post `POST /api/public/login`, receive a Supabase session, set the active workspace id, and load `GET /api/bootstrap`.
 
 Main coupling:

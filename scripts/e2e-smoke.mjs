@@ -578,9 +578,6 @@ async function configureOnboardingSettings() {
       popbill_partner_corp_num: "",
       popbill_user_id_prefix: `E2E${suffix.slice(-4)}_`,
       popbill_shared_password_encrypted: `Popbill!${suffix}`,
-      operator_contact_name: "E2E Operator",
-      operator_contact_email: email,
-      operator_contact_tel: "0212345678",
       renewal_contact_department: "",
       renewal_contact_fax: "",
       renewal_certificate_password_encrypted: "",
@@ -684,36 +681,20 @@ try {
     await page.locator(".onboarding-modal #onboarding-active-step").waitFor({ timeout: 15000 });
   });
 
-  await recordStep("blank onboarding highlights required inputs immediately", async () => {
+  await recordStep("blank onboarding no longer asks for operator contact fields", async () => {
     const onboardingActiveStep = page.locator("#onboarding-active-step");
 
-    await page.locator(".onboarding-step-chip").filter({ hasText: "담당자 정보 입력" }).first().click();
-    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "담당자 정보 입력" }).waitFor();
+    await page.locator(".onboarding-step-chip").filter({ hasText: "로컬 헬퍼 준비" }).first().click();
+    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "로컬 헬퍼 준비" }).waitFor();
     assert.equal(await page.getByRole("button", { name: "필수 입력 시작", exact: true }).count(), 0);
-    assert.equal(await onboardingActiveStep.locator("[data-required-empty='true']").count(), 3);
-    assert.equal(await onboardingActiveStep.locator(".onboarding-required-hint.is-missing").count(), 3);
-    for (const label of ["담당자 이름", "담당자 연락처", "담당자 이메일"]) {
-      const input = onboardingActiveStep.getByLabel(label);
-      const inputValue = await input.inputValue();
-      assert.equal((await input.getAttribute("aria-invalid")) === "true", inputValue.trim() === "");
-    }
-
-    const operatorEmailInput = onboardingActiveStep.getByLabel("담당자 이메일");
-    await operatorEmailInput.fill("ㅁㅈㅇㅁ");
-    await page.waitForFunction(() => {
-      const input = document.querySelector("#onboarding-active-step input[aria-describedby='onboarding-operator-email-hint']");
-      const hint = document.getElementById("onboarding-operator-email-hint");
-      return (
-        input instanceof HTMLInputElement &&
-        input.getAttribute("aria-invalid") === "true" &&
-        hint?.textContent?.includes("메일 형식이 올바르지 않습니다.")
-      );
-    }, null, { timeout: 15000 });
+    assert.equal(await page.locator(".onboarding-step-chip").filter({ hasText: "담당자 정보 입력" }).count(), 0);
+    assert.equal(await onboardingActiveStep.getByLabel("담당자 이름").count(), 0);
+    assert.equal(await onboardingActiveStep.getByLabel("담당자 연락처").count(), 0);
+    assert.equal(await onboardingActiveStep.getByLabel("담당자 이메일").count(), 0);
 
     assert.equal(await onboardingActiveStep.getByLabel("팝빌 접두어").count(), 0);
     assert.equal(await onboardingActiveStep.getByLabel("신규 고객 기본 비밀번호").count(), 0);
     assert.equal(await onboardingActiveStep.getByLabel("메일 주소").count(), 0);
-    assert.equal(await onboardingActiveStep.getByLabel("공동인증서 발급용 임시번호").count(), 0);
   });
 
   await recordStep("pre-onboarding routing keeps onboarding accessible while manual tabs still work", async () => {
@@ -733,13 +714,6 @@ try {
 
   await recordStep("stored onboarding passwords do not show false required errors", async () => {
     const onboardingActiveStep = page.locator("#onboarding-active-step");
-    await page.locator(".onboarding-step-chip").filter({ hasText: "담당자 정보 입력" }).first().click();
-    await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "담당자 정보 입력" }).waitFor();
-    await page.waitForFunction(
-      () => document.querySelectorAll("#onboarding-active-step [data-required-empty='true']").length === 0,
-      null,
-      { timeout: 15000 }
-    );
     await page.locator(".onboarding-step-chip").filter({ hasText: "로컬 헬퍼 준비" }).first().click();
     await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "로컬 헬퍼 준비" }).waitFor();
     await page.getByRole("button", { name: "공동인증서 읽기", exact: true }).waitFor();

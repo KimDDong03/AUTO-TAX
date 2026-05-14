@@ -62,7 +62,7 @@ function createModel(
         {
           id: "popbill",
           step: 2,
-          title: "운영 연락처 및 발행 설정",
+          title: "발행 설정",
           done: false,
           summary: "필수값 입력"
         },
@@ -145,9 +145,6 @@ function createModel(
         },
         fields: {
           popbillUserIdPrefix: "",
-          operatorContactName: "",
-          operatorContactTel: "",
-          operatorContactEmail: "",
           popbillSharedPassword: "",
           renewalIssuePassword: ""
         },
@@ -160,9 +157,6 @@ function createModel(
           renewalIssuePassword: { visible: false, toggle: () => {} }
         },
         onPopbillUserIdPrefixChange: () => {},
-        onOperatorContactNameChange: () => {},
-        onOperatorContactTelChange: () => {},
-        onOperatorContactEmailChange: () => {},
         onPopbillSharedPasswordChange: () => {},
         onRenewalIssuePasswordChange: () => {},
         onLoadCurrentPopbillSharedPassword: async () => {},
@@ -269,7 +263,7 @@ test("SettingsTab only renders the active detail section content", () => {
   assert.match(helperText, /로컬 헬퍼/);
   assert.doesNotMatch(helperText, /도입 준비 본문/);
   assert.doesNotMatch(helperText, /자동으로 찾은 메일 서비스/);
-  assert.doesNotMatch(helperText, /필수 공통값/);
+  assert.doesNotMatch(helperText, /공동인증서 발급용 임시번호/);
 });
 
 test("SettingsTab renders onboarding as the first settings detail section", () => {
@@ -278,7 +272,7 @@ test("SettingsTab renders onboarding as the first settings detail section", () =
   const text = collectText(tree);
 
   assert.match(text, /도입 준비 본문/);
-  assert.match(text, /운영 연락처 및 발행 설정/);
+  assert.match(text, /발행 설정/);
   assert.match(text, /메일 연결하기/);
   assert.match(text, /로컬 헬퍼/);
   assert.doesNotMatch(text, /메일 연결 설정/);
@@ -290,7 +284,10 @@ test("SettingsTab keeps local helper details out of issue defaults", () => {
   });
   const defaultsText = collectText(defaultsTree);
 
-  assert.match(defaultsText, /필수 공통값/);
+  assert.match(defaultsText, /공동인증서 발급용 임시번호/);
+  assert.doesNotMatch(defaultsText, /운영 이름/);
+  assert.doesNotMatch(defaultsText, /운영 연락처/);
+  assert.doesNotMatch(defaultsText, /운영 이메일/);
   assert.doesNotMatch(defaultsText, /상태 다시 확인/);
   assert.doesNotMatch(defaultsText, /헬퍼 다운로드/);
 });

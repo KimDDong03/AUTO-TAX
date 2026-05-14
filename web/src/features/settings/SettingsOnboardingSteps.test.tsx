@@ -117,25 +117,19 @@ test("SettingsMailOnboardingStep keeps required-field hints and busy test button
   assert.equal(testButton.props.disabled, true);
 });
 
-test("SettingsDefaultsOnboardingStep keeps onboarding focused on operator contact only", () => {
+test("SettingsDefaultsOnboardingStep keeps onboarding focused on renewal issue password", () => {
   const configuredTree = SettingsDefaultsOnboardingStep({
     onboarding: {
       headline: "필수값만 먼저 입력하세요.",
       popbillReadyLabel: "입력 필요",
-      operatorReadyLabel: "입력 필요",
+      operatorReadyLabel: "준비됨",
       popbillPrefix: { missing: false, invalid: false, hasError: false },
-      operatorName: { missing: false, invalid: false, hasError: false },
-      operatorTel: { missing: false, invalid: false, hasError: false },
-      operatorEmail: { missing: false, invalid: false, hasError: false },
       popbillSharedPassword: { missing: false, hasError: false },
       renewalIssuePassword: { missing: false, hasError: false }
     },
     hasSavedDefaults: true,
     autosaveLabel: "자동 저장",
     popbillUserIdPrefix: "TEST_",
-    operatorContactName: "담당자",
-    operatorContactTel: "01012345678",
-    operatorContactEmail: "owner@example.com",
     popbillSharedPassword: "",
     renewalIssuePassword: "",
     renewalCertificatePassword: "",
@@ -149,9 +143,6 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on operator contac
     },
     busy: false,
     onPopbillUserIdPrefixChange: noop,
-    onOperatorContactNameChange: noop,
-    onOperatorContactTelChange: noop,
-    onOperatorContactEmailChange: noop,
     onPopbillSharedPasswordChange: noop,
     onRenewalIssuePasswordChange: noop,
     onRenewalCertificatePasswordChange: noop,
@@ -165,18 +156,12 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on operator contac
       popbillReadyLabel: "입력 필요",
       operatorReadyLabel: "입력 필요",
       popbillPrefix: { missing: false, invalid: false, hasError: false },
-      operatorName: { missing: false, invalid: false, hasError: false },
-      operatorTel: { missing: false, invalid: false, hasError: false },
-      operatorEmail: { missing: false, invalid: false, hasError: false },
       popbillSharedPassword: { missing: false, hasError: false },
       renewalIssuePassword: { missing: false, hasError: false }
     },
     hasSavedDefaults: false,
     autosaveLabel: "자동 저장",
     popbillUserIdPrefix: "TEST_",
-    operatorContactName: "담당자",
-    operatorContactTel: "01012345678",
-    operatorContactEmail: "owner@example.com",
     popbillSharedPassword: "",
     renewalIssuePassword: "",
     renewalCertificatePassword: "",
@@ -190,9 +175,6 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on operator contac
     },
     busy: false,
     onPopbillUserIdPrefixChange: noop,
-    onOperatorContactNameChange: noop,
-    onOperatorContactTelChange: noop,
-    onOperatorContactEmailChange: noop,
     onPopbillSharedPasswordChange: noop,
     onRenewalIssuePasswordChange: noop,
     onRenewalCertificatePasswordChange: noop,
@@ -202,23 +184,23 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on operator contac
   });
   const configuredText = collectText(configuredTree);
   const hiddenText = collectText(hiddenTree);
-  const operatorNameInput = findElement(
+  const renewalIssuePasswordInput = findElement(
     configuredTree,
     (element) =>
       element.type === "input" &&
-      element.props["aria-describedby"] === "onboarding-operator-name-hint"
+      element.props["aria-describedby"] === "onboarding-renewal-issue-password-hint"
   );
 
-  assert.match(configuredText, /운영 이름/);
-  assert.match(configuredText, /운영 연락처/);
-  assert.match(configuredText, /운영 이메일/);
-  assert.doesNotMatch(configuredText, /발급용 임시번호/);
+  assert.match(configuredText, /발급용 임시/);
+  assert.doesNotMatch(configuredText, /운영 이름/);
+  assert.doesNotMatch(configuredText, /운영 연락처/);
+  assert.doesNotMatch(configuredText, /운영 이메일/);
   assert.doesNotMatch(configuredText, /팝빌/);
   assert.doesNotMatch(configuredText, /접두어/);
   assert.doesNotMatch(configuredText, /신규 고객 기본 비밀번호/);
   assert.doesNotMatch(configuredText, /인증서 공통 비밀번호 \(선택\)/);
   assert.doesNotMatch(configuredText, /인증서 공통 비밀번호 불러오기/);
-  assert.ok(operatorNameInput);
+  assert.ok(renewalIssuePasswordInput);
   assert.doesNotMatch(hiddenText, /저장된 값 다시 불러오기는 필요할 때만 보기/);
 });
 

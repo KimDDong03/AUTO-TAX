@@ -39,10 +39,10 @@ export function buildSettingsSectionSummary({
     {
       id: "popbill",
       step: 2,
-      title: "운영 연락처 및 발행 설정",
-      done: settingsHealth.popbillReady && settingsHealth.operatorReady,
+      title: "발행 설정",
+      done: settingsHealth.popbillReady,
       summary:
-        settingsHealth.popbillReady && settingsHealth.operatorReady
+        settingsHealth.popbillReady
           ? "준비됨"
           : "필수값 입력"
     },
@@ -83,7 +83,7 @@ export function buildSettingsSectionSummary({
   const setupPendingCount = settingsSections.filter(
     (section) => !section.done
   ).length;
-  const recommendedSettingsSection: SettingsSectionId = !(settingsHealth.popbillReady && settingsHealth.operatorReady)
+  const recommendedSettingsSection: SettingsSectionId = !settingsHealth.popbillReady
     ? "popbill"
     : !settingsHealth.mailReady
       ? "gmail"

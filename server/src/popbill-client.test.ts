@@ -42,9 +42,6 @@ function buildSettings(): AppSettings {
     popbillPartnerCorpNum: "",
     popbillUserIdPrefix: "TEST_",
     popbillSharedPassword: "",
-    operatorContactName: "발행담당자",
-    operatorContactEmail: "issue@example.com",
-    operatorContactTel: "02-1234-5678",
     renewalContactDepartment: "",
     renewalContactFax: "",
     renewalCertificatePassword: "",
@@ -126,6 +123,10 @@ async function withPopbillContactEmailEnv<T>(
 ): Promise<T> {
   const previousDedicated = process.env.AUTO_TAX_POPBILL_CONTACT_EMAIL;
   const previousOpsEmails = process.env.AUTO_TAX_OPS_EMAILS;
+  const previousContactName = process.env.AUTO_TAX_POPBILL_CONTACT_NAME;
+  const previousContactTel = process.env.AUTO_TAX_POPBILL_CONTACT_TEL;
+  process.env.AUTO_TAX_POPBILL_CONTACT_NAME = "발행담당자";
+  process.env.AUTO_TAX_POPBILL_CONTACT_TEL = "02-1234-5678";
   if (values.dedicated === null || values.dedicated === undefined) {
     delete process.env.AUTO_TAX_POPBILL_CONTACT_EMAIL;
   } else {
@@ -149,6 +150,16 @@ async function withPopbillContactEmailEnv<T>(
       delete process.env.AUTO_TAX_OPS_EMAILS;
     } else {
       process.env.AUTO_TAX_OPS_EMAILS = previousOpsEmails;
+    }
+    if (previousContactName === undefined) {
+      delete process.env.AUTO_TAX_POPBILL_CONTACT_NAME;
+    } else {
+      process.env.AUTO_TAX_POPBILL_CONTACT_NAME = previousContactName;
+    }
+    if (previousContactTel === undefined) {
+      delete process.env.AUTO_TAX_POPBILL_CONTACT_TEL;
+    } else {
+      process.env.AUTO_TAX_POPBILL_CONTACT_TEL = previousContactTel;
     }
   }
 }
@@ -181,7 +192,6 @@ test("joinMember sends Popbill member notices to the server-owned contact email"
     const joinForm = capturedJoinForm as Record<string, unknown> | null;
     assert.ok(joinForm);
     assert.equal(joinForm.ContactEmail, "popbill-notice@auto-tax.test");
-    assert.notEqual(joinForm.ContactEmail, buildSettings().operatorContactEmail);
   } finally {
     popbill.config = originalConfig;
     popbill.TaxinvoiceService = originalTaxinvoiceService;
@@ -358,10 +368,15 @@ test("issue complete message is sent as the workspace company without AUTO-TAX b
       ...buildCustomer(),
       renewalContactMobile: "010-1234-5678"
     };
-    await sendIssueCompleteMessage(settings, customer, buildDraft(), {
-      organizationName: "해성태양광",
-      receiverMobile: customer.renewalContactMobile
-    });
+    await withPopbillContactEmailEnv(
+      { dedicated: null, opsEmails: null },
+      async () => {
+        await sendIssueCompleteMessage(settings, customer, buildDraft(), {
+          organizationName: "해성태양광",
+          receiverMobile: customer.renewalContactMobile
+        });
+      }
+    );
 
     assert.ok(capturedArgs);
     assert.equal(capturedArgs[0], "1208200052");

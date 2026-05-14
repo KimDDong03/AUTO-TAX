@@ -37,9 +37,6 @@ function createSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     popbillUserIdPrefix: "TEST_",
     popbillSharedPassword: "",
     popbillSharedPasswordConfigured: false,
-    operatorContactName: "",
-    operatorContactEmail: "",
-    operatorContactTel: "",
     renewalContactDepartment: "",
     renewalContactFax: "",
     renewalCertificatePassword: "",
@@ -68,8 +65,7 @@ test("settingsToForm keeps server-managed issuing values out of the form", () =>
   const form = settingsToForm(
     createSettings({
       popbillUserIdPrefix: "TEST_",
-      popbillSharedPasswordConfigured: true,
-      operatorContactName: "담당자"
+      popbillSharedPasswordConfigured: true
     })
   );
 
@@ -116,9 +112,6 @@ test("buildMailSettingsSavePayload preserves saved defaults during connection te
   const savedSettings = createSettings({
     popbillUserIdPrefix: "HAE_",
     smtpFromName: "세금계산서봇",
-    operatorContactName: "홍길동",
-    operatorContactEmail: "owner@example.com",
-    operatorContactTel: "01012345678",
     renewalContactDepartment: "세무",
     renewalContactFax: "0212345678",
     mailSyncStartAt: "2026-04-16T00:00:00.000Z"
@@ -127,9 +120,6 @@ test("buildMailSettingsSavePayload preserves saved defaults during connection te
     ...settingsToForm(savedSettings),
     popbillUserIdPrefix: "OVERRIDE",
     popbillSharedPassword: "new-secret",
-    operatorContactName: "다른 이름",
-    operatorContactEmail: "other@example.com",
-    operatorContactTel: "01000000000",
     renewalCertificatePassword: "cert-secret",
     renewalIssuePassword: "123456"
   };
@@ -140,14 +130,12 @@ test("buildMailSettingsSavePayload preserves saved defaults during connection te
   assert.equal(payload.mailSyncStartAt, "2026-04-16T00:00:00.000Z");
   assert.equal("popbillUserIdPrefix" in payload, false);
   assert.equal("popbillSharedPassword" in payload, false);
-  assert.equal(payload.operatorContactName, "홍길동");
-  assert.equal(payload.operatorContactEmail, "owner@example.com");
   assert.equal(payload.renewalCertificatePassword, "");
   assert.equal(payload.renewalIssuePassword, "");
 });
 
 test("canAutosaveSettings validates scheduler bounds and renewal issue length", () => {
-  const baseForm = settingsToForm(createSettings({ operatorContactName: "담당자" }));
+  const baseForm = settingsToForm(createSettings());
 
   assert.equal(canAutosaveSettings(baseForm), true);
   assert.equal(

@@ -58,9 +58,6 @@ const baseSettings: AppSettings = {
   popbillPartnerCorpNum: "",
   popbillUserIdPrefix: "TEST_",
   popbillSharedPassword: "",
-  operatorContactName: "정혜원",
-  operatorContactEmail: "t7114@naver.com",
-  operatorContactTel: "031-0000-0000",
   renewalContactDepartment: "",
   renewalContactFax: "",
   renewalCertificatePassword: "",
@@ -102,10 +99,10 @@ test("buildRenewalComparisonProfile copies customer tax identity fields", () => 
 
 test("buildRenewalSubmissionProfile keeps only shared renewal essentials plus customer mobile", () => {
   assert.deepEqual(buildRenewalSubmissionProfile(baseSettings, baseCustomer), {
-    contactName: "정혜원",
+    contactName: "",
     contactDepartment: "",
-    contactEmail: "t7114@naver.com",
-    contactTel: "031-0000-0000",
+    contactEmail: "",
+    contactTel: "",
     contactFax: "",
     contactMobile: "01052836506",
     issuePassword: "123456"

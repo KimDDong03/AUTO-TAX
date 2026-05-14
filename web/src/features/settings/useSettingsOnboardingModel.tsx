@@ -13,9 +13,6 @@ type SettingsOnboardingFields = Pick<
   | "mailPassword"
   | "notificationEmailsText"
   | "popbillUserIdPrefix"
-  | "operatorContactName"
-  | "operatorContactTel"
-  | "operatorContactEmail"
   | "popbillSharedPassword"
   | "renewalIssuePassword"
   | "renewalCertificatePassword"
@@ -70,9 +67,6 @@ export function selectSettingsOnboardingState(
         mailPassword: settingsState.settingsForm.mailPassword,
         notificationEmailsText: settingsState.settingsForm.notificationEmailsText,
         popbillUserIdPrefix: settingsState.settingsForm.popbillUserIdPrefix,
-        operatorContactName: settingsState.settingsForm.operatorContactName,
-        operatorContactTel: settingsState.settingsForm.operatorContactTel,
-        operatorContactEmail: settingsState.settingsForm.operatorContactEmail,
         popbillSharedPassword: settingsState.settingsForm.popbillSharedPassword,
         renewalIssuePassword: settingsState.settingsForm.renewalIssuePassword,
         renewalCertificatePassword:
@@ -83,9 +77,6 @@ export function selectSettingsOnboardingState(
         mailPassword: "",
         notificationEmailsText: "",
         popbillUserIdPrefix: "",
-        operatorContactName: "",
-        operatorContactTel: "",
-        operatorContactEmail: "",
         popbillSharedPassword: "",
         renewalIssuePassword: "",
         renewalCertificatePassword: ""
@@ -215,9 +206,6 @@ export function useSettingsOnboardingModel({
           hasSavedDefaults={onboarding.hasSavedDefaults}
           autosaveLabel={settingsState.autosaveLabel}
           popbillUserIdPrefix={settingsState.fields.popbillUserIdPrefix}
-          operatorContactName={settingsState.fields.operatorContactName}
-          operatorContactTel={settingsState.fields.operatorContactTel}
-          operatorContactEmail={settingsState.fields.operatorContactEmail}
           popbillSharedPassword={settingsState.fields.popbillSharedPassword}
           renewalIssuePassword={settingsState.fields.renewalIssuePassword}
           renewalCertificatePassword={
@@ -241,15 +229,6 @@ export function useSettingsOnboardingModel({
           busy={busy}
           onPopbillUserIdPrefixChange={(value) =>
             setSettingsField("popbillUserIdPrefix", value)
-          }
-          onOperatorContactNameChange={(value) =>
-            setSettingsField("operatorContactName", value)
-          }
-          onOperatorContactTelChange={(value) =>
-            setSettingsField("operatorContactTel", value)
-          }
-          onOperatorContactEmailChange={(value) =>
-            setSettingsField("operatorContactEmail", value)
           }
           onPopbillSharedPasswordChange={(value) =>
             setSettingsField("popbillSharedPassword", value)

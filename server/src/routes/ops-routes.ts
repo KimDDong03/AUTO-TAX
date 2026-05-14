@@ -52,9 +52,6 @@ const signupRequestRejectSchema = z.object({
 const opsWorkspaceMailSettingsSchema = z.object({
   mailAddress: z.string().trim().email(),
   mailPassword: z.string().default(""),
-  operatorContactName: z.string().trim().default(""),
-  operatorContactEmail: z.string().trim().email().or(z.literal("")).default(""),
-  operatorContactTel: z.string().trim().default(""),
   imapMailbox: z.string().trim().default("INBOX"),
   notificationEmails: z.array(z.string().trim().email()).default([]),
   testConnection: z.boolean().default(true)
@@ -141,15 +138,12 @@ type RouteDeps = {
 };
 
 type OpsWorkspaceCreateInput = z.infer<typeof opsWorkspaceCreateSchema>;
-type InitialWorkspaceContactSettings = {
-  contactName: string;
-  contactEmail: string;
-  contactTel: string;
+type InitialWorkspaceMailSettings = {
   mailAddress?: string;
   sourceSignupRequestId?: string;
 };
 type OpsWorkspaceCreatePayload = OpsWorkspaceCreateInput & {
-  initialContactSettings?: InitialWorkspaceContactSettings;
+  initialMailSettings?: InitialWorkspaceMailSettings;
 };
 type PlatformAuthContext = ReturnType<RequirePlatformAdmin>;
 
@@ -173,14 +167,11 @@ export function registerOpsRoutes(deps: RouteDeps) {
     listAllAuthUsers
   } = deps;
 
-  const applyInitialWorkspaceContactSettings = async (
+  const applyInitialWorkspaceMailSettings = async (
     organizationId: string,
     authContext: PlatformAuthContext,
-    input: InitialWorkspaceContactSettings
+    input: InitialWorkspaceMailSettings
   ) => {
-    const contactName = input.contactName.trim();
-    const contactEmail = input.contactEmail.trim();
-    const contactTel = input.contactTel.trim();
     const mailAddress = input.mailAddress?.trim() ?? "";
     const requestStore = await createOrganizationStore({
       organizationId,
@@ -189,11 +180,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
 
     try {
       const currentSettings = await requestStore.getSettings();
-      const nextSettingsInput: Partial<AppSettings> = {
-        operatorContactName: contactName,
-        operatorContactEmail: contactEmail,
-        operatorContactTel: contactTel
-      };
+      const nextSettingsInput: Partial<AppSettings> = {};
 
       if (mailAddress) {
         const provider = inferMailProviderSettings(mailAddress);
@@ -207,7 +194,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
           smtpPort: provider.smtpPort,
           smtpSecure: provider.smtpSecure,
           smtpUser: mailAddress,
-          smtpFromName: contactName || currentSettings.smtpFromName || "AUTO-TAX",
+          smtpFromName: currentSettings.smtpFromName || "AUTO-TAX",
           smtpFromEmail: mailAddress
         });
       }
@@ -219,7 +206,6 @@ export function registerOpsRoutes(deps: RouteDeps) {
         "회원가입 신청 정보로 작업공간 한전 수신메일 설정을 채웠습니다.",
         {
           sourceSignupRequestId: input.sourceSignupRequestId ?? null,
-          contactEmail,
           mailAddress: mailAddress || null
         }
       );
@@ -358,11 +344,11 @@ export function registerOpsRoutes(deps: RouteDeps) {
         }
       }
 
-      if (payload.initialContactSettings) {
-        await applyInitialWorkspaceContactSettings(
+      if (payload.initialMailSettings) {
+        await applyInitialWorkspaceMailSettings(
           createdOrganizationId,
           authContext,
-          payload.initialContactSettings
+          payload.initialMailSettings
         );
       }
 
@@ -420,10 +406,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
       ownerPassword: "",
       planCode: "free_trial",
       status: "trial",
-      initialContactSettings: {
-        contactName: "",
-        contactEmail: "",
-        contactTel: "",
+      initialMailSettings: {
         mailAddress: signupRequest.kepcoEmail,
         sourceSignupRequestId: signupRequest.id
       }
@@ -561,12 +544,9 @@ export function registerOpsRoutes(deps: RouteDeps) {
         smtpSecure: provider.smtpSecure,
         smtpUser: payload.mailAddress,
         smtpPass: nextPassword,
-        smtpFromName: payload.operatorContactName || currentSettings.smtpFromName || "AUTO-TAX",
+        smtpFromName: currentSettings.smtpFromName || "AUTO-TAX",
         smtpFromEmail: payload.mailAddress,
-        notificationEmails: payload.notificationEmails,
-        operatorContactName: payload.operatorContactName,
-        operatorContactEmail: payload.operatorContactEmail,
-        operatorContactTel: payload.operatorContactTel
+        notificationEmails: payload.notificationEmails
       };
 
       let settings = await requestStore.updateSettings(nextSettingsInput);
@@ -603,7 +583,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
         }
       }
 
-      await requestStore.createLog("info", "ops", "플랫폼 관리자가 작업공간 메일/운영 연락처 설정을 저장했습니다.", {
+      await requestStore.createLog("info", "ops", "플랫폼 관리자가 작업공간 메일 설정을 저장했습니다.", {
         mailAddress: payload.mailAddress,
         testConnection: payload.testConnection,
         testSucceeded: mailTestResult ? Boolean(mailTestResult.imapOk && mailTestResult.smtpOk) : null

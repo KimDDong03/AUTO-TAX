@@ -383,9 +383,6 @@ function createTestSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     popbillPartnerCorpNum: "",
     popbillUserIdPrefix: "",
     popbillSharedPassword: "",
-    operatorContactName: "",
-    operatorContactEmail: "",
-    operatorContactTel: "",
     renewalContactDepartment: "",
     renewalContactFax: "",
     renewalCertificatePassword: "",
@@ -820,9 +817,6 @@ test("signup creates a pending auth user, blocks login until approval, then crea
     assert.ok(organizationId);
     const seededSettings = fixture.state.settingsByOrganization.get(organizationId);
     assert.ok(seededSettings);
-    assert.equal(seededSettings.operatorContactName, "");
-    assert.equal(seededSettings.operatorContactTel, "");
-    assert.equal(seededSettings.operatorContactEmail, "");
     assert.equal(seededSettings.imapUser, validSignupPayload.kepcoEmail);
     assert.equal(seededSettings.smtpUser, validSignupPayload.kepcoEmail);
     assert.equal(seededSettings.smtpFromEmail, validSignupPayload.kepcoEmail);

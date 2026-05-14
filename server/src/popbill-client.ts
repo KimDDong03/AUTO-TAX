@@ -62,7 +62,32 @@ function envString(name: string): string | undefined {
   return value ? value : undefined;
 }
 
-function resolvePopbillNoticeContactEmail(settings: AppSettings): string {
+function resolvePopbillNoticeContactName(): string {
+  return envString("AUTO_TAX_POPBILL_CONTACT_NAME") ?? "AUTO-TAX";
+}
+
+function resolvePopbillNoticeContactTel(): string {
+  return (
+    envString("AUTO_TAX_POPBILL_CONTACT_TEL") ??
+    envString("SOLAPI_SENDER_NUMBER") ??
+    ""
+  );
+}
+
+function resolveIssueMessageSenderNumber(): string {
+  return (
+    envString("AUTO_TAX_ISSUE_MESSAGE_SENDER_NUMBER") ??
+    envString("AUTO_TAX_POPBILL_CONTACT_TEL") ??
+    envString("SOLAPI_SENDER_NUMBER") ??
+    ""
+  );
+}
+
+function resolveIssueMessageSenderName(input: IssueCompleteMessageInput): string {
+  return envString("AUTO_TAX_ISSUE_MESSAGE_SENDER_NAME") ?? input.organizationName.trim() ?? "";
+}
+
+function resolvePopbillNoticeContactEmail(): string {
   const explicitContactEmail = envString("AUTO_TAX_POPBILL_CONTACT_EMAIL");
   if (explicitContactEmail) {
     return explicitContactEmail;
@@ -72,7 +97,7 @@ function resolvePopbillNoticeContactEmail(settings: AppSettings): string {
     ?.split(",")
     .map((item) => item.trim())
     .find(Boolean);
-  return opsEmail ?? settings.operatorContactEmail;
+  return opsEmail ?? "";
 }
 
 function matchesAny(source: string, patterns: string[]): boolean {
@@ -260,25 +285,25 @@ function assertCustomerPopbillIdentity(customer: Customer): void {
   }
 }
 
-function assertOperatorContact(settings: AppSettings): void {
-  if (!settings.operatorContactName || !resolvePopbillNoticeContactEmail(settings) || !settings.operatorContactTel) {
-    throw new Error("시스템설정의 운영 이름, 이메일, 연락처를 먼저 입력하세요.");
+function assertPopbillContact(): void {
+  if (!resolvePopbillNoticeContactName() || !resolvePopbillNoticeContactEmail() || !resolvePopbillNoticeContactTel()) {
+    throw new Error("서버 Popbill 연락처 환경값을 먼저 설정하세요.");
   }
 }
 
 async function updatePopbillMemberContact(settings: AppSettings, customer: Customer): Promise<unknown> {
   assertCustomerPopbillIdentity(customer);
-  assertOperatorContact(settings);
+  assertPopbillContact();
   const service = getService(settings);
   return await promisify("contact-update", (done) => {
     service.updateContact(
       digitsOnly(customer.businessNumber),
       customer.popbillUserId,
       {
-        personName: settings.operatorContactName,
-        tel: settings.operatorContactTel,
+        personName: resolvePopbillNoticeContactName(),
+        tel: resolvePopbillNoticeContactTel(),
         hp: "",
-        email: resolvePopbillNoticeContactEmail(settings),
+        email: resolvePopbillNoticeContactEmail(),
         fax: "",
         searchAllAllowYN: true,
         mgrYN: true
@@ -324,7 +349,7 @@ function normalizeCertificateExpireDate(value: string): string {
 
 export async function joinMember(settings: AppSettings, customer: Customer): Promise<unknown> {
   assertCustomerPopbillIdentity(customer);
-  assertOperatorContact(settings);
+  assertPopbillContact();
   if (!customer.popbillPassword) {
     throw new Error("고객 발행 연동 비밀번호가 없습니다. 서버 발행 연동 운영값을 확인한 뒤 고객을 다시 저장하세요.");
   }
@@ -339,9 +364,9 @@ export async function joinMember(settings: AppSettings, customer: Customer): Pro
         Addr: customer.addr,
         BizType: customer.bizType,
         BizClass: customer.bizClass,
-        ContactName: settings.operatorContactName,
-        ContactEmail: resolvePopbillNoticeContactEmail(settings),
-        ContactTEL: settings.operatorContactTel,
+        ContactName: resolvePopbillNoticeContactName(),
+        ContactEmail: resolvePopbillNoticeContactEmail(),
+        ContactTEL: resolvePopbillNoticeContactTel(),
         ID: customer.popbillUserId,
         PWD: customer.popbillPassword
       },
@@ -651,7 +676,7 @@ export async function sendIssueCompleteMessage(
     throw new Error("수신 가능한 고객 휴대폰 번호가 없습니다.");
   }
 
-  const sender = digitsOnly(settings.operatorContactTel);
+  const sender = digitsOnly(resolveIssueMessageSenderNumber());
   if (!sender) {
     throw new Error("문자 발신번호가 설정되지 않았습니다.");
   }
@@ -673,7 +698,7 @@ export async function sendIssueCompleteMessage(
       content,
       "",
       false,
-      settings.operatorContactName || "",
+      resolveIssueMessageSenderName(input),
       `issue-${draft.id}`,
       customer.popbillUserId || "",
       (response: unknown) => done({ response }),

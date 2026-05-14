@@ -40,9 +40,6 @@ function createSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     popbillPartnerCorpNum: "",
     popbillUserIdPrefix: "",
     popbillSharedPassword: "",
-    operatorContactName: "",
-    operatorContactEmail: "",
-    operatorContactTel: "",
     renewalContactDepartment: "",
     renewalContactFax: "",
     renewalCertificatePassword: "",
@@ -286,9 +283,6 @@ test("bootstrap redacts stored onboarding passwords while keeping configured fla
   const settings = createSettings({
     popbillUserIdPrefix: "AUTO_",
     popbillSharedPassword: "shared-secret",
-    operatorContactName: "홍길동",
-    operatorContactEmail: "owner@example.com",
-    operatorContactTel: "010-1234-5678",
     renewalCertificatePassword: "cert-secret",
     renewalIssuePassword: "123456"
   });

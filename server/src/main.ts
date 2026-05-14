@@ -113,9 +113,6 @@ type ClientAppSettings = Pick<
   | "popbillIsTest"
   | "popbillUserIdPrefix"
   | "popbillSharedPassword"
-  | "operatorContactName"
-  | "operatorContactEmail"
-  | "operatorContactTel"
   | "renewalContactDepartment"
   | "renewalContactFax"
   | "renewalCertificatePassword"
@@ -459,9 +456,6 @@ export function toClientSettings(settings: AppSettings): ClientAppSettings {
     popbillIsTest: runtimeSettings.popbillIsTest,
     popbillUserIdPrefix: "",
     popbillSharedPassword: "",
-    operatorContactName: settings.operatorContactName,
-    operatorContactEmail: settings.operatorContactEmail,
-    operatorContactTel: settings.operatorContactTel,
     renewalContactDepartment: settings.renewalContactDepartment,
     renewalContactFax: settings.renewalContactFax,
     renewalCertificatePassword: "",
@@ -476,13 +470,7 @@ export function toClientSettings(settings: AppSettings): ClientAppSettings {
     popbillSharedPasswordConfigured,
     renewalCertificatePasswordConfigured,
     renewalIssuePasswordConfigured,
-    operatorConfigured: Boolean(
-      runtimeSettings.popbillUserIdPrefix &&
-      popbillSharedPasswordConfigured &&
-      settings.operatorContactName &&
-      settings.operatorContactEmail &&
-      settings.operatorContactTel
-    )
+    operatorConfigured: true
   };
 }
 
@@ -524,9 +512,6 @@ function createEmptySettings(): AppSettings {
     popbillPartnerCorpNum: "",
     popbillUserIdPrefix: "TEST_",
     popbillSharedPassword: "",
-    operatorContactName: "",
-    operatorContactEmail: "",
-    operatorContactTel: "",
     renewalContactDepartment: "",
     renewalContactFax: "",
     renewalCertificatePassword: "",

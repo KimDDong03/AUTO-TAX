@@ -139,7 +139,6 @@ Important fields:
 - `popbill_is_test`
 - `popbill_user_id_prefix`
 - `popbill_shared_password_encrypted`
-- `operator_contact_*`
 - `renewal_contact_department`
 - `renewal_contact_fax`
 - `renewal_issue_password_encrypted`

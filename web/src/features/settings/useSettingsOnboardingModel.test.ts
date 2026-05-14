@@ -27,9 +27,6 @@ test("selectSettingsOnboardingState falls back to empty onboarding fields before
     mailPassword: "",
     notificationEmailsText: "",
     popbillUserIdPrefix: "",
-    operatorContactName: "",
-    operatorContactTel: "",
-    operatorContactEmail: "",
     popbillSharedPassword: "",
     renewalIssuePassword: "",
     renewalCertificatePassword: ""

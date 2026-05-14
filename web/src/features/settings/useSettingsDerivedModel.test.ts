@@ -15,9 +15,6 @@ function createSettingsOnboardingFields(
     mailAddress: "",
     mailPassword: "",
     popbillUserIdPrefix: "",
-    operatorContactName: "",
-    operatorContactEmail: "",
-    operatorContactTel: "",
     popbillSharedPassword: "",
     renewalIssuePassword: "",
     ...overrides
@@ -59,10 +56,7 @@ test("buildSettingsOnboardingModel keeps mail/default validation and blocked ste
   const onboarding = buildSettingsOnboardingModel({
     fields: createSettingsOnboardingFields({
       mailAddress: "bad-email",
-      popbillUserIdPrefix: "",
-      operatorContactName: "",
-      operatorContactTel: "",
-      operatorContactEmail: "still-bad"
+      popbillUserIdPrefix: ""
     }),
     settingsHealth: incompleteHealth,
     configured: {
@@ -95,11 +89,6 @@ test("buildSettingsOnboardingModel keeps mail/default validation and blocked ste
     missing: true,
     hasError: true
   });
-  assert.deepEqual(onboarding.defaults.operatorEmail, {
-    missing: false,
-    invalid: true,
-    hasError: true
-  });
   assert.deepEqual(onboarding.firstSyncBlockedSteps, [
     "운영팀 메일 설정",
     "로컬 헬퍼 준비",
@@ -112,10 +101,7 @@ test("buildSettingsOnboardingModel preserves helper upgrade summary and saved de
   const onboarding = buildSettingsOnboardingModel({
     fields: createSettingsOnboardingFields({
       mailAddress: "ops@example.com",
-      popbillUserIdPrefix: "TEST_",
-      operatorContactName: "담당자",
-      operatorContactTel: "01012345678",
-      operatorContactEmail: "owner@example.com"
+      popbillUserIdPrefix: "TEST_"
     }),
     settingsHealth: {
       mailReady: true,
@@ -142,7 +128,7 @@ test("buildSettingsOnboardingModel preserves helper upgrade summary and saved de
     }
   });
 
-  assert.equal(onboarding.defaults.headline, "운영 연락처 입력 완료");
+  assert.equal(onboarding.defaults.headline, "발행 설정 저장 완료");
   assert.equal(onboarding.helperStatusLine, "업데이트 후 다시 확인해 두세요.");
   assert.equal(onboarding.hasSavedDefaults, true);
   assert.deepEqual(onboarding.firstSyncBlockedSteps, ["로컬 헬퍼 준비"]);

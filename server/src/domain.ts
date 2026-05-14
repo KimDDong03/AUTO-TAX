@@ -37,9 +37,6 @@ export interface AppSettings {
   popbillPartnerCorpNum: string;
   popbillUserIdPrefix: string;
   popbillSharedPassword: string;
-  operatorContactName: string;
-  operatorContactEmail: string;
-  operatorContactTel: string;
   renewalContactDepartment: string;
   renewalContactFax: string;
   renewalCertificatePassword: string;

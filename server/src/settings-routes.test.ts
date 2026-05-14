@@ -37,9 +37,6 @@ function createSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     popbillPartnerCorpNum: "",
     popbillUserIdPrefix: "",
     popbillSharedPassword: "",
-    operatorContactName: "",
-    operatorContactEmail: "",
-    operatorContactTel: "",
     renewalContactDepartment: "",
     renewalContactFax: "",
     renewalCertificatePassword: "",
@@ -159,9 +156,6 @@ test("settings route uses server env for issuing readiness while redacting hidde
   const settings = createSettings({
     popbillUserIdPrefix: "",
     popbillSharedPassword: "",
-    operatorContactName: "홍길동",
-    operatorContactEmail: "owner@example.com",
-    operatorContactTel: "010-1234-5678",
     renewalCertificatePassword: "cert-secret",
     renewalIssuePassword: "123456"
   });

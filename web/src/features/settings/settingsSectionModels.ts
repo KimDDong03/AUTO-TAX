@@ -77,9 +77,6 @@ export type SettingsDefaultsSectionModel = {
   settingsHealth: Pick<SettingsHealth, "popbillReady" | "operatorReady">;
   fields: {
     popbillUserIdPrefix: string;
-    operatorContactName: string;
-    operatorContactTel: string;
-    operatorContactEmail: string;
     popbillSharedPassword: string;
     renewalIssuePassword: string;
   };
@@ -93,9 +90,6 @@ export type SettingsDefaultsSectionModel = {
     | "renewalIssuePassword"
   >;
   onPopbillUserIdPrefixChange: (value: string) => void;
-  onOperatorContactNameChange: (value: string) => void;
-  onOperatorContactTelChange: (value: string) => void;
-  onOperatorContactEmailChange: (value: string) => void;
   onPopbillSharedPasswordChange: (value: string) => void;
   onRenewalIssuePasswordChange: (value: string) => void;
   onLoadCurrentPopbillSharedPassword: () => Promise<void>;

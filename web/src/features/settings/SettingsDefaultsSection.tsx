@@ -67,52 +67,18 @@ export function SettingsDefaultsSection({
     <SetupPanel
       step={2}
       className="panel-settings-popbill"
-      title="운영 연락처 및 발행 설정"
+      title="발행 설정"
       done={model.done}
       note="신규 고객 기본 발행값을 확인합니다."
     >
       <div className="settings-field-stack">
         <section className="settings-field-group">
           <div className="settings-field-group-head">
-            <strong>필수 공통값</strong>
-            <span>운영 연락처와 인증서 발급용 값을 관리합니다.</span>
+            <strong>공동인증서 발급용 임시번호</strong>
+            <span>공동인증서 발급/갱신 요청에 쓰는 값을 관리합니다.</span>
           </div>
           <div className="settings-defaults-grid">
-            <label className="settings-defaults-cell">
-              운영 이름
-              <input
-                value={model.fields.operatorContactName}
-                onChange={(event) =>
-                  model.onOperatorContactNameChange(event.target.value)
-                }
-                placeholder="운영 이름"
-              />
-            </label>
-
-            <label className="settings-defaults-cell">
-              운영 연락처
-              <input
-                value={model.fields.operatorContactTel}
-                onChange={(event) =>
-                  model.onOperatorContactTelChange(event.target.value)
-                }
-                placeholder="01012345678"
-              />
-            </label>
-
-            <label className="settings-defaults-cell">
-              운영 이메일
-              <input
-                type="email"
-                value={model.fields.operatorContactEmail}
-                onChange={(event) =>
-                  model.onOperatorContactEmailChange(event.target.value)
-                }
-                placeholder="operator@example.com"
-              />
-            </label>
-
-            <label className="settings-defaults-cell">
+            <label className="settings-defaults-cell settings-defaults-cell-span-2">
               공동인증서 발급용 임시 비밀번호
               <div className="password-field">
                 <input
@@ -170,14 +136,6 @@ export function SettingsDefaultsSection({
                 ) : null}
               </div>
             </label>
-
-            <div className="settings-defaults-status">
-              <strong>입력 상태</strong>
-              <span>
-                작업공간 운영값:{" "}
-                {model.settingsHealth.operatorReady ? "준비됨" : "설정 필요"}
-              </span>
-            </div>
           </div>
         </section>
 

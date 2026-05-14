@@ -53,9 +53,6 @@ export type SettingsOnboardingModel = {
     popbillReadyLabel: string;
     operatorReadyLabel: string;
     popbillPrefix: SettingsOnboardingFieldState;
-    operatorName: SettingsOnboardingFieldState;
-    operatorTel: SettingsOnboardingFieldState;
-    operatorEmail: SettingsOnboardingFieldState;
     popbillSharedPassword: {
       missing: boolean;
       hasError: boolean;
@@ -72,9 +69,6 @@ export type SettingsOnboardingFields = Pick<
   | "mailAddress"
   | "mailPassword"
   | "popbillUserIdPrefix"
-  | "operatorContactName"
-  | "operatorContactTel"
-  | "operatorContactEmail"
   | "popbillSharedPassword"
   | "renewalIssuePassword"
 >;
@@ -120,7 +114,7 @@ export function getSettingsSectionLabel(section: SettingsSectionId): string {
     case "gmail":
       return "메일 연결하기";
     case "popbill":
-      return "운영 연락처 및 발행 설정";
+      return "발행 설정";
     case "helper":
       return "로컬 헬퍼";
     case "account":
@@ -149,8 +143,8 @@ export function buildSettingsActionBarModel({
       },
       {
         label: "발행",
-        value: settingsHealth.popbillReady && settingsHealth.operatorReady ? "준비됨" : "입력 필요",
-        tone: settingsHealth.popbillReady && settingsHealth.operatorReady ? "success" : "warn"
+        value: settingsHealth.popbillReady ? "준비됨" : "입력 필요",
+        tone: settingsHealth.popbillReady ? "success" : "warn"
       },
       {
         label: "인증서",
@@ -183,12 +177,6 @@ export function buildSettingsOnboardingModel({
     !onboardingMailAddressMissing && !isLikelyEmailAddress(fields.mailAddress);
   const onboardingMailPasswordMissing =
     fields.mailPassword.trim() === "" && !configured.mailPasswordConfigured;
-  const onboardingOperatorNameMissing = fields.operatorContactName.trim() === "";
-  const onboardingOperatorTelMissing = fields.operatorContactTel.trim() === "";
-  const onboardingOperatorEmailMissing = fields.operatorContactEmail.trim() === "";
-  const onboardingOperatorEmailInvalid =
-    !onboardingOperatorEmailMissing &&
-    !isLikelyEmailAddress(fields.operatorContactEmail);
   const onboardingRenewalIssuePasswordMissing =
     normalizeRenewalIssuePasswordInput(fields.renewalIssuePassword).length === 0 &&
     !configured.renewalIssuePasswordConfigured;
@@ -228,30 +216,15 @@ export function buildSettingsOnboardingModel({
     },
     defaults: {
       headline:
-        settingsHealth.popbillReady && settingsHealth.operatorReady
-          ? "운영 연락처 입력 완료"
-          : "운영 연락처를 먼저 입력하세요.",
+        configured.renewalIssuePasswordConfigured
+          ? "발행 설정 저장 완료"
+          : "공동인증서 발급용 임시번호를 입력하세요.",
       popbillReadyLabel: settingsHealth.popbillReady ? "준비됨" : "입력 필요",
-      operatorReadyLabel: settingsHealth.operatorReady ? "준비됨" : "입력 필요",
+      operatorReadyLabel: configured.renewalIssuePasswordConfigured ? "준비됨" : "입력 필요",
       popbillPrefix: {
         missing: false,
         invalid: false,
         hasError: false
-      },
-      operatorName: {
-        missing: onboardingOperatorNameMissing,
-        invalid: false,
-        hasError: onboardingOperatorNameMissing
-      },
-      operatorTel: {
-        missing: onboardingOperatorTelMissing,
-        invalid: false,
-        hasError: onboardingOperatorTelMissing
-      },
-      operatorEmail: {
-        missing: onboardingOperatorEmailMissing,
-        invalid: onboardingOperatorEmailInvalid,
-        hasError: onboardingOperatorEmailMissing || onboardingOperatorEmailInvalid
       },
       popbillSharedPassword: {
         missing: false,

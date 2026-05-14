@@ -692,9 +692,6 @@ type OpsWorkspaceMailSettingsTarget = {
 type OpsWorkspaceMailSettingsFormState = {
   mailAddress: string;
   mailPassword: string;
-  operatorContactName: string;
-  operatorContactTel: string;
-  operatorContactEmail: string;
   testConnection: boolean;
 };
 
@@ -977,9 +974,6 @@ function createQuickRegisterForm(message?: BootstrapPayload["inbox"][number] | n
 const baseOpsWorkspaceMailSettingsForm: OpsWorkspaceMailSettingsFormState = {
   mailAddress: "",
   mailPassword: "",
-  operatorContactName: "",
-  operatorContactTel: "",
-  operatorContactEmail: "",
   testConnection: true
 };
 
@@ -2730,9 +2724,6 @@ export function App() {
         mailAddress: settingsForm?.mailAddress ?? "",
         mailPassword: settingsForm?.mailPassword ?? "",
         popbillUserIdPrefix: settingsForm?.popbillUserIdPrefix ?? "",
-        operatorContactName: settingsForm?.operatorContactName ?? "",
-        operatorContactTel: settingsForm?.operatorContactTel ?? "",
-        operatorContactEmail: settingsForm?.operatorContactEmail ?? "",
         popbillSharedPassword: settingsForm?.popbillSharedPassword ?? "",
         renewalIssuePassword: settingsForm?.renewalIssuePassword ?? ""
       },
@@ -4204,10 +4195,7 @@ export function App() {
       organizationId: workspace.organizationId,
       organizationName: workspace.organizationName
     });
-    setOpsWorkspaceMailSettingsForm((prev) => ({
-      ...baseOpsWorkspaceMailSettingsForm,
-      operatorContactName: workspace.ownerDisplayName ?? prev.operatorContactName
-    }));
+    setOpsWorkspaceMailSettingsForm(baseOpsWorkspaceMailSettingsForm);
   };
 
   const cancelOpsWorkspaceMailSettings = () => {
@@ -4221,18 +4209,8 @@ export function App() {
     }
 
     const mailAddress = opsWorkspaceMailSettingsForm.mailAddress.trim();
-    const operatorContactEmail = opsWorkspaceMailSettingsForm.operatorContactEmail.trim();
     if (!mailAddress) {
       throw new Error("메일 주소를 입력하세요.");
-    }
-    if (!opsWorkspaceMailSettingsForm.operatorContactName.trim()) {
-      throw new Error("운영 이름을 입력하세요.");
-    }
-    if (!opsWorkspaceMailSettingsForm.operatorContactTel.trim()) {
-      throw new Error("운영 연락처를 입력하세요.");
-    }
-    if (!operatorContactEmail) {
-      throw new Error("운영 이메일을 입력하세요.");
     }
 
     const result = await api<{
@@ -4248,9 +4226,6 @@ export function App() {
       body: JSON.stringify({
         mailAddress,
         mailPassword: opsWorkspaceMailSettingsForm.mailPassword,
-        operatorContactName: opsWorkspaceMailSettingsForm.operatorContactName.trim(),
-        operatorContactTel: opsWorkspaceMailSettingsForm.operatorContactTel.trim(),
-        operatorContactEmail,
         notificationEmails: [],
         testConnection: opsWorkspaceMailSettingsForm.testConnection
       })
@@ -4261,7 +4236,7 @@ export function App() {
       : "\n연결 테스트는 실행하지 않았습니다.";
 
     await showAppAlert(
-      `${opsWorkspaceMailSettingsTarget.organizationName} 작업공간의 메일/운영 연락처 설정을 저장했습니다.${mailTestSummary}`,
+      `${opsWorkspaceMailSettingsTarget.organizationName} 작업공간의 메일 설정을 저장했습니다.${mailTestSummary}`,
       {
         title: "작업공간 메일 설정",
         tone: result.mailTest && (!result.mailTest.imapOk || !result.mailTest.smtpOk) ? "warn" : "success"
@@ -4888,10 +4863,10 @@ export function App() {
   const buildCustomerRenewalSubmissionProfile = async (customer: Customer) => {
     const issuePassword = await resolveCustomerRenewalIssuePassword({ promptIfMissing: true });
     return {
-      contactName: settingsForm?.operatorContactName?.trim() ?? data?.settings.operatorContactName?.trim() ?? "",
+      contactName: "",
       contactDepartment: "",
-      contactEmail: settingsForm?.operatorContactEmail?.trim() ?? data?.settings.operatorContactEmail?.trim() ?? "",
-      contactTel: settingsForm?.operatorContactTel?.trim() ?? data?.settings.operatorContactTel?.trim() ?? "",
+      contactEmail: "",
+      contactTel: "",
       contactFax: "",
       contactMobile: customer.renewalContactMobile.trim(),
       issuePassword
@@ -7945,7 +7920,7 @@ export function App() {
 
                     return (
                       <div id="ops-mail-settings" className="helper-box-stack inline-password-reset ops-mail-settings-panel">
-                        <strong>{workspace.organizationName} 메일/운영 연락처 설정</strong>
+                        <strong>{workspace.organizationName} 메일 설정</strong>
                         <span className="field-hint">메일 앱 비밀번호는 저장 후 다시 표시하지 않습니다. 비워두면 기존 저장값을 유지합니다.</span>
                         <div className="form-grid">
                           <label>
@@ -7984,46 +7959,6 @@ export function App() {
                                 <RevealIcon open={Boolean(revealedFields.opsMailPassword)} />
                               </button>
                             </div>
-                          </label>
-                          <label>
-                            운영 이름
-                            <input
-                              value={opsWorkspaceMailSettingsForm.operatorContactName}
-                              onChange={(event) =>
-                                setOpsWorkspaceMailSettingsForm((prev) => ({
-                                  ...prev,
-                                  operatorContactName: event.target.value
-                                }))
-                              }
-                              placeholder="운영 이름"
-                            />
-                          </label>
-                          <label>
-                            운영 연락처
-                            <input
-                              value={opsWorkspaceMailSettingsForm.operatorContactTel}
-                              onChange={(event) =>
-                                setOpsWorkspaceMailSettingsForm((prev) => ({
-                                  ...prev,
-                                  operatorContactTel: event.target.value
-                                }))
-                              }
-                              placeholder="01012345678"
-                            />
-                          </label>
-                          <label className="full">
-                            운영 이메일
-                            <input
-                              type="email"
-                              value={opsWorkspaceMailSettingsForm.operatorContactEmail}
-                              onChange={(event) =>
-                                setOpsWorkspaceMailSettingsForm((prev) => ({
-                                  ...prev,
-                                  operatorContactEmail: event.target.value
-                                }))
-                              }
-                              placeholder="operator@example.com"
-                            />
                           </label>
                           <CheckboxControl
                             containerClassName="checkbox-row full"
