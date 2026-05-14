@@ -1,8 +1,9 @@
 export const DEFAULT_SUPABASE_AUTH_TIMEOUT_MS = 5000;
+export const USER_FACING_AUTH_TIMEOUT_MESSAGE = "로그인 확인이 지연되고 있습니다. 잠시 후 다시 시도해주세요.";
 
 export class SupabaseAuthTimeoutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`Supabase 인증 응답이 ${timeoutMs}ms 안에 완료되지 않았습니다.`);
+  constructor(_timeoutMs: number) {
+    super(USER_FACING_AUTH_TIMEOUT_MESSAGE);
     this.name = "SupabaseAuthTimeoutError";
   }
 }

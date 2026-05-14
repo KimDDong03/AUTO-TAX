@@ -25,6 +25,10 @@ test("withSupabaseAuthTimeout resolves completed operations", async () => {
 test("withSupabaseAuthTimeout rejects stalled operations", async () => {
   await assert.rejects(
     () => withSupabaseAuthTimeout(new Promise<string>(() => undefined), 10),
-    SupabaseAuthTimeoutError
+    (error) => {
+      assert.ok(error instanceof SupabaseAuthTimeoutError);
+      assert.equal(error.message, "로그인 확인이 지연되고 있습니다. 잠시 후 다시 시도해주세요.");
+      return true;
+    }
   );
 });

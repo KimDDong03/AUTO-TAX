@@ -289,7 +289,7 @@ test("quitMember updates the Popbill contact email before member withdrawal", as
   }
 });
 
-test("issueTaxInvoice uses billing settings operator contact instead of customer name", async () => {
+test("issueTaxInvoice leaves optional supplier contact fields blank", async () => {
   const popbill = require("popbill") as {
     config: (...args: unknown[]) => unknown;
     TaxinvoiceService: () => unknown;
@@ -314,9 +314,9 @@ test("issueTaxInvoice uses billing settings operator contact instead of customer
     assert.ok(capturedTaxinvoice);
     const taxinvoice = capturedTaxinvoice as Record<string, unknown>;
 
-    assert.equal(taxinvoice.invoicerContactName, settings.operatorContactName);
-    assert.equal(taxinvoice.invoicerTEL, settings.operatorContactTel);
-    assert.equal(taxinvoice.invoicerEmail, settings.operatorContactEmail);
+    assert.equal(taxinvoice.invoicerContactName, "");
+    assert.equal(taxinvoice.invoicerTEL, "");
+    assert.equal(taxinvoice.invoicerEmail, "");
     assert.notEqual(taxinvoice.invoicerContactName, customer.customerName);
   } finally {
     popbill.config = originalConfig;
