@@ -57,7 +57,7 @@ function createModel(
           step: 1,
           title: "도입 준비",
           done: false,
-          summary: "2/6 완료 · 남음 4"
+          summary: "2/4 완료 · 남음 2"
         },
         {
           id: "popbill",
@@ -103,8 +103,8 @@ function createModel(
     sections: {
       onboarding: {
         complete: false,
-        progressText: "2/6 완료 · 남음 4",
-        pendingStepCount: 4,
+        progressText: "2/4 완료 · 남음 2",
+        pendingStepCount: 2,
         content: <div>도입 준비 본문</div>
       },
       mail: {

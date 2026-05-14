@@ -5905,11 +5905,6 @@ export function App() {
   const settingsActionBar = settingsDerivedModel.actionBar;
   const settingsOnboardingModel = settingsDerivedModel.onboarding;
   const onboardingFirstSyncReady = data.inbox.length > 0 || data.drafts.length > 0;
-  const exceptionHandlingReady = onboardingFirstSyncReady && exceptionMessages.length === 0;
-  const firstIssueCheckReady =
-    onboardingFirstSyncReady &&
-    exceptionMessages.length === 0 &&
-    (issuedDrafts.length > 0 || reviewDrafts.length === 0);
   const openSettingsSection = (section: SettingsSectionId = settingsActionBar.primarySection) => {
     setActiveSettingsSection(section);
     setActiveTab("settings");
@@ -6526,80 +6521,6 @@ export function App() {
       </details>
     </div>
   );
-  const onboardingMatchingResultContent = (
-    <div className="onboarding-step-body">
-      <section className="onboarding-main-card">
-        <div className="onboarding-main-copy onboarding-task-copy">
-          <strong>
-            {!onboardingFirstSyncReady
-              ? "첫 메일 동기화 필요"
-              : exceptionMessages.length > 0
-                ? "미매칭 메일 확인 필요"
-                : "자동 매칭 확인 완료"}
-          </strong>
-        </div>
-
-        <div className="onboarding-inline-status">
-          <div>
-            <span>초안 생성</span>
-            <strong>{reviewDrafts.length}건</strong>
-          </div>
-          <div>
-            <span>미매칭 메일</span>
-            <strong>{exceptionMessages.length}건</strong>
-          </div>
-        </div>
-
-        {onboardingFirstSyncReady && exceptionMessages.length > 0 ? (
-          <div className="button-row onboarding-primary-row">
-            <button type="button" onClick={openUnmatchedIssuanceMessages}>
-              세금계산서 발행 &gt; 미매칭 메일로 이동
-            </button>
-          </div>
-        ) : null}
-      </section>
-    </div>
-  );
-  const onboardingFirstIssueCheckContent = (
-    <div className="onboarding-step-body">
-      <section className="onboarding-main-card">
-        <div className="onboarding-main-copy onboarding-task-copy">
-          <strong>
-            {!onboardingFirstSyncReady
-              ? "첫 메일 동기화 필요"
-              : exceptionMessages.length > 0
-                ? "예외 메일 처리 필요"
-                : reviewDrafts.length > 0
-                  ? "초안 검토"
-                  : issuedDrafts.length > 0
-                    ? "첫 발행 확인 완료"
-                    : "현재 발행 대상 메일은 없습니다."}
-          </strong>
-        </div>
-
-        <div className="onboarding-inline-status">
-          <div>
-            <span>검토할 초안</span>
-            <strong>{reviewDrafts.length}건</strong>
-          </div>
-          <div>
-            <span>발행 완료</span>
-            <strong>{issuedDrafts.length}건</strong>
-          </div>
-          <div>
-            <span>예외 메일</span>
-            <strong>{exceptionMessages.length}건</strong>
-          </div>
-        </div>
-
-        <div className="button-row onboarding-primary-row">
-          <button type="button" onClick={() => setActiveTab("home")}>
-            오늘 작업 열기
-          </button>
-        </div>
-      </section>
-    </div>
-  );
   const onboardingSteps: OnboardingStep[] = [
     {
       id: "helper",
@@ -6719,45 +6640,6 @@ export function App() {
       blockedReason: canRunOnboardingFirstSync ? undefined : `먼저 ${onboardingFirstSyncBlockedSteps.join(" → ")} 단계를 끝내세요.`,
       done: onboardingFirstSyncReady,
       content: onboardingFirstSyncContent
-    },
-    {
-      id: "exceptions",
-      step: 5,
-      title: "자동 매칭 결과 확인",
-      summary: !onboardingFirstSyncReady
-        ? "첫 동기화 후 확인"
-        : exceptionMessages.length > 0
-          ? `미매칭 메일 ${exceptionMessages.length}건`
-          : `초안 ${reviewDrafts.length}건 · 미매칭 0건`,
-      primaryActionLabel: !onboardingFirstSyncReady ? "첫 메일 동기화 후 결과 확인" : exceptionMessages.length > 0 ? "미매칭 메일로 이동" : "자동 매칭 확인 완료",
-      blockedReason: !onboardingFirstSyncReady
-        ? "먼저 첫 메일 동기화를 실행하세요."
-        : undefined,
-      tone: onboardingFirstSyncReady && exceptionMessages.length === 0 ? "muted" : "default",
-      done: exceptionHandlingReady,
-      content: onboardingMatchingResultContent
-    },
-    {
-      id: "first-issue",
-      step: 6,
-      title: "첫 발행 확인",
-      summary: !onboardingFirstSyncReady
-        ? "첫 동기화 후 확인"
-        : exceptionMessages.length > 0
-          ? "예외 처리 후 초안 확인"
-        : reviewDrafts.length > 0
-          ? `검토할 초안 ${reviewDrafts.length}건`
-          : issuedDrafts.length > 0
-            ? `발행 확인 ${issuedDrafts.length}건`
-            : "발행 대상 없음",
-      primaryActionLabel: "오늘 작업 열기",
-      blockedReason: !onboardingFirstSyncReady
-        ? "먼저 첫 메일 동기화를 실행하세요."
-        : exceptionMessages.length > 0
-          ? "세금계산서 발행의 미매칭 메일에서 먼저 처리하세요."
-          : undefined,
-      done: firstIssueCheckReady,
-      content: onboardingFirstIssueCheckContent
     }
   ];
   const onboardingSetupSteps = onboardingSteps;
@@ -6765,9 +6647,7 @@ export function App() {
     "helper",
     "registration",
     ...(onboardingCertificateFollowUpActive ? (["certificates"] as const) : []),
-    "first-sync",
-    "exceptions",
-    "first-issue"
+    "first-sync"
   ]);
   const onboardingCompletionSteps = onboardingSteps.filter((step) => onboardingCompletionStepIds.has(step.id));
   const onboardingSetupCompletedCount = onboardingCompletionSteps.filter((step) => step.done).length;
