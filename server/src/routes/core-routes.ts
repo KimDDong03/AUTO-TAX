@@ -8,8 +8,15 @@ import { createPublicConsultationRequest } from "../consultation-requests.js";
 import {
   createPublicSignupRequest,
   findPublicSignupRequestByLoginId,
+  findPublicSignupRequestByNameAndPhone,
   findPublicSignupRequestByUserId
 } from "../signup-requests.js";
+import {
+  confirmSignupPhoneVerification,
+  consumeSignupPhoneVerification,
+  createSignupPhoneVerification
+} from "../signup-phone-verifications.js";
+import { createSmsProvider } from "../sms-provider.js";
 import type {
   AppRateLimiter,
   CreateEmptyBootstrapWorkspace,
@@ -24,6 +31,24 @@ import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../password-policy.js
 const publicLoginSchema = z.object({
   account: z.string().trim().min(1).max(128),
   password: z.string().min(1).max(256)
+});
+
+const publicSignupPhoneSchema = z
+  .string()
+  .trim()
+  .min(7)
+  .max(32)
+  .regex(/^[0-9+\-()\s.]+$/, "전화번호 형식이 올바르지 않습니다.")
+  .refine((value) => isKoreanMobilePhone(value), "휴대폰 번호는 010, 011, 016, 017, 018, 019로 시작하는 10~11자리 번호로 입력하세요.");
+
+const publicSignupPhoneVerificationSendSchema = z.object({
+  phone: publicSignupPhoneSchema
+});
+
+const publicSignupPhoneVerificationConfirmSchema = z.object({
+  verificationId: z.uuid(),
+  phone: publicSignupPhoneSchema,
+  code: z.string().trim().regex(/^\d{6}$/, "인증번호 6자리를 입력하세요.")
 });
 
 const publicSignupSchema = z.object({
@@ -44,20 +69,32 @@ const publicSignupSchema = z.object({
     .min(2)
     .max(60)
     .refine(isReasonableOrganizationName, "고객사명은 한글을 포함한 실제 상호명으로 입력하세요."),
+  representativeName: z
+    .string()
+    .trim()
+    .min(2)
+    .max(40)
+    .refine(isReasonableRepresentativeName, "대표자명을 2~40자로 입력하세요."),
+  businessRegistrationNumber: z
+    .string()
+    .trim()
+    .min(10)
+    .max(16)
+    .refine(isValidBusinessRegistrationNumber, "사업자등록번호는 숫자 10자리로 입력하세요.")
+    .transform(normalizeBusinessRegistrationNumber),
+  businessAddress: z.string().trim().min(5).max(160),
+  businessType: z.string().trim().min(2).max(80),
+  businessItem: z.string().trim().min(2).max(80),
   name: z
     .string()
     .trim()
     .min(2)
     .max(20)
     .refine(isKoreanPersonName, "이름은 한글 실명 2~20자로 입력하세요."),
-  phone: z
-    .string()
-    .trim()
-    .min(7)
-    .max(32)
-    .regex(/^[0-9+\-()\s.]+$/, "전화번호 형식이 올바르지 않습니다.")
-    .refine((value) => isKoreanMobilePhone(value), "휴대폰 번호는 010, 011, 016, 017, 018, 019로 시작하는 10~11자리 번호로 입력하세요."),
+  phone: publicSignupPhoneSchema,
+  phoneVerificationId: z.uuid(),
   kepcoEmail: z.string().trim().email().max(160),
+  invoiceEmail: z.string().trim().email().max(160),
   termsAccepted: z.boolean().refine((value) => value, "서비스 이용약관에 동의해야 합니다."),
   privacyAccepted: z.boolean().refine((value) => value, "개인정보 수집/이용에 동의해야 합니다."),
   thirdPartyAccepted: z.boolean().refine((value) => value, "개인정보 처리위탁 및 외부 제공에 동의해야 합니다."),
@@ -66,6 +103,12 @@ const publicSignupSchema = z.object({
 
 const publicSignupLoginIdAvailabilitySchema = z.object({
   loginId: publicSignupSchema.shape.loginId
+});
+
+const publicSignupLoginIdLookupSchema = z.object({
+  name: publicSignupSchema.shape.name,
+  phone: publicSignupPhoneSchema,
+  phoneVerificationId: z.uuid()
 });
 
 const DEFAULT_PUBLIC_LOGIN_TIMEOUT_MS = 5000;
@@ -90,6 +133,18 @@ function isKoreanMobilePhone(value: string): boolean {
 
 function isKoreanPersonName(value: string): boolean {
   return /^[가-힣]{2,20}$/.test(value.trim());
+}
+
+function normalizeBusinessRegistrationNumber(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function isValidBusinessRegistrationNumber(value: string): boolean {
+  return /^\d{10}$/.test(normalizeBusinessRegistrationNumber(value));
+}
+
+function isReasonableRepresentativeName(value: string): boolean {
+  return /^[가-힣A-Za-z\s·.-]{2,40}$/.test(value.trim());
 }
 
 function isReasonableOrganizationName(value: string): boolean {
@@ -283,6 +338,49 @@ export function registerCoreRoutes(deps: RouteDeps) {
     });
   });
 
+  app.post("/api/public/signup/phone-verifications/send", publicSignupLimiter, async (req, res) => {
+    const payload = publicSignupPhoneVerificationSendSchema.parse(req.body ?? {});
+    const result = await createSignupPhoneVerification(createSupabaseAdminClient(), createSmsProvider(), {
+      phone: payload.phone,
+      requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+      requestUserAgent: req.header("user-agent") ?? ""
+    });
+
+    res.status(201).json(result);
+  });
+
+  app.post("/api/public/signup/phone-verifications/confirm", publicSignupLimiter, async (req, res) => {
+    const payload = publicSignupPhoneVerificationConfirmSchema.parse(req.body ?? {});
+    await confirmSignupPhoneVerification(createSupabaseAdminClient(), payload);
+    res.json({ verified: true });
+  });
+
+  app.post("/api/public/signup/login-id-lookup", publicSignupLimiter, async (req, res) => {
+    const payload = publicSignupLoginIdLookupSchema.parse(req.body ?? {});
+    const adminClient = createSupabaseAdminClient();
+
+    await consumeSignupPhoneVerification(adminClient, {
+      verificationId: payload.phoneVerificationId,
+      phone: payload.phone
+    });
+
+    const request = await findPublicSignupRequestByNameAndPhone(adminClient, {
+      name: payload.name,
+      phone: payload.phone
+    });
+
+    if (!request || request.status === "rejected") {
+      res.json({ found: false });
+      return;
+    }
+
+    res.json({
+      found: true,
+      loginId: request.loginId,
+      status: request.status
+    });
+  });
+
   app.post("/api/public/signup", publicSignupLimiter, async (req, res) => {
     const payload = publicSignupSchema.parse(req.body ?? {});
     const adminClient = createSupabaseAdminClient();
@@ -297,6 +395,11 @@ export function registerCoreRoutes(deps: RouteDeps) {
       throw new HttpError(409, DUPLICATE_SIGNUP_LOGIN_ID_MESSAGE);
     }
 
+    await consumeSignupPhoneVerification(adminClient, {
+      verificationId: payload.phoneVerificationId,
+      phone: payload.phone
+    });
+
     const { data: createdUserResult, error: createUserError } = await adminClient.auth.admin.createUser({
       email: authEmail,
       password: payload.password,
@@ -305,7 +408,13 @@ export function registerCoreRoutes(deps: RouteDeps) {
         login_id: loginId,
         display_name: payload.name,
         organization_name: payload.organizationName,
-        kepco_email: payload.kepcoEmail
+        representative_name: payload.representativeName,
+        business_registration_number: payload.businessRegistrationNumber,
+        business_address: payload.businessAddress,
+        business_type: payload.businessType,
+        business_item: payload.businessItem,
+        kepco_email: payload.kepcoEmail,
+        invoice_email: payload.invoiceEmail
       }
     });
 
@@ -330,9 +439,15 @@ export function registerCoreRoutes(deps: RouteDeps) {
         loginId,
         authEmail: createdUserResult.user.email ?? authEmail,
         organizationName: payload.organizationName,
+        representativeName: payload.representativeName,
+        businessRegistrationNumber: payload.businessRegistrationNumber,
+        businessAddress: payload.businessAddress,
+        businessType: payload.businessType,
+        businessItem: payload.businessItem,
         name: payload.name,
         phone: payload.phone,
         kepcoEmail: payload.kepcoEmail,
+        invoiceEmail: payload.invoiceEmail,
         marketingConsent: payload.marketingConsent,
         requestIp: req.ip ?? req.socket.remoteAddress ?? "",
         requestUserAgent: req.header("user-agent") ?? ""

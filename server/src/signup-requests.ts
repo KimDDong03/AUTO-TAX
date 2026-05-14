@@ -3,7 +3,7 @@ import type { PublicSignupRequest, PublicSignupRequestStatus } from "./domain.js
 import { nowIso } from "./utils.js";
 
 export const PUBLIC_SIGNUP_TERMS_VERSION = "terms_2026-05-12";
-export const PUBLIC_SIGNUP_PRIVACY_VERSION = "privacy_2026-05-12";
+export const PUBLIC_SIGNUP_PRIVACY_VERSION = "privacy_2026-05-14";
 export const PUBLIC_SIGNUP_THIRD_PARTY_VERSION = "third_party_2026-05-12";
 export const PUBLIC_SIGNUP_MARKETING_VERSION = "marketing_2026-05-12";
 
@@ -35,9 +35,15 @@ export function mapPublicSignupRequest(row: Row): PublicSignupRequest {
     loginId: asString(row.login_id),
     authEmail: asString(row.auth_email),
     organizationName: asString(row.organization_name),
+    representativeName: asString(row.representative_name),
+    businessRegistrationNumber: asString(row.business_registration_number),
+    businessAddress: asString(row.business_address),
+    businessType: asString(row.business_type),
+    businessItem: asString(row.business_item),
     name: asString(row.name),
     phone: asString(row.phone),
     kepcoEmail: asString(row.kepco_email),
+    invoiceEmail: asString(row.invoice_email),
     status: asString(row.status, "pending") as PublicSignupRequestStatus,
     marketingConsent: asBoolean(row.marketing_consent),
     termsVersion: asString(row.terms_version),
@@ -63,9 +69,15 @@ export async function createPublicSignupRequest(
     loginId: string;
     authEmail: string;
     organizationName: string;
+    representativeName: string;
+    businessRegistrationNumber: string;
+    businessAddress: string;
+    businessType: string;
+    businessItem: string;
     name: string;
     phone: string;
     kepcoEmail: string;
+    invoiceEmail: string;
     marketingConsent: boolean;
     requestIp: string;
     requestUserAgent: string;
@@ -79,9 +91,15 @@ export async function createPublicSignupRequest(
       login_id: input.loginId,
       auth_email: input.authEmail,
       organization_name: input.organizationName,
+      representative_name: input.representativeName,
+      business_registration_number: input.businessRegistrationNumber,
+      business_address: input.businessAddress,
+      business_type: input.businessType,
+      business_item: input.businessItem,
       name: input.name,
       phone: input.phone,
       kepco_email: input.kepcoEmail,
+      invoice_email: input.invoiceEmail,
       status: "pending",
       marketing_consent: input.marketingConsent,
       terms_version: PUBLIC_SIGNUP_TERMS_VERSION,
@@ -151,6 +169,28 @@ export async function findPublicSignupRequestByLoginId(
   }
 
   return data ? mapPublicSignupRequest(data as Row) : null;
+}
+
+export async function findPublicSignupRequestByNameAndPhone(
+  adminClient: AdminClient,
+  input: { name: string; phone: string }
+): Promise<PublicSignupRequest | null> {
+  const normalizedPhone = input.phone.replace(/\D/g, "");
+  const { data, error } = await adminClient
+    .from("public_signup_requests")
+    .select("*")
+    .eq("name", input.name.trim())
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    throw new Error(`회원가입 신청 조회에 실패했습니다: ${error.message}`);
+  }
+
+  const matchedRow =
+    ((data ?? []) as Row[]).find((row) => asString(row.phone).replace(/\D/g, "") === normalizedPhone) ?? null;
+
+  return matchedRow ? mapPublicSignupRequest(matchedRow) : null;
 }
 
 export async function findPublicSignupRequestByUserId(

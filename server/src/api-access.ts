@@ -32,6 +32,9 @@ export function isAnonymousApiPath(req: Request): boolean {
     req.path === "/public/login" ||
     req.path === "/public/signup" ||
     req.path === "/public/signup/login-id-availability" ||
+    req.path === "/public/signup/login-id-lookup" ||
+    req.path === "/public/signup/phone-verifications/send" ||
+    req.path === "/public/signup/phone-verifications/confirm" ||
     req.path === "/public/consultation-requests"
   );
 }

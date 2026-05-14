@@ -15,9 +15,15 @@ type SignupRow = {
   login_id: string;
   auth_email: string;
   organization_name: string;
+  representative_name: string;
+  business_registration_number: string;
+  business_address: string;
+  business_type: string;
+  business_item: string;
   name: string;
   phone: string;
   kepco_email: string;
+  invoice_email: string;
   status: "pending" | "approved" | "rejected";
   marketing_consent: boolean;
   terms_version: string;
@@ -35,6 +41,23 @@ type SignupRow = {
   updated_at: string;
 };
 
+type PhoneVerificationRow = {
+  id: string;
+  phone: string;
+  code_hash: string;
+  code_salt: string;
+  expires_at: string;
+  verified_at: string | null;
+  consumed_at: string | null;
+  attempt_count: number;
+  provider: string;
+  provider_message_id: string | null;
+  request_ip: string;
+  request_user_agent: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type AuthUser = {
   id: string;
   email: string;
@@ -46,6 +69,7 @@ type AuthUser = {
 function createSignupAdminClient() {
   const state = {
     signupRows: [] as SignupRow[],
+    phoneVerificationRows: [] as PhoneVerificationRow[],
     authUsers: [] as AuthUser[],
     loginIndexRows: [] as Array<{ user_id: string; login_id: string; auth_email: string; display_name: string | null }>,
     organizations: [] as Array<{ id: string; name: string; status: string; plan_code: string; monthly_issue_limit: number }>,
@@ -119,7 +143,10 @@ function createSignupAdminClient() {
 
     limit(count: number) {
       if (this.table === "public_signup_requests") {
-        return Promise.resolve({ data: state.signupRows.slice(0, count), error: null });
+        const rows = state.signupRows.filter((item) =>
+          Object.entries(this.filters).every(([field, value]) => String(item[field as keyof SignupRow]) === value)
+        );
+        return Promise.resolve({ data: rows.slice(0, count), error: null });
       }
       return Promise.resolve({ data: [], error: null });
     }
@@ -132,6 +159,14 @@ function createSignupAdminClient() {
           Object.assign(row, this.updatePayload);
         }
       }
+      if (this.table === "public_signup_phone_verifications" && this.updatePayload) {
+        const row = state.phoneVerificationRows.find((item) => field === "id" && item.id === value);
+        if (row) {
+          Object.assign(row, this.updatePayload, {
+            updated_at: "2026-05-07T01:00:00.000Z"
+          });
+        }
+      }
       return this;
     }
 
@@ -140,20 +175,51 @@ function createSignupAdminClient() {
     }
 
     async single() {
-      if (this.table !== "public_signup_requests" || !this.insertPayload) {
+      if (!this.insertPayload) {
         return { data: null, error: { message: "unsupported single" } };
       }
 
       const timestamp = "2026-05-07T00:00:00.000Z";
+      if (this.table === "public_signup_phone_verifications") {
+        const row: PhoneVerificationRow = {
+          id: `30000000-0000-4000-8000-${String(state.phoneVerificationRows.length + 1).padStart(12, "0")}`,
+          phone: String(this.insertPayload.phone),
+          code_hash: String(this.insertPayload.code_hash),
+          code_salt: String(this.insertPayload.code_salt),
+          expires_at: String(this.insertPayload.expires_at),
+          verified_at: null,
+          consumed_at: null,
+          attempt_count: 0,
+          provider: String(this.insertPayload.provider),
+          provider_message_id: this.insertPayload.provider_message_id ? String(this.insertPayload.provider_message_id) : null,
+          request_ip: String(this.insertPayload.request_ip),
+          request_user_agent: String(this.insertPayload.request_user_agent),
+          created_at: timestamp,
+          updated_at: timestamp
+        };
+        state.phoneVerificationRows.push(row);
+        return { data: row, error: null };
+      }
+
+      if (this.table !== "public_signup_requests") {
+        return { data: null, error: { message: "unsupported single" } };
+      }
+
       const row: SignupRow = {
         id: `00000000-0000-4000-8000-${String(state.signupRows.length + 1).padStart(12, "0")}`,
         user_id: String(this.insertPayload.user_id),
         login_id: String(this.insertPayload.login_id),
         auth_email: String(this.insertPayload.auth_email),
         organization_name: String(this.insertPayload.organization_name),
+        representative_name: String(this.insertPayload.representative_name),
+        business_registration_number: String(this.insertPayload.business_registration_number),
+        business_address: String(this.insertPayload.business_address),
+        business_type: String(this.insertPayload.business_type),
+        business_item: String(this.insertPayload.business_item),
         name: String(this.insertPayload.name),
         phone: String(this.insertPayload.phone),
         kepco_email: String(this.insertPayload.kepco_email),
+        invoice_email: String(this.insertPayload.invoice_email),
         status: "pending",
         marketing_consent: this.insertPayload.marketing_consent === true,
         terms_version: String(this.insertPayload.terms_version),
@@ -179,6 +245,12 @@ function createSignupAdminClient() {
         let row =
           state.signupRows.find((item) => this.filters.id && item.id === this.filters.id) ??
           state.signupRows.find((item) => this.filters.login_id && item.login_id === this.filters.login_id) ??
+          state.signupRows.find(
+            (item) =>
+              this.filters.name &&
+              item.name === this.filters.name &&
+              (!this.filters.phone || item.phone === this.filters.phone)
+          ) ??
           state.signupRows.find((item) => this.filters.user_id && item.user_id === this.filters.user_id) ??
           null;
 
@@ -188,6 +260,13 @@ function createSignupAdminClient() {
           });
         }
         return { data: row, error: null };
+      }
+
+      if (this.table === "public_signup_phone_verifications") {
+        return {
+          data: state.phoneVerificationRows.find((item) => this.filters.id && item.id === this.filters.id) ?? null,
+          error: null
+        };
       }
 
       if (this.table === "organizations" && this.insertPayload) {
@@ -231,7 +310,16 @@ function createSignupAdminClient() {
       }
     },
     from(table: string) {
-      if (!["public_signup_requests", "auth_user_login_index", "organizations", "organization_members", "app_logs"].includes(table)) {
+      if (
+        ![
+          "public_signup_requests",
+          "public_signup_phone_verifications",
+          "auth_user_login_index",
+          "organizations",
+          "organization_members",
+          "app_logs"
+        ].includes(table)
+      ) {
         throw new Error(`unexpected table ${table}`);
       }
       return new Builder(table);
@@ -528,14 +616,58 @@ const validSignupPayload = {
   loginId: "solar-owner",
   password: "Password1234!",
   organizationName: "해성태양광",
+  representativeName: "홍길동",
+  businessRegistrationNumber: "123-45-67890",
+  businessAddress: "서울특별시 강남구 테헤란로 123",
+  businessType: "서비스업",
+  businessItem: "전자세금계산서 자동화",
   name: "홍길동",
   phone: "010-1234-5678",
   kepcoEmail: "kepco@example.com",
+  invoiceEmail: "tax@example.com",
   termsAccepted: true,
   privacyAccepted: true,
   thirdPartyAccepted: true,
   marketingConsent: false
 };
+
+async function createVerifiedSignupPayload(
+  baseUrl: string,
+  overrides: Partial<typeof validSignupPayload> = {}
+) {
+  const payload = { ...validSignupPayload, ...overrides };
+  const verificationId = await createVerifiedPhoneVerification(baseUrl, payload.phone);
+
+  return {
+    ...payload,
+    phoneVerificationId: verificationId
+  };
+}
+
+async function createVerifiedPhoneVerification(baseUrl: string, phone: string): Promise<string> {
+  const send = await fetch(`${baseUrl}/api/public/signup/phone-verifications/send`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ phone })
+  });
+  assert.equal(send.status, 201);
+  const sent = await send.json() as { verificationId: string; devCode?: string };
+  assert.ok(sent.verificationId);
+  assert.ok(sent.devCode);
+
+  const confirm = await fetch(`${baseUrl}/api/public/signup/phone-verifications/confirm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      verificationId: sent.verificationId,
+      phone,
+      code: sent.devCode
+    })
+  });
+  assert.equal(confirm.status, 200);
+
+  return sent.verificationId;
+}
 
 test("public signup requires mandatory consents", async () => {
   await withSignupServer(async (baseUrl, fixture) => {
@@ -565,6 +697,55 @@ test("public signup rejects uncommon Korean phone prefixes", async () => {
   });
 });
 
+test("public signup requires verified phone before creating auth user", async () => {
+  await withSignupServer(async (baseUrl, fixture) => {
+    const missingVerification = await fetch(`${baseUrl}/api/public/signup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...validSignupPayload, phoneVerificationId: "30000000-0000-4000-8000-000000000001" })
+    });
+    assert.equal(missingVerification.status, 400);
+    assert.equal(fixture.state.signupRows.length, 0);
+    assert.equal(fixture.state.authUsers.length, 0);
+  });
+});
+
+test("public signup phone verification rejects wrong codes and confirms dev code", async () => {
+  await withSignupServer(async (baseUrl) => {
+    const send = await fetch(`${baseUrl}/api/public/signup/phone-verifications/send`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ phone: validSignupPayload.phone })
+    });
+    assert.equal(send.status, 201);
+    const sent = await send.json() as { verificationId: string; devCode?: string };
+    assert.ok(sent.devCode);
+
+    const wrong = await fetch(`${baseUrl}/api/public/signup/phone-verifications/confirm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        verificationId: sent.verificationId,
+        phone: validSignupPayload.phone,
+        code: "000000"
+      })
+    });
+    assert.equal(wrong.status, 400);
+
+    const confirmed = await fetch(`${baseUrl}/api/public/signup/phone-verifications/confirm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        verificationId: sent.verificationId,
+        phone: validSignupPayload.phone,
+        code: sent.devCode
+      })
+    });
+    assert.equal(confirmed.status, 200);
+    assert.deepEqual(await confirmed.json(), { verified: true });
+  });
+});
+
 test("public signup rejects unreasonable identity fields", async () => {
   await withSignupServer(async (baseUrl, fixture) => {
     const invalidName = await fetch(`${baseUrl}/api/public/signup`, {
@@ -581,6 +762,13 @@ test("public signup rejects unreasonable identity fields", async () => {
     });
     assert.equal(invalidOrganization.status, 400);
 
+    const invalidBusinessRegistrationNumber = await fetch(`${baseUrl}/api/public/signup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...validSignupPayload, businessRegistrationNumber: "12345" })
+    });
+    assert.equal(invalidBusinessRegistrationNumber.status, 400);
+
     const weakPassword = await fetch(`${baseUrl}/api/public/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -594,14 +782,21 @@ test("public signup rejects unreasonable identity fields", async () => {
 
 test("signup creates a pending auth user, blocks login until approval, then creates owner workspace", async () => {
   await withSignupServer(async (baseUrl, fixture) => {
+    const signupPayload = await createVerifiedSignupPayload(baseUrl);
     const created = await fetch(`${baseUrl}/api/public/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(validSignupPayload)
+      body: JSON.stringify(signupPayload)
     });
     assert.equal(created.status, 201);
     assert.equal(fixture.state.signupRows.length, 1);
     assert.equal(fixture.state.signupRows[0]?.marketing_consent, false);
+    assert.equal(fixture.state.signupRows[0]?.representative_name, validSignupPayload.representativeName);
+    assert.equal(fixture.state.signupRows[0]?.business_registration_number, "1234567890");
+    assert.equal(fixture.state.signupRows[0]?.business_address, validSignupPayload.businessAddress);
+    assert.equal(fixture.state.signupRows[0]?.business_type, validSignupPayload.businessType);
+    assert.equal(fixture.state.signupRows[0]?.business_item, validSignupPayload.businessItem);
+    assert.equal(fixture.state.signupRows[0]?.invoice_email, validSignupPayload.invoiceEmail);
 
     const pendingLogin = await fetch(`${baseUrl}/api/public/login`, {
       method: "POST",
@@ -643,12 +838,55 @@ test("signup creates a pending auth user, blocks login until approval, then crea
   });
 });
 
+test("public login id lookup returns matching signup login id after phone verification", async () => {
+  await withSignupServer(async (baseUrl) => {
+    const signupPayload = await createVerifiedSignupPayload(baseUrl);
+    const created = await fetch(`${baseUrl}/api/public/signup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(signupPayload)
+    });
+    assert.equal(created.status, 201);
+
+    const lookupVerificationId = await createVerifiedPhoneVerification(baseUrl, validSignupPayload.phone);
+    const lookup = await fetch(`${baseUrl}/api/public/signup/login-id-lookup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: validSignupPayload.name,
+        phone: "01012345678",
+        phoneVerificationId: lookupVerificationId
+      })
+    });
+    assert.equal(lookup.status, 200);
+    assert.deepEqual(await lookup.json(), {
+      found: true,
+      loginId: validSignupPayload.loginId,
+      status: "pending"
+    });
+
+    const missingVerificationId = await createVerifiedPhoneVerification(baseUrl, validSignupPayload.phone);
+    const missing = await fetch(`${baseUrl}/api/public/signup/login-id-lookup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "김없음",
+        phone: validSignupPayload.phone,
+        phoneVerificationId: missingVerificationId
+      })
+    });
+    assert.equal(missing.status, 200);
+    assert.deepEqual(await missing.json(), { found: false });
+  });
+});
+
 test("ops subscription update applies paid 100-issue blocks only", async () => {
   await withSignupServer(async (baseUrl, fixture) => {
+    const signupPayload = await createVerifiedSignupPayload(baseUrl);
     await fetch(`${baseUrl}/api/public/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(validSignupPayload)
+      body: JSON.stringify(signupPayload)
     });
     await fetch(`${baseUrl}/api/ops/signup-requests/${fixture.state.signupRows[0]?.id}/approve`, {
       method: "POST"
@@ -676,10 +914,11 @@ test("ops subscription update applies paid 100-issue blocks only", async () => {
 
 test("rejected signup remains unable to login", async () => {
   await withSignupServer(async (baseUrl, fixture) => {
+    const signupPayload = await createVerifiedSignupPayload(baseUrl, { loginId: "reject-me", marketingConsent: true });
     const created = await fetch(`${baseUrl}/api/public/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...validSignupPayload, loginId: "reject-me", marketingConsent: true })
+      body: JSON.stringify(signupPayload)
     });
     assert.equal(created.status, 201);
     assert.equal(fixture.state.signupRows[0]?.marketing_consent, true);
@@ -713,10 +952,11 @@ test("public signup login id availability reports duplicate status", async () =>
       available: true
     });
 
+    const signupPayload = await createVerifiedSignupPayload(baseUrl);
     const created = await fetch(`${baseUrl}/api/public/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(validSignupPayload)
+      body: JSON.stringify(signupPayload)
     });
     assert.equal(created.status, 201);
 
@@ -733,17 +973,19 @@ test("public signup login id availability reports duplicate status", async () =>
 
 test("duplicate signup login id is rejected", async () => {
   await withSignupServer(async (baseUrl) => {
+    const firstPayload = await createVerifiedSignupPayload(baseUrl);
     const first = await fetch(`${baseUrl}/api/public/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(validSignupPayload)
+      body: JSON.stringify(firstPayload)
     });
     assert.equal(first.status, 201);
 
+    const duplicatePayload = await createVerifiedSignupPayload(baseUrl);
     const duplicate = await fetch(`${baseUrl}/api/public/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(validSignupPayload)
+      body: JSON.stringify(duplicatePayload)
     });
     assert.equal(duplicate.status, 409);
     assert.equal(((await duplicate.json()) as { error: string }).error, "이미 사용중인 아이디입니다.");

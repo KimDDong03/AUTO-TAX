@@ -32,8 +32,10 @@ import { OnboardingTab, type OnboardingStep } from "./features/onboarding/Onboar
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "./features/auth/passwordPolicy";
 import {
   PublicLanding,
+  type PublicLoginIdLookupResult,
   type PublicSignupInput,
-  type PublicSignupLoginIdAvailability
+  type PublicSignupLoginIdAvailability,
+  type PublicSignupPhoneVerificationSendResult
 } from "./features/public/PublicLanding";
 import {
   downloadCustomerOnboardingTemplate,
@@ -142,6 +144,7 @@ import {
 } from "./features/auth/auth-hash";
 import { useAuthSessionBootstrap } from "./features/auth/useAuthSessionBootstrap";
 import { resetPasswordForEmailSafely, setSessionSafely, signOutSafely, updateUserSafely } from "./supabase";
+import { USER_FACING_AUTH_TIMEOUT_MESSAGE } from "./supabase-timeout";
 import { assertSafeSpreadsheetFile, assertSafeSpreadsheetWorkbook } from "./spreadsheet-security";
 import type {
   BootstrapPayload,
@@ -1037,6 +1040,11 @@ function getTabFromHash(hash: string): TabId | null {
   return null;
 }
 
+function isPublicAuthHash(hash: string): boolean {
+  const value = hash.replace(/^#/, "");
+  return value === "" || value === "home" || value === "login" || value === "signup" || value === "public-signup-card";
+}
+
 function resolveWorkspaceTab(
   requestedTab: TabId | null,
   options: { hasActiveWorkspace: boolean; onboardingComplete: boolean; isPlatformAdmin: boolean }
@@ -1293,14 +1301,24 @@ function sanitizeSupplierDisplayText(value: string): string {
     .replace(/Popbill|POPBILL/g, "등록 처리");
 }
 
+function sanitizeInternalDisplayText(value: string): string {
+  if (/Supabase 인증 응답이 \d+ms 안에 완료되지 않았습니다\.?/.test(value) || value.includes("SupabaseAuthTimeoutError")) {
+    return USER_FACING_AUTH_TIMEOUT_MESSAGE;
+  }
+
+  return value
+    .replace(/Supabase/gi, "인증 서버")
+    .replace(/\b\d+ms\b/g, "일정 시간");
+}
+
 function getDisplayErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
     const codeSuffix = error.code ? ` (${error.code})` : "";
-    return `${sanitizeSupplierDisplayText(error.message)}${codeSuffix}`;
+    return `${sanitizeInternalDisplayText(sanitizeSupplierDisplayText(error.message))}${codeSuffix}`;
   }
 
   return error instanceof Error
-    ? sanitizeSupplierDisplayText(error.message)
+    ? sanitizeInternalDisplayText(sanitizeSupplierDisplayText(error.message))
     : fallback;
 }
 
@@ -2787,7 +2805,7 @@ export function App() {
 
     void loadWithRetry().catch(async (loadError) => {
       if (!isLoadCancelledError(loadError)) {
-        const message = loadError instanceof Error ? loadError.message : "초기 데이터를 불러오지 못했습니다.";
+        const message = getDisplayErrorMessage(loadError, "초기 데이터를 불러오지 못했습니다.");
         if (loadError instanceof ApiError && (loadError.status === 401 || loadError.status === 403)) {
           invalidateActiveLoads();
           authSessionRef.current = null;
@@ -2812,6 +2830,18 @@ export function App() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash;
+
+      if (isSupabaseRecoveryHash(hash)) {
+        setRecoveryMode(true);
+        setError("");
+        setAuthNotice("");
+        return;
+      }
+
+      if ((!authSession || !data) && isPublicAuthHash(hash)) {
+        return;
+      }
+
       const nextOpsSection = getOpsSectionFromHash(hash);
       const nextTab = getTabFromHash(hash);
 
@@ -2831,13 +2861,6 @@ export function App() {
         return;
       }
 
-      if (isSupabaseRecoveryHash(hash)) {
-        setRecoveryMode(true);
-        setError("");
-        setAuthNotice("");
-        return;
-      }
-
       const recoveryError = getSupabaseAuthHashError(hash);
       if (recoveryError) {
         setRecoveryMode(false);
@@ -2848,10 +2871,18 @@ export function App() {
 
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
+  }, [authSession, data]);
 
   useEffect(() => {
     if (recoveryMode || hasSupabaseAuthHash(window.location.hash)) {
+      return;
+    }
+
+    if (!authSession) {
+      return;
+    }
+
+    if (!data && isPublicAuthHash(window.location.hash)) {
       return;
     }
 
@@ -2859,7 +2890,7 @@ export function App() {
     if (window.location.hash !== activeHash) {
       window.history.replaceState(null, "", activeHash);
     }
-  }, [activeTab, activeOpsSection, recoveryMode]);
+  }, [activeTab, activeOpsSection, authSession, data, recoveryMode]);
 
   useEffect(() => {
     if (!activeOrganizationId) {
@@ -3167,6 +3198,43 @@ export function App() {
   const checkSignupLoginIdAvailability = async (loginId: string): Promise<PublicSignupLoginIdAvailability> => {
     const query = new URLSearchParams({ loginId: loginId.trim() });
     return api<PublicSignupLoginIdAvailability>(`/api/public/signup/login-id-availability?${query.toString()}`);
+  };
+
+  const sendSignupPhoneVerification = async (phone: string): Promise<PublicSignupPhoneVerificationSendResult> => {
+    return api<PublicSignupPhoneVerificationSendResult>("/api/public/signup/phone-verifications/send", {
+      method: "POST",
+      body: JSON.stringify({ phone })
+    });
+  };
+
+  const confirmSignupPhoneVerification = async (input: {
+    verificationId: string;
+    phone: string;
+    code: string;
+  }): Promise<boolean> => {
+    const result = await api<{ verified: boolean }>("/api/public/signup/phone-verifications/confirm", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    return result.verified;
+  };
+
+  const findLoginId = async (input: {
+    name: string;
+    phone: string;
+    phoneVerificationId: string;
+  }): Promise<PublicLoginIdLookupResult> => {
+    try {
+      setError("");
+      setAuthNotice("");
+      setAuthBusy(true);
+      return await api<PublicLoginIdLookupResult>("/api/public/signup/login-id-lookup", {
+        method: "POST",
+        body: JSON.stringify(input)
+      });
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
   const requestPasswordReset = async (email: string): Promise<boolean> => {
@@ -5494,6 +5562,9 @@ export function App() {
           onSignIn={signIn}
           onSignUp={signUp}
           onCheckLoginIdAvailability={checkSignupLoginIdAvailability}
+          onSendSignupPhoneVerification={sendSignupPhoneVerification}
+          onConfirmSignupPhoneVerification={confirmSignupPhoneVerification}
+          onFindLoginId={findLoginId}
           onPasswordReset={requestPasswordReset}
         />
         {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
@@ -7474,11 +7545,10 @@ export function App() {
                           <thead>
                             <tr>
                               <th>상태</th>
-                              <th>고객사</th>
-                              <th>신청자</th>
-                              <th>로그인 ID</th>
-                              <th>전화번호</th>
-                              <th>담당자 이메일</th>
+                              <th>회사 정보</th>
+                              <th>사업자 정보</th>
+                              <th>담당자</th>
+                              <th>연락처</th>
                               <th>마케팅</th>
                               <th>신청일</th>
                               <th>액션</th>
@@ -7494,12 +7564,23 @@ export function App() {
                                 </td>
                                 <td>
                                   <strong>{request.organizationName}</strong>
+                                  <span>{request.businessRegistrationNumber || "-"}</span>
+                                  <span>{request.businessAddress || "-"}</span>
                                   {request.reviewNote ? <span>{request.reviewNote}</span> : null}
                                 </td>
-                                <td>{request.name}</td>
-                                <td>{request.loginId}</td>
-                                <td>{request.phone}</td>
-                                <td>{request.kepcoEmail}</td>
+                                <td>
+                                  <strong>{request.representativeName || "-"}</strong>
+                                  <span>{request.businessType || "-"} / {request.businessItem || "-"}</span>
+                                  <span>{request.invoiceEmail || "-"}</span>
+                                </td>
+                                <td>
+                                  <strong>{request.name}</strong>
+                                  <span>{request.loginId}</span>
+                                </td>
+                                <td>
+                                  <span>{request.phone}</span>
+                                  <span>{request.kepcoEmail}</span>
+                                </td>
                                 <td>{request.marketingConsent ? "동의" : "미동의"}</td>
                                 <td>{formatDateTime(request.createdAt)}</td>
                                 <td>

@@ -1,5 +1,5 @@
 import type React from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "../auth/passwordPolicy";
 import { PUBLIC_PORTAL_COPY } from "./public-content";
 
@@ -7,9 +7,16 @@ export type PublicSignupInput = {
   loginId: string;
   password: string;
   organizationName: string;
+  representativeName: string;
+  businessRegistrationNumber: string;
+  businessAddress: string;
+  businessType: string;
+  businessItem: string;
   name: string;
   phone: string;
+  phoneVerificationId: string;
   kepcoEmail: string;
+  invoiceEmail: string;
   termsAccepted: boolean;
   privacyAccepted: boolean;
   thirdPartyAccepted: boolean;
@@ -19,6 +26,18 @@ export type PublicSignupInput = {
 export type PublicSignupLoginIdAvailability = {
   loginId: string;
   available: boolean;
+};
+
+export type PublicSignupPhoneVerificationSendResult = {
+  verificationId: string;
+  expiresAt: string;
+  devCode?: string;
+};
+
+export type PublicLoginIdLookupResult = {
+  found: boolean;
+  loginId?: string;
+  status?: "pending" | "approved" | "rejected";
 };
 
 type PublicSignupFormState = PublicSignupInput & {
@@ -31,6 +50,27 @@ type SignupLoginIdAvailabilityState = {
   loginId: string;
   status: SignupLoginIdAvailabilityStatus;
   message: string;
+};
+
+type SignupPhoneVerificationState = {
+  phone: string;
+  verificationId: string;
+  code: string;
+  status: "idle" | "sending" | "sent" | "verifying" | "verified" | "error";
+  message: string;
+  devCode?: string;
+};
+
+type LoginIdLookupState = {
+  name: string;
+  phone: string;
+  verificationId: string;
+  code: string;
+  status: "idle" | "sending" | "sent" | "verifying" | "verified" | "looking-up" | "found" | "not-found" | "error";
+  message: string;
+  loginId: string;
+  requestStatus?: "pending" | "approved" | "rejected";
+  devCode?: string;
 };
 
 type PublicTermId = "termsAccepted" | "privacyAccepted" | "thirdPartyAccepted" | "marketingConsent";
@@ -60,21 +100,43 @@ type PublicLandingProps = {
   onSignIn: (event: React.FormEvent<HTMLFormElement>) => void | Promise<void>;
   onSignUp: (input: PublicSignupInput) => Promise<boolean>;
   onCheckLoginIdAvailability: (loginId: string) => Promise<PublicSignupLoginIdAvailability>;
+  onSendSignupPhoneVerification: (phone: string) => Promise<PublicSignupPhoneVerificationSendResult>;
+  onConfirmSignupPhoneVerification: (input: { verificationId: string; phone: string; code: string }) => Promise<boolean>;
+  onFindLoginId: (input: { name: string; phone: string; phoneVerificationId: string }) => Promise<PublicLoginIdLookupResult>;
   onPasswordReset: (email: string) => Promise<boolean>;
 };
+
+type PublicAuthMode = "login" | "signup";
 
 const emptySignupForm: PublicSignupFormState = {
   loginId: "",
   password: "",
   passwordConfirm: "",
   organizationName: "",
+  representativeName: "",
+  businessRegistrationNumber: "",
+  businessAddress: "",
+  businessType: "",
+  businessItem: "",
   name: "",
   phone: "",
+  phoneVerificationId: "",
   kepcoEmail: "",
+  invoiceEmail: "",
   termsAccepted: false,
   privacyAccepted: false,
   thirdPartyAccepted: false,
   marketingConsent: false
+};
+
+const emptyLoginIdLookup: LoginIdLookupState = {
+  name: "",
+  phone: "",
+  verificationId: "",
+  code: "",
+  status: "idle",
+  message: "",
+  loginId: ""
 };
 
 const publicTerms: readonly PublicTerm[] = [
@@ -126,7 +188,7 @@ const publicTerms: readonly PublicTerm[] = [
     id: "privacyAccepted",
     label: "개인정보 수집 및 이용 동의",
     required: true,
-    version: "privacy_2026-05-12",
+    version: "privacy_2026-05-14",
     sections: [
       {
         title: "수집 목적",
@@ -139,7 +201,7 @@ const publicTerms: readonly PublicTerm[] = [
       {
         title: "수집 항목",
         items: [
-          "필수: 로그인 ID, 비밀번호(인증 서비스에서 암호화 또는 해시 처리), 고객사명, 담당자 이름, 휴대폰 번호, 담당자 이메일 주소",
+          "필수: 로그인 ID, 비밀번호(인증 서비스에서 암호화 또는 해시 처리), 상호명, 대표자명, 사업자등록번호, 사업장 주소, 업태, 종목, 담당자 이름, 휴대폰 번호, 담당자 이메일 주소, 세금계산서 수신 이메일 주소",
           "자동 생성: 신청 일시, 동의 버전과 동의 일시, 접속 IP, 브라우저 및 기기 정보",
           "승인 후 서비스 이용 과정에서 고객 사업자 정보, 발전소 주소, 메일 원문 또는 분석 결과, 세금계산서 발행 데이터가 추가로 처리될 수 있습니다."
         ]
@@ -241,6 +303,23 @@ function isReasonableOrganizationName(value: string): boolean {
   );
 }
 
+function isReasonableRepresentativeName(value: string): boolean {
+  return /^[가-힣A-Za-z\s·.-]{2,40}$/.test(value.trim());
+}
+
+function normalizeBusinessRegistrationNumber(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function isValidBusinessRegistrationNumber(value: string): boolean {
+  return /^\d{10}$/.test(normalizeBusinessRegistrationNumber(value));
+}
+
+function isReasonableBusinessText(value: string): boolean {
+  const normalized = value.trim();
+  return normalized.length >= 2 && normalized.length <= 80;
+}
+
 function isStrongEnoughSignupPassword(value: string): boolean {
   return isStrongPassword(value);
 }
@@ -251,6 +330,16 @@ function isValidLoginId(value: string): boolean {
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function getPublicAuthModeFromHash(): PublicAuthMode {
+  if (typeof window === "undefined") {
+    return "login";
+  }
+
+  return window.location.hash === "#signup" || window.location.hash === "#public-signup-card"
+    ? "signup"
+    : "login";
 }
 
 export function PublicLanding({
@@ -264,9 +353,12 @@ export function PublicLanding({
   onSignIn,
   onSignUp,
   onCheckLoginIdAvailability,
+  onSendSignupPhoneVerification,
+  onConfirmSignupPhoneVerification,
+  onFindLoginId,
   onPasswordReset
 }: PublicLandingProps) {
-  const [activeMode, setActiveMode] = useState<"login" | "signup">("login");
+  const [activeMode, setActiveMode] = useState<PublicAuthMode>(() => getPublicAuthModeFromHash());
   const [signupForm, setSignupForm] = useState<PublicSignupFormState>(emptySignupForm);
   const [signupError, setSignupError] = useState("");
   const [signupLoginIdAvailability, setSignupLoginIdAvailability] = useState<SignupLoginIdAvailabilityState>({
@@ -275,10 +367,45 @@ export function PublicLanding({
     message: ""
   });
   const latestSignupLoginIdRef = useRef("");
+  const [signupPhoneVerification, setSignupPhoneVerification] = useState<SignupPhoneVerificationState>({
+    phone: "",
+    verificationId: "",
+    code: "",
+    status: "idle",
+    message: ""
+  });
   const [expandedTerms, setExpandedTerms] = useState<Set<PublicTermId>>(() => new Set());
+  const [loginIdLookupOpen, setLoginIdLookupOpen] = useState(false);
+  const [loginIdLookup, setLoginIdLookup] = useState<LoginIdLookupState>(emptyLoginIdLookup);
   const [passwordResetOpen, setPasswordResetOpen] = useState(false);
   const [passwordResetEmail, setPasswordResetEmail] = useState("");
   const [passwordResetError, setPasswordResetError] = useState("");
+
+  useEffect(() => {
+    const syncPublicAuthMode = () => setActiveMode(getPublicAuthModeFromHash());
+
+    syncPublicAuthMode();
+    window.addEventListener("hashchange", syncPublicAuthMode);
+    return () => window.removeEventListener("hashchange", syncPublicAuthMode);
+  }, []);
+
+  const navigatePublicAuthMode = (mode: PublicAuthMode) => {
+    setActiveMode(mode);
+    if (mode === "signup") {
+      setLoginIdLookupOpen(false);
+      setPasswordResetOpen(false);
+      setLoginIdLookup(emptyLoginIdLookup);
+      setPasswordResetError("");
+      setSignupError("");
+    }
+
+    if (typeof window !== "undefined") {
+      const nextHash = mode === "signup" ? "#signup" : "#login";
+      if (window.location.hash !== nextHash) {
+        window.location.hash = nextHash;
+      }
+    }
+  };
 
   const updateSignupForm = <Key extends keyof PublicSignupFormState>(
     key: Key,
@@ -287,6 +414,15 @@ export function PublicLanding({
     if (key === "loginId") {
       latestSignupLoginIdRef.current = String(value).trim().toLowerCase();
       setSignupLoginIdAvailability({ loginId: latestSignupLoginIdRef.current, status: "idle", message: "" });
+    }
+    if (key === "phone") {
+      setSignupPhoneVerification({
+        phone: "",
+        verificationId: "",
+        code: "",
+        status: "idle",
+        message: ""
+      });
     }
     setSignupForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -322,12 +458,29 @@ export function PublicLanding({
     signupLoginIdAvailabilityMatches && signupLoginIdAvailability.status === "duplicate";
   const signupOrganizationFilled = signupForm.organizationName.trim().length > 0;
   const signupOrganizationValid = isReasonableOrganizationName(signupForm.organizationName);
+  const signupRepresentativeFilled = signupForm.representativeName.trim().length > 0;
+  const signupRepresentativeValid = isReasonableRepresentativeName(signupForm.representativeName);
+  const signupBusinessNumberFilled = signupForm.businessRegistrationNumber.trim().length > 0;
+  const signupBusinessNumberValid = isValidBusinessRegistrationNumber(signupForm.businessRegistrationNumber);
+  const signupBusinessAddressFilled = signupForm.businessAddress.trim().length > 0;
+  const signupBusinessAddressValid = signupForm.businessAddress.trim().length >= 5 && signupForm.businessAddress.trim().length <= 160;
+  const signupBusinessTypeFilled = signupForm.businessType.trim().length > 0;
+  const signupBusinessTypeValid = isReasonableBusinessText(signupForm.businessType);
+  const signupBusinessItemFilled = signupForm.businessItem.trim().length > 0;
+  const signupBusinessItemValid = isReasonableBusinessText(signupForm.businessItem);
   const signupNameFilled = signupForm.name.trim().length > 0;
   const signupNameValid = isKoreanPersonName(signupForm.name);
   const signupPhoneFilled = signupForm.phone.trim().length > 0;
   const signupPhoneValid = isKoreanMobilePhone(signupForm.phone);
+  const signupPhoneNormalized = signupForm.phone.replace(/\D/g, "");
+  const signupPhoneVerified =
+    signupPhoneVerification.status === "verified" &&
+    signupPhoneVerification.phone === signupPhoneNormalized &&
+    signupPhoneVerification.verificationId.length > 0;
   const signupEmailFilled = signupForm.kepcoEmail.trim().length > 0;
   const signupEmailValid = isValidEmail(signupForm.kepcoEmail);
+  const signupInvoiceEmailFilled = signupForm.invoiceEmail.trim().length > 0;
+  const signupInvoiceEmailValid = isValidEmail(signupForm.invoiceEmail);
   const signupPasswordFilled = signupForm.password.length > 0;
   const signupPasswordValid = isStrongEnoughSignupPassword(signupForm.password);
   const signupRequiredFieldsFilled = Boolean(
@@ -335,9 +488,16 @@ export function PublicLanding({
       signupPasswordValid &&
       signupPasswordMatches &&
       signupOrganizationValid &&
+      signupRepresentativeValid &&
+      signupBusinessNumberValid &&
+      signupBusinessAddressValid &&
+      signupBusinessTypeValid &&
+      signupBusinessItemValid &&
       signupNameValid &&
       signupPhoneValid &&
-      signupEmailValid
+      signupPhoneVerified &&
+      signupEmailValid &&
+      signupInvoiceEmailValid
   );
   const signupRequiredTermsAccepted =
     signupForm.termsAccepted && signupForm.privacyAccepted && signupForm.thirdPartyAccepted;
@@ -346,6 +506,8 @@ export function PublicLanding({
     ? ""
     : signupLoginIdDuplicate
       ? "다른 로그인 ID를 입력해주세요."
+      : signupPhoneValid && !signupPhoneVerified
+        ? "휴대폰 인증을 완료해주세요."
       : !signupRequiredFieldsFilled
         ? "필수 입력값과 비밀번호 확인을 맞춰주세요."
         : "필수 약관 동의가 필요합니다.";
@@ -353,12 +515,67 @@ export function PublicLanding({
     signupForm.password.length > 0 &&
     signupForm.passwordConfirm.length > 0 &&
     signupForm.password !== signupForm.passwordConfirm;
+  const loginIdLookupNameFilled = loginIdLookup.name.trim().length > 0;
+  const loginIdLookupNameValid = isKoreanPersonName(loginIdLookup.name);
+  const loginIdLookupPhoneFilled = loginIdLookup.phone.trim().length > 0;
+  const loginIdLookupPhoneValid = isKoreanMobilePhone(loginIdLookup.phone);
+  const loginIdLookupPhoneNormalized = loginIdLookup.phone.replace(/\D/g, "");
+  const loginIdLookupPhoneVerified =
+    loginIdLookup.status === "verified" &&
+    loginIdLookup.phone.replace(/\D/g, "") === loginIdLookupPhoneNormalized &&
+    loginIdLookup.verificationId.length > 0;
+  const loginIdLookupReady = loginIdLookupNameValid && loginIdLookupPhoneValid && loginIdLookupPhoneVerified;
 
   const togglePasswordReset = () => {
-    setActiveMode("login");
+    navigatePublicAuthMode("login");
+    setLoginIdLookupOpen(false);
     setPasswordResetError("");
     setPasswordResetOpen((prev) => !prev);
     setPasswordResetEmail((prev) => prev || (isValidEmail(signInAccount) ? signInAccount.trim() : ""));
+  };
+
+  const toggleLoginIdLookup = () => {
+    navigatePublicAuthMode("login");
+    setPasswordResetOpen(false);
+    setPasswordResetError("");
+    setLoginIdLookupOpen((prev) => !prev);
+  };
+
+  const updateLoginIdLookup = <Key extends keyof LoginIdLookupState>(
+    key: Key,
+    value: LoginIdLookupState[Key]
+  ) => {
+    setLoginIdLookup((prev) => {
+      const next = {
+        ...prev,
+        [key]: value
+      };
+
+      if (key === "phone") {
+        return {
+          ...next,
+          verificationId: "",
+          code: "",
+          status: "idle",
+          message: "",
+          loginId: "",
+          requestStatus: undefined,
+          devCode: undefined
+        };
+      }
+
+      if (key === "name") {
+        return {
+          ...next,
+          status: prev.status === "found" || prev.status === "not-found" ? "verified" : prev.status,
+          message: prev.status === "found" || prev.status === "not-found" ? "" : prev.message,
+          loginId: "",
+          requestStatus: undefined
+        };
+      }
+
+      return next;
+    });
   };
 
   const submitPasswordReset = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -375,6 +592,221 @@ export function PublicLanding({
     if (sent) {
       setPasswordResetEmail("");
       setPasswordResetOpen(false);
+    }
+  };
+
+  const requestLoginIdLookupPhoneVerification = async () => {
+    if (!loginIdLookupPhoneValid) {
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        status: "error",
+        message: "휴대폰 번호를 먼저 올바르게 입력하세요."
+      }));
+      return;
+    }
+
+    setLoginIdLookup((prev) => ({
+      ...prev,
+      verificationId: "",
+      code: "",
+      status: "sending",
+      message: "인증번호를 보내는 중입니다.",
+      loginId: "",
+      requestStatus: undefined,
+      devCode: undefined
+    }));
+
+    try {
+      const result = await onSendSignupPhoneVerification(loginIdLookup.phone);
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        phone: loginIdLookupPhoneNormalized,
+        verificationId: result.verificationId,
+        code: result.devCode ?? "",
+        status: "sent",
+        message: result.devCode
+          ? `개발용 인증번호 ${result.devCode}를 입력하세요.`
+          : "인증번호를 보냈습니다. 5분 안에 입력하세요.",
+        devCode: result.devCode
+      }));
+    } catch (verificationError) {
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        verificationId: "",
+        code: "",
+        status: "error",
+        message: verificationError instanceof Error ? verificationError.message : "인증번호 발송에 실패했습니다."
+      }));
+    }
+  };
+
+  const confirmLoginIdLookupPhoneVerification = async () => {
+    if (!loginIdLookup.verificationId || loginIdLookup.code.trim().length !== 6) {
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        status: "error",
+        message: "인증번호 6자리를 입력하세요."
+      }));
+      return;
+    }
+
+    setLoginIdLookup((prev) => ({
+      ...prev,
+      status: "verifying",
+      message: "인증번호를 확인하는 중입니다."
+    }));
+
+    try {
+      const verified = await onConfirmSignupPhoneVerification({
+        verificationId: loginIdLookup.verificationId,
+        phone: loginIdLookup.phone,
+        code: loginIdLookup.code
+      });
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        status: verified ? "verified" : "error",
+        message: verified ? "휴대폰 인증이 완료되었습니다." : "인증번호 확인에 실패했습니다."
+      }));
+    } catch (verificationError) {
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        status: "error",
+        message: verificationError instanceof Error ? verificationError.message : "인증번호 확인에 실패했습니다."
+      }));
+    }
+  };
+
+  const submitLoginIdLookup = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!loginIdLookupNameValid) {
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        status: "error",
+        message: "가입 시 입력한 한글 이름을 입력하세요."
+      }));
+      return;
+    }
+
+    if (!loginIdLookupReady) {
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        status: "error",
+        message: "휴대폰 인증을 완료한 뒤 아이디를 찾을 수 있습니다."
+      }));
+      return;
+    }
+
+    setLoginIdLookup((prev) => ({
+      ...prev,
+      status: "looking-up",
+      message: "가입 정보를 확인하는 중입니다.",
+      loginId: "",
+      requestStatus: undefined
+    }));
+
+    try {
+      const result = await onFindLoginId({
+        name: loginIdLookup.name.trim(),
+        phone: loginIdLookup.phone,
+        phoneVerificationId: loginIdLookup.verificationId
+      });
+
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        status: result.found && result.loginId ? "found" : "not-found",
+        loginId: result.loginId ?? "",
+        requestStatus: result.status,
+        message:
+          result.found && result.loginId
+            ? result.status === "pending"
+              ? "승인 대기 중인 계정입니다. 승인 후 로그인할 수 있습니다."
+              : "가입 아이디를 찾았습니다."
+            : "일치하는 가입 정보를 찾지 못했습니다."
+      }));
+    } catch (lookupError) {
+      setLoginIdLookup((prev) => ({
+        ...prev,
+        status: "error",
+        message: lookupError instanceof Error ? lookupError.message : "아이디 찾기에 실패했습니다."
+      }));
+    }
+  };
+
+  const requestSignupPhoneVerification = async () => {
+    if (!signupPhoneValid) {
+      setSignupPhoneVerification((prev) => ({
+        ...prev,
+        status: "error",
+        message: "휴대폰 번호를 먼저 올바르게 입력하세요."
+      }));
+      return;
+    }
+
+    setSignupPhoneVerification({
+      phone: signupPhoneNormalized,
+      verificationId: "",
+      code: "",
+      status: "sending",
+      message: "인증번호를 보내는 중입니다."
+    });
+
+    try {
+      const result = await onSendSignupPhoneVerification(signupForm.phone);
+      setSignupPhoneVerification({
+        phone: signupPhoneNormalized,
+        verificationId: result.verificationId,
+        code: result.devCode ?? "",
+        status: "sent",
+        message: result.devCode
+          ? `개발용 인증번호 ${result.devCode}를 입력하세요.`
+          : "인증번호를 보냈습니다. 5분 안에 입력하세요.",
+        devCode: result.devCode
+      });
+    } catch (verificationError) {
+      setSignupPhoneVerification({
+        phone: signupPhoneNormalized,
+        verificationId: "",
+        code: "",
+        status: "error",
+        message: verificationError instanceof Error ? verificationError.message : "인증번호 발송에 실패했습니다."
+      });
+    }
+  };
+
+  const confirmSignupPhoneVerification = async () => {
+    if (!signupPhoneVerification.verificationId || signupPhoneVerification.code.trim().length !== 6) {
+      setSignupPhoneVerification((prev) => ({
+        ...prev,
+        status: "error",
+        message: "인증번호 6자리를 입력하세요."
+      }));
+      return;
+    }
+
+    setSignupPhoneVerification((prev) => ({
+      ...prev,
+      status: "verifying",
+      message: "인증번호를 확인하는 중입니다."
+    }));
+
+    try {
+      const verified = await onConfirmSignupPhoneVerification({
+        verificationId: signupPhoneVerification.verificationId,
+        phone: signupForm.phone,
+        code: signupPhoneVerification.code
+      });
+      setSignupPhoneVerification((prev) => ({
+        ...prev,
+        status: verified ? "verified" : "error",
+        message: verified ? "휴대폰 인증이 완료되었습니다." : "인증번호 확인에 실패했습니다."
+      }));
+    } catch (verificationError) {
+      setSignupPhoneVerification((prev) => ({
+        ...prev,
+        status: "error",
+        message: verificationError instanceof Error ? verificationError.message : "인증번호 확인에 실패했습니다."
+      }));
     }
   };
 
@@ -440,9 +872,16 @@ export function PublicLanding({
       loginId: signupForm.loginId,
       password: signupForm.password,
       organizationName: signupForm.organizationName,
+      representativeName: signupForm.representativeName,
+      businessRegistrationNumber: normalizeBusinessRegistrationNumber(signupForm.businessRegistrationNumber),
+      businessAddress: signupForm.businessAddress,
+      businessType: signupForm.businessType,
+      businessItem: signupForm.businessItem,
       name: signupForm.name,
       phone: signupForm.phone,
+      phoneVerificationId: signupPhoneVerification.verificationId,
       kepcoEmail: signupForm.kepcoEmail,
+      invoiceEmail: signupForm.invoiceEmail,
       termsAccepted: signupForm.termsAccepted,
       privacyAccepted: signupForm.privacyAccepted,
       thirdPartyAccepted: signupForm.thirdPartyAccepted,
@@ -451,7 +890,14 @@ export function PublicLanding({
 
     if (created) {
       setSignupForm(emptySignupForm);
-      setActiveMode("login");
+      setSignupPhoneVerification({
+        phone: "",
+        verificationId: "",
+        code: "",
+        status: "idle",
+        message: ""
+      });
+      navigatePublicAuthMode("login");
     }
   };
 
@@ -464,11 +910,12 @@ export function PublicLanding({
           </div>
         </header>
 
-        <main className="portal-layout">
-          <section
-            className={`auth-card portal-login-card ${activeMode === "login" ? "portal-login-primary-card" : "portal-secondary-login-card"}`}
-            id="public-login-card"
-          >
+        <main
+          className={`portal-layout ${activeMode === "signup" ? "portal-layout-signup" : "portal-layout-login"}`}
+          aria-label={activeMode === "signup" ? "AUTO-TAX 회원가입 신청" : "AUTO-TAX 로그인"}
+        >
+          {activeMode === "login" ? (
+          <section className="auth-card portal-login-card portal-login-primary-card" id="public-login-card">
             <div className="auth-copy">
               <span className="auth-badge">로그인</span>
             </div>
@@ -497,13 +944,137 @@ export function PublicLanding({
               </label>
               <div className="auth-actions portal-login-actions">
                 <button type="submit" disabled={authBusy}>
-                {authBusy ? "로그인 중..." : "로그인"}
+                  {authBusy ? "로그인 중..." : "로그인"}
                 </button>
               </div>
             </form>
-            <button type="button" className="portal-mode-link" onClick={togglePasswordReset}>
-              {passwordResetOpen ? "비밀번호 찾기 닫기" : "비밀번호 찾기"}
-            </button>
+            <div className="portal-login-help-row">
+              <button type="button" className="portal-mode-link" onClick={toggleLoginIdLookup}>
+                {loginIdLookupOpen ? "아이디 찾기 닫기" : "아이디 찾기"}
+              </button>
+              <button type="button" className="portal-mode-link" onClick={togglePasswordReset}>
+                {passwordResetOpen ? "비밀번호 찾기 닫기" : "비밀번호 찾기"}
+              </button>
+            </div>
+
+            {loginIdLookupOpen ? (
+              <form
+                className="auth-form portal-password-reset-form portal-login-id-lookup-form"
+                onSubmit={(event) => void submitLoginIdLookup(event)}
+              >
+                <label>
+                  <span>이름</span>
+                  <input
+                    value={loginIdLookup.name}
+                    onChange={(event) => updateLoginIdLookup("name", event.target.value)}
+                    placeholder="가입 담당자 이름"
+                    autoComplete="name"
+                    required
+                  />
+                  <span
+                    className={`field-hint portal-password-hint ${
+                      loginIdLookupNameFilled && !loginIdLookupNameValid ? "portal-field-error" : ""
+                    }`}
+                  >
+                    {loginIdLookupNameFilled && !loginIdLookupNameValid ? "한글 실명 2~20자로 입력하세요." : "\u00a0"}
+                  </span>
+                </label>
+                <label>
+                  <span>휴대폰 번호</span>
+                  <div className="portal-login-id-control portal-phone-verification-control">
+                    <input
+                      value={loginIdLookup.phone}
+                      onChange={(event) => updateLoginIdLookup("phone", event.target.value)}
+                      placeholder="010-1234-5678"
+                      autoComplete="tel"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="portal-login-id-check"
+                      disabled={authBusy || !loginIdLookupPhoneValid || loginIdLookup.status === "sending"}
+                      onClick={() => void requestLoginIdLookupPhoneVerification()}
+                    >
+                      {loginIdLookup.status === "sending"
+                        ? "발송 중"
+                        : loginIdLookupPhoneVerified
+                          ? "재전송"
+                          : "인증번호"}
+                    </button>
+                  </div>
+                  <span
+                    className={`field-hint portal-password-hint ${
+                      loginIdLookupPhoneFilled && !loginIdLookupPhoneValid
+                        ? "portal-field-error"
+                        : loginIdLookupPhoneVerified
+                          ? "portal-field-ok"
+                          : loginIdLookup.status === "error"
+                            ? "portal-field-error"
+                            : ""
+                    }`}
+                  >
+                    {loginIdLookupPhoneFilled && !loginIdLookupPhoneValid
+                      ? "휴대폰 번호 형식이 올바르지 않습니다."
+                      : loginIdLookup.message && ["sending", "sent", "verifying", "verified", "error"].includes(loginIdLookup.status)
+                        ? loginIdLookup.message
+                        : "\u00a0"}
+                  </span>
+                </label>
+                <label>
+                  <span>휴대폰 인증번호</span>
+                  <div className="portal-login-id-control portal-phone-verification-control">
+                    <input
+                      value={loginIdLookup.code}
+                      onChange={(event) => {
+                        const code = event.target.value.replace(/\D/g, "").slice(0, 6);
+                        setLoginIdLookup((prev) => ({
+                          ...prev,
+                          code,
+                          status: prev.status === "verified" ? "sent" : prev.status,
+                          message: prev.status === "verified" ? "인증번호를 다시 확인해주세요." : prev.message,
+                          loginId: "",
+                          requestStatus: undefined
+                        }));
+                      }}
+                      placeholder="6자리"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      disabled={!loginIdLookup.verificationId || loginIdLookupPhoneVerified}
+                    />
+                    <button
+                      type="button"
+                      className="portal-login-id-check"
+                      disabled={
+                        authBusy ||
+                        loginIdLookupPhoneVerified ||
+                        loginIdLookup.status === "verifying" ||
+                        !loginIdLookup.verificationId ||
+                        loginIdLookup.code.length !== 6
+                      }
+                      onClick={() => void confirmLoginIdLookupPhoneVerification()}
+                    >
+                      {loginIdLookup.status === "verifying" ? "확인 중" : loginIdLookupPhoneVerified ? "완료" : "확인"}
+                    </button>
+                  </div>
+                </label>
+                {loginIdLookup.status === "found" && loginIdLookup.loginId ? (
+                  <div className="portal-login-id-result" role="status">
+                    <span>가입 아이디</span>
+                    <strong>{loginIdLookup.loginId}</strong>
+                    <small>{loginIdLookup.message}</small>
+                  </div>
+                ) : loginIdLookup.message && ["looking-up", "not-found"].includes(loginIdLookup.status) ? (
+                  <p className={`portal-password-reset-hint ${loginIdLookup.status === "not-found" ? "portal-field-error" : ""}`}>
+                    {loginIdLookup.message}
+                  </p>
+                ) : null}
+                <div className="auth-actions portal-login-actions">
+                  <button type="submit" disabled={authBusy || !loginIdLookupReady || loginIdLookup.status === "looking-up"}>
+                    {loginIdLookup.status === "looking-up" ? "확인 중..." : "아이디 찾기"}
+                  </button>
+                </div>
+              </form>
+            ) : null}
 
             {passwordResetOpen ? (
               <form className="auth-form portal-password-reset-form" onSubmit={(event) => void submitPasswordReset(event)}>
@@ -533,41 +1104,50 @@ export function PublicLanding({
               </form>
             ) : null}
 
-            {activeMode === "signup" ? (
-              <button type="button" className="portal-mode-link" onClick={() => setActiveMode("login")}>
-                로그인 입력으로 돌아가기
-              </button>
-            ) : null}
-
-            {authNotice || (activeMode === "login" && error) ? (
+            {authNotice || error ? (
               <div className="portal-feedback" aria-live="polite">
                 {authNotice ? (
                   <div className="alert success" role="status">
                     {authNotice}
                   </div>
                 ) : null}
-                {activeMode === "login" && error ? (
+                {error ? (
                   <div className="alert error" role="alert">
                     {error}
                   </div>
                 ) : null}
               </div>
             ) : null}
-          </section>
 
-          <section
-            className={`auth-card portal-login-card portal-signup-card ${activeMode === "signup" ? "portal-login-primary-card" : "portal-secondary-login-card"}`}
-            id="public-signup-card"
-          >
-            <div className="auth-copy">
-              <span className="auth-badge">회원가입</span>
-              <h2>{PUBLIC_PORTAL_COPY.signupTitle}</h2>
-              <p>{PUBLIC_PORTAL_COPY.signupDescription}</p>
+            <div className="portal-auth-switch">
+              <span>계정이 없으신가요?</span>
+              <button type="button" onClick={() => navigatePublicAuthMode("signup")}>
+                회원가입 신청
+              </button>
+            </div>
+          </section>
+          ) : null}
+
+          {activeMode === "signup" ? (
+          <section className="auth-card portal-login-card portal-signup-card portal-login-primary-card" id="public-signup-card">
+            <div className="portal-signup-head">
+              <div className="auth-copy">
+                <span className="auth-badge">회원가입</span>
+                <h2>{PUBLIC_PORTAL_COPY.signupTitle}</h2>
+                <p>{PUBLIC_PORTAL_COPY.signupDescription}</p>
+              </div>
+              <button type="button" className="portal-back-login" onClick={() => navigatePublicAuthMode("login")}>
+                로그인으로 돌아가기
+              </button>
             </div>
 
             <form className="auth-form portal-signup-form" onSubmit={(event) => void submitSignup(event)}>
               <div className="portal-signup-grid">
-                <label>
+                <div className="portal-signup-section-title full">
+                  <strong>계정 정보</strong>
+                  <span>모든 항목 필수</span>
+                </div>
+                <label className="full">
                   <span>로그인 ID</span>
                   <div className="portal-login-id-control">
                     <input
@@ -600,24 +1180,6 @@ export function PublicLanding({
                         : signupLoginIdValid
                           ? "중복 검사를 진행해주세요."
                         : "\u00a0"}
-                  </span>
-                </label>
-                <label>
-                  <span>고객사명</span>
-                  <input
-                    value={signupForm.organizationName}
-                    onChange={(event) => updateSignupForm("organizationName", event.target.value)}
-                    placeholder="예: 해성태양광"
-                    required
-                  />
-                  <span
-                    className={`field-hint portal-password-hint ${
-                      signupOrganizationFilled && !signupOrganizationValid ? "portal-field-error" : ""
-                    }`}
-                  >
-                    {signupOrganizationFilled && !signupOrganizationValid
-                      ? "한글을 포함한 실제 상호명을 입력하세요."
-                      : "사업자등록증상에 기재된 회사명을 입력해주세요."}
                   </span>
                 </label>
                 <label>
@@ -664,6 +1226,10 @@ export function PublicLanding({
                         : "\u00a0"}
                   </span>
                 </label>
+                <div className="portal-signup-section-title full">
+                  <strong>담당자 정보</strong>
+                  <span>휴대폰 인증 필수</span>
+                </div>
                 <label>
                   <span>이름</span>
                   <input
@@ -684,23 +1250,79 @@ export function PublicLanding({
                 </label>
                 <label>
                   <span>전화번호</span>
-                  <input
-                    value={signupForm.phone}
-                    onChange={(event) => updateSignupForm("phone", event.target.value)}
-                    placeholder="010-1234-5678"
-                    autoComplete="tel"
-                    required
-                  />
+                  <div className="portal-login-id-control portal-phone-verification-control">
+                    <input
+                      value={signupForm.phone}
+                      onChange={(event) => updateSignupForm("phone", event.target.value)}
+                      placeholder="010-1234-5678"
+                      autoComplete="tel"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="portal-login-id-check"
+                      disabled={authBusy || !signupPhoneValid || signupPhoneVerification.status === "sending"}
+                      onClick={() => void requestSignupPhoneVerification()}
+                    >
+                      {signupPhoneVerification.status === "sending" ? "발송 중" : signupPhoneVerified ? "재전송" : "인증번호"}
+                    </button>
+                  </div>
                   <span
                     className={`field-hint portal-password-hint ${
-                      signupPhoneFilled && !signupPhoneValid ? "portal-field-error" : signupPhoneValid ? "portal-field-ok" : ""
+                      signupPhoneFilled && !signupPhoneValid
+                        ? "portal-field-error"
+                        : signupPhoneVerified
+                          ? "portal-field-ok"
+                          : signupPhoneVerification.status === "error"
+                            ? "portal-field-error"
+                            : ""
                     }`}
                   >
                     {signupPhoneFilled && !signupPhoneValid
                       ? "휴대폰 번호 형식이 올바르지 않습니다."
-                      : signupPhoneValid
-                        ? "사용 가능한 휴대폰 번호입니다."
+                      : signupPhoneVerification.message
+                        ? signupPhoneVerification.message
+                        : signupPhoneValid
+                          ? "인증번호를 받아 휴대폰 인증을 완료하세요."
                         : "\u00a0"}
+                  </span>
+                </label>
+                <label>
+                  <span>휴대폰 인증번호</span>
+                  <div className="portal-login-id-control portal-phone-verification-control">
+                    <input
+                      value={signupPhoneVerification.code}
+                      onChange={(event) => {
+                        const code = event.target.value.replace(/\D/g, "").slice(0, 6);
+                        setSignupPhoneVerification((prev) => ({
+                          ...prev,
+                          code,
+                          status: prev.status === "verified" ? "sent" : prev.status,
+                          message: prev.status === "verified" ? "인증번호를 다시 확인해주세요." : prev.message
+                        }));
+                      }}
+                      placeholder="6자리"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      disabled={!signupPhoneVerification.verificationId || signupPhoneVerified}
+                    />
+                    <button
+                      type="button"
+                      className="portal-login-id-check"
+                      disabled={
+                        authBusy ||
+                        signupPhoneVerified ||
+                        signupPhoneVerification.status === "verifying" ||
+                        !signupPhoneVerification.verificationId ||
+                        signupPhoneVerification.code.length !== 6
+                      }
+                      onClick={() => void confirmSignupPhoneVerification()}
+                    >
+                      {signupPhoneVerification.status === "verifying" ? "확인 중" : signupPhoneVerified ? "완료" : "확인"}
+                    </button>
+                  </div>
+                  <span className={`field-hint portal-password-hint ${signupPhoneVerified ? "portal-field-ok" : ""}`}>
+                    {signupPhoneVerified ? "휴대폰 인증이 완료되었습니다." : "\u00a0"}
                   </span>
                 </label>
                 <label className="full">
@@ -723,6 +1345,139 @@ export function PublicLanding({
                       : signupEmailValid
                         ? "사용 가능한 메일 주소입니다."
                         : "\u00a0"}
+                  </span>
+                </label>
+                <div className="portal-signup-section-title full">
+                  <strong>회사 / 세금계산서 정보</strong>
+                  <span>사업자등록증 기준</span>
+                </div>
+                <label>
+                  <span>상호명</span>
+                  <input
+                    value={signupForm.organizationName}
+                    onChange={(event) => updateSignupForm("organizationName", event.target.value)}
+                    placeholder="예: 해성태양광"
+                    required
+                  />
+                  <span
+                    className={`field-hint portal-password-hint ${
+                      signupOrganizationFilled && !signupOrganizationValid ? "portal-field-error" : ""
+                    }`}
+                  >
+                    {signupOrganizationFilled && !signupOrganizationValid
+                      ? "한글을 포함한 실제 상호명을 입력하세요."
+                      : "*사업자등록증상에 기재된 회사명을 입력해주세요"}
+                  </span>
+                </label>
+                <label>
+                  <span>대표자명</span>
+                  <input
+                    value={signupForm.representativeName}
+                    onChange={(event) => updateSignupForm("representativeName", event.target.value)}
+                    placeholder="예: 홍길동"
+                    required
+                  />
+                  <span
+                    className={`field-hint portal-password-hint ${
+                      signupRepresentativeFilled && !signupRepresentativeValid ? "portal-field-error" : signupRepresentativeValid ? "portal-field-ok" : ""
+                    }`}
+                  >
+                    {signupRepresentativeFilled && !signupRepresentativeValid
+                      ? "대표자명을 2~40자로 입력하세요."
+                      : "\u00a0"}
+                  </span>
+                </label>
+                <label>
+                  <span>사업자등록번호</span>
+                  <input
+                    value={signupForm.businessRegistrationNumber}
+                    onChange={(event) => updateSignupForm("businessRegistrationNumber", event.target.value)}
+                    placeholder="123-45-67890"
+                    inputMode="numeric"
+                    required
+                  />
+                  <span
+                    className={`field-hint portal-password-hint ${
+                      signupBusinessNumberFilled && !signupBusinessNumberValid ? "portal-field-error" : signupBusinessNumberValid ? "portal-field-ok" : ""
+                    }`}
+                  >
+                    {signupBusinessNumberFilled && !signupBusinessNumberValid
+                      ? "사업자등록번호 숫자 10자리를 입력하세요."
+                      : signupBusinessNumberValid
+                        ? "사업자등록번호 형식이 맞습니다."
+                        : "\u00a0"}
+                  </span>
+                </label>
+                <label>
+                  <span>세금계산서 수신 이메일</span>
+                  <input
+                    type="email"
+                    value={signupForm.invoiceEmail}
+                    onChange={(event) => updateSignupForm("invoiceEmail", event.target.value)}
+                    placeholder="tax@example.com"
+                    autoComplete="email"
+                    required
+                  />
+                  <span
+                    className={`field-hint portal-password-hint ${
+                      signupInvoiceEmailFilled && !signupInvoiceEmailValid ? "portal-field-error" : signupInvoiceEmailValid ? "portal-field-ok" : ""
+                    }`}
+                  >
+                    {signupInvoiceEmailFilled && !signupInvoiceEmailValid
+                      ? "메일 주소 형식이 올바르지 않습니다."
+                      : signupInvoiceEmailValid
+                        ? "사용 가능한 메일 주소입니다."
+                        : "\u00a0"}
+                  </span>
+                </label>
+                <label className="full">
+                  <span>사업장 주소</span>
+                  <input
+                    value={signupForm.businessAddress}
+                    onChange={(event) => updateSignupForm("businessAddress", event.target.value)}
+                    placeholder="사업자등록증상 사업장 주소"
+                    required
+                  />
+                  <span
+                    className={`field-hint portal-password-hint ${
+                      signupBusinessAddressFilled && !signupBusinessAddressValid ? "portal-field-error" : signupBusinessAddressValid ? "portal-field-ok" : ""
+                    }`}
+                  >
+                    {signupBusinessAddressFilled && !signupBusinessAddressValid
+                      ? "사업장 주소를 5자 이상 입력하세요."
+                      : "\u00a0"}
+                  </span>
+                </label>
+                <label>
+                  <span>업태</span>
+                  <input
+                    value={signupForm.businessType}
+                    onChange={(event) => updateSignupForm("businessType", event.target.value)}
+                    placeholder="예: 서비스업"
+                    required
+                  />
+                  <span
+                    className={`field-hint portal-password-hint ${
+                      signupBusinessTypeFilled && !signupBusinessTypeValid ? "portal-field-error" : signupBusinessTypeValid ? "portal-field-ok" : ""
+                    }`}
+                  >
+                    {signupBusinessTypeFilled && !signupBusinessTypeValid ? "업태를 2자 이상 입력하세요." : "\u00a0"}
+                  </span>
+                </label>
+                <label>
+                  <span>종목</span>
+                  <input
+                    value={signupForm.businessItem}
+                    onChange={(event) => updateSignupForm("businessItem", event.target.value)}
+                    placeholder="예: 전자세금계산서 자동화"
+                    required
+                  />
+                  <span
+                    className={`field-hint portal-password-hint ${
+                      signupBusinessItemFilled && !signupBusinessItemValid ? "portal-field-error" : signupBusinessItemValid ? "portal-field-ok" : ""
+                    }`}
+                  >
+                    {signupBusinessItemFilled && !signupBusinessItemValid ? "종목을 2자 이상 입력하세요." : "\u00a0"}
                   </span>
                 </label>
               </div>
@@ -778,14 +1533,14 @@ export function PublicLanding({
                 })}
               </div>
 
-              {signupError || (activeMode === "signup" && error) ? (
+              {signupError || error ? (
                 <div className="portal-feedback" aria-live="polite">
                   {signupError ? (
                     <div className="alert error" role="alert">
                       {signupError}
                     </div>
                   ) : null}
-                  {activeMode === "signup" && error ? (
+                  {error ? (
                     <div className="alert error" role="alert">
                       {error}
                     </div>
@@ -803,21 +1558,21 @@ export function PublicLanding({
                 <button
                   type="submit"
                   disabled={authBusy || !signupReady}
-                  onClick={() => setActiveMode("signup")}
                 >
-                  {authBusy && activeMode === "signup" ? "신청 접수 중..." : "회원가입 신청"}
+                  {authBusy ? "신청 접수 중..." : "회원가입 신청"}
                 </button>
               </div>
             </form>
           </section>
+          ) : null}
         </main>
 
         <footer className="portal-footer" aria-label="AUTO-TAX 회사 및 정책 정보">
           <nav className="portal-footer-links" aria-label="정책 문서">
-            <a href="#public-signup-card">서비스 이용약관</a>
-            <a href="#public-signup-card">개인정보처리방침</a>
-            <a href="#public-signup-card">개인정보 수집·이용 동의</a>
-            <a href="#public-signup-card">처리위탁 및 제3자 제공 안내</a>
+            <a href="#signup">서비스 이용약관</a>
+            <a href="#signup">개인정보처리방침</a>
+            <a href="#signup">개인정보 수집·이용 동의</a>
+            <a href="#signup">처리위탁 및 제3자 제공 안내</a>
           </nav>
           <dl className="portal-footer-info">
             <div>

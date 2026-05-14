@@ -114,9 +114,15 @@ export interface PublicSignupRequest {
   loginId: string;
   authEmail: string;
   organizationName: string;
+  representativeName: string;
+  businessRegistrationNumber: string;
+  businessAddress: string;
+  businessType: string;
+  businessItem: string;
   name: string;
   phone: string;
   kepcoEmail: string;
+  invoiceEmail: string;
   status: PublicSignupRequestStatus;
   marketingConsent: boolean;
   termsVersion: string;
