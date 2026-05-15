@@ -32420,3 +32420,799 @@ button.issuance-list-item {
   overflow: visible !important;
   text-overflow: clip !important;
 }
+
+.app-shell-topnav .content-settings .settings-option1-main {
+  display: block !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-settings > .settings-screen {
+  display: block !important;
+}
+
+.app-shell-topnav .content-settings .settings-page-header {
+  margin-bottom: var(--settings-gap-lg) !important;
+}
+
+.app-shell-topnav .content-settings .settings-layout.settings-option1-layout {
+  display: grid !important;
+  grid-template-columns: minmax(230px, 260px) minmax(0, 1fr) !important;
+  align-items: start !important;
+}
+
+.app-shell-topnav .content-settings .settings-sidebar-stack {
+  position: sticky !important;
+  z-index: 3 !important;
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+
+.app-shell-topnav .content-settings .settings-readiness-shell {
+  display: grid !important;
+  position: relative !important;
+  z-index: 1 !important;
+  min-width: 0 !important;
+  height: auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-bottom: var(--settings-gap-lg) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-settings .settings-readiness-card {
+  display: grid !important;
+  gap: 14px !important;
+  min-width: 0 !important;
+  min-height: 132px !important;
+  width: 100% !important;
+  padding: 16px !important;
+  border: 1px solid var(--lovable-border, var(--console-border)) !important;
+  border-radius: 8px !important;
+  background: var(--lovable-surface, var(--console-surface)) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-main {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.app-shell-topnav .content-settings .settings-detail {
+  display: block !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-top-row {
+  display: grid !important;
+  position: relative !important;
+  z-index: 1 !important;
+  grid-row: 1 !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: stretch !important;
+  min-height: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-status-card {
+  display: grid !important;
+  position: relative !important;
+  z-index: 2 !important;
+  grid-column: 1 / -1 !important;
+  min-height: 132px !important;
+  height: auto !important;
+  max-height: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-settings .settings-detail > .onboarding-task-shell,
+.app-shell-topnav .content-settings .settings-detail > .settings-option1-detail-grid,
+.app-shell-topnav .content-settings .settings-detail > .setup-panel,
+.app-shell-topnav .content-settings .settings-detail > .settings-account-stack {
+  position: relative !important;
+  z-index: 1 !important;
+  grid-column: 1 / -1 !important;
+  grid-row: 2 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+@media (max-width: 1180px) {
+  .app-shell-topnav .content-settings .settings-layout.settings-option1-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-settings .settings-sidebar-stack {
+    position: static !important;
+    display: block !important;
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    width: 100% !important;
+    max-height: none !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-settings .settings-sidebar-panel {
+    display: grid !important;
+    gap: var(--settings-gap-md) !important;
+    min-height: 0 !important;
+    height: auto !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-settings .settings-step-list {
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(150px, 1fr)) !important;
+    gap: var(--settings-gap-sm) !important;
+    min-height: 58px !important;
+    height: auto !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+  }
+
+  .app-shell-topnav .content-settings .settings-step-card {
+    min-height: 58px !important;
+    height: auto !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+  }
+
+  .app-shell-topnav .content-settings .settings-readiness-shell {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+
+  .app-shell-topnav .content-settings .settings-option1-main {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+  }
+}
+
+/* Responsive QA guard: keep primary work lists visible before detail panes. */
+@media (max-width: 1100px) {
+  .app-shell-topnav .content-customers {
+    overflow-y: auto !important;
+  }
+
+  .app-shell-topnav .customers-screen.customer-console-screen {
+    height: auto !important;
+    min-height: calc(100dvh - 70px) !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .customer-console-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto auto auto !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .customer-summary-grid {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+  }
+
+  .app-shell-topnav .customer-console-main-column {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .customer-detail-panel {
+    grid-column: 1 !important;
+    grid-row: 3 !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .panel.panel-customer-list.customer-console-panel {
+    height: auto !important;
+    min-height: 420px !important;
+    max-height: none !important;
+  }
+
+  .app-shell-topnav .customer-console-table-wrap {
+    height: min(460px, calc(100dvh - 280px)) !important;
+    max-height: min(460px, calc(100dvh - 280px)) !important;
+    min-height: 320px !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .app-shell-topnav .topnav-list {
+    grid-column: 1 / -1 !important;
+    grid-row: 2 !important;
+    overflow-x: auto !important;
+  }
+
+  .app-shell-topnav .topnav-context {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    max-width: 100% !important;
+  }
+
+  .app-shell-topnav .topnav-search {
+    display: none !important;
+  }
+
+  .app-shell-topnav .content-home,
+  .app-shell-topnav .content-issuance,
+  .app-shell-topnav .content-customers,
+  .app-shell-topnav .content-settings {
+    padding-inline: 14px !important;
+  }
+
+  .app-shell-topnav .issuance-console-toolbar,
+  .app-shell-topnav .customer-summary-grid {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    padding-bottom: 4px !important;
+  }
+
+  .app-shell-topnav .customer-summary-actions {
+    width: max-content !important;
+    margin-left: 0 !important;
+  }
+
+  .app-shell-topnav .content-issuance {
+    height: auto !important;
+    overflow-y: auto !important;
+  }
+
+  .app-shell-topnav .content-issuance > .issuance-screen,
+  .app-shell-topnav .issuance-main-column {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .issuance-workspace {
+    grid-template-columns: minmax(0, 1fr) !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .issuance-list-panel,
+  .app-shell-topnav .issuance-detail-panel {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+
+  .app-shell-topnav .issuance-table-shell {
+    max-height: 420px !important;
+    overflow: auto !important;
+  }
+
+  .app-shell-topnav .lovable-issued-trend-head,
+  .app-shell-topnav .lovable-issued-trend-query {
+    align-items: stretch !important;
+  }
+
+  .app-shell-topnav .lovable-issued-trend-query {
+    width: 100% !important;
+  }
+
+  .app-shell-topnav .lovable-issued-trend-query input[type="number"] {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-head {
+  align-items: center !important;
+  justify-content: flex-start !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-year-select {
+  flex: 0 0 96px !important;
+  width: 96px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  padding: 0 28px 0 10px !important;
+  line-height: 30px !important;
+  align-self: center !important;
+}
+
+@media (max-width: 760px) {
+  .app-shell-topnav .content-issuance .issuance-console-toolbar {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-issuance .issuance-filter-row {
+    width: 100% !important;
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-issuance .issuance-console-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    width: 100% !important;
+    height: auto !important;
+    margin-left: 0 !important;
+  }
+
+  .app-shell-topnav .content-issuance .issuance-console-actions button {
+    width: 100% !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-head {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    min-height: 44px !important;
+    padding-block: 6px !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-head h3 {
+    flex: 0 0 auto !important;
+    height: 32px !important;
+    line-height: 32px !important;
+    text-align: left !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-year-select {
+    flex: 0 0 96px !important;
+    width: 96px !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-status {
+    flex: 1 1 180px !important;
+    line-height: 1.35 !important;
+    white-space: normal !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell-topnav .content-issuance .issuance-workspace {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-auto-rows: auto !important;
+    gap: 14px !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-issuance .issuance-list-panel,
+  .app-shell-topnav .content-issuance .issuance-detail-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-issuance .issuance-table-shell {
+    min-height: min(380px, calc(100dvh - 340px)) !important;
+    max-height: min(520px, calc(100dvh - 300px)) !important;
+    overflow: auto !important;
+  }
+
+  .app-shell-topnav .content-issuance .issuance-detail-scroll {
+    display: block !important;
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-issuance .issuance-detail-panel {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-issuance .issuance-list-panel {
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 330px !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-issuance .issuance-table-shell {
+    display: block !important;
+    flex: 0 0 auto !important;
+    height: 260px !important;
+    min-height: 260px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .app-shell-topnav .content-issuance .issuance-console-actions {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+.app-shell-topnav .content-customers .customer-console-table-title,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-detail-section,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-detail-section-head,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-detail-section-head h3 {
+  text-align: left !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-table-title,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-detail-section-head {
+  justify-content: flex-start !important;
+  justify-self: stretch !important;
+  width: 100% !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-detail-section-head h3 {
+  display: block !important;
+  width: 100% !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-head h3 {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  align-items: center !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-year-select {
+  position: static !important;
+  flex: 0 0 112px !important;
+  width: 112px !important;
+  min-width: 112px !important;
+  max-width: 112px !important;
+  margin: 0 !important;
+  padding: 0 30px 0 12px !important;
+  text-align: left !important;
+  justify-self: start !important;
+  align-self: center !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-status {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+@media (min-width: 901px) and (max-width: 1100px) {
+  .app-shell-topnav .content-customers {
+    overflow: auto !important;
+  }
+
+  .app-shell-topnav .customer-console-shell {
+    grid-template-columns: minmax(320px, 360px) minmax(0, 1fr) !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    gap: 14px !important;
+    align-items: start !important;
+  }
+
+  .app-shell-topnav .customer-summary-grid {
+    grid-column: 1 / -1 !important;
+    grid-row: 1 !important;
+  }
+
+  .app-shell-topnav .customer-console-main-column {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    min-width: 0 !important;
+  }
+
+  .app-shell-topnav .customer-detail-panel {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    min-width: 0 !important;
+  }
+
+  .app-shell-topnav .panel.panel-customer-list.customer-console-panel {
+    height: min(700px, calc(100dvh - 184px)) !important;
+    min-height: 520px !important;
+    max-height: none !important;
+  }
+
+  .app-shell-topnav .customer-console-table-wrap {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body,
+  .app-shell-topnav .customer-detail-panel-body.customer-detail-option3-body {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-detail-basic-facts {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-detail-basic-facts > div,
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-detail-basic-facts > div.wide {
+    grid-template-columns: 88px minmax(0, 1fr) !important;
+  }
+}
+
+/* Customer detail responsive lock: stack report cards when the detail pane
+   itself can no longer hold the two-column overview without clipping. */
+.app-shell-topnav .content-customers .customer-detail-panel {
+  container-name: customer-detail-pane;
+  container-type: inline-size;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-summary-card {
+  max-width: 100% !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table-wrap {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  overscroll-behavior-x: contain !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table {
+  width: 100% !important;
+  min-width: 560px !important;
+}
+
+@container customer-detail-pane (max-width: 1040px) {
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview {
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: start !important;
+    align-content: start !important;
+    height: auto !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-main-stack,
+  .app-shell-topnav .content-customers .customer-detail-report-stack {
+    grid-template-rows: none !important;
+    height: auto !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview :is(
+    .customer-info-basic-card,
+    .customer-report-summary-card,
+    .customer-info-contract-card,
+    .customer-info-certificate-card,
+    .customer-info-memo-card,
+    .customer-report-history-section
+  ) {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-summary-card {
+    order: 5 !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
+    grid-template-rows: auto auto !important;
+    order: 6 !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-summary-totals {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table-wrap {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    overscroll-behavior-x: contain !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table {
+    width: 100% !important;
+    min-width: 560px !important;
+    height: auto !important;
+  }
+}
+
+@media (max-width: 1180px) {
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-summary-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+/* Customer split-pane height lock: keep the list and detail bottoms aligned,
+   then scroll inside each pane instead of growing the whole page. */
+@media (min-width: 901px) {
+  .app-shell-topnav .content-customers {
+    height: calc(100vh - 90px) !important;
+    height: calc(100dvh - 90px) !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-customers > .customers-screen.customer-console-screen {
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-console-shell {
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    align-items: stretch !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-summary-grid {
+    grid-row: 1 !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-console-main-column,
+  .app-shell-topnav .content-customers .customer-detail-panel {
+    grid-row: 2 !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-console-main-column {
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel {
+    display: grid !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers .panel.panel-customer-list.customer-console-panel {
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-console-table-wrap {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    overflow: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    scrollbar-gutter: stable;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell-topnav .content-customers {
+    --customer-stacked-pane-height: clamp(420px, calc(100dvh - 260px), 620px);
+    height: auto !important;
+    min-height: calc(100vh - 90px) !important;
+    min-height: calc(100dvh - 90px) !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+
+  .app-shell-topnav .content-customers > .customers-screen.customer-console-screen,
+  .app-shell-topnav .content-customers .customer-console-shell {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-console-shell {
+    grid-template-rows: auto auto auto !important;
+    align-items: stretch !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-console-main-column,
+  .app-shell-topnav .content-customers .customer-detail-panel {
+    height: var(--customer-stacked-pane-height) !important;
+    min-height: var(--customer-stacked-pane-height) !important;
+    max-height: var(--customer-stacked-pane-height) !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-console-main-column {
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel {
+    display: grid !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers .panel.panel-customer-list.customer-console-panel {
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-console-table-wrap {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    overflow: auto !important;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    scrollbar-gutter: stable;
+  }
+}

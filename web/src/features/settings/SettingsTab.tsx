@@ -78,7 +78,7 @@ function SettingsReadinessSummary({ model }: SettingsTabProps) {
     : sidebar.settingsAutosaveLabel;
 
   return (
-    <section className="settings-option1-card settings-option1-status-card">
+    <section className="settings-readiness-card">
       <div className="settings-option1-status-title">
         <strong>설정 준비 상태</strong>
         <StatusBadge tone={getAutosaveBadgeTone(sidebar.settingsAutosaveState)}>
@@ -494,73 +494,81 @@ function SettingsTabContent({ model }: SettingsTabProps) {
   );
 
   return (
-    <motion.div
-      className="settings-layout settings-option1-layout"
-      variants={pageContainerVariants}
-      initial={shouldReduceMotion ? false : "hidden"}
-      animate={shouldReduceMotion ? undefined : "visible"}
-    >
-      <motion.aside className="settings-sidebar-stack" variants={pageSectionVariants}>
-        <section className="panel settings-sidebar-panel">
-          <motion.div className="settings-step-list" variants={pageContainerVariants}>
-            {sidebar.settingsSections.map((section) => (
-              <motion.button
-                key={section.id}
-                className={
-                  sidebar.activeSettingsSection === section.id
-                    ? "settings-step-card active"
-                    : "settings-step-card"
-                }
-                onClick={() => sidebar.setActiveSettingsSection(section.id)}
-                aria-current={
-                  sidebar.activeSettingsSection === section.id ? "page" : undefined
-                }
-                variants={pageCardVariants}
-                whileHover={getSubtleHoverMotion(shouldReduceMotion)}
-                whileTap={getSubtleTapMotion(shouldReduceMotion)}
-              >
-                <span className="settings-option1-nav-label">{section.title}</span>
-                <span className="settings-option1-nav-state">
-                  {section.done ? "완료" : "확인 필요"}
+    <>
+      <motion.section
+        className="settings-readiness-shell"
+        variants={pageSectionVariants}
+        initial={shouldReduceMotion ? false : "hidden"}
+        animate={shouldReduceMotion ? undefined : "visible"}
+      >
+        <SettingsReadinessSummary model={model} />
+      </motion.section>
+
+      <motion.div
+        className="settings-layout settings-option1-layout"
+        variants={pageContainerVariants}
+        initial={shouldReduceMotion ? false : "hidden"}
+        animate={shouldReduceMotion ? undefined : "visible"}
+      >
+        <motion.aside className="settings-sidebar-stack" variants={pageSectionVariants}>
+          <section className="panel settings-sidebar-panel">
+            <motion.div className="settings-step-list" variants={pageContainerVariants}>
+              {sidebar.settingsSections.map((section) => (
+                <motion.button
+                  key={section.id}
+                  className={
+                    sidebar.activeSettingsSection === section.id
+                      ? "settings-step-card active"
+                      : "settings-step-card"
+                  }
+                  onClick={() => sidebar.setActiveSettingsSection(section.id)}
+                  aria-current={
+                    sidebar.activeSettingsSection === section.id ? "page" : undefined
+                  }
+                  variants={pageCardVariants}
+                  whileHover={getSubtleHoverMotion(shouldReduceMotion)}
+                  whileTap={getSubtleTapMotion(shouldReduceMotion)}
+                >
+                  <span className="settings-option1-nav-label">{section.title}</span>
+                  <span className="settings-option1-nav-state">
+                    {section.done ? "완료" : "확인 필요"}
+                  </span>
+                </motion.button>
+              ))}
+            </motion.div>
+
+            <div className="settings-inline-note">
+              <div className="settings-inline-copy">
+                <strong>
+                  {sidebar.setupPendingCount === 0
+                    ? "설정 준비 완료"
+                    : `${sidebar.nextSettingsSectionLabel} 점검`}
+                </strong>
+                <span>
+                  {sidebar.customerRegistrationReady
+                    ? `고객 ${sidebar.customerCount}명 기준`
+                    : "필요한 항목만 수정"}
                 </span>
-              </motion.button>
-            ))}
-          </motion.div>
-
-          <div className="settings-inline-note">
-            <div className="settings-inline-copy">
-              <strong>
-                {sidebar.setupPendingCount === 0
-                  ? "설정 준비 완료"
-                  : `${sidebar.nextSettingsSectionLabel} 점검`}
-              </strong>
-              <span>
-                {sidebar.customerRegistrationReady
-                  ? `고객 ${sidebar.customerCount}명 기준`
-                  : "필요한 항목만 수정"}
-              </span>
+              </div>
             </div>
-          </div>
-        </section>
-      </motion.aside>
+          </section>
+        </motion.aside>
 
-      <motion.main className="settings-option1-main" variants={pageSectionVariants}>
-        <div className="settings-option1-top-row">
-          <SettingsReadinessSummary model={model} />
-        </div>
-        <motion.div
-          key={sidebar.activeSettingsSection}
-          className="settings-detail"
-          aria-label={activeSection?.title ?? "설정"}
-          variants={pageDetailVariants}
-          initial={shouldReduceMotion ? false : "hidden"}
-          animate={shouldReduceMotion ? undefined : "visible"}
-          layout
-        >
-          <SettingsTabDetail model={model} />
-        </motion.div>
-      </motion.main>
-    </motion.div>
+        <motion.main className="settings-option1-main" variants={pageSectionVariants}>
+          <motion.div
+            key={sidebar.activeSettingsSection}
+            className="settings-detail"
+            aria-label={activeSection?.title ?? "설정"}
+            variants={pageDetailVariants}
+            initial={shouldReduceMotion ? false : "hidden"}
+            animate={shouldReduceMotion ? undefined : "visible"}
+            layout
+          >
+            <SettingsTabDetail model={model} />
+          </motion.div>
+        </motion.main>
+      </motion.div>
+    </>
   );
 }
 
