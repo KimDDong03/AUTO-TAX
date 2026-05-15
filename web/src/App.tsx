@@ -7117,7 +7117,7 @@ export function App() {
           <button type="button" className="topnav-brand" aria-label="홈으로 이동" onClick={() => handleNavSelect("home")}>
             <span className="brand-badge topnav-brand-badge">AT</span>
             <div className="brand-copy">
-              <img src="/header-icon.png" alt="AUTO-TAX" className="topnav-brand-logo" />
+              <img src="/logo-O2APlXk3.png" alt="AUTO-TAX" className="topnav-brand-logo" />
             </div>
           </button>
 

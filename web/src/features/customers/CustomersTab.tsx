@@ -1359,6 +1359,12 @@ export function CustomersTab(props: CustomersTabProps) {
     );
   };
 
+  const openCustomerHistoryDetail = () => {
+    setCustomerContractAddOpen(false);
+    setCustomerContractAddError("");
+    setCustomerHistoryDetailOpen(true);
+  };
+
   const renderCustomerCertificateMeta = (
     item: CustomerCertificateCandidateView | null,
     fallback: string,
@@ -1960,24 +1966,6 @@ export function CustomersTab(props: CustomersTabProps) {
                     {customerReportDetail.error || customerReportSaveStatus}
                   </span>
                 </div>
-                <div className="customer-history-summary" aria-label="운영 이력 요약">
-                  <div className="customer-history-summary-main">
-                    <span>운영 이력</span>
-                    <strong>{props.selectedCustomerIssuedDrafts.length}건</strong>
-                    <em>{customerHistorySummaryText}</em>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-ghost customer-history-detail-button"
-                    onClick={() => {
-                      setCustomerContractAddOpen(false);
-                      setCustomerContractAddError("");
-                      setCustomerHistoryDetailOpen(true);
-                    }}
-                  >
-                    상세정보보기
-                  </button>
-                </div>
                 {customerDetailEditing ? (
                   <div className="customer-report-profile-grid customer-info-contract-grid">
                     <label>
@@ -1991,8 +1979,8 @@ export function CustomersTab(props: CustomersTabProps) {
                         onChange={(event) => updateCustomerReportProfile("solarCapacityKw", parseNullableNumberInput(event.target.value))}
                       />
                     </label>
-                    <label className="customer-contract-period-field">
-                      계약기간
+                    <div className="customer-contract-period-field customer-contract-period-action-row">
+                      <span className="customer-contract-period-label">계약기간</span>
                       <span className="customer-contract-period-inputs">
                         <input
                           type="month"
@@ -2010,7 +1998,10 @@ export function CustomersTab(props: CustomersTabProps) {
                           aria-readonly="true"
                         />
                       </span>
-                    </label>
+                      <button type="button" className="btn-ghost customer-history-detail-button" onClick={openCustomerHistoryDetail}>
+                        상세정보보기
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <dl className="customer-detail-context-grid customer-info-contract-summary">
@@ -2018,12 +2009,22 @@ export function CustomersTab(props: CustomersTabProps) {
                       <dt>태양광 용량 KW</dt>
                       <dd>{solarCapacityLabel}</dd>
                     </div>
-                    <div>
+                    <div className="customer-contract-period-action-row">
                       <dt>계약기간</dt>
                       <dd>{contractPeriodSummaryLabel}</dd>
+                      <button type="button" className="btn-ghost customer-history-detail-button" onClick={openCustomerHistoryDetail}>
+                        상세정보보기
+                      </button>
                     </div>
                   </dl>
                 )}
+                <div className="customer-history-summary" aria-label="운영 이력 요약">
+                  <div className="customer-history-summary-main">
+                    <span>운영 이력</span>
+                    <strong>{props.selectedCustomerIssuedDrafts.length}건</strong>
+                    <em>{customerHistorySummaryText}</em>
+                  </div>
+                </div>
               </section>
 
               <section className="customer-detail-section customer-info-card customer-info-certificate-card">

@@ -25049,15 +25049,16 @@ button.issuance-list-item {
 
 /* Lovable tighter pass: keep Home rows compact and match the reference scale. */
 .app-shell-topnav .topnav-shell {
-  grid-template-columns: 105px minmax(360px, 1fr) minmax(330px, 420px);
+  grid-template-columns: 156px minmax(360px, 1fr) minmax(330px, 420px);
   gap: 20px;
   min-height: 68px;
   padding: 0 28px;
 }
 
 .app-shell-topnav .topnav-brand-logo {
-  width: 36px;
-  height: 36px;
+  width: 132px;
+  height: auto;
+  max-height: 44px;
   object-fit: contain;
 }
 
@@ -25127,9 +25128,9 @@ button.issuance-list-item {
 
 @media (min-width: 761px) and (max-width: 1180px) {
   .app-shell-topnav .topnav-shell {
-    grid-template-columns: 88px minmax(300px, 1fr) minmax(280px, 360px);
-    gap: 16px;
-    padding: 0 28px;
+    grid-template-columns: clamp(118px, 14vw, 144px) minmax(240px, 1fr) minmax(320px, 360px);
+    gap: 12px;
+    padding: 0 22px;
   }
 
   .app-shell-topnav .topnav-context {
@@ -25138,7 +25139,7 @@ button.issuance-list-item {
   }
 
   .app-shell-topnav .topnav-search {
-    width: clamp(210px, 24vw, 320px);
+    width: clamp(180px, 22vw, 280px);
   }
 
   .lovable-metric-grid {
@@ -25154,7 +25155,7 @@ button.issuance-list-item {
 
 @media (min-width: 1000px) {
   .app-shell-topnav .topnav-shell {
-    grid-template-columns: 88px minmax(360px, 1fr) minmax(430px, 460px);
+    grid-template-columns: clamp(126px, 11vw, 156px) minmax(300px, 1fr) minmax(390px, 460px);
   }
 
   .app-shell-topnav .topnav-context {
@@ -27794,7 +27795,7 @@ button.issuance-list-item {
   display: flex !important;
   align-items: center !important;
   min-height: 20px !important;
-  margin: 0 0 8px !important;
+  margin: 0 0 var(--customer-detail-head-gap, 4px) !important;
   padding: 0 !important;
 }
 
@@ -27809,7 +27810,7 @@ button.issuance-list-item {
 .app-shell-topnav .content-customers .customer-detail-overview .customer-detail-basic-facts {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 4px 20px !important;
+  gap: 2px 20px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-detail-basic-facts > div,
@@ -27817,7 +27818,7 @@ button.issuance-list-item {
   display: grid !important;
   grid-template-columns: 88px minmax(0, 1fr) !important;
   align-items: center !important;
-  min-height: 24px !important;
+  min-height: 22px !important;
   gap: 8px !important;
 }
 
@@ -27910,12 +27911,12 @@ button.issuance-list-item {
 
 .app-shell-topnav .content-customers .customer-history-summary {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-columns: minmax(0, 1fr) !important;
   align-items: center !important;
   gap: 12px !important;
-  min-height: 34px !important;
-  margin-top: 8px !important;
-  padding-top: 9px !important;
+  min-height: 26px !important;
+  margin-top: 3px !important;
+  padding-top: 4px !important;
   border-top: 1px solid var(--lovable-border) !important;
 }
 
@@ -27966,13 +27967,13 @@ button.issuance-list-item {
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-grid {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) !important;
-  gap: 6px !important;
+  gap: 3px !important;
 }
 
 .app-shell-topnav .content-customers .customer-info-contract-summary {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) !important;
-  gap: 8px !important;
+  gap: 4px !important;
 }
 
 .app-shell-topnav .content-customers .customer-info-contract-summary > div {
@@ -27980,7 +27981,22 @@ button.issuance-list-item {
   grid-template-columns: 100px minmax(0, 1fr) !important;
   align-items: center !important;
   gap: 10px !important;
-  min-height: 28px !important;
+  min-height: 24px !important;
+}
+
+.app-shell-topnav .content-customers .customer-info-contract-summary > .customer-contract-period-action-row,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-grid .customer-contract-period-action-row {
+  display: grid !important;
+  grid-template-columns: 100px minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-height: 24px !important;
+}
+
+.app-shell-topnav .content-customers .customer-contract-period-label {
+  color: #64748b !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-grid label {
@@ -27988,7 +28004,7 @@ button.issuance-list-item {
   grid-template-columns: 100px minmax(0, 1fr) !important;
   align-items: center !important;
   gap: 10px !important;
-  min-height: 28px !important;
+  min-height: 24px !important;
   color: #64748b !important;
   font-size: 12px !important;
   font-weight: 700 !important;
@@ -30702,6 +30718,7 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview {
+  --customer-detail-head-gap: 2px;
   grid-template-columns: minmax(480px, 1.05fr) minmax(520px, 0.95fr) !important;
   align-items: stretch !important;
   gap: 12px !important;
@@ -30746,25 +30763,25 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-history-summary {
-  min-height: 30px !important;
-  margin-top: 6px !important;
-  padding-top: 7px !important;
+  min-height: 26px !important;
+  margin-top: 3px !important;
+  padding-top: 4px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-info-contract-summary {
-  gap: 4px !important;
+  gap: 2px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-info-contract-summary > div {
-  min-height: 24px !important;
+  min-height: 22px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-info-contract-grid {
-  gap: 3px !important;
+  gap: 2px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-info-contract-grid label {
-  min-height: 24px !important;
+  min-height: 22px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-info-contract-grid input {
@@ -30813,21 +30830,21 @@ button.issuance-list-item {
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card {
   overflow: visible !important;
-  padding: 12px 20px !important;
+  padding: 7px 20px 14px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-detail-section-head {
-  margin-bottom: 4px !important;
+  margin-bottom: var(--customer-detail-head-gap, 2px) !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-certificate-management-row {
-  min-height: 50px !important;
-  padding: 8px 0 !important;
+  min-height: 42px !important;
+  padding: 4px 0 !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-certificate-management-main small {
-  margin-top: 3px !important;
-  line-height: 1.35 !important;
+  margin-top: 2px !important;
+  line-height: 1.28 !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-memo-card {
@@ -30836,13 +30853,13 @@ button.issuance-list-item {
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-memo-card {
   display: grid !important;
-  gap: 4px !important;
+  gap: 2px !important;
   align-content: start !important;
   padding: 14px 20px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-memo-card .customer-detail-section-head {
-  margin-bottom: 4px !important;
+  margin-bottom: var(--customer-detail-head-gap, 2px) !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-memo-card textarea {
@@ -30871,6 +30888,7 @@ button.issuance-list-item {
   display: flex !important;
   align-items: center !important;
   min-height: 42px !important;
+  margin-bottom: 4px !important;
   gap: 10px !important;
 }
 

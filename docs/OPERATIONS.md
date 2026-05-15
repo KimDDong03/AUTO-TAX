@@ -4,6 +4,12 @@ This file is for development, deployment, and runtime debugging work. It is not 
 
 ## 1. Required Environment
 
+Environment templates are split by runtime:
+
+- `.env.local.example`: local development template. Copy it to `.env` for `npm run dev`.
+- `.env.vercel.example`: Vercel dashboard checklist for production or preview deployment.
+- `.env.example`: pointer file that explains which template to use.
+
 ### Browser runtime
 
 - `VITE_SUPABASE_URL`
