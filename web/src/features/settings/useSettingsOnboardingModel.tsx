@@ -9,9 +9,13 @@ import type { SettingsFormState, SettingsScreenState } from "./useSettingsScreen
 
 type SettingsOnboardingFields = Pick<
   SettingsFormState,
+  | "mailProvider"
   | "mailAddress"
   | "mailPassword"
-  | "notificationEmailsText"
+  | "imapHost"
+  | "imapPort"
+  | "imapSecure"
+  | "imapMailbox"
   | "popbillUserIdPrefix"
   | "popbillSharedPassword"
   | "renewalIssuePassword"
@@ -64,8 +68,12 @@ export function selectSettingsOnboardingState(
   const fields: SettingsOnboardingFields = settingsState.settingsForm
     ? {
         mailAddress: settingsState.settingsForm.mailAddress,
+        mailProvider: settingsState.settingsForm.mailProvider,
         mailPassword: settingsState.settingsForm.mailPassword,
-        notificationEmailsText: settingsState.settingsForm.notificationEmailsText,
+        imapHost: settingsState.settingsForm.imapHost,
+        imapPort: settingsState.settingsForm.imapPort,
+        imapSecure: settingsState.settingsForm.imapSecure,
+        imapMailbox: settingsState.settingsForm.imapMailbox,
         popbillUserIdPrefix: settingsState.settingsForm.popbillUserIdPrefix,
         popbillSharedPassword: settingsState.settingsForm.popbillSharedPassword,
         renewalIssuePassword: settingsState.settingsForm.renewalIssuePassword,
@@ -74,8 +82,12 @@ export function selectSettingsOnboardingState(
       }
     : {
         mailAddress: "",
+        mailProvider: "gmail",
         mailPassword: "",
-        notificationEmailsText: "",
+        imapHost: "",
+        imapPort: "993",
+        imapSecure: true,
+        imapMailbox: "INBOX",
         popbillUserIdPrefix: "",
         popbillSharedPassword: "",
         renewalIssuePassword: "",
@@ -185,7 +197,11 @@ export function useSettingsOnboardingModel({
           detectedMailProviderLabel={settingsState.detectedMailProviderLabel}
           mailAddress={settingsState.fields.mailAddress}
           mailPassword={settingsState.fields.mailPassword}
-          notificationEmailsText={settingsState.fields.notificationEmailsText}
+          imapHost={settingsState.fields.imapHost}
+          imapPort={settingsState.fields.imapPort}
+          imapSecure={settingsState.fields.imapSecure}
+          imapMailbox={settingsState.fields.imapMailbox}
+          requiresManualImapSettings={settingsState.fields.mailProvider === "custom"}
           mailPasswordConfigured={settingsState.configured.mailPassword}
           mailPasswordReveal={orchestration.reveals.mailPassword}
           busy={busy}
@@ -194,9 +210,10 @@ export function useSettingsOnboardingModel({
             settingsState.actions.handleSettingsMailAddressChange
           }
           onMailPasswordChange={(value) => setSettingsField("mailPassword", value)}
-          onNotificationEmailsTextChange={(value) =>
-            setSettingsField("notificationEmailsText", value)
-          }
+          onImapHostChange={(value) => setSettingsField("imapHost", value)}
+          onImapPortChange={(value) => setSettingsField("imapPort", value)}
+          onImapSecureChange={(value) => setSettingsField("imapSecure", value)}
+          onImapMailboxChange={(value) => setSettingsField("imapMailbox", value)}
           onRunMailSettingsTest={settingsState.actions.runMailSettingsTest}
         />
       ),

@@ -57,7 +57,12 @@ function createSettings(overrides: Partial<AppSettings> = {}): AppSettings {
 test("inferMailProviderFromAddress keeps domain-specific overrides", () => {
   assert.equal(inferMailProviderFromAddress("worker@naver.com"), "naver");
   assert.equal(inferMailProviderFromAddress("worker@hanmail.net"), "daum");
+  assert.equal(inferMailProviderFromAddress("worker@kakao.com"), "kakao");
   assert.equal(inferMailProviderFromAddress("worker@gmail.com"), "gmail");
+  assert.equal(inferMailProviderFromAddress("worker@outlook.com"), "outlook");
+  assert.equal(inferMailProviderFromAddress("worker@icloud.com"), "icloud");
+  assert.equal(inferMailProviderFromAddress("worker@yahoo.com"), "yahoo");
+  assert.equal(inferMailProviderFromAddress("worker@company.co.kr"), "custom");
   assert.equal(inferMailProviderFromAddress("not-an-email", "daum"), "daum");
 });
 
@@ -72,9 +77,10 @@ test("settingsToForm keeps server-managed issuing values out of the form", () =>
   assert.equal(form.popbillUserIdPrefix, "");
   assert.equal(form.popbillSharedPassword, "");
   assert.equal(form.mailProvider, "gmail");
+  assert.equal("notificationEmailsText" in form, false);
 });
 
-test("buildSettingsPayload omits server-managed issuing prefix and password", () => {
+test("buildSettingsPayload omits server-managed issuing prefix, password, and alert email recipients", () => {
   const { normalized, payload } = buildSettingsPayload({
     ...settingsToForm(createSettings()),
     mailProvider: "gmail",
@@ -83,29 +89,58 @@ test("buildSettingsPayload omits server-managed issuing prefix and password", ()
     smtpHost: "custom",
     popbillUserIdPrefix: "OVERRIDE",
     popbillSharedPassword: "new-secret",
-    notificationEmailsText: "a@example.com\n\n b@example.com ",
     renewalIssuePassword: "12a3-45"
   });
 
   assert.equal(normalized.mailProvider, "naver");
   assert.equal(normalized.imapHost, "imap.naver.com");
   assert.equal(normalized.smtpHost, "smtp.naver.com");
+  assert.equal(payload.smtpPort, 587);
   assert.equal(payload.smtpFromName, "AUTO-TAX");
   assert.equal(payload.mailSyncStartAt, null);
-  assert.deepEqual(payload.notificationEmails, ["a@example.com", "b@example.com"]);
+  assert.deepEqual(payload.notificationEmails, []);
   assert.equal(payload.renewalIssuePassword, "12345");
   assert.equal("popbillUserIdPrefix" in payload, false);
   assert.equal("popbillSharedPassword" in payload, false);
 });
 
-test("buildSettingsPayload falls back notification recipient to mail address", () => {
+test("buildSettingsPayload keeps notification email recipients empty", () => {
   const { payload } = buildSettingsPayload({
     ...settingsToForm(createSettings()),
-    mailAddress: "billing@example.com",
-    notificationEmailsText: ""
+    mailAddress: "billing@example.com"
   });
 
-  assert.deepEqual(payload.notificationEmails, ["billing@example.com"]);
+  assert.deepEqual(payload.notificationEmails, []);
+});
+
+test("buildSettingsPayload preserves custom IMAP settings for unsupported domains", () => {
+  const { normalized, payload } = buildSettingsPayload({
+    ...settingsToForm(createSettings()),
+    mailAddress: "billing@company.co.kr",
+    imapHost: "imap.company.co.kr",
+    imapPort: "993",
+    imapSecure: true,
+    imapMailbox: "INBOX"
+  });
+
+  assert.equal(normalized.mailProvider, "custom");
+  assert.equal(payload.imapHost, "imap.company.co.kr");
+  assert.equal(payload.imapPort, 993);
+  assert.equal(payload.imapSecure, true);
+  assert.equal(payload.imapMailbox, "INBOX");
+});
+
+test("buildSettingsPayload uses official Outlook IMAP host", () => {
+  const { normalized, payload } = buildSettingsPayload({
+    ...settingsToForm(createSettings()),
+    mailAddress: "billing@outlook.com"
+  });
+
+  assert.equal(normalized.mailProvider, "outlook");
+  assert.equal(payload.imapHost, "outlook.office365.com");
+  assert.equal(payload.imapPort, 993);
+  assert.equal(payload.smtpHost, "smtp-mail.outlook.com");
+  assert.equal(payload.smtpPort, 587);
 });
 
 test("buildMailSettingsSavePayload preserves saved defaults during connection test", () => {

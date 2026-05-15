@@ -53,24 +53,45 @@ const opsWorkspaceMailSettingsSchema = z.object({
   mailAddress: z.string().trim().email(),
   mailPassword: z.string().default(""),
   imapMailbox: z.string().trim().default("INBOX"),
-  notificationEmails: z.array(z.string().trim().email()).default([]),
   testConnection: z.boolean().default(true)
 });
 
 function inferMailProviderSettings(mailAddress: string) {
   const domain = mailAddress.split("@")[1]?.toLowerCase() ?? "";
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    return {
+      imapHost: "imap.gmail.com",
+      imapPort: 993,
+      imapSecure: true,
+      smtpHost: "smtp.gmail.com",
+      smtpPort: 465,
+      smtpSecure: true
+    };
+  }
+
   if (domain === "naver.com") {
     return {
       imapHost: "imap.naver.com",
       imapPort: 993,
       imapSecure: true,
       smtpHost: "smtp.naver.com",
-      smtpPort: 465,
-      smtpSecure: true
+      smtpPort: 587,
+      smtpSecure: false
     };
   }
 
   if (domain === "daum.net" || domain === "hanmail.net" || domain === "kakao.com") {
+    if (domain === "kakao.com") {
+      return {
+        imapHost: "imap.kakao.com",
+        imapPort: 993,
+        imapSecure: true,
+        smtpHost: "smtp.kakao.com",
+        smtpPort: 465,
+        smtpSecure: true
+      };
+    }
+
     return {
       imapHost: "imap.daum.net",
       imapPort: 993,
@@ -81,14 +102,40 @@ function inferMailProviderSettings(mailAddress: string) {
     };
   }
 
-  return {
-    imapHost: "imap.gmail.com",
-    imapPort: 993,
-    imapSecure: true,
-    smtpHost: "smtp.gmail.com",
-    smtpPort: 465,
-    smtpSecure: true
-  };
+  if (domain === "outlook.com" || domain === "hotmail.com" || domain === "live.com" || domain === "msn.com") {
+    return {
+      imapHost: "outlook.office365.com",
+      imapPort: 993,
+      imapSecure: true,
+      smtpHost: "smtp-mail.outlook.com",
+      smtpPort: 587,
+      smtpSecure: false
+    };
+  }
+
+  if (domain === "icloud.com" || domain === "me.com" || domain === "mac.com") {
+    return {
+      imapHost: "imap.mail.me.com",
+      imapPort: 993,
+      imapSecure: true,
+      smtpHost: "smtp.mail.me.com",
+      smtpPort: 587,
+      smtpSecure: false
+    };
+  }
+
+  if (domain === "yahoo.com" || domain === "yahoo.co.kr" || domain === "ymail.com") {
+    return {
+      imapHost: "imap.mail.yahoo.com",
+      imapPort: 993,
+      imapSecure: true,
+      smtpHost: "smtp.mail.yahoo.com",
+      smtpPort: 465,
+      smtpSecure: true
+    };
+  }
+
+  return null;
 }
 
 type RouteDeps = {
@@ -113,7 +160,6 @@ type RouteDeps = {
     smtpPass: string;
     smtpFromName: string;
     smtpFromEmail: string;
-    notificationEmails: string[];
   }) => Promise<{
     imapOk: boolean;
     imapMessage?: string;
@@ -185,18 +231,22 @@ export function registerOpsRoutes(deps: RouteDeps) {
       if (mailAddress) {
         const provider = inferMailProviderSettings(mailAddress);
         Object.assign(nextSettingsInput, {
-          imapHost: provider.imapHost,
-          imapPort: provider.imapPort,
-          imapSecure: provider.imapSecure,
           imapUser: mailAddress,
           imapMailbox: currentSettings.imapMailbox || "INBOX",
-          smtpHost: provider.smtpHost,
-          smtpPort: provider.smtpPort,
-          smtpSecure: provider.smtpSecure,
           smtpUser: mailAddress,
           smtpFromName: currentSettings.smtpFromName || "AUTO-TAX",
           smtpFromEmail: mailAddress
         });
+        if (provider) {
+          Object.assign(nextSettingsInput, {
+            imapHost: provider.imapHost,
+            imapPort: provider.imapPort,
+            imapSecure: provider.imapSecure,
+            smtpHost: provider.smtpHost,
+            smtpPort: provider.smtpPort,
+            smtpSecure: provider.smtpSecure
+          });
+        }
       }
 
       await requestStore.updateSettings(nextSettingsInput);
@@ -531,6 +581,9 @@ export function registerOpsRoutes(deps: RouteDeps) {
     try {
       const currentSettings = await requestStore.getSettings();
       const provider = inferMailProviderSettings(payload.mailAddress);
+      if (!provider) {
+        throw new HttpError(400, "자동 설정을 지원하지 않는 메일 도메인입니다. 작업공간 설정 화면에서 IMAP 정보를 직접 입력하세요.");
+      }
       const nextPassword = payload.mailPassword.trim() || currentSettings.imapPass || currentSettings.smtpPass;
       const nextSettingsInput: Partial<AppSettings> = {
         imapHost: provider.imapHost,
@@ -546,7 +599,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
         smtpPass: nextPassword,
         smtpFromName: currentSettings.smtpFromName || "AUTO-TAX",
         smtpFromEmail: payload.mailAddress,
-        notificationEmails: payload.notificationEmails
+        notificationEmails: []
       };
 
       let settings = await requestStore.updateSettings(nextSettingsInput);
@@ -572,11 +625,10 @@ export function registerOpsRoutes(deps: RouteDeps) {
           smtpUser: settings.smtpUser,
           smtpPass: settings.smtpPass,
           smtpFromName: settings.smtpFromName,
-          smtpFromEmail: settings.smtpFromEmail,
-          notificationEmails: settings.notificationEmails
+          smtpFromEmail: settings.smtpFromEmail
         });
 
-        if (mailTestResult.imapOk && mailTestResult.smtpOk) {
+        if (mailTestResult.imapOk) {
           settings = await requestStore.updateSettings({
             mailConnectionVerifiedAt: new Date().toISOString()
           });
@@ -586,7 +638,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
       await requestStore.createLog("info", "ops", "플랫폼 관리자가 작업공간 메일 설정을 저장했습니다.", {
         mailAddress: payload.mailAddress,
         testConnection: payload.testConnection,
-        testSucceeded: mailTestResult ? Boolean(mailTestResult.imapOk && mailTestResult.smtpOk) : null
+        testSucceeded: mailTestResult ? Boolean(mailTestResult.imapOk) : null
       });
 
       res.json({

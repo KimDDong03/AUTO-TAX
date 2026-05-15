@@ -1135,6 +1135,13 @@ export function CustomersTab(props: CustomersTabProps) {
   const certificateExpirationCustomerCount = props.expiredCertCustomers.length + props.expiringSoonCustomerCount;
   const visibleTableCustomers = props.filteredCustomers;
   const visibleCustomerIdSet = useMemo(() => new Set(visibleTableCustomers.map((customer) => customer.id)), [visibleTableCustomers]);
+  const customerListPanelStyle =
+    customerTableViewportHeight !== null
+      ? ({
+          "--customer-list-panel-min-height": `${customerTableViewportHeight + 27}px`,
+          "--customer-table-viewport-height": `${customerTableViewportHeight}px`
+        } as React.CSSProperties)
+      : undefined;
   const checkedVisibleCustomers = useMemo(
     () => visibleTableCustomers.filter((customer) => checkedCustomerIds.has(customer.id)),
     [checkedCustomerIds, visibleTableCustomers]
@@ -2884,7 +2891,7 @@ export function CustomersTab(props: CustomersTabProps) {
             </label>
           </header>
 
-          <motion.section className="panel panel-customer-list customer-console-panel" layout>
+          <motion.section className="panel panel-customer-list customer-console-panel" layout style={customerListPanelStyle}>
             <div className="customer-console-table-topbar">
               <div className="customer-console-table-title">
                 <strong>{activeFilterCopy[props.customerListFilter].title} ({visibleTableCustomers.length})</strong>
@@ -2909,7 +2916,6 @@ export function CustomersTab(props: CustomersTabProps) {
             <div
               ref={customerTableWrapRef}
               className="customer-console-table-wrap"
-              style={customerTableViewportHeight !== null ? { maxHeight: `${customerTableViewportHeight}px` } : undefined}
             >
               <table className="customer-console-table">
                 <thead>

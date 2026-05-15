@@ -188,6 +188,15 @@ type OpsSectionId =
   | "agent-status"
   | "logs"
   | "account-security";
+type TopnavTaskNotification = {
+  key: string;
+  title: string;
+  description: string;
+  count: number;
+  tone: "danger" | "warn" | "info";
+  actionLabel: string;
+  onAction: () => void;
+};
 
 const OPS_DEFAULT_SECTION: OpsSectionId = "subscription";
 const OPS_SECTION_HASH_BY_ID = {
@@ -1443,19 +1452,6 @@ function formatCertificateExpireDate(value: string | null): string {
   return value;
 }
 
-function formatNotificationStatus(status: string, message: string): string {
-  switch (status) {
-    case "sent":
-      return `${message}`;
-    case "skipped-already-sent-today":
-      return `${message}`;
-    case "skipped-no-target":
-      return `${message}`;
-    default:
-      return message;
-  }
-}
-
 function getCustomerIssueReadiness(customer: Customer): {
   canIssueNow: boolean;
   label: string;
@@ -2046,6 +2042,7 @@ export function App() {
     }
   }, []);
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("onboarding");
+  const [taskNotificationOpen, setTaskNotificationOpen] = useState(false);
   const [appDialog, setAppDialog] = useState<AppDialogState | null>(null);
   const [customerAddressResolveMessage, setCustomerAddressResolveMessage] = useState("");
   const [customerImportFile, setCustomerImportFile] = useState<CustomerImportParsedFile | null>(null);
@@ -2097,6 +2094,7 @@ export function App() {
   const mailboxLoadedOrganizationRef = useRef<string | null>(null);
   const authSessionRef = useRef<Session | null>(null);
   const activeLoadTokenRef = useRef(0);
+  const taskNotificationRef = useRef<HTMLDivElement | null>(null);
   const tabRoutingStateRef = useRef<{ hasActiveWorkspace: boolean; onboardingComplete: boolean; isPlatformAdmin: boolean }>({
     hasActiveWorkspace: false,
     onboardingComplete: false,
@@ -2105,6 +2103,33 @@ export function App() {
   const deferredCustomerSearchQuery = useDeferredValue(customerSearchQuery);
   const deferredCustomerSearchField = useDeferredValue(customerSearchField);
   const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
+  useEffect(() => {
+    if (!taskNotificationOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (!taskNotificationRef.current?.contains(target)) {
+        setTaskNotificationOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTaskNotificationOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [taskNotificationOpen]);
   useEffect(() => {
     setCustomerOnboardingSharedPassword("");
   }, [activeOrganizationId]);
@@ -4260,28 +4285,25 @@ export function App() {
       mailTest: null | {
         imapOk: boolean;
         imapMessage?: string;
-        smtpOk: boolean;
-        smtpMessage?: string;
       };
     }>(`/api/ops/workspaces/${opsWorkspaceMailSettingsTarget.organizationId}/mail-settings`, {
       method: "PUT",
       body: JSON.stringify({
         mailAddress,
         mailPassword: opsWorkspaceMailSettingsForm.mailPassword,
-        notificationEmails: [],
         testConnection: opsWorkspaceMailSettingsForm.testConnection
       })
     });
 
     const mailTestSummary = result.mailTest
-      ? `\nIMAP: ${result.mailTest.imapOk ? "성공" : "실패"}${result.mailTest.imapMessage ? ` · ${result.mailTest.imapMessage}` : ""}\nSMTP: ${result.mailTest.smtpOk ? "성공" : "실패"}${result.mailTest.smtpMessage ? ` · ${result.mailTest.smtpMessage}` : ""}`
+      ? `\n메일 읽기: ${result.mailTest.imapOk ? "성공" : "실패"}${result.mailTest.imapMessage ? ` · ${result.mailTest.imapMessage}` : ""}`
       : "\n연결 테스트는 실행하지 않았습니다.";
 
     await showAppAlert(
       `${opsWorkspaceMailSettingsTarget.organizationName} 작업공간의 메일 설정을 저장했습니다.${mailTestSummary}`,
       {
         title: "작업공간 메일 설정",
-        tone: result.mailTest && (!result.mailTest.imapOk || !result.mailTest.smtpOk) ? "warn" : "success"
+        tone: result.mailTest && !result.mailTest.imapOk ? "warn" : "success"
       }
     );
     cancelOpsWorkspaceMailSettings();
@@ -5425,14 +5447,12 @@ export function App() {
       failed: number;
       expired: number;
       expiringSoon: number;
-      notificationStatus: string;
-      notificationMessage: string;
     }>("/api/popbill/cert-status/refresh-all", {
       method: "POST"
     });
 
     await showAppAlert(
-      `인증서 일괄 점검 완료\n점검 대상: ${result.checked}건\n갱신 성공: ${result.updated}건\n조회 실패: ${result.failed}건\n만료: ${result.expired}건\n30일 이내 만료 예정: ${result.expiringSoon}건\n알림: ${formatNotificationStatus(result.notificationStatus, result.notificationMessage)}`,
+      `인증서 일괄 점검 완료\n점검 대상: ${result.checked}건\n갱신 성공: ${result.updated}건\n조회 실패: ${result.failed}건\n만료: ${result.expired}건\n30일 이내 만료 예정: ${result.expiringSoon}건`,
       {
         title: "인증서 일괄 점검 완료",
         tone: "success"
@@ -5656,6 +5676,8 @@ export function App() {
   const reviewDrafts: InvoiceDraft[] = [];
   const issuedDrafts: InvoiceDraft[] = [];
   const issuedDraftsByCustomerId = new Map<number, InvoiceDraft[]>();
+  let failedDraftCount = 0;
+  let reviewReadyDraftCount = 0;
   let issuancePendingDraftCount = 0;
   let issuanceIssuedDraftCount = 0;
   for (const draft of data.drafts) {
@@ -5666,6 +5688,12 @@ export function App() {
       issuancePendingDraftCount += 1;
     } else if (draft.status === "issued") {
       issuanceIssuedDraftCount += 1;
+    }
+    if (draft.status === "failed") {
+      failedDraftCount += 1;
+    }
+    if (draft.status === "review") {
+      reviewReadyDraftCount += 1;
     }
     if (draft.status === "issued") {
       issuedDrafts.push(draft);
@@ -6436,6 +6464,109 @@ export function App() {
     setRequestedIssuanceFilter("unmatched");
     setActiveTab("issuance");
   };
+  const topnavTaskNotifications: TopnavTaskNotification[] = [
+    ...(failedDraftCount > 0
+      ? [
+          {
+            key: "failed-drafts",
+            title: `발행 실패 ${failedDraftCount}건`,
+            description: "실패한 세금계산서를 확인하고 재처리하세요.",
+            count: failedDraftCount,
+            tone: "danger" as const,
+            actionLabel: "발행 화면으로 이동",
+            onAction: () => {
+              setTaskNotificationOpen(false);
+              setActiveTab("issuance");
+            }
+          }
+        ]
+      : []),
+    ...(unmatchedInboxMessages.length > 0
+      ? [
+          {
+            key: "unmatched-mails",
+            title: `고객 미매칭 ${unmatchedInboxMessages.length}건`,
+            description: "한전 메일과 고객을 연결해야 합니다.",
+            count: unmatchedInboxMessages.length,
+            tone: "warn" as const,
+            actionLabel: "미매칭 확인",
+            onAction: () => {
+              setTaskNotificationOpen(false);
+              openUnmatchedIssuanceMessages();
+            }
+          }
+        ]
+      : []),
+    ...(reviewReadyDraftCount > 0
+      ? [
+          {
+            key: "review-drafts",
+            title: `발행 전 확인 ${reviewReadyDraftCount}건`,
+            description: "발행 전 초안 내용을 검토하세요.",
+            count: reviewReadyDraftCount,
+            tone: "info" as const,
+            actionLabel: "초안 확인",
+            onAction: () => {
+              setTaskNotificationOpen(false);
+              setActiveTab("issuance");
+            }
+          }
+        ]
+      : []),
+    ...(certAttentionCount > 0
+      ? [
+          {
+            key: "certificate-expiration",
+            title: `인증서 만료 예정 ${certAttentionCount}건`,
+            description: "만료 또는 30일 이내 만료 고객을 확인하세요.",
+            count: certAttentionCount,
+            tone: "warn" as const,
+            actionLabel: "고객 필터로 이동",
+            onAction: () => {
+              setTaskNotificationOpen(false);
+              setCustomerListFilter("certificate-expiration");
+              setActiveTab("customers");
+            }
+          }
+        ]
+      : []),
+    ...(customerContractRenewalsDue.length > 0
+      ? [
+          {
+            key: "contract-expiration",
+            title: `계약 만료 예정 ${customerContractRenewalsDue.length}건`,
+            description: "계약 갱신 확인이 필요한 고객입니다.",
+            count: customerContractRenewalsDue.length,
+            tone: "warn" as const,
+            actionLabel: "계약 필터로 이동",
+            onAction: () => {
+              setTaskNotificationOpen(false);
+              setCustomerListFilter("contract-expiration");
+              setActiveTab("customers");
+            }
+          }
+        ]
+      : []),
+    ...(settingsScreenState.setupPendingCount > 0
+      ? [
+          {
+            key: "settings-incomplete",
+            title: `설정 미완료 ${settingsScreenState.setupPendingCount}개`,
+            description: "메일, 발행 설정, 로컬 헬퍼 상태를 마무리하세요.",
+            count: settingsScreenState.setupPendingCount,
+            tone: "info" as const,
+            actionLabel: "설정으로 이동",
+            onAction: () => {
+              setTaskNotificationOpen(false);
+              openSettingsSection(settingsActionBar.primarySection);
+            }
+          }
+        ]
+      : [])
+  ];
+  const topnavTaskNotificationCount = topnavTaskNotifications.reduce((total, item) => total + item.count, 0);
+  const topnavTaskNotificationBadge =
+    topnavTaskNotificationCount > 99 ? "99+" : topnavTaskNotificationCount > 0 ? String(topnavTaskNotificationCount) : "";
   const onboardingCertificateCompletionContent = (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
@@ -7024,9 +7155,59 @@ export function App() {
                 aria-label="고객명 또는 고객 사업자번호 검색"
               />
             </form>
-            <button type="button" className="topnav-notification" aria-label="알림">
-              <Icon name="bell" className="topnav-notification-icon" />
-            </button>
+            <div className="topnav-notification-wrap" ref={taskNotificationRef}>
+              <button
+                type="button"
+                className={taskNotificationOpen ? "topnav-notification active" : "topnav-notification"}
+                aria-label="업무 알림"
+                aria-expanded={taskNotificationOpen}
+                aria-controls="topnav-task-notifications"
+                onClick={() => setTaskNotificationOpen((open) => !open)}
+              >
+                <Icon name="bell" className="topnav-notification-icon" />
+                {topnavTaskNotificationBadge ? (
+                  <span className="topnav-notification-badge" aria-label={`처리할 업무 ${topnavTaskNotificationCount}건`}>
+                    {topnavTaskNotificationBadge}
+                  </span>
+                ) : null}
+              </button>
+              {taskNotificationOpen ? (
+                <div id="topnav-task-notifications" className="topnav-notification-panel" role="dialog" aria-label="업무 알림">
+                  <div className="topnav-notification-head">
+                    <div>
+                      <strong>업무 알림</strong>
+                      <span>처리해야 하는 항목만 표시합니다.</span>
+                    </div>
+                    <span className={topnavTaskNotificationCount > 0 ? "topnav-notification-total active" : "topnav-notification-total"}>
+                      {topnavTaskNotificationCount}건
+                    </span>
+                  </div>
+                  {topnavTaskNotifications.length > 0 ? (
+                    <div className="topnav-notification-list">
+                      {topnavTaskNotifications.map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          className={`topnav-notification-item tone-${item.tone}`}
+                          onClick={item.onAction}
+                        >
+                          <span className="topnav-notification-item-main">
+                            <strong>{item.title}</strong>
+                            <span>{item.description}</span>
+                          </span>
+                          <span className="topnav-notification-action">{item.actionLabel}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="topnav-notification-empty">
+                      <strong>처리할 알림이 없습니다.</strong>
+                      <span>발행 실패, 미매칭, 만료 예정, 설정 미완료가 생기면 여기에 표시됩니다.</span>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
             <details className="topnav-profile">
               <summary className="topnav-profile-summary">
                 <span className="topnav-profile-avatar" aria-hidden="true">

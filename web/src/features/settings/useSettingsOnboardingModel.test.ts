@@ -23,9 +23,13 @@ test("selectSettingsOnboardingState falls back to empty onboarding fields before
   });
 
   assert.deepEqual(state.fields, {
+    mailProvider: "gmail",
     mailAddress: "",
     mailPassword: "",
-    notificationEmailsText: "",
+    imapHost: "",
+    imapPort: "993",
+    imapSecure: true,
+    imapMailbox: "INBOX",
     popbillUserIdPrefix: "",
     popbillSharedPassword: "",
     renewalIssuePassword: "",

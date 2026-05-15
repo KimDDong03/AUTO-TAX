@@ -2,7 +2,6 @@ import { z } from "zod";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
 import { getErrorMessage } from "./http-errors.js";
 import { syncMailbox } from "./mail-sync.js";
-import { sendNotification } from "./notifier.js";
 import { getServerManagedSettings } from "./server-managed-settings.js";
 import { runCustomerOnboardingCommitBatch } from "./services/customer-onboarding-batch-service.js";
 import { autoJoinCustomerPopbill } from "./services/popbill-customer-service.js";
@@ -331,15 +330,7 @@ async function hasBatchSummaryLog(organizationId: string, batchKey: string): Pro
   return (count ?? 0) > 0;
 }
 
-function parseBatchMonthLabel(batchKey: string): string {
-  const match = batchKey.match(/^monthly:(\d{4})-(\d{2}):/);
-  if (!match) {
-    return "이번 달";
-  }
-  return `${match[1]}-${match[2]}`;
-}
-
-async function maybeSendBatchSummary(organizationId: string, batchKey: string): Promise<void> {
+async function maybeWriteBatchSummaryLog(organizationId: string, batchKey: string): Promise<void> {
   if (await hasBatchSummaryLog(organizationId, batchKey)) {
     return;
   }
@@ -374,31 +365,17 @@ async function maybeSendBatchSummary(organizationId: string, batchKey: string): 
   const mailSyncJob = jobs.find((row) => asString(row.job_type) === "mail-sync") ?? null;
   const mailSyncResult = (mailSyncJob?.result as Record<string, unknown> | null) ?? {};
 
-  const monthLabel = parseBatchMonthLabel(batchKey);
-  const lines = [
-    `[AUTO-TAX] 월 자동 처리 요약`,
-    `대상 월: ${monthLabel}`,
-    `배치 키: ${batchKey}`,
-    ``,
-    `메일 동기화`,
-    `- 읽은 메일: ${asNumber(mailSyncResult.scanned, 0)}건`,
-    `- 가져온 메일: ${asNumber(mailSyncResult.imported, 0)}건`,
-    `- 생성된 초안: ${asNumber(mailSyncResult.createdDrafts, 0)}건`,
-    `- 고객 미매칭: ${asNumber(mailSyncResult.unmatched, 0)}건`,
-    `- 파싱 실패: ${asNumber(mailSyncResult.failures, 0)}건`
-  ];
-
   const store = new SupabaseStore({
     organizationId,
     bootstrapOrganization: false
   });
   await store.initialize();
-  const settings = await store.getSettings();
-  const sent = await sendNotification(settings, `[AUTO-TAX] ${monthLabel} 자동 처리 요약`, lines.join("\n"));
 
-  await store.createLog("info", "job-batch-summary", "월 자동 처리 요약을 정리했습니다.", {
+  await store.createLog("info", "job-batch-summary", "월 자동 처리 요약을 로그로 정리했습니다.", {
     batchKey,
-    sent,
+    scanned: asNumber(mailSyncResult.scanned, 0),
+    imported: asNumber(mailSyncResult.imported, 0),
+    createdDrafts: asNumber(mailSyncResult.createdDrafts, 0),
     unmatched: asNumber(mailSyncResult.unmatched, 0),
     parseFailures: asNumber(mailSyncResult.failures, 0)
   });
@@ -940,7 +917,7 @@ export async function runDueJobs(options: {
         });
         const batchKey = asNullableString(job.payload.batchKey);
         if (batchKey) {
-          await maybeSendBatchSummary(job.organizationId, batchKey);
+          await maybeWriteBatchSummaryLog(job.organizationId, batchKey);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "작업 실행 실패";
@@ -969,7 +946,7 @@ export async function runDueJobs(options: {
           });
           const batchKey = asNullableString(job.payload.batchKey);
           if (batchKey) {
-            await maybeSendBatchSummary(job.organizationId, batchKey);
+            await maybeWriteBatchSummaryLog(job.organizationId, batchKey);
           }
         }
       }

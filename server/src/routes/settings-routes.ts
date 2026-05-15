@@ -41,7 +41,7 @@ const settingsSchema = z.object({
   smtpPass: z.string(),
   smtpFromName: z.string(),
   smtpFromEmail: z.string(),
-  notificationEmails: z.array(z.string()),
+  notificationEmails: z.array(z.string()).default([]),
   defaultIssueDay: z.number().int().min(1).max(31),
   defaultIssueHour: z.number().int().min(0).max(23),
   defaultIssueMinute: z.number().int().min(0).max(59),
@@ -68,8 +68,7 @@ const mailTestSchema = z.object({
   smtpUser: z.string(),
   smtpPass: z.string(),
   smtpFromName: z.string(),
-  smtpFromEmail: z.string(),
-  notificationEmails: z.array(z.string())
+  smtpFromEmail: z.string()
 });
 
 const addressLookupSchema = z.object({
@@ -170,7 +169,6 @@ type RouteDeps = {
     smtpPass: string;
     smtpFromName: string;
     smtpFromEmail: string;
-    notificationEmails: string[];
   }) => Promise<unknown>;
   resolveRoadAddress: (query: string) => Promise<{
     resolvedAddress: string;

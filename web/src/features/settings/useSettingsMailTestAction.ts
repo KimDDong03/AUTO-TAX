@@ -46,12 +46,18 @@ export function useSettingsMailTestAction({
       targetSettingsForm,
       savedSettings
     );
+
+    if (!payload.imapHost.trim()) {
+      await showAlert(
+        "자동 설정을 지원하지 않는 메일입니다. IMAP 서버 주소를 입력한 뒤 다시 테스트해 주세요.",
+        { title: "IMAP 직접 설정 필요", tone: "warn" }
+      );
+      return false;
+    }
+
     const result = await api<{
       imapOk: boolean;
       imapMessage: string;
-      smtpOk: boolean;
-      smtpMessage: string;
-      testMailSent: boolean;
     }>("/api/system/mail-test", {
       method: "POST",
       body: JSON.stringify({
@@ -67,12 +73,11 @@ export function useSettingsMailTestAction({
         smtpUser: payload.smtpUser,
         smtpPass: payload.smtpPass,
         smtpFromName: "AUTO-TAX",
-        smtpFromEmail: payload.smtpFromEmail,
-        notificationEmails: payload.notificationEmails
+        smtpFromEmail: payload.smtpFromEmail
       })
     });
 
-    const testSucceeded = result.imapOk && result.smtpOk;
+    const testSucceeded = result.imapOk;
     if (testSucceeded) {
       await api<AppSettings>("/api/settings", {
         method: "PUT",
@@ -96,8 +101,6 @@ export function useSettingsMailTestAction({
         ? successAlert.message
         : `${MAIL_PROVIDER_CONFIG[normalized.mailProvider].label} 연결 테스트 결과\n메일 읽기: ${
             result.imapOk ? "성공" : "확인 필요"
-          }\n알림 메일 발송: ${
-            result.smtpOk && result.testMailSent ? "성공" : "확인 필요"
           }\n\n${
             testSucceeded
               ? "설정을 저장했습니다."

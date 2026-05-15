@@ -1,17 +1,14 @@
 import type { Customer } from "./domain.js";
-import { sendNotification } from "./notifier.js";
 import { buildPilotLogContext } from "./pilot-issuance.js";
 import { getCertificateExpireDate } from "./popbill-client.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
 import type { AppStore } from "./store-contract.js";
 import { nowIso } from "./utils.js";
 
-type NotificationStatus = "not-needed" | "sent" | "skipped-already-sent-today" | "skipped-no-target";
-type NotificationCustomer = Pick<Customer, "customerName" | "popbillCertExpireDate">;
+type NotificationStatus = "disabled";
 type RefreshAllCertificateStatusesDependencies = {
   nowIso: () => string;
   getCertificateExpireDate: typeof getCertificateExpireDate;
-  sendNotification: typeof sendNotification;
 };
 
 export interface CertificateRefreshItem {
@@ -68,47 +65,12 @@ export function shouldRefreshCertificateStatuses(lastCheckedAt: string | null, r
   return !sameKstDay(lastCheckedAt, referenceAt);
 }
 
-function formatCustomerLine(customer: NotificationCustomer): string {
-  const daysUntil = getDaysUntilDate(customer.popbillCertExpireDate);
-  const suffix =
-    daysUntil === null
-      ? customer.popbillCertExpireDate ?? "만료일 미확인"
-      : daysUntil < 0
-        ? `${customer.popbillCertExpireDate} (만료)`
-        : `${customer.popbillCertExpireDate} (${daysUntil}일 남음)`;
-  return `- ${customer.customerName}: ${suffix}`;
-}
-
-function buildNotificationBody(expiredCustomers: NotificationCustomer[], expiringSoonCustomers: NotificationCustomer[], checkedAt: string): string {
-  const lines = [
-    `[AUTO-TAX] 인증서 만료 점검 결과`,
-    `점검시각: ${checkedAt}`,
-    ``
-  ];
-
-  if (expiredCustomers.length > 0) {
-    lines.push(`만료 고객 ${expiredCustomers.length}건`);
-    lines.push(...expiredCustomers.map(formatCustomerLine));
-    lines.push("");
-  }
-
-  if (expiringSoonCustomers.length > 0) {
-    lines.push(`30일 이내 만료 예정 고객 ${expiringSoonCustomers.length}건`);
-    lines.push(...expiringSoonCustomers.map(formatCustomerLine));
-    lines.push("");
-  }
-
-  lines.push("AUTO-TAX 고객관리 화면에서 인증 상태 확인 또는 인증서 등록/재등록을 진행하세요.");
-  return lines.join("\n");
-}
-
 export async function refreshAllCertificateStatuses(
   store: AppStore,
   dependencies: Partial<RefreshAllCertificateStatusesDependencies> = {}
 ): Promise<CertificateRefreshResult> {
   const checkedAt = (dependencies.nowIso ?? nowIso)();
   const loadCertificateExpireDate = dependencies.getCertificateExpireDate ?? getCertificateExpireDate;
-  const deliverNotification = dependencies.sendNotification ?? sendNotification;
   const settings = applyServerManagedSettings(await store.getSettings());
   const joinedCustomers = (await store.listCustomers()).filter((customer) => customer.popbillState === "joined");
   const results: CertificateRefreshItem[] = [];
@@ -169,31 +131,8 @@ export async function refreshAllCertificateStatuses(
   const nextMetadata: Parameters<AppStore["updateCertificateCheckMetadata"]>[0] = {
     certLastCheckedAt: checkedAt
   };
-
-  let notificationStatus: NotificationStatus = "not-needed";
-  let notificationMessage = "만료 또는 만료 예정 고객이 없어 알림을 보내지 않았습니다.";
-
-  if (expiredCustomers.length > 0 || expiringSoonCustomers.length > 0) {
-    if (sameKstDay(settings.certAlertLastSentAt, checkedAt)) {
-      notificationStatus = "skipped-already-sent-today";
-      notificationMessage = "오늘은 이미 인증서 만료 알림을 발송했습니다.";
-    } else {
-      const sent = await deliverNotification(
-        settings,
-        `[AUTO-TAX] 인증서 만료 점검 ${expiredCustomers.length > 0 ? "경고" : "예정"} 안내`,
-        buildNotificationBody(expiredCustomers, expiringSoonCustomers, checkedAt)
-      );
-
-      if (sent) {
-        notificationStatus = "sent";
-        notificationMessage = "플랫폼 관리자 알림 메일을 발송했습니다.";
-        nextMetadata.certAlertLastSentAt = checkedAt;
-      } else {
-        notificationStatus = "skipped-no-target";
-        notificationMessage = "알림 수신 메일 또는 SMTP 설정이 없어 메일을 보내지 못했습니다.";
-      }
-    }
-  }
+  const notificationStatus: NotificationStatus = "disabled";
+  const notificationMessage = "이메일 업무 알림은 사용하지 않습니다.";
 
   const updatedCount = results.filter((item) => item.ok).length;
   const failedCount = results.length - updatedCount;
@@ -204,8 +143,7 @@ export async function refreshAllCertificateStatuses(
     updated: updatedCount,
     failed: failedCount,
     expired: expiredCustomers.length,
-    expiringSoon: expiringSoonCustomers.length,
-    notificationStatus
+    expiringSoon: expiringSoonCustomers.length
   });
 
   return {

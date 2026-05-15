@@ -54,7 +54,6 @@ test("refreshAllCertificateStatuses keeps summary semantics without reloading cu
   const customerById = new Map(customers.map((customer) => [customer.id, customer]));
   const metadataUpdates: Array<Parameters<AppStore["updateCertificateCheckMetadata"]>[0]> = [];
   const logs: Array<{ level: LogEntry["level"]; scope: string; message: string; context: unknown }> = [];
-  const notificationBodies: string[] = [];
   let listCustomersCalls = 0;
   let updateSettingsCalled = false;
 
@@ -104,10 +103,6 @@ test("refreshAllCertificateStatuses keeps summary semantics without reloading cu
         return expiredDate;
       }
       throw new Error("인증서 조회 실패");
-    },
-    sendNotification: async (_settings, _subject, body) => {
-      notificationBodies.push(body);
-      return true;
     }
   });
 
@@ -115,8 +110,7 @@ test("refreshAllCertificateStatuses keeps summary semantics without reloading cu
   assert.equal(updateSettingsCalled, false);
   assert.deepEqual(metadataUpdates, [
     {
-      certLastCheckedAt: checkedAt,
-      certAlertLastSentAt: checkedAt
+      certLastCheckedAt: checkedAt
     }
   ]);
   assert.equal(result.checked, 2);
@@ -124,11 +118,8 @@ test("refreshAllCertificateStatuses keeps summary semantics without reloading cu
   assert.equal(result.failed, 1);
   assert.equal(result.expired, 1);
   assert.equal(result.expiringSoon, 1);
-  assert.equal(result.notificationStatus, "sent");
+  assert.equal(result.notificationStatus, "disabled");
   assert.equal(result.results.length, 2);
-  assert.equal(notificationBodies.length, 1);
-  assert.match(notificationBodies[0] ?? "", /만료 고객 1건/);
-  assert.match(notificationBodies[0] ?? "", /30일 이내 만료 예정 고객 1건/);
   assert.equal(logs.length, 2);
   assert.equal(logs[0]?.level, "error");
   assert.deepEqual(logs[0]?.context, {

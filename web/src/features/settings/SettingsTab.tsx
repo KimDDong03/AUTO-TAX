@@ -16,6 +16,10 @@ import {
   pageDetailVariants,
   pageSectionVariants
 } from "../pageMotion";
+import {
+  MAIL_PROVIDER_CONFIG,
+  inferMailProviderFromAddress
+} from "./settingsFormPersistence";
 
 export type SettingsTabModel = {
   context: {
@@ -125,8 +129,16 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
   const [mailDraft, setMailDraft] = React.useState(() => ({
     mailAddress: mail.fields.mailAddress,
     mailPassword: mail.fields.mailPassword,
-    notificationEmailsText: mail.fields.notificationEmailsText
+    imapHost: mail.fields.imapHost,
+    imapPort: mail.fields.imapPort,
+    imapSecure: mail.fields.imapSecure,
+    imapMailbox: mail.fields.imapMailbox
   }));
+  const mailDraftRequiresManualImap =
+    inferMailProviderFromAddress(
+      mailDraft.mailAddress,
+      mail.requiresManualImapSettings ? "custom" : "gmail"
+    ) === "custom";
 
   React.useEffect(() => {
     if (mailEditing) {
@@ -136,12 +148,18 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
     setMailDraft({
       mailAddress: mail.fields.mailAddress,
       mailPassword: mail.fields.mailPassword,
-      notificationEmailsText: mail.fields.notificationEmailsText
+      imapHost: mail.fields.imapHost,
+      imapPort: mail.fields.imapPort,
+      imapSecure: mail.fields.imapSecure,
+      imapMailbox: mail.fields.imapMailbox
     });
   }, [
     mail.fields.mailAddress,
     mail.fields.mailPassword,
-    mail.fields.notificationEmailsText,
+    mail.fields.imapHost,
+    mail.fields.imapPort,
+    mail.fields.imapSecure,
+    mail.fields.imapMailbox,
     mailEditing
   ]);
 
@@ -149,7 +167,10 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
     setMailDraft({
       mailAddress: mail.fields.mailAddress,
       mailPassword: mail.fields.mailPassword,
-      notificationEmailsText: mail.fields.notificationEmailsText
+      imapHost: mail.fields.imapHost,
+      imapPort: mail.fields.imapPort,
+      imapSecure: mail.fields.imapSecure,
+      imapMailbox: mail.fields.imapMailbox
     });
     setMailEditing(true);
   };
@@ -158,7 +179,10 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
     setMailDraft({
       mailAddress: mail.fields.mailAddress,
       mailPassword: mail.fields.mailPassword,
-      notificationEmailsText: mail.fields.notificationEmailsText
+      imapHost: mail.fields.imapHost,
+      imapPort: mail.fields.imapPort,
+      imapSecure: mail.fields.imapSecure,
+      imapMailbox: mail.fields.imapMailbox
     });
     setMailEditing(false);
   };
@@ -176,7 +200,7 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
         <div className="settings-option1-card-head">
           <div>
             <strong>메일 연결 설정</strong>
-            <span>메일 주소와 앱 비밀번호만 입력합니다.</span>
+            <span>한전 수신메일을 읽기 위한 계정과 수신 서버를 설정합니다.</span>
           </div>
           <button
             type="button"
@@ -203,10 +227,44 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
               value={mailDraft.mailAddress}
               readOnly={!mailEditing}
               onChange={(event) =>
-                setMailDraft((prev) => ({
-                  ...prev,
-                  mailAddress: event.target.value
-                }))
+                setMailDraft((prev) => {
+                  const nextMailAddress = event.target.value;
+                  const providerFallback = mail.requiresManualImapSettings
+                    ? "custom"
+                    : "gmail";
+                  const prevProvider = inferMailProviderFromAddress(
+                    prev.mailAddress,
+                    providerFallback
+                  );
+                  const nextProvider = inferMailProviderFromAddress(
+                    nextMailAddress,
+                    providerFallback
+                  );
+                  const prevConfig = MAIL_PROVIDER_CONFIG[prevProvider];
+                  const nextConfig = MAIL_PROVIDER_CONFIG[nextProvider];
+                  const shouldReplaceImapFields =
+                    nextProvider !== "custom" ||
+                    prev.imapHost.trim() === "" ||
+                    prev.imapHost.trim() === prevConfig.imapHost;
+
+                  return {
+                    ...prev,
+                    mailAddress: nextMailAddress,
+                    imapHost: shouldReplaceImapFields
+                      ? nextConfig.imapHost
+                      : prev.imapHost,
+                    imapPort: shouldReplaceImapFields
+                      ? nextConfig.imapPort
+                      : prev.imapPort,
+                    imapSecure: shouldReplaceImapFields
+                      ? nextConfig.imapSecure
+                      : prev.imapSecure,
+                    imapMailbox:
+                      shouldReplaceImapFields && nextConfig.defaultMailbox
+                        ? nextConfig.defaultMailbox
+                        : prev.imapMailbox
+                  };
+                })
               }
             />
           </label>
@@ -244,6 +302,76 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
             </div>
           </label>
         </div>
+
+        {mailDraftRequiresManualImap ? (
+          <div className="settings-option1-manual-mail">
+            <div className="settings-option1-manual-mail-head">
+              <strong>IMAP 직접 설정</strong>
+              <span>자동 설정을 지원하지 않는 메일은 수신 서버 정보를 입력해야 합니다.</span>
+            </div>
+            <div className="settings-option1-form-grid">
+              <label className="settings-option1-field">
+                IMAP 서버
+                <input
+                  placeholder="imap.company.co.kr"
+                  value={mailDraft.imapHost}
+                  readOnly={!mailEditing}
+                  onChange={(event) =>
+                    setMailDraft((prev) => ({
+                      ...prev,
+                      imapHost: event.target.value
+                    }))
+                  }
+                />
+              </label>
+              <label className="settings-option1-field">
+                포트
+                <input
+                  inputMode="numeric"
+                  placeholder="993"
+                  value={mailDraft.imapPort}
+                  readOnly={!mailEditing}
+                  onChange={(event) =>
+                    setMailDraft((prev) => ({
+                      ...prev,
+                      imapPort: event.target.value
+                    }))
+                  }
+                />
+              </label>
+              <label className="settings-option1-field">
+                보안
+                <select
+                  value={mailDraft.imapSecure ? "ssl" : "plain"}
+                  disabled={!mailEditing}
+                  onChange={(event) =>
+                    setMailDraft((prev) => ({
+                      ...prev,
+                      imapSecure: event.target.value === "ssl"
+                    }))
+                  }
+                >
+                  <option value="ssl">SSL 사용</option>
+                  <option value="plain">SSL 미사용</option>
+                </select>
+              </label>
+              <label className="settings-option1-field">
+                읽을 폴더
+                <input
+                  placeholder="INBOX"
+                  value={mailDraft.imapMailbox}
+                  readOnly={!mailEditing}
+                  onChange={(event) =>
+                    setMailDraft((prev) => ({
+                      ...prev,
+                      imapMailbox: event.target.value
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+        ) : null}
 
         <div className="settings-option1-save-row">
           <span className="settings-option1-save-indicator">{mailEditing ? "수정 중" : "저장"}</span>

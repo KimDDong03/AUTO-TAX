@@ -48,7 +48,76 @@ export const MAIL_PROVIDER_CONFIG: Record<
     smtpPort: "465",
     smtpSecure: true,
     defaultMailbox: "INBOX"
+  },
+  kakao: {
+    label: "카카오메일",
+    imapHost: "imap.kakao.com",
+    imapPort: "993",
+    imapSecure: true,
+    smtpHost: "smtp.kakao.com",
+    smtpPort: "465",
+    smtpSecure: true,
+    defaultMailbox: "INBOX"
+  },
+  outlook: {
+    label: "Outlook",
+    imapHost: "outlook.office365.com",
+    imapPort: "993",
+    imapSecure: true,
+    smtpHost: "smtp-mail.outlook.com",
+    smtpPort: "587",
+    smtpSecure: false,
+    defaultMailbox: "INBOX"
+  },
+  icloud: {
+    label: "iCloud Mail",
+    imapHost: "imap.mail.me.com",
+    imapPort: "993",
+    imapSecure: true,
+    smtpHost: "smtp.mail.me.com",
+    smtpPort: "587",
+    smtpSecure: false,
+    defaultMailbox: "INBOX"
+  },
+  yahoo: {
+    label: "Yahoo Mail",
+    imapHost: "imap.mail.yahoo.com",
+    imapPort: "993",
+    imapSecure: true,
+    smtpHost: "smtp.mail.yahoo.com",
+    smtpPort: "465",
+    smtpSecure: true,
+    defaultMailbox: "INBOX"
+  },
+  custom: {
+    label: "직접 설정",
+    imapHost: "",
+    imapPort: "993",
+    imapSecure: true,
+    smtpHost: "",
+    smtpPort: "465",
+    smtpSecure: true,
+    defaultMailbox: "INBOX"
   }
+};
+
+const MAIL_PROVIDER_BY_DOMAIN: Record<string, MailProvider> = {
+  "gmail.com": "gmail",
+  "googlemail.com": "gmail",
+  "naver.com": "naver",
+  "daum.net": "daum",
+  "hanmail.net": "daum",
+  "kakao.com": "kakao",
+  "outlook.com": "outlook",
+  "hotmail.com": "outlook",
+  "live.com": "outlook",
+  "msn.com": "outlook",
+  "icloud.com": "icloud",
+  "me.com": "icloud",
+  "mac.com": "icloud",
+  "yahoo.com": "yahoo",
+  "yahoo.co.kr": "yahoo",
+  "ymail.com": "yahoo"
 };
 
 function inferMailProvider(
@@ -57,9 +126,18 @@ function inferMailProvider(
   const imapHost = settings.imapHost.trim().toLowerCase();
   const smtpHost = settings.smtpHost.trim().toLowerCase();
 
+  if (!imapHost && !smtpHost) return "gmail";
   if (imapHost.includes("naver") || smtpHost.includes("naver")) return "naver";
   if (imapHost.includes("daum") || smtpHost.includes("daum")) return "daum";
-  return "gmail";
+  if (imapHost.includes("kakao") || smtpHost.includes("kakao")) return "kakao";
+  if (
+    imapHost.includes("outlook") ||
+    imapHost.includes("office365") ||
+    smtpHost.includes("outlook")
+  ) return "outlook";
+  if (imapHost.includes("mail.me.com") || smtpHost.includes("mail.me.com")) return "icloud";
+  if (imapHost.includes("yahoo") || smtpHost.includes("yahoo")) return "yahoo";
+  return "custom";
 }
 
 export function inferMailProviderFromAddress(
@@ -72,13 +150,50 @@ export function inferMailProviderFromAddress(
     return fallback;
   }
 
-  if (normalized.endsWith("@naver.com")) return "naver";
-  if (normalized.endsWith("@daum.net") || normalized.endsWith("@hanmail.net")) {
-    return "daum";
-  }
-  if (normalized.endsWith("@gmail.com")) return "gmail";
+  const domain = normalized.split("@")[1] ?? "";
+  return MAIL_PROVIDER_BY_DOMAIN[domain] ?? "custom";
+}
 
-  return fallback;
+export function applyMailProviderDefaults(
+  form: SettingsFormState,
+  provider: MailProvider
+): SettingsFormState {
+  const config = MAIL_PROVIDER_CONFIG[provider];
+
+  if (provider === "custom") {
+    const previousConfig = MAIL_PROVIDER_CONFIG[form.mailProvider];
+    const shouldKeepManualValues =
+      form.mailProvider === "custom" ||
+      (form.imapHost.trim() !== "" &&
+        form.imapHost.trim() !== previousConfig.imapHost);
+
+    return {
+      ...form,
+      mailProvider: provider,
+      imapHost: shouldKeepManualValues ? form.imapHost : config.imapHost,
+      imapPort: shouldKeepManualValues ? form.imapPort : config.imapPort,
+      imapSecure: shouldKeepManualValues ? form.imapSecure : config.imapSecure,
+      imapMailbox:
+        shouldKeepManualValues && form.imapMailbox.trim()
+          ? form.imapMailbox
+          : config.defaultMailbox,
+      smtpHost: shouldKeepManualValues ? form.smtpHost : config.smtpHost,
+      smtpPort: shouldKeepManualValues ? form.smtpPort : config.smtpPort,
+      smtpSecure: shouldKeepManualValues ? form.smtpSecure : config.smtpSecure
+    };
+  }
+
+  return {
+    ...form,
+    mailProvider: provider,
+    imapHost: config.imapHost,
+    imapPort: config.imapPort,
+    imapSecure: config.imapSecure,
+    imapMailbox: config.defaultMailbox,
+    smtpHost: config.smtpHost,
+    smtpPort: config.smtpPort,
+    smtpSecure: config.smtpSecure
+  };
 }
 
 function withSelectedMailProviderSettings(
@@ -88,18 +203,7 @@ function withSelectedMailProviderSettings(
     form.mailAddress,
     form.mailProvider
   );
-  const config = MAIL_PROVIDER_CONFIG[detectedProvider];
-  return {
-    ...form,
-    mailProvider: detectedProvider,
-    imapHost: config.imapHost,
-    imapPort: config.imapPort,
-    imapSecure: config.imapSecure,
-    imapMailbox: config.defaultMailbox,
-    smtpHost: config.smtpHost,
-    smtpPort: config.smtpPort,
-    smtpSecure: config.smtpSecure
-  };
+  return applyMailProviderDefaults(form, detectedProvider);
 }
 
 export function settingsToForm(settings: AppSettings): SettingsFormState {
@@ -118,7 +222,6 @@ export function settingsToForm(settings: AppSettings): SettingsFormState {
     smtpHost: settings.smtpHost,
     smtpPort: String(settings.smtpPort),
     smtpSecure: settings.smtpSecure,
-    notificationEmailsText: settings.notificationEmails.join("\n"),
     defaultIssueDay: String(settings.defaultIssueDay),
     defaultIssueHour: String(settings.defaultIssueHour),
     defaultIssueMinute: String(settings.defaultIssueMinute),
@@ -140,11 +243,6 @@ export function buildSettingsPayload(form: SettingsFormState) {
   const renewalIssuePassword = normalizeRenewalIssuePasswordInput(
     normalized.renewalIssuePassword
   );
-  const notificationEmails = normalized.notificationEmailsText
-    .split(/\r?\n/)
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const fallbackNotificationEmail = normalized.mailAddress.trim();
   return {
     normalized,
     payload: {
@@ -163,12 +261,7 @@ export function buildSettingsPayload(form: SettingsFormState) {
       smtpPass: normalized.mailPassword.trim(),
       smtpFromName: "AUTO-TAX",
       smtpFromEmail: normalized.mailAddress.trim(),
-      notificationEmails:
-        notificationEmails.length > 0
-          ? notificationEmails
-          : fallbackNotificationEmail
-            ? [fallbackNotificationEmail]
-            : [],
+      notificationEmails: [],
       defaultIssueDay: Number(normalized.defaultIssueDay || 0),
       defaultIssueHour: Number(normalized.defaultIssueHour || 0),
       defaultIssueMinute: Number(normalized.defaultIssueMinute || 0),
@@ -219,6 +312,8 @@ export function canAutosaveSettings(form: SettingsFormState) {
   return (
     isFiniteInteger(payload.imapPort) &&
     payload.imapPort >= 1 &&
+    payload.imapHost.trim() !== "" &&
+    payload.imapUser.trim() !== "" &&
     isFiniteInteger(payload.smtpPort) &&
     payload.smtpPort >= 1 &&
     isFiniteInteger(payload.defaultIssueDay) &&

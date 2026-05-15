@@ -193,19 +193,29 @@ export function useSettingsScreenModel(
           fields: {
             mailAddress: settingsForm.mailAddress,
             mailPassword: settingsForm.mailPassword,
-            notificationEmailsText: settingsForm.notificationEmailsText,
+            imapHost: settingsForm.imapHost,
+            imapPort: settingsForm.imapPort,
+            imapSecure: settingsForm.imapSecure,
+            imapMailbox: settingsForm.imapMailbox,
             schedulerEnabled: settingsForm.schedulerEnabled,
             defaultIssueDay: settingsForm.defaultIssueDay,
             defaultIssueHour: settingsForm.defaultIssueHour,
             defaultIssueMinute: settingsForm.defaultIssueMinute
           },
+          requiresManualImapSettings: settingsForm.mailProvider === "custom",
           mailPasswordConfigured: props.settingsState.mailPasswordConfigured,
           mailPasswordReveal: props.orchestration.reveals.mailPassword,
           onMailAddressChange: props.settingsState.handleSettingsMailAddressChange,
           onMailPasswordChange: (value) =>
             setSettingsField("mailPassword", value),
-          onNotificationEmailsTextChange: (value) =>
-            setSettingsField("notificationEmailsText", value),
+          onImapHostChange: (value) =>
+            setSettingsField("imapHost", value),
+          onImapPortChange: (value) =>
+            setSettingsField("imapPort", value),
+          onImapSecureChange: (value) =>
+            setSettingsField("imapSecure", value),
+          onImapMailboxChange: (value) =>
+            setSettingsField("imapMailbox", value),
           onSchedulerEnabledChange: (value) =>
             setSettingsField("schedulerEnabled", value),
           onDefaultIssueDayChange: (value) =>
@@ -367,9 +377,13 @@ export function useSettingsScreenModel(
       settingsForm.defaultIssueDay,
       settingsForm.defaultIssueHour,
       settingsForm.defaultIssueMinute,
+      settingsForm.imapHost,
+      settingsForm.imapMailbox,
+      settingsForm.imapPort,
+      settingsForm.imapSecure,
       settingsForm.mailAddress,
       settingsForm.mailPassword,
-      settingsForm.notificationEmailsText,
+      settingsForm.mailProvider,
       settingsForm.popbillSharedPassword,
       settingsForm.popbillUserIdPrefix,
       settingsForm.renewalCertificatePassword,

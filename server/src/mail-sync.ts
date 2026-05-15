@@ -1,7 +1,6 @@
 import { ImapFlow, type SearchObject } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { AppSettings, InvoiceDraft } from "./domain.js";
-import { sendNotification } from "./notifier.js";
 import { parseKepcoMail } from "./parser.js";
 import { buildPilotLogContext } from "./pilot-issuance.js";
 import type { AppStore } from "./store-contract.js";
@@ -210,11 +209,6 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
             }
           )
         );
-        await sendNotification(
-          settings,
-          "[AUTO-TAX] 메일 파싱 실패",
-          `메일 제목: ${subject}\n오류: ${messageText}\n검수가 필요합니다.`
-        );
         result.failures += 1;
         continue;
       }
@@ -269,11 +263,6 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
               messageUid
             }
           )
-        );
-        await sendNotification(
-          settings,
-          "[AUTO-TAX] 고객 매칭 실패",
-          `메일 제목: ${subject}\n발전소명: ${parsedMail.plantName}\n발전소 주소: ${parsedMail.plantAddress}\n고객 매칭에 실패하여 검수가 필요합니다.`
         );
         result.unmatched += 1;
         continue;
@@ -355,11 +344,6 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
               messageUid
             }
           )
-        );
-        await sendNotification(
-          settings,
-          "[AUTO-TAX] 초안 생성 실패",
-          `메일 제목: ${subject}\n고객: ${customer.customerName}\n오류: ${messageText}\n검수가 필요합니다.`
         );
         result.failures += 1;
         continue;

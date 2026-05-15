@@ -83,7 +83,11 @@ test("SettingsMailOnboardingStep keeps required-field hints and busy test button
     detectedMailProviderLabel: "Gmail",
     mailAddress: "",
     mailPassword: "",
-    notificationEmailsText: "",
+    imapHost: "imap.gmail.com",
+    imapPort: "993",
+    imapSecure: true,
+    imapMailbox: "INBOX",
+    requiresManualImapSettings: false,
     mailPasswordConfigured: true,
     mailPasswordReveal: {
       visible: false,
@@ -93,7 +97,10 @@ test("SettingsMailOnboardingStep keeps required-field hints and busy test button
     isMailTesting: true,
     onMailAddressChange: noop,
     onMailPasswordChange: noop,
-    onNotificationEmailsTextChange: noop,
+    onImapHostChange: noop,
+    onImapPortChange: noop,
+    onImapSecureChange: noop,
+    onImapMailboxChange: noop,
     onRunMailSettingsTest: noopAsync
   });
   const text = collectText(tree);

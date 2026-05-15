@@ -16,14 +16,21 @@ type SettingsMailOnboardingStepProps = {
   detectedMailProviderLabel: string;
   mailAddress: string;
   mailPassword: string;
-  notificationEmailsText: string;
+  imapHost: string;
+  imapPort: string;
+  imapSecure: boolean;
+  imapMailbox: string;
+  requiresManualImapSettings: boolean;
   mailPasswordConfigured: boolean;
   mailPasswordReveal: SettingsFeatureRevealAdapters["mailPassword"];
   busy: boolean;
   isMailTesting: boolean;
   onMailAddressChange: (value: string) => void;
   onMailPasswordChange: (value: string) => void;
-  onNotificationEmailsTextChange: (value: string) => void;
+  onImapHostChange: (value: string) => void;
+  onImapPortChange: (value: string) => void;
+  onImapSecureChange: (value: boolean) => void;
+  onImapMailboxChange: (value: string) => void;
   onRunMailSettingsTest: () => Promise<void>;
 };
 
@@ -33,14 +40,21 @@ export function SettingsMailOnboardingStep({
   detectedMailProviderLabel,
   mailAddress,
   mailPassword,
-  notificationEmailsText,
+  imapHost,
+  imapPort,
+  imapSecure,
+  imapMailbox,
+  requiresManualImapSettings,
   mailPasswordConfigured,
   mailPasswordReveal,
   busy,
   isMailTesting,
   onMailAddressChange,
   onMailPasswordChange,
-  onNotificationEmailsTextChange,
+  onImapHostChange,
+  onImapPortChange,
+  onImapSecureChange,
+  onImapMailboxChange,
   onRunMailSettingsTest
 }: SettingsMailOnboardingStepProps) {
   return (
@@ -87,7 +101,7 @@ export function SettingsMailOnboardingStep({
               invalid: onboarding.address.invalid,
               invalidText: "메일 형식이 올바르지 않습니다.",
               defaultText:
-                "한전 메일을 읽고 알림 메일을 보낼 때 함께 사용할 계정입니다."
+                "한전 수신메일을 읽을 계정입니다."
             })}
           </label>
           <label
@@ -139,6 +153,54 @@ export function SettingsMailOnboardingStep({
           </label>
         </div>
 
+        {requiresManualImapSettings ? (
+          <div className="onboarding-manual-mail-settings">
+            <div className="onboarding-manual-mail-head">
+              <strong>IMAP 직접 설정</strong>
+              <span>자동 설정을 지원하지 않는 메일은 수신 서버 정보를 입력해야 합니다.</span>
+            </div>
+            <div className="onboarding-field-grid">
+              <label>
+                IMAP 서버
+                <input
+                  placeholder="imap.company.co.kr"
+                  value={imapHost}
+                  onChange={(event) => onImapHostChange(event.target.value)}
+                />
+              </label>
+              <label>
+                포트
+                <input
+                  inputMode="numeric"
+                  placeholder="993"
+                  value={imapPort}
+                  onChange={(event) => onImapPortChange(event.target.value)}
+                />
+              </label>
+              <label>
+                보안
+                <select
+                  value={imapSecure ? "ssl" : "plain"}
+                  onChange={(event) =>
+                    onImapSecureChange(event.target.value === "ssl")
+                  }
+                >
+                  <option value="ssl">SSL 사용</option>
+                  <option value="plain">SSL 미사용</option>
+                </select>
+              </label>
+              <label>
+                읽을 폴더
+                <input
+                  placeholder="INBOX"
+                  value={imapMailbox}
+                  onChange={(event) => onImapMailboxChange(event.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+        ) : null}
+
         <div className="button-row onboarding-primary-row">
           <button
             type="button"
@@ -150,25 +212,6 @@ export function SettingsMailOnboardingStep({
         </div>
       </section>
 
-      <details className="settings-advanced-panel">
-        <summary>알림 메일 / 추가 설정은 나중에 보기</summary>
-        <div className="onboarding-secondary-stack">
-          <label>
-            알림 수신 메일
-            <textarea
-              rows={4}
-              value={notificationEmailsText}
-              onChange={(event) =>
-                onNotificationEmailsTextChange(event.target.value)
-              }
-            />
-            <span className="field-hint">
-              파싱 실패나 발행 실패 알림을 받을 주소입니다. 여러 개면 줄바꿈이나
-              쉼표로 구분합니다.
-            </span>
-          </label>
-        </div>
-      </details>
     </div>
   );
 }

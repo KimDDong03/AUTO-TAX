@@ -22,7 +22,10 @@ export type SettingsSectionSummary = {
 export type SettingsMailEditableFields = {
   mailAddress: string;
   mailPassword: string;
-  notificationEmailsText: string;
+  imapHost: string;
+  imapPort: string;
+  imapSecure: boolean;
+  imapMailbox: string;
 };
 
 export type SettingsSidebarModel = {
@@ -50,17 +53,24 @@ export type SettingsMailSectionModel = {
   fields: {
     mailAddress: string;
     mailPassword: string;
-    notificationEmailsText: string;
+    imapHost: string;
+    imapPort: string;
+    imapSecure: boolean;
+    imapMailbox: string;
     schedulerEnabled: boolean;
     defaultIssueDay: string;
     defaultIssueHour: string;
     defaultIssueMinute: string;
   };
+  requiresManualImapSettings: boolean;
   mailPasswordConfigured: boolean;
   mailPasswordReveal: SettingsFeatureRevealAdapters["mailPassword"];
   onMailAddressChange: (value: string) => void;
   onMailPasswordChange: (value: string) => void;
-  onNotificationEmailsTextChange: (value: string) => void;
+  onImapHostChange: (value: string) => void;
+  onImapPortChange: (value: string) => void;
+  onImapSecureChange: (value: boolean) => void;
+  onImapMailboxChange: (value: string) => void;
   onSchedulerEnabledChange: (value: boolean) => void;
   onDefaultIssueDayChange: (value: string) => void;
   onDefaultIssueHourChange: (value: string) => void;

@@ -15806,6 +15806,36 @@ button.issuance-list-item {
   color: var(--wf-muted);
 }
 
+.app-shell-topnav .settings-option1-manual-mail,
+.onboarding-manual-mail-settings {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--lovable-border, var(--wf-border));
+  border-radius: var(--lovable-radius-card, 4px);
+  background: var(--lovable-surface-muted, var(--wf-faint));
+}
+
+.app-shell-topnav .settings-option1-manual-mail-head,
+.onboarding-manual-mail-head {
+  display: grid;
+  gap: 3px;
+}
+
+.app-shell-topnav .settings-option1-manual-mail-head strong,
+.onboarding-manual-mail-head strong {
+  color: var(--lovable-text, var(--wf-text));
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .settings-option1-manual-mail-head span,
+.onboarding-manual-mail-head span {
+  color: var(--lovable-muted, var(--wf-muted));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .app-shell-topnav .settings-option1-inline-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -24345,27 +24375,218 @@ button.issuance-list-item {
   box-shadow: none;
 }
 
+.app-shell-topnav .topnav-notification-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
 .app-shell-topnav .topnav-notification {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   min-width: 36px;
   height: 36px;
   min-height: 36px;
   padding: 0;
   border: 0;
-  border-radius: 0;
+  border-radius: 4px;
   background: transparent;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
-.app-shell-topnav .topnav-notification::after {
+.app-shell-topnav .topnav-notification:hover,
+.app-shell-topnav .topnav-notification:focus-visible,
+.app-shell-topnav .topnav-notification.active {
+  background: #eef1f7;
+  color: var(--lovable-text);
+}
+
+.app-shell-topnav .topnav-notification-badge {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 6px;
-  height: 6px;
+  top: -4px;
+  right: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: 999px;
+  border: 2px solid var(--lovable-surface);
   background: #e5484d;
-  content: "";
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.app-shell-topnav .topnav-notification-panel {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 120;
+  display: grid;
+  gap: 12px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  padding: 14px;
+  border: 1px solid var(--lovable-border);
+  border-radius: 4px;
+  background: var(--lovable-surface);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+  animation: topnav-notification-pop 160ms ease-out;
+}
+
+@keyframes topnav-notification-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.app-shell-topnav .topnav-notification-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--lovable-border);
+}
+
+.app-shell-topnav .topnav-notification-head div {
+  display: grid;
+  gap: 3px;
+}
+
+.app-shell-topnav .topnav-notification-head strong {
+  color: var(--lovable-text);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.app-shell-topnav .topnav-notification-head span {
+  color: var(--lovable-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.app-shell-topnav .topnav-notification-total {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--lovable-border);
+  border-radius: 999px;
+  color: var(--lovable-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .topnav-notification-total.active {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.app-shell-topnav .topnav-notification-list {
+  display: grid;
+  gap: 8px;
+}
+
+.app-shell-topnav .topnav-notification-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid var(--lovable-border);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: #fff;
+  text-align: left;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.app-shell-topnav .topnav-notification-item:hover,
+.app-shell-topnav .topnav-notification-item:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.1);
+}
+
+.app-shell-topnav .topnav-notification-item.tone-danger {
+  border-left-color: #ef4444;
+}
+
+.app-shell-topnav .topnav-notification-item.tone-warn {
+  border-left-color: #f59e0b;
+}
+
+.app-shell-topnav .topnav-notification-item.tone-info {
+  border-left-color: #2563eb;
+}
+
+.app-shell-topnav .topnav-notification-item-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.app-shell-topnav .topnav-notification-item-main strong {
+  color: var(--lovable-text);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.app-shell-topnav .topnav-notification-item-main span {
+  color: var(--lovable-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.app-shell-topnav .topnav-notification-action {
+  flex: 0 0 auto;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.app-shell-topnav .topnav-notification-empty {
+  display: grid;
+  gap: 5px;
+  padding: 18px 12px;
+  border: 1px dashed var(--lovable-border);
+  border-radius: 4px;
+  background: #fbfcfe;
+  text-align: center;
+}
+
+.app-shell-topnav .topnav-notification-empty strong {
+  color: var(--lovable-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .topnav-notification-empty span {
+  color: var(--lovable-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .app-shell-topnav .topnav-profile {
@@ -24875,9 +25096,9 @@ button.issuance-list-item {
   min-height: 30px;
 }
 
-.app-shell-topnav .topnav-notification::after {
-  top: 5px;
-  right: 5px;
+.app-shell-topnav .topnav-notification-badge {
+  top: -5px;
+  right: -5px;
 }
 
 .app-shell-topnav .topnav-profile {
@@ -30399,6 +30620,18 @@ button.issuance-list-item {
   scrollbar-gutter: stable !important;
 }
 
+@media (min-width: 1101px) {
+  .app-shell-topnav .panel.panel-customer-list.customer-console-panel {
+    min-height: var(--customer-list-panel-min-height, min(720px, calc(100dvh - 180px))) !important;
+  }
+
+  .app-shell-topnav .customer-console-table-wrap {
+    height: var(--customer-table-viewport-height, 100%) !important;
+    max-height: var(--customer-table-viewport-height, 100%) !important;
+    min-height: var(--customer-table-viewport-height, 0) !important;
+  }
+}
+
 @media (max-width: 1100px) {
   .app-shell-topnav .customer-detail-panel.is-create .customer-console-create-body {
     grid-template-columns: minmax(0, 1fr) !important;
@@ -30588,13 +30821,13 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-certificate-management-row {
-  min-height: 38px !important;
-  padding: 4px 0 !important;
+  min-height: 50px !important;
+  padding: 8px 0 !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-certificate-management-main small {
-  margin-top: 1px !important;
-  line-height: 1.2 !important;
+  margin-top: 3px !important;
+  line-height: 1.35 !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-memo-card {

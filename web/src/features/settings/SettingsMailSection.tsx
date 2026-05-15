@@ -38,7 +38,7 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
             onChange={(event) => model.onMailAddressChange(event.target.value)}
           />
           <span className="field-hint">
-            읽기 / 알림에 같이 쓰는 계정입니다.
+            한전 수신메일을 읽는 계정입니다.
           </span>
         </label>
         <label>
@@ -70,20 +70,54 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
           <span className="field-hint">
             {model.mailPasswordConfigured
               ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 연결 시 빈칸이면 서버에 저장된 값을 사용합니다."
-              : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다. 수신/발신 모두 이 값을 사용합니다."}
+              : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다. 메일 읽기 연결에 사용합니다."}
           </span>
         </label>
-        <label className="full">
-          알림 수신 메일
-          <textarea
-            rows={4}
-            value={model.fields.notificationEmailsText}
-            onChange={(event) =>
-              model.onNotificationEmailsTextChange(event.target.value)
-            }
-          />
-          <span className="field-hint">실패 알림 수신 주소</span>
-        </label>
+        {model.requiresManualImapSettings ? (
+          <div className="helper-box full">
+            <strong>IMAP 직접 설정</strong>
+            <span>자동 설정을 지원하지 않는 메일은 수신 서버 정보를 입력해야 합니다.</span>
+            <div className="fields four-column">
+              <label>
+                IMAP 서버
+                <input
+                  placeholder="imap.company.co.kr"
+                  value={model.fields.imapHost}
+                  onChange={(event) => model.onImapHostChange(event.target.value)}
+                />
+              </label>
+              <label>
+                포트
+                <input
+                  inputMode="numeric"
+                  placeholder="993"
+                  value={model.fields.imapPort}
+                  onChange={(event) => model.onImapPortChange(event.target.value)}
+                />
+              </label>
+              <label>
+                보안
+                <select
+                  value={model.fields.imapSecure ? "ssl" : "plain"}
+                  onChange={(event) =>
+                    model.onImapSecureChange(event.target.value === "ssl")
+                  }
+                >
+                  <option value="ssl">SSL 사용</option>
+                  <option value="plain">SSL 미사용</option>
+                </select>
+              </label>
+              <label>
+                읽을 폴더
+                <input
+                  placeholder="INBOX"
+                  value={model.fields.imapMailbox}
+                  onChange={(event) => model.onImapMailboxChange(event.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+        ) : null}
         <details className="settings-advanced-panel full">
           <summary>월간 메일 동기화 일정</summary>
           <div className="helper-box">

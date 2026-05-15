@@ -4,7 +4,7 @@ import type { LocalRenewalHelperUpgradeState } from "../../helper-version";
 import type { SettingsAccountState } from "./settingsAccountTypes";
 import { normalizeRenewalIssuePasswordInput } from "./settingsFormUtils";
 import {
-  MAIL_PROVIDER_CONFIG,
+  applyMailProviderDefaults,
   inferMailProviderFromAddress,
   settingsToForm
 } from "./settingsFormPersistence";
@@ -15,7 +15,15 @@ import { useSettingsMailTestAction } from "./useSettingsMailTestAction";
 import { useSettingsStoredSecretLoaders } from "./useSettingsStoredSecretLoaders";
 import type { SettingsMailEditableFields } from "./settingsSectionModels";
 
-export type MailProvider = "gmail" | "naver" | "daum";
+export type MailProvider =
+  | "gmail"
+  | "naver"
+  | "daum"
+  | "kakao"
+  | "outlook"
+  | "icloud"
+  | "yahoo"
+  | "custom";
 export type SettingsSectionId = "onboarding" | "gmail" | "popbill" | "helper" | "account";
 export type SettingsAutosaveState = "idle" | "pending" | "saving" | "saved" | "error";
 export {
@@ -47,7 +55,6 @@ export type SettingsFormState = {
   smtpHost: string;
   smtpPort: string;
   smtpSecure: boolean;
-  notificationEmailsText: string;
   defaultIssueDay: string;
   defaultIssueHour: string;
   defaultIssueMinute: string;
@@ -219,18 +226,10 @@ export function useSettingsScreenState({
       setSettingsForm((prev) => {
         if (!prev) return prev;
         const nextProvider = inferMailProviderFromAddress(nextAddress, prev.mailProvider);
-        const config = MAIL_PROVIDER_CONFIG[nextProvider];
-        return {
+        return applyMailProviderDefaults({
           ...prev,
-          mailAddress: nextAddress,
-          mailProvider: nextProvider,
-          imapHost: config.imapHost,
-          imapPort: config.imapPort,
-          imapSecure: config.imapSecure,
-          smtpHost: config.smtpHost,
-          smtpPort: config.smtpPort,
-          smtpSecure: config.smtpSecure
-        };
+          mailAddress: nextAddress
+        }, nextProvider);
       });
     },
     [setSettingsForm]
@@ -263,18 +262,10 @@ export function useSettingsScreenState({
         fields.mailAddress,
         settingsForm.mailProvider
       );
-      const config = MAIL_PROVIDER_CONFIG[nextProvider];
-      const nextSettingsForm: SettingsFormState = {
+      const nextSettingsForm = applyMailProviderDefaults({
         ...settingsForm,
-        ...fields,
-        mailProvider: nextProvider,
-        imapHost: config.imapHost,
-        imapPort: config.imapPort,
-        imapSecure: config.imapSecure,
-        smtpHost: config.smtpHost,
-        smtpPort: config.smtpPort,
-        smtpSecure: config.smtpSecure
-      };
+        ...fields
+      }, nextProvider);
       let testSucceeded = false;
 
       await runSettingsAction("mail-test", async () => {
