@@ -118,63 +118,6 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
             </div>
           </div>
         ) : null}
-        <details className="settings-advanced-panel full">
-          <summary>월간 메일 동기화 일정</summary>
-          <div className="helper-box">
-            <strong>매달 메일 읽기 일정</strong>
-            <div className="fields three-column">
-              <label>
-                자동 실행
-                <select
-                  value={model.fields.schedulerEnabled ? "on" : "off"}
-                  onChange={(event) =>
-                    model.onSchedulerEnabledChange(event.target.value === "on")
-                  }
-                >
-                  <option value="on">사용</option>
-                  <option value="off">중지</option>
-                </select>
-              </label>
-              <label>
-                실행일
-                <input
-                  type="number"
-                  min="1"
-                  max="31"
-                  value={model.fields.defaultIssueDay}
-                  onChange={(event) =>
-                    model.onDefaultIssueDayChange(event.target.value)
-                  }
-                />
-              </label>
-              <label>
-                실행 시각
-                <div className="inline-time-fields">
-                  <input
-                    type="number"
-                    min="0"
-                    max="23"
-                    value={model.fields.defaultIssueHour}
-                    onChange={(event) =>
-                      model.onDefaultIssueHourChange(event.target.value)
-                    }
-                  />
-                  <span>:</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={model.fields.defaultIssueMinute}
-                    onChange={(event) =>
-                      model.onDefaultIssueMinuteChange(event.target.value)
-                    }
-                  />
-                </div>
-              </label>
-            </div>
-            <span>기본값은 매월 20일입니다.</span>
-          </div>
-        </details>
       </div>
     </SetupPanel>
   );

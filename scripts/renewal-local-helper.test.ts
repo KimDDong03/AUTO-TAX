@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createCertificateUploadSessionMetadata } from "./renewal-local-helper.ts";
+import {
+  createCertificateUploadSessionMetadata,
+  isAllowedLocalRenewalHelperOrigin
+} from "./renewal-local-helper.ts";
+
+test("isAllowedLocalRenewalHelperOrigin allows the production KIYO domains by default", () => {
+  assert.equal(isAllowedLocalRenewalHelperOrigin("https://kiyo.kr"), true);
+  assert.equal(isAllowedLocalRenewalHelperOrigin("https://www.kiyo.kr"), true);
+  assert.equal(isAllowedLocalRenewalHelperOrigin("https://auto-tax-alpha.vercel.app"), false);
+});
 
 test("createCertificateUploadSessionMetadata reports missing signCert.der without raw persistence", () => {
   const result = createCertificateUploadSessionMetadata([

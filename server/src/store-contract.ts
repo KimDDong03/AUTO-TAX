@@ -102,6 +102,12 @@ export interface AppStore {
     parsedMail: ParsedMail;
     draftSource?: "mail-sync" | "mail-reprocess" | "other";
   }): Promise<InvoiceDraft>;
+  createManualDraft(args: {
+    customer: Customer;
+    status: DraftStatus;
+    writeDate: string;
+    parsedMail: ParsedMail;
+  }): Promise<InvoiceDraft>;
   findDraftByCustomerAndBillingMonth(customerId: number, billingMonth: string): Promise<InvoiceDraft | null>;
   refreshDraftFromParsedMail(draftId: number, parsedMail: ParsedMail): Promise<InvoiceDraft>;
   unmatchDraftSource(draftId: number): Promise<InboxMessage>;

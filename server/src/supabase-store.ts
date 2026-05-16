@@ -56,6 +56,7 @@ import {
   digitsOnly,
   nextDraftMgtKey,
   normalizeAddress,
+  normalizePlantName,
   normalizePopbillUserPrefix,
   nowIso,
   sanitizeSensitiveData,
@@ -104,9 +105,52 @@ function asStringArray(value: unknown): string[] {
   return value.map((item) => String(item)).filter(Boolean);
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
 function asJsonString(value: unknown): string {
   if (typeof value === "string") return value;
   return JSON.stringify(value ?? {});
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function normalizedPlantNameMatches(left: string, right: string): boolean {
+  const normalizedLeft = normalizePlantName(left);
+  const normalizedRight = normalizePlantName(right);
+  return Boolean(
+    normalizedLeft &&
+    normalizedRight &&
+    (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft))
+  );
+}
+
+function customerMatchesParsedPlant(customer: Customer, parsedPlantName: string): boolean {
+  if (!parsedPlantName.trim()) {
+    return false;
+  }
+
+  return [customer.corpName, customer.customerName, ...customer.plantNames].some((name) =>
+    normalizedPlantNameMatches(name, parsedPlantName)
+  );
 }
 
 function buildDashboardCounts(drafts: InvoiceDraft[], inbox: InboxMessage[], customerCount: number) {
@@ -1068,6 +1112,43 @@ export class SupabaseStore implements AppStore {
     return asString((data as Row).customer_name);
   }
 
+  private async lookupLegacyIdMap(
+    table: "managed_customers" | "inbox_messages" | "invoice_drafts",
+    uuids: string[]
+  ): Promise<Map<string, number>> {
+    const uniqueUuids = uniqueStrings(uuids);
+    if (uniqueUuids.length === 0) {
+      return new Map();
+    }
+
+    const rows = await assertNoError(
+      `${table} legacy_id 목록 조회 실패`,
+      this.client.from(table).select("id, legacy_id").in("id", uniqueUuids)
+    );
+    return new Map(((rows as Row[]) ?? []).map((row) => [asString(row.id), asNumber(row.legacy_id)]));
+  }
+
+  private async lookupCustomerDraftMetadataMap(customerUuids: string[]): Promise<Map<string, { legacyId: number; customerName: string }>> {
+    const uniqueUuids = uniqueStrings(customerUuids);
+    if (uniqueUuids.length === 0) {
+      return new Map();
+    }
+
+    const rows = await assertNoError(
+      "초안 고객 메타데이터 목록 조회 실패",
+      this.client.from("managed_customers").select("id, legacy_id, customer_name").in("id", uniqueUuids)
+    );
+    return new Map(
+      ((rows as Row[]) ?? []).map((row) => [
+        asString(row.id),
+        {
+          legacyId: asNumber(row.legacy_id),
+          customerName: asString(row.customer_name)
+        }
+      ])
+    );
+  }
+
   private async buildInboxPayload(row: Row): Promise<InboxMessage> {
     const customerLegacyId = row.managed_customer_id ? await this.lookupLegacyId("managed_customers", asString(row.managed_customer_id)) : null;
     const draftLegacyId = row.invoice_draft_id ? await this.lookupLegacyId("invoice_drafts", asString(row.invoice_draft_id)) : null;
@@ -1076,6 +1157,21 @@ export class SupabaseStore implements AppStore {
       managed_customer_legacy_id: customerLegacyId,
       invoice_draft_legacy_id: draftLegacyId
     });
+  }
+
+  private async buildInboxPayloads(rows: Row[]): Promise<InboxMessage[]> {
+    const [customerLegacyIds, draftLegacyIds] = await Promise.all([
+      this.lookupLegacyIdMap("managed_customers", rows.map((row) => asString(row.managed_customer_id))),
+      this.lookupLegacyIdMap("invoice_drafts", rows.map((row) => asString(row.invoice_draft_id)))
+    ]);
+
+    return rows.map((row) =>
+      mapInbox({
+        ...row,
+        managed_customer_legacy_id: row.managed_customer_id ? customerLegacyIds.get(asString(row.managed_customer_id)) ?? 0 : null,
+        invoice_draft_legacy_id: row.invoice_draft_id ? draftLegacyIds.get(asString(row.invoice_draft_id)) ?? 0 : null
+      })
+    );
   }
 
   private async buildDraftPayload(row: Row): Promise<InvoiceDraft> {
@@ -1093,12 +1189,33 @@ export class SupabaseStore implements AppStore {
     });
   }
 
-  private async buildCustomerCertificatePayload(row: Row): Promise<CustomerCertificate> {
-    const customerLegacyId = await this.lookupLegacyId("managed_customers", asString(row.managed_customer_id));
+  private async buildDraftPayloads(rows: Row[]): Promise<InvoiceDraft[]> {
+    const [customerMetadata, sourceMessageLegacyIds] = await Promise.all([
+      this.lookupCustomerDraftMetadataMap(rows.map((row) => asString(row.managed_customer_id))),
+      this.lookupLegacyIdMap("inbox_messages", rows.map((row) => asString(row.source_message_id)))
+    ]);
+
+    return rows.map((row) => {
+      const customer = customerMetadata.get(asString(row.managed_customer_id));
+      return mapDraft({
+        ...row,
+        managed_customer_legacy_id: customer?.legacyId ?? 0,
+        source_message_legacy_id: row.source_message_id ? sourceMessageLegacyIds.get(asString(row.source_message_id)) ?? 0 : 0,
+        customer_name: customer?.customerName ?? ""
+      });
+    });
+  }
+
+  private buildCustomerCertificatePayloadWithLegacyId(row: Row, customerLegacyId: number): CustomerCertificate {
     return mapCustomerCertificate({
       ...row,
       managed_customer_legacy_id: customerLegacyId
     });
+  }
+
+  private async buildCustomerCertificatePayload(row: Row): Promise<CustomerCertificate> {
+    const customerLegacyId = await this.lookupLegacyId("managed_customers", asString(row.managed_customer_id));
+    return this.buildCustomerCertificatePayloadWithLegacyId(row, customerLegacyId);
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -1435,7 +1552,14 @@ export class SupabaseStore implements AppStore {
       throw error;
     }
 
-    return await Promise.all(((rows as Row[]) ?? []).map((row) => this.buildCustomerCertificatePayload(row)));
+    const certificateRows = ((rows as Row[]) ?? []);
+    const customerLegacyIds = await this.lookupLegacyIdMap(
+      "managed_customers",
+      certificateRows.map((row) => asString(row.managed_customer_id))
+    );
+    return certificateRows.map((row) =>
+      this.buildCustomerCertificatePayloadWithLegacyId(row, customerLegacyIds.get(asString(row.managed_customer_id)) ?? 0)
+    );
   }
 
   async getCustomerCertificatePassword(certificateId: number): Promise<string> {
@@ -2715,6 +2839,62 @@ export class SupabaseStore implements AppStore {
     return draft;
   }
 
+  async createManualDraft(args: {
+    customer: Customer;
+    status: DraftStatus;
+    writeDate: string;
+    parsedMail: ParsedMail;
+  }): Promise<InvoiceDraft> {
+    const customerRow = await this.getManagedCustomerRowByLegacyId(args.customer.id);
+    if (!customerRow) {
+      throw new Error("고객을 찾지 못했습니다.");
+    }
+
+    const mgtKey = buildDraftMgtKey(args.customer.id, args.parsedMail.billingMonth, 0);
+    const inserted = await assertNoError(
+      "수동 발행 초안 저장 실패",
+      this.client
+        .from("invoice_drafts")
+        .insert({
+          organization_id: this.requireOrganizationId(),
+          managed_customer_id: asString(customerRow.id),
+          source_message_id: null,
+          created_by: this.actorUserId,
+          issue_mode: "review",
+          status: args.status,
+          scheduled_for: null,
+          billing_month: args.parsedMail.billingMonth,
+          write_date: args.writeDate,
+          item_name: args.parsedMail.itemName,
+          plant_name: args.parsedMail.plantName,
+          supply_cost: args.parsedMail.supplyCost,
+          tax_total: args.parsedMail.taxTotal,
+          total_amount: args.parsedMail.totalAmount,
+          kepco_corp_num: args.parsedMail.kepcoCorpNum,
+          kepco_branch_id: args.parsedMail.kepcoBranchId,
+          kepco_corp_name: args.parsedMail.kepcoCorpName,
+          kepco_ceo_name: args.parsedMail.kepcoCeoName,
+          kepco_addr: args.parsedMail.kepcoAddr,
+          kepco_biz_type: args.parsedMail.kepcoBizType,
+          kepco_biz_class: args.parsedMail.kepcoBizClass,
+          popbill_mgt_key: mgtKey
+        })
+        .select("*")
+        .single()
+    );
+
+    const draft = await this.buildDraftPayload(inserted as Row);
+    await this.createLog("info", "drafts", "수동 발행 초안을 생성했습니다.", {
+      eventType: "draft-created",
+      draftId: draft.id,
+      customerId: draft.customerId,
+      billingMonth: draft.billingMonth,
+      writeDate: draft.writeDate,
+      source: "manual-missing-mail"
+    }).catch(() => {});
+    return draft;
+  }
+
   async findDraftByCustomerAndBillingMonth(customerId: number, billingMonth: string): Promise<InvoiceDraft | null> {
     const customerRow = await this.getManagedCustomerRowByLegacyId(customerId);
     if (!customerRow) return null;
@@ -2791,6 +2971,9 @@ export class SupabaseStore implements AppStore {
       throw new Error("원본 메일 파싱 정보를 찾지 못했습니다.");
     }
 
+    const manualMatchAddress = await this.findManualReprocessMatchAddressForDraft(draft, draftRow, sourceMessage);
+    const normalizedManualMatchAddress = manualMatchAddress ? normalizeAddress(manualMatchAddress) : "";
+
     const inbox = await this.updateInboxMatchResult({
       messageId: sourceMessage.id,
       parseStatus: "unmatched",
@@ -2800,12 +2983,106 @@ export class SupabaseStore implements AppStore {
       draftId: null
     });
 
+    if (normalizedManualMatchAddress) {
+      await assertNoError(
+        "수동 매칭 주소 복구 실패",
+        this.client
+          .from("managed_customer_match_addresses")
+          .delete()
+          .eq("managed_customer_id", asString(draftRow.managed_customer_id))
+          .eq("normalized_match_address", normalizedManualMatchAddress)
+      );
+    }
+
     await assertNoError(
       "초안 삭제 실패",
       this.client.from("invoice_drafts").delete().eq("id", asString(draftRow.id))
     );
 
     return inbox;
+  }
+
+  private async findManualReprocessMatchAddressForDraft(draft: InvoiceDraft, draftRow: Row, sourceMessage: InboxMessage): Promise<string | null> {
+    const rows = await this.listAppLogRows({ draftId: draft.id });
+    const matchingRow = [...rows].reverse().find((row) => {
+      const context = asRecord(row.context_json);
+      return (
+        asString(row.scope) === "mail-reprocess" &&
+        context?.manualMatchAddressAdded === true
+      );
+    });
+    const context = matchingRow ? asRecord(matchingRow.context_json) : null;
+    const matchAddress = context?.manualMatchAddress;
+    if (typeof matchAddress === "string" && matchAddress.trim()) {
+      return matchAddress;
+    }
+
+    const legacyReprocessRow = [...rows].reverse().find((row) => {
+      const legacyContext = asRecord(row.context_json);
+      return (
+        asString(row.scope) === "mail-reprocess" &&
+        legacyContext?.draftSource === "mail-reprocess" &&
+        legacyContext?.eventType === "draft-created" &&
+        legacyContext?.status === "parsed" &&
+        legacyContext?.manualMatchAddressAdded === undefined
+      );
+    });
+    if (!legacyReprocessRow) {
+      return null;
+    }
+
+    return this.findLegacyReprocessMatchAddressForRestore(draft, draftRow, sourceMessage);
+  }
+
+  private async findLegacyReprocessMatchAddressForRestore(
+    draft: InvoiceDraft,
+    draftRow: Row,
+    sourceMessage: InboxMessage
+  ): Promise<string | null> {
+    const parsedAddress = sourceMessage.parsedData?.plantAddress?.trim() ?? "";
+    const normalizedParsedAddress = normalizeAddress(parsedAddress);
+    if (!parsedAddress || !normalizedParsedAddress) {
+      return null;
+    }
+
+    const customer = await this.getCustomer(draft.customerId);
+    if (!customer) {
+      return null;
+    }
+
+    if (normalizeAddress(customer.addr) === normalizedParsedAddress) {
+      return null;
+    }
+
+    const hasCurrentMatchAddress = customer.matchAddresses.some((address) => normalizeAddress(address) === normalizedParsedAddress);
+    if (!hasCurrentMatchAddress || customerMatchesParsedPlant(customer, sourceMessage.parsedData?.plantName ?? "")) {
+      return null;
+    }
+
+    const managedCustomerId = asString(draftRow.managed_customer_id);
+    const matchAddressRow = await assertNoError(
+      "매칭 주소 복구 후보 조회 실패",
+      this.client
+        .from("managed_customer_match_addresses")
+        .select("created_at")
+        .eq("managed_customer_id", managedCustomerId)
+        .eq("normalized_match_address", normalizedParsedAddress)
+        .maybeSingle()
+    );
+    if (!matchAddressRow) {
+      return null;
+    }
+
+    const matchAddressCreatedAt = Date.parse(asString((matchAddressRow as Row).created_at));
+    const draftCreatedAt = Date.parse(asString(draftRow.created_at));
+    if (Number.isFinite(matchAddressCreatedAt) && Number.isFinite(draftCreatedAt)) {
+      const ageBeforeDraftMs = draftCreatedAt - matchAddressCreatedAt;
+      if (ageBeforeDraftMs < -60_000 || ageBeforeDraftMs > 10 * 60_000) {
+        return null;
+      }
+    }
+
+    return parsedAddress;
   }
 
   async updateInboxParsedData(messageId: number, parsedMail: ParsedMail): Promise<InboxMessage> {
@@ -2886,7 +3163,7 @@ export class SupabaseStore implements AppStore {
         .order("created_at", { ascending: false })
         .limit(200)
     );
-    return Promise.all((rows as Row[]).map((row) => this.buildDraftPayload(row)));
+    return this.buildDraftPayloads((rows as Row[]) ?? []);
   }
 
   async getIssuedMonthlyTrend(anchorBillingYear: string) {
@@ -2897,25 +3174,27 @@ export class SupabaseStore implements AppStore {
     await this.initialize();
     const organizationId = this.requireOrganizationId();
     const targetMonths = Array.from({ length: 12 }, (_, index) => `${anchorBillingYear}-${String(index + 1).padStart(2, "0")}`);
-    const months = await Promise.all(
-      targetMonths.map(async (billingMonth) => {
-        const { count, error } = await this.client
-          .from("invoice_drafts")
-          .select("*", { count: "exact", head: true })
-          .eq("organization_id", organizationId)
-          .eq("status", "issued")
-          .eq("billing_month", billingMonth);
-
-        if (error) {
-          throw new Error(`${billingMonth} 발행 건수 조회 실패: ${error.message}`);
-        }
-
-        return {
-          billingMonth,
-          issuedDraftCount: count ?? 0
-        };
-      })
+    const rows = await assertNoError(
+      "월별 발행 현황 조회 실패",
+      this.client
+        .from("invoice_drafts")
+        .select("billing_month")
+        .eq("organization_id", organizationId)
+        .eq("status", "issued")
+        .gte("billing_month", `${anchorBillingYear}-01`)
+        .lte("billing_month", `${anchorBillingYear}-12`)
     );
+    const countsByBillingMonth = new Map<string, number>();
+    for (const row of (rows as Row[]) ?? []) {
+      const billingMonth = asString(row.billing_month);
+      if (targetMonths.includes(billingMonth)) {
+        countsByBillingMonth.set(billingMonth, (countsByBillingMonth.get(billingMonth) ?? 0) + 1);
+      }
+    }
+    const months = targetMonths.map((billingMonth) => ({
+      billingMonth,
+      issuedDraftCount: countsByBillingMonth.get(billingMonth) ?? 0
+    }));
 
     return {
       anchorBillingYear,
@@ -2935,7 +3214,7 @@ export class SupabaseStore implements AppStore {
         .order("legacy_id", { ascending: false })
         .limit(200)
     );
-    return Promise.all((rows as Row[]).map((row) => this.buildInboxPayload(row)));
+    return this.buildInboxPayloads((rows as Row[]) ?? []);
   }
 
   async listLogs(): Promise<LogEntry[]> {

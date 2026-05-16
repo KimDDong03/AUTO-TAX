@@ -56,9 +56,33 @@ async function assertWithinIssueQuota(store: AppStore): Promise<OrganizationIssu
   return quota;
 }
 
+function parseStoredWriteDate(value: string | null): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  const compactMatch = normalized.match(/^(\d{4})(\d{2})(\d{2})$/);
+  const dashedMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const match = compactMatch ?? dashedMatch;
+  if (!match) {
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export async function issueDraftNow(store: AppStore, settings: AppSettings, customer: Customer, draft: InvoiceDraft): Promise<InvoiceDraft> {
   const quota = await assertWithinIssueQuota(store);
-  const writeDate = new Date();
+  const sourceMessage = draft.sourceMessageId > 0 ? await store.getInboxMessage(draft.sourceMessageId) : null;
+  const explicitWriteDate = parseStoredWriteDate(draft.writeDate);
+  const receivedAt = sourceMessage?.receivedAt ? new Date(sourceMessage.receivedAt) : null;
+  const writeDate = explicitWriteDate ?? (receivedAt && !Number.isNaN(receivedAt.getTime()) ? receivedAt : new Date());
   const response = await issueTaxInvoice(settings, customer, draft, writeDate);
   const issuedDraft = await store.updateDraftStatus(
     draft.id,

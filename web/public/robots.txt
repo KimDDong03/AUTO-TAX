@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://auto-tax-alpha.vercel.app/sitemap.xml
+Sitemap: https://kiyo.kr/sitemap.xml

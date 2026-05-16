@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { refreshAllCertificateStatuses, shouldRefreshCertificateStatuses } from "./certificate-monitor.js";
 import { getErrorMessage } from "./http-errors.js";
-import { syncMailbox } from "./mail-sync.js";
 import { getServerManagedSettings } from "./server-managed-settings.js";
 import { runCustomerOnboardingCommitBatch } from "./services/customer-onboarding-batch-service.js";
 import { autoJoinCustomerPopbill } from "./services/popbill-customer-service.js";
@@ -51,14 +50,12 @@ type DispatchDetail = {
 
 type RecurringDispatchContext = {
   settingsRows: Row[];
-  integrationRows: Row[];
   joinedCustomerOrganizationIds: Set<string>;
 };
 
 type DispatchRecurringJobsDependencies = {
   loadRecurringDispatchContext: () => Promise<RecurringDispatchContext>;
   hasOpenJob: typeof hasOpenJob;
-  getLatestJobReferenceAt: typeof getLatestJobReferenceAt;
   enqueueJob: typeof enqueueJob;
 };
 
@@ -110,95 +107,10 @@ function asBoolean(value: unknown, fallback = false): boolean {
   return fallback;
 }
 
-function normalizeTimeZone(value: string | null): string {
-  const candidate = value?.trim() || "Asia/Seoul";
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format(new Date());
-    return candidate;
-  } catch {
-    return "Asia/Seoul";
-  }
-}
-
-function getZonedParts(date: Date, timeZone: string) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  });
-
-  const parts = formatter.formatToParts(date);
-  const values = new Map(parts.map((part) => [part.type, part.value]));
-  return {
-    year: Number(values.get("year") ?? "0"),
-    month: Number(values.get("month") ?? "0"),
-    day: Number(values.get("day") ?? "0"),
-    hour: Number(values.get("hour") ?? "0"),
-    minute: Number(values.get("minute") ?? "0")
-  };
-}
-
-function getEffectiveMonthlyDay(year: number, month: number, configuredDay: number): number {
-  const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return Math.max(1, Math.min(configuredDay, maxDay));
-}
-
-function hasReachedMonthlySchedule(
-  now: Date,
-  timeZone: string,
-  configuredDay: number,
-  scheduledHour: number,
-  scheduledMinute: number
-): boolean {
-  const parts = getZonedParts(now, timeZone);
-  const scheduledDay = getEffectiveMonthlyDay(parts.year, parts.month, configuredDay);
-
-  if (parts.day > scheduledDay) return true;
-  if (parts.day < scheduledDay) return false;
-  if (parts.hour > scheduledHour) return true;
-  if (parts.hour < scheduledHour) return false;
-  return parts.minute >= scheduledMinute;
-}
-
-function hasCompletedMonthlySchedule(
-  latestReferenceAt: string | null,
-  now: Date,
-  timeZone: string,
-  configuredDay: number,
-  scheduledHour: number,
-  scheduledMinute: number
-): boolean {
-  if (!latestReferenceAt) {
-    return false;
-  }
-
-  const current = getZonedParts(now, timeZone);
-  const latest = getZonedParts(new Date(latestReferenceAt), timeZone);
-  if (current.year !== latest.year || current.month !== latest.month) {
-    return false;
-  }
-
-  const scheduledDay = getEffectiveMonthlyDay(current.year, current.month, configuredDay);
-  if (latest.day > scheduledDay) return true;
-  if (latest.day < scheduledDay) return false;
-  if (latest.hour > scheduledHour) return true;
-  if (latest.hour < scheduledHour) return false;
-  return latest.minute >= scheduledMinute;
-}
-
-function createMonthlyBatchKey(now: Date, timeZone: string, scheduledDay: number): string {
-  const parts = getZonedParts(now, timeZone);
-  return `monthly:${parts.year}-${String(parts.month).padStart(2, "0")}:${scheduledDay}:${timeZone}`;
-}
-
 function getRetryPolicy(jobType: QueueJobType): { maxRetries: number; delayMinutes: number } {
   switch (jobType) {
     case "mail-sync":
-      return { maxRetries: 2, delayMinutes: 10 };
+      return { maxRetries: 0, delayMinutes: 0 };
     case "certificate-check":
       return { maxRetries: 1, delayMinutes: 30 };
     case "customer-onboarding-commit":
@@ -314,73 +226,6 @@ async function requeueStaleClaimedJobs(now: Date): Promise<number> {
   return requeuedCount;
 }
 
-async function hasBatchSummaryLog(organizationId: string, batchKey: string): Promise<boolean> {
-  const client = createSupabaseAdminClient();
-  const { count, error } = await client
-    .from("app_logs")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId)
-    .eq("scope", "job-batch-summary")
-    .contains("context_json", { batchKey });
-
-  if (error) {
-    throw new Error(`배치 요약 로그 확인에 실패했습니다: ${error.message}`);
-  }
-
-  return (count ?? 0) > 0;
-}
-
-async function maybeWriteBatchSummaryLog(organizationId: string, batchKey: string): Promise<void> {
-  if (await hasBatchSummaryLog(organizationId, batchKey)) {
-    return;
-  }
-
-  const client = createSupabaseAdminClient();
-  const { count: remainingCount, error: remainingError } = await client
-    .from("job_queue")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId)
-    .contains("payload", { batchKey })
-    .in("status", ["queued", "claimed"]);
-
-  if (remainingError) {
-    throw new Error(`배치 열린 작업 조회에 실패했습니다: ${remainingError.message}`);
-  }
-
-  if ((remainingCount ?? 0) > 0) {
-    return;
-  }
-
-  const rows = await assertNoError(
-    "배치 작업 조회 실패",
-    client
-      .from("job_queue")
-      .select("*")
-      .eq("organization_id", organizationId)
-      .contains("payload", { batchKey })
-      .order("created_at", { ascending: true })
-  );
-
-  const jobs = (rows ?? []) as Row[];
-  const mailSyncJob = jobs.find((row) => asString(row.job_type) === "mail-sync") ?? null;
-  const mailSyncResult = (mailSyncJob?.result as Record<string, unknown> | null) ?? {};
-
-  const store = new SupabaseStore({
-    organizationId,
-    bootstrapOrganization: false
-  });
-  await store.initialize();
-
-  await store.createLog("info", "job-batch-summary", "월 자동 처리 요약을 로그로 정리했습니다.", {
-    batchKey,
-    scanned: asNumber(mailSyncResult.scanned, 0),
-    imported: asNumber(mailSyncResult.imported, 0),
-    createdDrafts: asNumber(mailSyncResult.createdDrafts, 0),
-    unmatched: asNumber(mailSyncResult.unmatched, 0),
-    parseFailures: asNumber(mailSyncResult.failures, 0)
-  });
-}
-
 async function assertNoError<T>(label: string, promise: PromiseLike<{ data: T; error: { message: string } | null }>): Promise<T> {
   const { data, error } = await promise;
   if (error) {
@@ -411,21 +256,14 @@ async function listOrganizationsWithJoinedPopbillCustomers(
 
 async function loadRecurringDispatchContext(): Promise<RecurringDispatchContext> {
   const client = createSupabaseAdminClient();
-  const [settingsRows, integrationRows] = await Promise.all([
-    assertNoError(
-      "조직 설정 목록 조회 실패",
-      client.from("organization_settings").select("organization_id, scheduler_enabled, default_issue_day, default_issue_hour, default_issue_minute, timezone, cert_last_checked_at")
-    ),
-    assertNoError(
-      "조직 연동 목록 조회 실패",
-      client.from("organization_integrations").select("organization_id, imap_host, imap_user, imap_pass_encrypted")
-    )
-  ]);
+  const settingsRows = await assertNoError(
+    "조직 설정 목록 조회 실패",
+    client.from("organization_settings").select("organization_id, scheduler_enabled, cert_last_checked_at")
+  );
   const normalizedSettingsRows = ((settingsRows ?? []) as Row[]).map((row) => row);
 
   return {
     settingsRows: normalizedSettingsRows,
-    integrationRows: ((integrationRows ?? []) as Row[]).map((row) => row),
     joinedCustomerOrganizationIds: await listOrganizationsWithJoinedPopbillCustomers(
       client,
       normalizedSettingsRows
@@ -476,33 +314,6 @@ async function hasOpenJob(
     throw new Error(`열린 작업 확인에 실패했습니다: ${error.message}`);
   }
   return (count ?? 0) > 0;
-}
-
-async function getLatestJobReferenceAt(organizationId: string, jobType: QueueJobType): Promise<string | null> {
-  const client = createSupabaseAdminClient();
-  const row = await assertNoError(
-    "최근 작업 조회 실패",
-    client
-      .from("job_queue")
-      .select("created_at, claimed_at, finished_at, run_after")
-      .eq("organization_id", organizationId)
-      .eq("job_type", jobType)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-  );
-
-  if (!row) {
-    return null;
-  }
-
-  const latestRow = row as Row;
-  return (
-    asNullableString(latestRow.finished_at) ??
-    asNullableString(latestRow.claimed_at) ??
-    asNullableString(latestRow.run_after) ??
-    asNullableString(latestRow.created_at)
-  );
 }
 
 async function enqueueJob(args: {
@@ -591,19 +402,11 @@ async function claimQueuedJob(jobId: string, claimedBy: string): Promise<QueueJo
   return claimed ? mapQueueJob(claimed as Row) : null;
 }
 
-async function executeMailSyncJob(job: QueueJob): Promise<Record<string, unknown>> {
-  const store = new SupabaseStore({
-    organizationId: job.organizationId,
-    bootstrapOrganization: false
-  });
-  await store.initialize();
-  const batchKey = asNullableString(job.payload.batchKey);
-  const result = await syncMailbox(store, {
-    mode: "scheduled"
-  });
+function skipRetiredMailSyncJob(job: QueueJob): Record<string, unknown> {
   return {
-    ...result,
-    batchKey
+    skipped: true,
+    reason: "scheduled-mail-sync-disabled",
+    previousMode: asNullableString(job.payload.mode)
   };
 }
 
@@ -676,7 +479,7 @@ async function executeCustomerPopbillAutoJoinJob(job: QueueJob): Promise<Record<
 
 async function executeJob(job: QueueJob): Promise<Record<string, unknown>> {
   if (job.jobType === "mail-sync") {
-    return executeMailSyncJob(job);
+    return skipRetiredMailSyncJob(job);
   }
   if (job.jobType === "certificate-check") {
     return executeCertificateCheckJob(job);
@@ -699,101 +502,19 @@ export async function dispatchRecurringJobs(
   const details: DispatchDetail[] = [];
   const loadRecurringDispatchContextImpl = dependencies.loadRecurringDispatchContext ?? loadRecurringDispatchContext;
   const hasOpenJobImpl = dependencies.hasOpenJob ?? hasOpenJob;
-  const getLatestJobReferenceAtImpl = dependencies.getLatestJobReferenceAt ?? getLatestJobReferenceAt;
   const enqueueJobImpl = dependencies.enqueueJob ?? enqueueJob;
-  const { settingsRows, integrationRows, joinedCustomerOrganizationIds } = await loadRecurringDispatchContextImpl();
-
-  const integrationByOrganizationId = new Map<string, Row>();
-  for (const row of integrationRows) {
-    integrationByOrganizationId.set(asString(row.organization_id), row);
-  }
+  const { settingsRows, joinedCustomerOrganizationIds } = await loadRecurringDispatchContextImpl();
 
   for (const row of settingsRows) {
     const organizationId = asString(row.organization_id);
     if (!asBoolean(row.scheduler_enabled, true)) {
       details.push({
-        jobType: "mail-sync",
+        jobType: "certificate-check",
         organizationId,
         action: "skipped",
         reason: "scheduler-disabled"
       });
       continue;
-    }
-
-    const integrationRow = integrationByOrganizationId.get(organizationId) ?? {};
-    const timeZone = normalizeTimeZone(asNullableString(row.timezone));
-    const scheduledDay = Math.max(1, Math.min(asNumber(row.default_issue_day, 20), 31));
-    const scheduledHour = Math.max(0, Math.min(asNumber(row.default_issue_hour, 9), 23));
-    const scheduledMinute = Math.max(0, Math.min(asNumber(row.default_issue_minute, 0), 59));
-    const batchKey = createMonthlyBatchKey(now, timeZone, scheduledDay);
-    const mailConfigured = Boolean(
-      asString(integrationRow.imap_host) && asString(integrationRow.imap_user) && asString(integrationRow.imap_pass_encrypted)
-    );
-    if (mailConfigured) {
-      const mailOpen = await hasOpenJobImpl(organizationId, "mail-sync");
-      const latestMailReference = await getLatestJobReferenceAtImpl(organizationId, "mail-sync");
-
-      if (mailOpen) {
-        details.push({
-          jobType: "mail-sync",
-          organizationId,
-          action: "skipped",
-          reason: "open-job-exists"
-        });
-      } else if (!hasReachedMonthlySchedule(now, timeZone, scheduledDay, scheduledHour, scheduledMinute)) {
-        details.push({
-          jobType: "mail-sync",
-          organizationId,
-          action: "skipped",
-          reason: "monthly-schedule-not-reached"
-        });
-      } else if (
-        hasCompletedMonthlySchedule(latestMailReference, now, timeZone, scheduledDay, scheduledHour, scheduledMinute)
-      ) {
-        details.push({
-          jobType: "mail-sync",
-          organizationId,
-          action: "skipped",
-          reason: "already-ran-this-month"
-        });
-      } else {
-        const queuedJob = await enqueueJobImpl({
-          organizationId,
-          jobType: "mail-sync",
-          runAfter: nowIsoString,
-          payload: {
-            dispatchedAt: nowIsoString,
-            mode: "scheduled",
-            scheduleDay: scheduledDay,
-            scheduleHour: scheduledHour,
-            scheduleMinute: scheduledMinute,
-            timezone: timeZone,
-            batchKey
-          }
-        });
-        details.push(
-          queuedJob
-            ? {
-                jobType: "mail-sync",
-                organizationId,
-                action: "queued",
-                reason: "due"
-              }
-            : {
-                jobType: "mail-sync",
-                organizationId,
-                action: "skipped",
-                reason: "open-job-raced"
-              }
-        );
-      }
-    } else {
-      details.push({
-        jobType: "mail-sync",
-        organizationId,
-        action: "skipped",
-        reason: "mail-not-configured"
-      });
     }
 
     if (!joinedCustomerOrganizationIds.has(organizationId)) {
@@ -915,10 +636,6 @@ export async function runDueJobs(options: {
           status: result.skipped === true ? "skipped" : "completed",
           message: result.skipped === true ? asString(result.reason, "skipped") : "completed"
         });
-        const batchKey = asNullableString(job.payload.batchKey);
-        if (batchKey) {
-          await maybeWriteBatchSummaryLog(job.organizationId, batchKey);
-        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "작업 실행 실패";
         const retry = await scheduleRetry(job, message);
@@ -944,10 +661,6 @@ export async function runDueJobs(options: {
             status: "failed",
             message
           });
-          const batchKey = asNullableString(job.payload.batchKey);
-          if (batchKey) {
-            await maybeWriteBatchSummaryLog(job.organizationId, batchKey);
-          }
         }
       }
     }

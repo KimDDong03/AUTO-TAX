@@ -203,7 +203,7 @@ Main coupling:
 
 ### B. Mail sync to draft generation
 
-1. A user clicks **메일 동기화** from the issuance/onboarding flow, or the monthly job dispatcher creates `mail-sync` work after the configured monthly schedule is reached. The default monthly day is the 20th.
+1. A user clicks **메일 동기화** from the issuance/onboarding flow.
 2. `server/src/mail-sync.ts` pulls IMAP messages in a Seoul-calendar received-month range. Manual API calls accept `receivedMonth` or `billingMonth` as `YYYY-MM`; the default is the current KST month.
 3. `server/src/parser.ts` extracts KEPCO fields.
 4. Store logic resolves the customer by normalized address.
@@ -339,9 +339,9 @@ Security boundary for this flow:
 ### Business jobs
 
 - Storage: `job_queue`
-- Purpose: monthly mail sync, certificate checks, onboarding commit batches, and other recurring business work
+- Purpose: certificate checks, onboarding commit batches, Popbill auto-join follow-up, and other queued business work
 - Trigger path: `supabase/functions/job-tick` -> internal API endpoints
-- `mail-sync` dispatch is monthly, defaulting to the 20th, and is separate from the manual **메일 동기화** button.
+- `mail-sync` is manual only. Cron does not enqueue scheduled mail sync jobs.
 
 ### Renewal helper jobs
 

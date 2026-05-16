@@ -20,6 +20,8 @@ export {
 const require = createRequire(import.meta.url);
 const popbill = require("popbill");
 const MGT_KEY_TYPE_SELL = popbill.MgtKeyType?.SELL ?? "SELL";
+const KEPCO_TAX_INVOICE_HOMETAX_EMAIL = "kepcoppa@kepco.co.kr";
+const KEPCO_TAX_INVOICE_OTHER_EMAIL = "ppa0194@kepco.co.kr";
 
 export type PopbillOperation =
   | "join-member"
@@ -606,13 +608,12 @@ export async function issueTaxInvoice(
     invoiceeBizType: draft.kepcoBizType,
     invoiceeContactName1: "",
     invoiceeTEL1: "",
-    invoiceeEmail1: settings.imapUser,
+    invoiceeEmail1: KEPCO_TAX_INVOICE_HOMETAX_EMAIL,
     invoiceeSMSSendYN: false,
     taxTotal: String(draft.taxTotal),
     supplyCostTotal: String(draft.supplyCost),
     totalAmount: String(draft.totalAmount),
     serialNum: "1",
-    remark1: draft.plantName,
     detailList: [
       {
         serialNum: 1,
@@ -621,6 +622,13 @@ export async function issueTaxInvoice(
         supplyCost: String(draft.supplyCost),
         tax: String(draft.taxTotal),
         qty: "1"
+      }
+    ],
+    addContactList: [
+      {
+        serialNum: 1,
+        contactName: "한국전력공사",
+        email: KEPCO_TAX_INVOICE_OTHER_EMAIL
       }
     ]
   };

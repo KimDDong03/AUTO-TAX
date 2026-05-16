@@ -220,50 +220,17 @@ export function useSettingsOnboardingModel({
       defaultsContent: (
         <SettingsDefaultsOnboardingStep
           onboarding={onboarding.defaults}
-          hasSavedDefaults={onboarding.hasSavedDefaults}
           autosaveLabel={settingsState.autosaveLabel}
-          popbillUserIdPrefix={settingsState.fields.popbillUserIdPrefix}
-          popbillSharedPassword={settingsState.fields.popbillSharedPassword}
           renewalIssuePassword={settingsState.fields.renewalIssuePassword}
-          renewalCertificatePassword={
-            settingsState.fields.renewalCertificatePassword
-          }
-          popbillSharedPasswordConfigured={
-            settingsState.configured.popbillSharedPassword
-          }
           renewalIssuePasswordConfigured={
             settingsState.configured.renewalIssuePassword
           }
-          renewalCertificatePasswordConfigured={
-            settingsState.configured.renewalCertificatePassword
-          }
           reveals={{
-            popbillSharedPassword: orchestration.reveals.popbillSharedPassword,
-            renewalIssuePassword: orchestration.reveals.renewalIssuePassword,
-            renewalCertificatePassword:
-              orchestration.reveals.renewalCertificatePassword
+            renewalIssuePassword: orchestration.reveals.renewalIssuePassword
           }}
           busy={busy}
-          onPopbillUserIdPrefixChange={(value) =>
-            setSettingsField("popbillUserIdPrefix", value)
-          }
-          onPopbillSharedPasswordChange={(value) =>
-            setSettingsField("popbillSharedPassword", value)
-          }
           onRenewalIssuePasswordChange={
             settingsState.actions.handleSettingsRenewalIssuePasswordChange
-          }
-          onRenewalCertificatePasswordChange={(value) =>
-            setSettingsField("renewalCertificatePassword", value)
-          }
-          onLoadCurrentPopbillSharedPassword={
-            settingsState.actions.runLoadCurrentPopbillSharedPassword
-          }
-          onLoadCurrentRenewalIssuePassword={
-            settingsState.actions.runLoadCurrentRenewalIssuePassword
-          }
-          onLoadCurrentRenewalCertificatePassword={
-            settingsState.actions.runLoadCurrentRenewalCertificatePassword
           }
         />
       ),

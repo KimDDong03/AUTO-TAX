@@ -134,28 +134,14 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on renewal issue p
       popbillSharedPassword: { missing: false, hasError: false },
       renewalIssuePassword: { missing: false, hasError: false }
     },
-    hasSavedDefaults: true,
     autosaveLabel: "자동 저장",
-    popbillUserIdPrefix: "TEST_",
-    popbillSharedPassword: "",
     renewalIssuePassword: "",
-    renewalCertificatePassword: "",
-    popbillSharedPasswordConfigured: true,
     renewalIssuePasswordConfigured: true,
-    renewalCertificatePasswordConfigured: true,
     reveals: {
-      popbillSharedPassword: { visible: false, toggle: noop },
-      renewalIssuePassword: { visible: false, toggle: noop },
-      renewalCertificatePassword: { visible: false, toggle: noop }
+      renewalIssuePassword: { visible: false, toggle: noop }
     },
     busy: false,
-    onPopbillUserIdPrefixChange: noop,
-    onPopbillSharedPasswordChange: noop,
-    onRenewalIssuePasswordChange: noop,
-    onRenewalCertificatePasswordChange: noop,
-    onLoadCurrentPopbillSharedPassword: noopAsync,
-    onLoadCurrentRenewalIssuePassword: noopAsync,
-    onLoadCurrentRenewalCertificatePassword: noopAsync
+    onRenewalIssuePasswordChange: noop
   });
   const hiddenTree = SettingsDefaultsOnboardingStep({
     onboarding: {
@@ -166,28 +152,14 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on renewal issue p
       popbillSharedPassword: { missing: false, hasError: false },
       renewalIssuePassword: { missing: false, hasError: false }
     },
-    hasSavedDefaults: false,
     autosaveLabel: "자동 저장",
-    popbillUserIdPrefix: "TEST_",
-    popbillSharedPassword: "",
     renewalIssuePassword: "",
-    renewalCertificatePassword: "",
-    popbillSharedPasswordConfigured: false,
     renewalIssuePasswordConfigured: false,
-    renewalCertificatePasswordConfigured: true,
     reveals: {
-      popbillSharedPassword: { visible: false, toggle: noop },
-      renewalIssuePassword: { visible: false, toggle: noop },
-      renewalCertificatePassword: { visible: false, toggle: noop }
+      renewalIssuePassword: { visible: false, toggle: noop }
     },
     busy: false,
-    onPopbillUserIdPrefixChange: noop,
-    onPopbillSharedPasswordChange: noop,
-    onRenewalIssuePasswordChange: noop,
-    onRenewalCertificatePasswordChange: noop,
-    onLoadCurrentPopbillSharedPassword: noopAsync,
-    onLoadCurrentRenewalIssuePassword: noopAsync,
-    onLoadCurrentRenewalCertificatePassword: noopAsync
+    onRenewalIssuePasswordChange: noop
   });
   const configuredText = collectText(configuredTree);
   const hiddenText = collectText(hiddenTree);

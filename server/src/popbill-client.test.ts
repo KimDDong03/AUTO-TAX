@@ -298,7 +298,7 @@ test("quitMember updates the Popbill contact email before member withdrawal", as
   }
 });
 
-test("issueTaxInvoice leaves optional supplier contact fields blank", async () => {
+test("issueTaxInvoice leaves optional supplier contact fields blank and uses fixed KEPCO recipient emails", async () => {
   const popbill = require("popbill") as {
     config: (...args: unknown[]) => unknown;
     TaxinvoiceService: () => unknown;
@@ -326,7 +326,15 @@ test("issueTaxInvoice leaves optional supplier contact fields blank", async () =
     assert.equal(taxinvoice.invoicerContactName, "");
     assert.equal(taxinvoice.invoicerTEL, "");
     assert.equal(taxinvoice.invoicerEmail, "");
-    assert.equal(taxinvoice.invoiceeEmail1, settings.imapUser);
+    assert.equal(taxinvoice.invoiceeEmail1, "kepcoppa@kepco.co.kr");
+    assert.deepEqual(taxinvoice.addContactList, [
+      {
+        serialNum: 1,
+        contactName: "한국전력공사",
+        email: "ppa0194@kepco.co.kr"
+      }
+    ]);
+    assert.equal("remark1" in taxinvoice, false);
     assert.notEqual(taxinvoice.invoicerContactName, customer.customerName);
   } finally {
     popbill.config = originalConfig;

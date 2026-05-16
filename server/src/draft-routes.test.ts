@@ -401,6 +401,121 @@ test("draft tax invoice info route updates editable draft values", async () => {
   }
 });
 
+test("manual draft route creates a review draft from missing-mail input", async () => {
+  let capturedWriteDate: string | null = null;
+  let capturedParsedMail: Record<string, unknown> | null = null;
+  const customer = {
+    id: 410,
+    customerName: "강선희",
+    businessNumber: "4294701277",
+    corpName: "강선희 발전소",
+    addr: "충청북도 충주시",
+    plantNames: ["강선희 발전소"]
+  };
+  const createdDraft = {
+    id: 701,
+    customerId: 410,
+    customerName: "강선희",
+    sourceMessageId: 0,
+    status: "review",
+    billingMonth: "2026-05",
+    writeDate: "2026-05-15",
+    itemName: "2026년5월전력",
+    supplyCost: 121867,
+    taxTotal: 12186,
+    totalAmount: 134053
+  };
+  const requestStore = {
+    getPilotIssuanceReport: async () => ({ ok: true }),
+    getDraftPilotTimeline: async () => null,
+    getCustomer: async (customerId: number) => (customerId === customer.id ? customer : null),
+    findDraftByCustomerAndBillingMonth: async () => null,
+    createManualDraft: async (input: {
+      writeDate: string;
+      parsedMail: Record<string, unknown>;
+    }) => {
+      capturedWriteDate = input.writeDate;
+      capturedParsedMail = input.parsedMail;
+      return createdDraft;
+    }
+  } as unknown as AppStore;
+
+  const app = express();
+  app.use(express.json());
+  registerDraftRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireWorkspaceEditor: () => ({}) as never,
+    getServerManagedSettings: async () => ({}) as never,
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorStatus: () => 500,
+    buildApiErrorBody: (error, fallbackMessage) => ({ error: error instanceof Error ? error.message : fallbackMessage ?? "error" }),
+    assertDraftPopbillEnvironment: async () => undefined,
+    backfillDraftPopbillEnvironmentIfMissing: async () => undefined
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/drafts/manual`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        customerId: 410,
+        billingMonth: "2026-05",
+        writeDate: "2026-05-15",
+        itemName: "2026년5월전력",
+        plantName: "강선희 발전소",
+        supplyCost: "121,867",
+        taxTotal: "12,186",
+        kepcoCorpNum: "120-82-00052",
+        kepcoBranchId: "0194",
+        kepcoCorpName: "한국전력공사",
+        kepcoCeoName: "김동철",
+        kepcoAddr: "전라남도 나주시 전력로 55",
+        kepcoBizType: "전기가스",
+        kepcoBizClass: "전기공급"
+      })
+    });
+
+    assert.equal(response.status, 201);
+    assert.deepEqual(await response.json(), createdDraft);
+    assert.equal(capturedWriteDate, "2026-05-15");
+    assert.deepEqual(capturedParsedMail, {
+      originalFrom: "manual",
+      plantName: "강선희 발전소",
+      plantAddress: "충청북도 충주시",
+      billingMonth: "2026-05",
+      supplyCost: 121867,
+      taxTotal: 12186,
+      totalAmount: 134053,
+      itemName: "2026년5월전력",
+      kepcoCorpNum: "120-82-00052",
+      kepcoBranchId: "0194",
+      kepcoCorpName: "한국전력공사",
+      kepcoCeoName: "김동철",
+      kepcoAddr: "전라남도 나주시 전력로 55",
+      kepcoBizType: "전기가스",
+      kepcoBizClass: "전기공급",
+      rawText: ""
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
 test("draft tax invoice info route updates recipient detail and issue note fields", async () => {
   const capturedParsedMails: Array<Record<string, unknown>> = [];
   const draft = {

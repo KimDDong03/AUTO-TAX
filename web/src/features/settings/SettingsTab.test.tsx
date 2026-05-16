@@ -4,23 +4,6 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SettingsTab, type SettingsTabModel } from "./SettingsTab";
 
-type TestElement = React.ReactElement<
-  Record<string, unknown> & {
-    children?: React.ReactNode;
-  }
->;
-
-function readElementNode(element: TestElement): React.ReactNode {
-  if (typeof element.type === "function") {
-    const renderElement = element.type as (
-      props: typeof element.props
-    ) => React.ReactNode;
-    return renderElement(element.props);
-  }
-
-  return element.props.children;
-}
-
 function collectText(node: React.ReactNode): string {
   if (typeof node === "string" || typeof node === "number") {
     return String(node);
@@ -323,6 +306,9 @@ test("SettingsTab mail detail hides customer-unnecessary transport settings", ()
   assert.doesNotMatch(mailText, /포트/);
   assert.doesNotMatch(mailText, /보안/);
   assert.doesNotMatch(mailText, /읽을 폴더/);
+  assert.doesNotMatch(mailText, /월간 메일 동기화 일정/);
+  assert.doesNotMatch(mailText, /매달 메일 읽기 일정/);
+  assert.doesNotMatch(mailText, /기본값은 매월 20일/);
   assert.doesNotMatch(mailText, /5/);
 });
 

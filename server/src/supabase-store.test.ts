@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AppSettings, Customer, CustomerCertificate } from "./domain.js";
+import type { AppSettings, Customer, CustomerCertificate, InboxMessage, InvoiceDraft, ParsedMail } from "./domain.js";
 import { SupabaseStore } from "./supabase-store.js";
 import { normalizeAddress, toRoadAddress } from "./utils.js";
 
@@ -117,40 +117,55 @@ test("getIssuedMonthlyTrend counts issued drafts for each target billing month",
   const calls: Array<{
     table: string;
     selectColumns: string;
-    selectOptions: Record<string, unknown>;
     filters: Array<[string, unknown]>;
   }> = [];
-  const countsByBillingMonth = new Map([
-    ["2026-01", 1],
-    ["2026-04", 2],
-    ["2026-05", 3]
-  ]);
+  const issuedRows = [
+    { billing_month: "2026-01" },
+    { billing_month: "2026-04" },
+    { billing_month: "2026-04" },
+    { billing_month: "2026-05" },
+    { billing_month: "2026-05" },
+    { billing_month: "2026-05" },
+    { billing_month: "2025-12" }
+  ];
   const fakeClient = {
     from(table: string) {
       const call = {
         table,
         selectColumns: "",
-        selectOptions: {} as Record<string, unknown>,
         filters: [] as Array<[string, unknown]>
       };
       calls.push(call);
       const query = {
-        select(columns: string, options: Record<string, unknown>) {
+        select(columns: string) {
           call.selectColumns = columns;
-          call.selectOptions = options;
           return query;
         },
         eq(column: string, value: unknown) {
           call.filters.push([column, value]);
           return query;
         },
-        then<TResult1 = { count: number; error: null }, TResult2 = never>(
-          onfulfilled?: ((value: { count: number; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
+        gte(column: string, value: unknown) {
+          call.filters.push([`${column}>=`, value]);
+          return query;
+        },
+        lte(column: string, value: unknown) {
+          call.filters.push([`${column}<=`, value]);
+          return query;
+        },
+        then<TResult1 = { data: Array<{ billing_month: string }>; error: null }, TResult2 = never>(
+          onfulfilled?: ((value: { data: Array<{ billing_month: string }>; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
           onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
         ) {
-          const billingMonth = call.filters.find(([column]) => column === "billing_month")?.[1];
+          const fromMonth = call.filters.find(([column]) => column === "billing_month>=")?.[1];
+          const toMonth = call.filters.find(([column]) => column === "billing_month<=")?.[1];
           const result = {
-            count: typeof billingMonth === "string" ? countsByBillingMonth.get(billingMonth) ?? 0 : 0,
+            data: issuedRows.filter((row) =>
+              typeof fromMonth === "string" &&
+              typeof toMonth === "string" &&
+              row.billing_month >= fromMonth &&
+              row.billing_month <= toMonth
+            ),
             error: null
           };
           return Promise.resolve(result).then(onfulfilled, onrejected);
@@ -177,12 +192,13 @@ test("getIssuedMonthlyTrend counts issued drafts for each target billing month",
     { billingMonth: "2026-04", issuedDraftCount: 2 },
     { billingMonth: "2026-05", issuedDraftCount: 3 }
   ]);
-  assert.equal(calls.length, 12);
+  assert.equal(calls.length, 1);
   assert.equal(calls.every((call) => call.table === "invoice_drafts"), true);
-  assert.equal(calls.every((call) => call.selectColumns === "*"), true);
-  assert.equal(calls.every((call) => call.selectOptions.count === "exact" && call.selectOptions.head === true), true);
+  assert.equal(calls.every((call) => call.selectColumns === "billing_month"), true);
   assert.equal(calls.every((call) => call.filters.some(([column, value]) => column === "organization_id" && value === "org-1")), true);
   assert.equal(calls.every((call) => call.filters.some(([column, value]) => column === "status" && value === "issued")), true);
+  assert.equal(calls.every((call) => call.filters.some(([column, value]) => column === "billing_month>=" && value === "2026-01")), true);
+  assert.equal(calls.every((call) => call.filters.some(([column, value]) => column === "billing_month<=" && value === "2026-12")), true);
   assert.equal(calls.some((call) => call.filters.some(([column]) => column === "source_message_id")), false);
 });
 
@@ -519,4 +535,219 @@ test("addCustomerMatchAddress rejects an address already mapped to another custo
     () => store.addCustomerMatchAddress(7, "경기도 성남시 대왕판교로 1"),
     /이미 다른 고객에 등록된 매칭 주소입니다\. 기존 고객: 기존 고객/
   );
+});
+
+test("unmatchDraftSource removes a match address added by manual mail reprocess", async () => {
+  const manualMatchAddress = "경상북도 의성군 중하길 397-3";
+  const parsedData = {
+    plantAddress: manualMatchAddress
+  } as ParsedMail;
+  const draft = {
+    id: 77,
+    customerId: 7,
+    sourceMessageId: 10,
+    billingMonth: "2026-03",
+    status: "review"
+  } as InvoiceDraft;
+  const sourceMessage = {
+    id: 10,
+    parsedData
+  } as InboxMessage;
+  const deletes: Array<{ table: string; filters: Array<{ column: string; value: unknown }> }> = [];
+  const updates: Array<Parameters<SupabaseStore["updateInboxMatchResult"]>[0]> = [];
+
+  const fakeClient = {
+    from(table: string) {
+      return {
+        delete() {
+          const filters: Array<{ column: string; value: unknown }> = [];
+          const query = {
+            eq(column: string, value: unknown) {
+              filters.push({ column, value });
+              if (table === "managed_customer_match_addresses" && filters.length < 2) {
+                return query;
+              }
+              deletes.push({ table, filters: [...filters] });
+              return Promise.resolve({ data: null, error: null });
+            }
+          };
+          return query;
+        }
+      };
+    }
+  };
+
+  const store = Object.create(SupabaseStore.prototype) as SupabaseStore;
+  Object.assign(store as object, {
+    client: fakeClient,
+    getDraft: async () => draft,
+    getDraftRowByLegacyId: async () => ({
+      id: "draft-uuid-77",
+      managed_customer_id: "customer-uuid-7"
+    }),
+    getInboxMessage: async () => sourceMessage,
+    updateInboxMatchResult: async (input: Parameters<SupabaseStore["updateInboxMatchResult"]>[0]) => {
+      updates.push(input);
+      return sourceMessage;
+    },
+    listAppLogRows: async () => [
+      {
+        scope: "mail-reprocess",
+        context_json: {
+          draftId: 77,
+          manualMatchAddress,
+          manualMatchAddressAdded: true
+        }
+      }
+    ]
+  });
+
+  const inbox = await store.unmatchDraftSource(draft.id);
+
+  assert.equal(inbox, sourceMessage);
+  assert.deepEqual(updates, [
+    {
+      messageId: 10,
+      parseStatus: "unmatched",
+      parseError: "",
+      parsedMail: parsedData,
+      customerId: null,
+      draftId: null
+    }
+  ]);
+  assert.deepEqual(deletes, [
+    {
+      table: "managed_customer_match_addresses",
+      filters: [
+        { column: "managed_customer_id", value: "customer-uuid-7" },
+        { column: "normalized_match_address", value: normalizeAddress(manualMatchAddress) }
+      ]
+    },
+    {
+      table: "invoice_drafts",
+      filters: [{ column: "id", value: "draft-uuid-77" }]
+    }
+  ]);
+});
+
+test("unmatchDraftSource restores a legacy manual reprocess match address without manual log flags", async () => {
+  const legacyMatchAddress = "경상북도 의성군 중하길 397-3";
+  const parsedData = {
+    plantName: "이상태태양광",
+    plantAddress: legacyMatchAddress
+  } as ParsedMail;
+  const draft = {
+    id: 77,
+    customerId: 7,
+    sourceMessageId: 10,
+    billingMonth: "2026-03",
+    status: "review"
+  } as InvoiceDraft;
+  const sourceMessage = {
+    id: 10,
+    parsedData
+  } as InboxMessage;
+  const deletes: Array<{ table: string; filters: Array<{ column: string; value: unknown }> }> = [];
+  const updates: Array<Parameters<SupabaseStore["updateInboxMatchResult"]>[0]> = [];
+
+  const fakeClient = {
+    from(table: string) {
+      return {
+        select() {
+          const filters: Array<{ column: string; value: unknown }> = [];
+          const query = {
+            eq(column: string, value: unknown) {
+              filters.push({ column, value });
+              return query;
+            },
+            maybeSingle() {
+              assert.equal(table, "managed_customer_match_addresses");
+              assert.deepEqual(filters, [
+                { column: "managed_customer_id", value: "customer-uuid-7" },
+                { column: "normalized_match_address", value: normalizeAddress(legacyMatchAddress) }
+              ]);
+              return Promise.resolve({ data: { created_at: "2026-05-15T00:00:01.000Z" }, error: null });
+            }
+          };
+          return query;
+        },
+        delete() {
+          const filters: Array<{ column: string; value: unknown }> = [];
+          const query = {
+            eq(column: string, value: unknown) {
+              filters.push({ column, value });
+              if (table === "managed_customer_match_addresses" && filters.length < 2) {
+                return query;
+              }
+              deletes.push({ table, filters: [...filters] });
+              return Promise.resolve({ data: null, error: null });
+            }
+          };
+          return query;
+        }
+      };
+    }
+  };
+
+  const store = Object.create(SupabaseStore.prototype) as SupabaseStore;
+  Object.assign(store as object, {
+    client: fakeClient,
+    getDraft: async () => draft,
+    getDraftRowByLegacyId: async () => ({
+      id: "draft-uuid-77",
+      managed_customer_id: "customer-uuid-7",
+      created_at: "2026-05-15T00:00:03.000Z"
+    }),
+    getInboxMessage: async () => sourceMessage,
+    getCustomer: async () =>
+      buildStoreCustomer({
+        customerName: "강선희",
+        corpName: "강선희 발전소",
+        addr: "충청북도 충주시 용현길 19-0",
+        plantNames: ["강선희 발전소"],
+        matchAddresses: [legacyMatchAddress]
+      }),
+    updateInboxMatchResult: async (input: Parameters<SupabaseStore["updateInboxMatchResult"]>[0]) => {
+      updates.push(input);
+      return sourceMessage;
+    },
+    listAppLogRows: async () => [
+      {
+        scope: "mail-reprocess",
+        context_json: {
+          draftId: 77,
+          draftSource: "mail-reprocess",
+          eventType: "draft-created",
+          status: "parsed"
+        }
+      }
+    ]
+  });
+
+  const inbox = await store.unmatchDraftSource(draft.id);
+
+  assert.equal(inbox, sourceMessage);
+  assert.deepEqual(updates, [
+    {
+      messageId: 10,
+      parseStatus: "unmatched",
+      parseError: "",
+      parsedMail: parsedData,
+      customerId: null,
+      draftId: null
+    }
+  ]);
+  assert.deepEqual(deletes, [
+    {
+      table: "managed_customer_match_addresses",
+      filters: [
+        { column: "managed_customer_id", value: "customer-uuid-7" },
+        { column: "normalized_match_address", value: normalizeAddress(legacyMatchAddress) }
+      ]
+    },
+    {
+      table: "invoice_drafts",
+      filters: [{ column: "id", value: "draft-uuid-77" }]
+    }
+  ]);
 });

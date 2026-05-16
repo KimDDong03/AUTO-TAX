@@ -120,6 +120,36 @@ function parseDraftBusinessNumber(value: unknown): string {
   return trimmed;
 }
 
+function parseDraftBillingMonth(value: unknown): string {
+  const trimmed = parseDraftTextField(value, "정산월");
+  if (!/^\d{4}-\d{2}$/.test(trimmed)) {
+    throw new Error("정산월은 YYYY-MM 형식으로 입력해주세요.");
+  }
+  return trimmed;
+}
+
+function parseDraftWriteDate(value: unknown): string {
+  const trimmed = parseDraftTextField(value, "작성일자");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    throw new Error("작성일자는 YYYY-MM-DD 형식으로 입력해주세요.");
+  }
+
+  const [year, month, day] = trimmed.split("-").map(Number);
+  const parsed = new Date(year, month - 1, day);
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) {
+    throw new Error("작성일자가 올바르지 않습니다.");
+  }
+  return trimmed;
+}
+
+function parseDraftCustomerId(value: unknown): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error("고객을 선택해주세요.");
+  }
+  return parsed;
+}
+
 function buildEditedParsedMail(draft: InvoiceDraft, body: unknown): ParsedMail {
   const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   const supplyCost = parseDraftMoneyField(payload.supplyCost, "공급가액");
@@ -141,6 +171,32 @@ function buildEditedParsedMail(draft: InvoiceDraft, body: unknown): ParsedMail {
     kepcoAddr: parseDraftOptionalTextFieldWithFallback(payload.kepcoAddr, draft.kepcoAddr),
     kepcoBizType: parseDraftOptionalTextFieldWithFallback(payload.kepcoBizType, draft.kepcoBizType),
     kepcoBizClass: parseDraftOptionalTextFieldWithFallback(payload.kepcoBizClass, draft.kepcoBizClass),
+    rawText: ""
+  };
+}
+
+function buildManualParsedMail(customer: Customer, body: unknown): ParsedMail {
+  const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const supplyCost = parseDraftMoneyField(payload.supplyCost, "공급가액");
+  const taxTotal = parseDraftMoneyField(payload.taxTotal, "부가세");
+  const fallbackPlantName = customer.plantNames[0] || customer.corpName || customer.customerName;
+
+  return {
+    originalFrom: "manual",
+    plantName: parseDraftOptionalTextFieldWithFallback(payload.plantName, fallbackPlantName),
+    plantAddress: customer.addr,
+    billingMonth: parseDraftBillingMonth(payload.billingMonth),
+    supplyCost,
+    taxTotal,
+    totalAmount: supplyCost + taxTotal,
+    itemName: parseDraftTextField(payload.itemName, "품목"),
+    kepcoCorpNum: parseDraftBusinessNumber(payload.kepcoCorpNum),
+    kepcoBranchId: parseDraftOptionalTextField(payload.kepcoBranchId),
+    kepcoCorpName: parseDraftTextField(payload.kepcoCorpName, "공급받는자"),
+    kepcoCeoName: parseDraftOptionalTextField(payload.kepcoCeoName),
+    kepcoAddr: parseDraftOptionalTextField(payload.kepcoAddr),
+    kepcoBizType: parseDraftOptionalTextField(payload.kepcoBizType),
+    kepcoBizClass: parseDraftOptionalTextField(payload.kepcoBizClass),
     rawText: ""
   };
 }
@@ -224,6 +280,53 @@ export function registerDraftRoutes(deps: RouteDeps) {
       res.json(await requestStore.getIssuedMonthlyTrend(anchorBillingYear));
     } catch (error) {
       res.status(getErrorStatus(error, 500)).json(buildApiErrorBody(error, "월별 발행 현황을 불러오지 못했습니다."));
+    }
+  });
+
+  app.post("/api/drafts/manual", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+
+    let customerId: number;
+    let writeDate: string;
+    try {
+      customerId = parseDraftCustomerId((req.body as Record<string, unknown> | undefined)?.customerId);
+      writeDate = parseDraftWriteDate((req.body as Record<string, unknown> | undefined)?.writeDate);
+    } catch (error) {
+      res.status(400).json({ error: getErrorMessage(error, "수동 발행 정보가 올바르지 않습니다.") });
+      return;
+    }
+
+    const customer = await requestStore.getCustomer(customerId);
+    if (!customer) {
+      res.status(404).json({ error: "고객을 찾지 못했습니다." });
+      return;
+    }
+
+    let parsedMail: ParsedMail;
+    try {
+      parsedMail = buildManualParsedMail(customer, req.body);
+    } catch (error) {
+      res.status(400).json({ error: getErrorMessage(error, "수동 발행 정보가 올바르지 않습니다.") });
+      return;
+    }
+
+    const existingDraft = await requestStore.findDraftByCustomerAndBillingMonth(customer.id, parsedMail.billingMonth);
+    if (existingDraft) {
+      res.status(409).json({ error: "이미 해당 정산월 발행 초안이 있습니다.", draft: existingDraft });
+      return;
+    }
+
+    try {
+      const draft = await requestStore.createManualDraft({
+        customer,
+        status: "review",
+        writeDate,
+        parsedMail
+      });
+      res.status(201).json(draft);
+    } catch (error) {
+      res.status(getErrorStatus(error, 500)).json(buildApiErrorBody(error, "수동 발행 초안을 만들지 못했습니다."));
     }
   });
 

@@ -1,10 +1,9 @@
 import type React from "react";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api, setActiveOrganizationId } from "./api";
 import { AppDialog, type AppDialogState, type AppDialogTone, CheckboxControl, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
 import { getOrganizationRoleLabel } from "./organizationRole";
-import { CertificatesScreen } from "./features/certificates/CertificatesScreen";
 import { useCertificatesScreenModel } from "./features/certificates/useCertificatesScreenModel";
 import { matchesCustomerSearchQuery, type CustomerSearchField } from "./features/customers/customerSearch";
 import {
@@ -22,16 +21,13 @@ import {
 } from "./features/customers/customerCertificateOnestop";
 import { normalizeCustomerReportDetail } from "./features/customers/customerReportDetail";
 import { downloadSelectedCustomersWorkbook } from "./features/customers/customerSelectedExport";
-import { CustomersTab } from "./features/customers/CustomersTab";
-import { HomeTab } from "./features/home/HomeTab";
 import { downloadCustomerContractRenewalsWorkbook } from "./features/home/customerContractRenewals";
-import { IssuanceTab, type DraftTaxInvoiceInfoUpdateInput } from "./features/issuance/IssuanceTab";
+import type { DraftTaxInvoiceInfoUpdateInput, ManualDraftCreateInput } from "./features/issuance/IssuanceTab";
 import { buildHomeScreenModel, type HomeActionKey } from "./features/home/homeScreenModel";
 import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
-import { OnboardingTab, type OnboardingStep } from "./features/onboarding/OnboardingTab";
+import type { OnboardingStep } from "./features/onboarding/OnboardingTab";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "./features/auth/passwordPolicy";
 import {
-  PublicLanding,
   type PublicSignupEmailVerificationSendResult,
   type PublicLoginIdLookupResult,
   type PublicSignupInput,
@@ -67,7 +63,6 @@ import {
   type ElectronicTaxOnboardingUploadFlowResult
 } from "./features/initial-registration/electronic-tax-onboarding-upload-flow";
 import { useElectronicTaxOnboarding } from "./features/initial-registration/useElectronicTaxOnboarding";
-import { SettingsScreen } from "./features/settings/SettingsScreen";
 import { AccountPasswordPanel } from "./features/settings/AccountPasswordPanel";
 import { createSettingsActionAdapters } from "./features/settings/createSettingsActionAdapters";
 import {
@@ -197,6 +192,28 @@ type TopnavTaskNotification = {
   actionLabel: string;
   onAction: () => void;
 };
+
+const CertificatesScreen = lazy(() =>
+  import("./features/certificates/CertificatesScreen").then((module) => ({ default: module.CertificatesScreen }))
+);
+const CustomersTab = lazy(() =>
+  import("./features/customers/CustomersTab").then((module) => ({ default: module.CustomersTab }))
+);
+const HomeTab = lazy(() =>
+  import("./features/home/HomeTab").then((module) => ({ default: module.HomeTab }))
+);
+const IssuanceTab = lazy(() =>
+  import("./features/issuance/IssuanceTab").then((module) => ({ default: module.IssuanceTab }))
+);
+const OnboardingTab = lazy(() =>
+  import("./features/onboarding/OnboardingTab").then((module) => ({ default: module.OnboardingTab }))
+);
+const PublicLanding = lazy(() =>
+  import("./features/public/PublicLanding").then((module) => ({ default: module.PublicLanding }))
+);
+const SettingsScreen = lazy(() =>
+  import("./features/settings/SettingsScreen").then((module) => ({ default: module.SettingsScreen }))
+);
 
 const OPS_DEFAULT_SECTION: OpsSectionId = "subscription";
 const OPS_SECTION_HASH_BY_ID = {
@@ -2361,24 +2378,58 @@ export function App() {
     }
   };
 
+  const refreshIssuanceData = async (options?: { includeCustomers?: boolean }) => {
+    const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
+    if (!activeOrganizationId) {
+      return;
+    }
+
+    setMailboxDataLoading(true);
+    try {
+      const [inbox, drafts, customers] = await Promise.all([
+        api<BootstrapPayload["inbox"]>("/api/inbox"),
+        api<BootstrapPayload["drafts"]>("/api/drafts"),
+        options?.includeCustomers ? api<Customer[]>("/api/customers") : Promise.resolve(null)
+      ]);
+      setData((prev) =>
+        prev && prev.auth.activeOrganizationId === activeOrganizationId
+          ? {
+              ...prev,
+              inbox,
+              drafts,
+              ...(customers ? { customers } : {})
+            }
+          : prev
+      );
+      mailboxLoadedOrganizationRef.current = activeOrganizationId;
+      setMailboxDataLoaded(true);
+    } finally {
+      setMailboxDataLoading(false);
+    }
+  };
+
   const load = async (): Promise<BootstrapPayload> => {
     const loadToken = activeLoadTokenRef.current + 1;
     activeLoadTokenRef.current = loadToken;
     const payload = await api<BootstrapPayload>("/api/bootstrap");
     ensureActiveLoad(loadToken);
-    const nextOpsConsole = payload.auth.isPlatformAdmin ? await loadOpsConsole() : null;
-    ensureActiveLoad(loadToken);
-    const nextCompletedBillingMonths = payload.auth.activeOrganizationId
-      ? await api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
-      : [];
-    ensureActiveLoad(loadToken);
-    const nextCustomerContractRenewalsDue = payload.auth.activeOrganizationId
-      ? await api<CustomerContractRenewalDueItem[]>("/api/customers/contract-renewals/due")
-      : [];
-    ensureActiveLoad(loadToken);
-    const nextCustomerContractSummaries = payload.auth.activeOrganizationId
-      ? await api<CustomerContractSummary[]>("/api/customers/contract-summaries")
-      : [];
+    const [
+      nextOpsConsole,
+      nextCompletedBillingMonths,
+      nextCustomerContractRenewalsDue,
+      nextCustomerContractSummaries
+    ] = await Promise.all([
+      payload.auth.isPlatformAdmin ? loadOpsConsole() : Promise.resolve(null),
+      payload.auth.activeOrganizationId
+        ? api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
+        : Promise.resolve([]),
+      payload.auth.activeOrganizationId
+        ? api<CustomerContractRenewalDueItem[]>("/api/customers/contract-renewals/due")
+        : Promise.resolve([]),
+      payload.auth.activeOrganizationId
+        ? api<CustomerContractSummary[]>("/api/customers/contract-summaries")
+        : Promise.resolve([])
+    ]);
     ensureActiveLoad(loadToken);
     setError("");
     setActiveOrganizationId(payload.auth.activeOrganizationId);
@@ -5347,6 +5398,32 @@ export function App() {
     }
   };
 
+  const createManualDraft = async (input: ManualDraftCreateInput): Promise<InvoiceDraft> => {
+    try {
+      setError("");
+      setBusyKey(`manual-draft-${input.customerId}`);
+      const draft = await api<InvoiceDraft>("/api/drafts/manual", {
+        method: "POST",
+        body: JSON.stringify(input)
+      });
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              drafts: [draft, ...prev.drafts.filter((item) => item.id !== draft.id)]
+            }
+          : prev
+      );
+      return draft;
+    } catch (createError) {
+      const message = getDisplayErrorMessage(createError, "수동 발행 초안을 만들지 못했습니다.");
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   const openDraftPopbillUrl = async (draftId: number, type: "view-url" | "print-url") => {
     if (type === "view-url") {
       void api(`/api/drafts/${draftId}/pilot-preview-opened`, {
@@ -5490,6 +5567,7 @@ export function App() {
     await api(`/api/drafts/${draftId}/unmatch`, {
       method: "POST"
     });
+    await refreshIssuanceData({ includeCustomers: true });
   };
 
   const reprocessInboxMessage = async (messageId: number, customerId?: number) => {
@@ -5497,6 +5575,7 @@ export function App() {
       method: "POST",
       body: JSON.stringify(customerId ? { customerId } : {})
     });
+    await refreshIssuanceData({ includeCustomers: Boolean(customerId) });
   };
 
   const reprocessAllUnmatchedMessages = async () => {
@@ -5529,6 +5608,7 @@ export function App() {
       }
     }
 
+    await refreshIssuanceData();
     await showAppAlert(`메일 재처리 완료\n성공: ${success}건\n확인 필요 유지: ${stillPending}건`, {
       title: "메일 재처리 완료",
       tone: "success"
@@ -5623,24 +5703,26 @@ export function App() {
   if (!authSession) {
     return (
       <>
-        <PublicLanding
-          signInAccount={signInAccount}
-          setSignInAccount={setSignInAccount}
-          signInPassword={signInPassword}
-          setSignInPassword={setSignInPassword}
-          authNotice={authNotice}
-          error={error}
-          authBusy={authBusy}
-          onSignIn={signIn}
-          onSignUp={signUp}
-          onCheckLoginIdAvailability={checkSignupLoginIdAvailability}
-          onSendSignupPhoneVerification={sendSignupPhoneVerification}
-          onConfirmSignupPhoneVerification={confirmSignupPhoneVerification}
-          onSendSignupEmailVerification={sendSignupEmailVerification}
-          onConfirmSignupEmailVerification={confirmSignupEmailVerification}
-          onFindLoginId={findLoginId}
-          onPasswordReset={requestPasswordReset}
-        />
+        <Suspense fallback={<div className="loading-shell">화면을 불러오는 중입니다.</div>}>
+          <PublicLanding
+            signInAccount={signInAccount}
+            setSignInAccount={setSignInAccount}
+            signInPassword={signInPassword}
+            setSignInPassword={setSignInPassword}
+            authNotice={authNotice}
+            error={error}
+            authBusy={authBusy}
+            onSignIn={signIn}
+            onSignUp={signUp}
+            onCheckLoginIdAvailability={checkSignupLoginIdAvailability}
+            onSendSignupPhoneVerification={sendSignupPhoneVerification}
+            onConfirmSignupPhoneVerification={confirmSignupPhoneVerification}
+            onSendSignupEmailVerification={sendSignupEmailVerification}
+            onConfirmSignupEmailVerification={confirmSignupEmailVerification}
+            onFindLoginId={findLoginId}
+            onPasswordReset={requestPasswordReset}
+          />
+        </Suspense>
         {appDialog ? <AppDialog dialog={appDialog} onConfirm={() => closeAppDialog(true)} onCancel={() => closeAppDialog(false)} /> : null}
       </>
     );
@@ -7334,6 +7416,7 @@ export function App() {
             pollPendingJoins={pollOnboardingPendingJoins}
           />
 
+        <Suspense fallback={<div className="loading-shell">화면을 불러오는 중입니다.</div>}>
         {visibleActiveTab === "onboarding" ? (
           <div className="onboarding-screen">
             <div className={onboardingPendingStepCount > 0 ? "onboarding-wizard-shell" : "onboarding-wizard-shell is-muted"}>
@@ -7401,9 +7484,9 @@ export function App() {
               void runAction(`issue-${draftId}`, async () => void (await issueDraftWithConfirmation(draftId)))
             }
             onReprocessInboxMessage={(messageId) =>
-              void runAction(`reprocess-${messageId}`, async () => void (await reprocessInboxMessage(messageId)))
+              void runAction(`reprocess-${messageId}`, async () => void (await reprocessInboxMessage(messageId)), { reload: false })
             }
-            onReprocessAllMessages={() => void runAction("reprocess-all-unmatched", reprocessAllUnmatchedMessages)}
+            onReprocessAllMessages={() => void runAction("reprocess-all-unmatched", reprocessAllUnmatchedMessages, { reload: false })}
             onViewDraft={(draftId) =>
               void runAction(`draft-view-${draftId}`, async () => void (await openDraftPopbillUrl(draftId, "view-url")))
             }
@@ -7433,7 +7516,6 @@ export function App() {
             userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
             workspaceLabel={activeWorkspaceName}
             popbillModeLabel={workspacePopbillModeLabel}
-            kepcoMailAddress={data.settings.imapUser}
             requestedFilter={requestedIssuanceFilter}
             onConsumeRequestedFilter={() => setRequestedIssuanceFilter(null)}
             drafts={data.drafts}
@@ -7451,7 +7533,8 @@ export function App() {
             onReprocessInboxMessage={(messageId, customerId) =>
               void runAction(
                 customerId ? `reprocess-${messageId}-customer-${customerId}` : `reprocess-${messageId}`,
-                async () => void (await reprocessInboxMessage(messageId, customerId))
+                async () => void (await reprocessInboxMessage(messageId, customerId)),
+                { reload: false }
               )
             }
             onViewDraft={(draftId) =>
@@ -7464,8 +7547,9 @@ export function App() {
               void runAction(`draft-cancel-${draftId}`, async () => void (await cancelIssuedDraft(draftId)))
             }
             onUnmatchDraft={(draftId) =>
-              void runAction(`draft-unmatch-${draftId}`, async () => void (await unmatchDraftCustomer(draftId)))
+              void runAction(`draft-unmatch-${draftId}`, async () => void (await unmatchDraftCustomer(draftId)), { reload: false })
             }
+            onCreateManualDraft={createManualDraft}
             onUpdateDraftTaxInvoiceInfo={updateDraftTaxInvoiceInfo}
             formatMoney={formatMoney}
             formatDateTime={formatDateTime}
@@ -7640,6 +7724,7 @@ export function App() {
             formatCertificateExpireDate={formatCertificateExpireDate}
           />
         ) : null}
+        </Suspense>
 
         {visibleActiveTab === "ops" ? (
           <div className="ops-layout">

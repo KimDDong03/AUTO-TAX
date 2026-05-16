@@ -1,4 +1,4 @@
-import type { InvoiceDraft, MailParseStatus } from "./domain.js";
+import type { Customer, InboxMessage, InvoiceDraft, MailParseStatus } from "./domain.js";
 import { parseKepcoMail } from "./parser.js";
 import { buildPilotLogContext } from "./pilot-issuance.js";
 import type { AppStore } from "./store-contract.js";
@@ -6,6 +6,8 @@ import type { AppStore } from "./store-contract.js";
 type MailReprocessDeps = {
   parseKepcoMail?: typeof parseKepcoMail;
   customerId?: number | null;
+  message?: InboxMessage | null;
+  customer?: Customer | null;
 };
 
 export async function reprocessInboxMessage(
@@ -14,7 +16,7 @@ export async function reprocessInboxMessage(
   deps: MailReprocessDeps = {}
 ): Promise<{ status: MailParseStatus; draft?: InvoiceDraft | null }> {
   const parseMail = deps.parseKepcoMail ?? parseKepcoMail;
-  const message = await store.getInboxMessage(messageId);
+  const message = deps.message ?? await store.getInboxMessage(messageId);
   if (!message) {
     throw new Error("메일을 찾지 못했습니다.");
   }
@@ -113,8 +115,12 @@ export async function reprocessInboxMessage(
 
     reprocessStage = "customer-match";
     const manualCustomerId = deps.customerId ?? null;
+    let manualMatchAddressAdded = false;
+    let manualMatchAddress: string | null = null;
     let customer = manualCustomerId
-      ? await store.getCustomer(manualCustomerId)
+      ? deps.customer && deps.customer.id === manualCustomerId
+        ? deps.customer
+        : await store.getCustomer(manualCustomerId)
       : await store.findCustomerByMatchAddress(parsedMail.plantAddress);
 
     if (!customer) {
@@ -154,6 +160,9 @@ export async function reprocessInboxMessage(
 
     if (manualCustomerId) {
       try {
+        const existingAddressOwner = await store.findCustomerByMatchAddress(parsedMail.plantAddress);
+        manualMatchAddressAdded = !existingAddressOwner;
+        manualMatchAddress = parsedMail.plantAddress;
         customer = await store.addCustomerMatchAddress(customer.id, parsedMail.plantAddress);
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "매칭 주소 저장 실패";
@@ -294,7 +303,13 @@ export async function reprocessInboxMessage(
           messageId,
           customerId: customer.id,
           draftId: draft.id,
-          issueMode: draft.issueMode
+          issueMode: draft.issueMode,
+          ...(manualCustomerId
+            ? {
+                manualMatchAddress,
+                manualMatchAddressAdded
+              }
+            : {})
         },
         {
           pipeline: "mail-reprocess",

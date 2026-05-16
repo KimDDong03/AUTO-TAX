@@ -12,51 +12,22 @@ import {
 
 type SettingsDefaultsOnboardingStepProps = {
   onboarding: SettingsOnboardingModel["defaults"];
-  hasSavedDefaults: boolean;
   autosaveLabel: string;
-  popbillUserIdPrefix: string;
-  popbillSharedPassword: string;
   renewalIssuePassword: string;
-  renewalCertificatePassword: string;
-  popbillSharedPasswordConfigured: boolean;
   renewalIssuePasswordConfigured: boolean;
-  renewalCertificatePasswordConfigured: boolean;
-  reveals: Pick<
-    SettingsFeatureRevealAdapters,
-    | "popbillSharedPassword"
-    | "renewalIssuePassword"
-    | "renewalCertificatePassword"
-  >;
+  reveals: Pick<SettingsFeatureRevealAdapters, "renewalIssuePassword">;
   busy: boolean;
-  onPopbillUserIdPrefixChange: (value: string) => void;
-  onPopbillSharedPasswordChange: (value: string) => void;
   onRenewalIssuePasswordChange: (value: string) => void;
-  onRenewalCertificatePasswordChange: (value: string) => void;
-  onLoadCurrentPopbillSharedPassword: () => Promise<void>;
-  onLoadCurrentRenewalIssuePassword: () => Promise<void>;
-  onLoadCurrentRenewalCertificatePassword: () => Promise<void>;
 };
 
 export function SettingsDefaultsOnboardingStep({
   onboarding,
-  hasSavedDefaults,
   autosaveLabel,
-  popbillUserIdPrefix,
-  popbillSharedPassword,
   renewalIssuePassword,
-  renewalCertificatePassword,
-  popbillSharedPasswordConfigured,
   renewalIssuePasswordConfigured,
-  renewalCertificatePasswordConfigured,
   reveals,
   busy,
-  onPopbillUserIdPrefixChange,
-  onPopbillSharedPasswordChange,
-  onRenewalIssuePasswordChange,
-  onRenewalCertificatePasswordChange,
-  onLoadCurrentPopbillSharedPassword,
-  onLoadCurrentRenewalIssuePassword,
-  onLoadCurrentRenewalCertificatePassword
+  onRenewalIssuePasswordChange
 }: SettingsDefaultsOnboardingStepProps) {
   return (
     <div className="onboarding-step-body">

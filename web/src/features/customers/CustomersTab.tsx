@@ -1969,7 +1969,7 @@ export function CustomersTab(props: CustomersTabProps) {
                 {customerDetailEditing ? (
                   <div className="customer-report-profile-grid customer-info-contract-grid">
                     <label>
-                      태양광 용량 KW
+                      <span className="customer-contract-field-label">태양광 용량 KW</span>
                       <input
                         type="number"
                         min="0"
@@ -2180,6 +2180,13 @@ export function CustomersTab(props: CustomersTabProps) {
               {customerReportDetail.error ? <p className="customer-detail-card-note tone-danger">{customerReportDetail.error}</p> : null}
               <div className="customer-report-table-wrap">
                 <table className="customer-report-table">
+                  <colgroup>
+                    <col className="customer-report-month-column" />
+                    <col className="customer-report-day-column" />
+                    <col className="customer-report-supply-column" />
+                    <col className="customer-report-vat-column" />
+                    <col className="customer-report-total-column" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>월</th>
@@ -2193,6 +2200,7 @@ export function CustomersTab(props: CustomersTabProps) {
                     {selectedReportDraft.months.map((month) => {
                       const issueDateInputValue = getCustomerReportIssueDateInputValue(month);
                       const issueDateInvalid = isCustomerReportIssueDateInputInvalid(month.reportMonth, issueDateInputValue);
+                      const issueDayText = formatCustomerReportIssueDay(month.issueDate);
                       return (
                         <tr key={month.reportMonth}>
                           <td>{month.reportMonth}월</td>
@@ -2201,7 +2209,6 @@ export function CustomersTab(props: CustomersTabProps) {
                               <input
                                 type="text"
                                 inputMode="numeric"
-                                placeholder="-"
                                 aria-label={`${month.reportMonth}월 발행일`}
                                 aria-invalid={issueDateInvalid}
                                 value={issueDateInputValue}
@@ -2210,7 +2217,9 @@ export function CustomersTab(props: CustomersTabProps) {
                                 onBlur={() => normalizeCustomerReportIssueDayDraft(month.reportMonth)}
                               />
                             ) : (
-                              <span className="customer-report-read-value">{formatCustomerReportIssueDay(month.issueDate) || "-"}</span>
+                              <span className={`customer-report-read-value ${issueDayText ? "is-number" : "is-empty"}`}>
+                                {issueDayText || "-"}
+                              </span>
                             )}
                           </td>
                           <td>
@@ -2219,13 +2228,12 @@ export function CustomersTab(props: CustomersTabProps) {
                                 type="number"
                                 min="0"
                                 step="1"
-                                placeholder="-"
                                 value={month.supplyAmount > 0 ? month.supplyAmount : ""}
                                 onInput={(event) => updateCustomerReportSupplyAmount(month.reportMonth, event.currentTarget.value)}
                                 onChange={(event) => updateCustomerReportSupplyAmount(month.reportMonth, event.target.value)}
                               />
                             ) : (
-                              <span className="customer-report-read-value">
+                              <span className={`customer-report-read-value ${month.supplyAmount > 0 ? "is-number" : "is-empty"}`}>
                                 {month.supplyAmount > 0 ? props.formatMoney(month.supplyAmount) : "-"}
                               </span>
                             )}
@@ -2236,19 +2244,20 @@ export function CustomersTab(props: CustomersTabProps) {
                                 type="number"
                                 min="0"
                                 step="1"
-                                placeholder="-"
                                 value={month.vatAmount > 0 ? month.vatAmount : ""}
                                 onInput={(event) => updateCustomerReportVatAmount(month.reportMonth, event.currentTarget.value)}
                                 onChange={(event) => updateCustomerReportVatAmount(month.reportMonth, event.target.value)}
                               />
                             ) : (
-                              <span className="customer-report-read-value">
+                              <span className={`customer-report-read-value ${month.vatAmount > 0 ? "is-number" : "is-empty"}`}>
                                 {month.vatAmount > 0 ? props.formatMoney(month.vatAmount) : "-"}
                               </span>
                             )}
                           </td>
-                          <td className="customer-report-total-cell">
-                            {month.supplyAmount + month.vatAmount > 0 ? `${props.formatMoney(month.supplyAmount + month.vatAmount)}원` : "-"}
+                          <td className={`customer-report-total-cell ${month.supplyAmount + month.vatAmount > 0 ? "is-number" : "is-empty"}`}>
+                            <span className="customer-report-read-value">
+                              {month.supplyAmount + month.vatAmount > 0 ? `${props.formatMoney(month.supplyAmount + month.vatAmount)}원` : "-"}
+                            </span>
                           </td>
                         </tr>
                       );

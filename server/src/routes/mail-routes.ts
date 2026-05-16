@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import type { AppStore } from "../store-contract.js";
-import type { InboxMessage, InvoiceDraft, MailParseStatus, ParsedMail } from "../domain.js";
+import type { Customer, InboxMessage, InvoiceDraft, MailParseStatus, ParsedMail } from "../domain.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor } from "../route-types.js";
 import type { MailSyncOptions, MailSyncResult } from "../mail-sync.js";
 
@@ -22,7 +22,7 @@ type RouteDeps = {
   reprocessInboxMessage: (
     requestStore: AppStore,
     messageId: number,
-    options?: { customerId?: number | null }
+    options?: { customerId?: number | null; message?: InboxMessage | null; customer?: Customer | null }
   ) => Promise<{ status: MailParseStatus; draft?: InvoiceDraft | null }>;
   syncMailbox: (requestStore: AppStore, options?: MailSyncOptions) => Promise<MailSyncResult>;
 };
@@ -73,15 +73,16 @@ export function registerMailRoutes(deps: RouteDeps) {
 
     const payload = inboxReprocessSchema.parse(req.body ?? {});
     const customerId = payload.customerId ?? null;
+    let customer: Customer | null = null;
     if (customerId !== null) {
-      const customer = await requestStore.getCustomer(customerId);
+      customer = await requestStore.getCustomer(customerId);
       if (!customer) {
         res.status(404).json({ error: "선택한 고객을 찾지 못했습니다." });
         return;
       }
     }
 
-    const result = await reprocessInboxMessage(requestStore, messageId, { customerId });
+    const result = await reprocessInboxMessage(requestStore, messageId, { customerId, message, customer });
     res.json({ ok: true, ...result });
   });
 

@@ -27,11 +27,6 @@ Environment templates are split by runtime:
 - `AUTO_TAX_POPBILL_USER_ID_PREFIX`
 - `AUTO_TAX_POPBILL_SHARED_PASSWORD`
 
-### Internal jobs and cron
-
-- `AUTO_TAX_SERVER_URL`
-- `AUTO_TAX_JOB_SECRET`
-
 ### Optional or situational
 
 - `VITE_API_BASE_URL`
@@ -43,6 +38,7 @@ Environment templates are split by runtime:
 - `AUTO_TAX_SIGNUP_SMTP_HOST`, `AUTO_TAX_SIGNUP_SMTP_PORT`, `AUTO_TAX_SIGNUP_SMTP_SECURE`
 - `AUTO_TAX_SIGNUP_SMTP_USER`, `AUTO_TAX_SIGNUP_SMTP_PASS`, `AUTO_TAX_SIGNUP_EMAIL_FROM`, `AUTO_TAX_SIGNUP_EMAIL_FROM_NAME`
 - `AUTO_TAX_RENEWAL_AGENT_*`
+- Supabase cron `job-tick`, only if enabled: `AUTO_TAX_SERVER_URL`, `AUTO_TAX_JOB_SECRET`
 - `SUPABASE_DB_PASSWORD`
 - `AUTO_TAX_RENEWAL_HELPER_ZIP_PATH`
 - `VITE_RENEWAL_HELPER_DOWNLOAD_URL`
@@ -111,7 +107,9 @@ When reviewing schema changes:
 - inspect `docs/SUPABASE_SCHEMA_PLAN.md`
 - inspect `server/src/supabase-store.ts`
 
-## 6. Internal Jobs And Retention
+## 6. Optional Internal Jobs And Retention
+
+This is only needed when the deployment uses Supabase cron to run background jobs. The app can still run without `job-tick` when operational follow-up is handled manually.
 
 ### Business queue flow
 
@@ -125,7 +123,7 @@ When reviewing schema changes:
 
 `job-tick` runs at most 10 queued jobs by default. Explicit run limits are clamped to 25 so cron or manual retries cannot flood the database after a backlog.
 
-`mail-sync` is dispatched at most once per workspace/month after the workspace's monthly schedule is reached. The default day is the 20th; there is no five-minute mail collection loop.
+Mail sync is not dispatched by cron. Users trigger mail sync from the app when they need to fetch mail.
 
 ### Retention
 

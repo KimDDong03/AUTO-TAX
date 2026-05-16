@@ -125,7 +125,7 @@ Important fields:
 
 Important invariants:
 
-- `default_issue_day` defaults to `20` and controls the monthly automatic `mail-sync` dispatch schedule.
+- `default_issue_day` defaults to `20` for workspace issue-day defaults; automatic monthly `mail-sync` dispatch is disabled.
 - `mail_poll_minutes` is retained only for compatibility with older payloads and stored rows. Runtime mail sync must not use it as a polling interval.
 
 ### organization_integrations

@@ -14,7 +14,7 @@ import { openSignGateRenewPaymentWindow } from "./signgate-fee-payment.ts";
 import { sanitizeSensitiveData, sanitizeSensitiveText } from "../server/src/utils.js";
 
 const DEFAULT_PORT = 35119;
-const DEFAULT_ALLOWED_ORIGINS = ["https://auto-tax-alpha.vercel.app"];
+const DEFAULT_ALLOWED_ORIGINS = ["https://kiyo.kr", "https://www.kiyo.kr"];
 const PREFLIGHT_TRANSPORT_RETRY_COUNT = 1;
 const PREFLIGHT_TRANSPORT_RETRY_DELAY_MS = 250;
 const UPLOAD_SESSION_MAX_FILE_COUNT = 80;

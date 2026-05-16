@@ -75,6 +75,81 @@ function buildInboxMessage(overrides: Partial<InboxMessage> = {}): InboxMessage 
   };
 }
 
+test("mail reprocess reuses preloaded route message and manual customer", async () => {
+  const parsedMail = buildParsedMail({
+    plantAddress: "전라남도 예외군 다른 주소"
+  });
+  const customer = buildCustomer({
+    id: 12,
+    matchAddresses: []
+  });
+  const draft = {
+    id: 77,
+    customerId: customer.id,
+    customerName: customer.customerName,
+    sourceMessageId: 10,
+    issueMode: "review",
+    status: "review",
+    scheduledFor: null,
+    issueRequestedAt: null,
+    issuedAt: null,
+    issueError: "",
+    billingMonth: parsedMail.billingMonth,
+    writeDate: null,
+    itemName: parsedMail.itemName,
+    plantName: parsedMail.plantName,
+    supplyCost: parsedMail.supplyCost,
+    taxTotal: parsedMail.taxTotal,
+    totalAmount: parsedMail.totalAmount,
+    kepcoCorpNum: parsedMail.kepcoCorpNum,
+    kepcoBranchId: parsedMail.kepcoBranchId,
+    kepcoCorpName: parsedMail.kepcoCorpName,
+    kepcoCeoName: parsedMail.kepcoCeoName,
+    kepcoAddr: parsedMail.kepcoAddr,
+    kepcoBizType: parsedMail.kepcoBizType,
+    kepcoBizClass: parsedMail.kepcoBizClass,
+    popbillMgtKey: "MGT-77",
+    popbillEnvironment: null,
+    popbillResultJson: "{}",
+    createdAt: "2026-04-16T00:00:00.000Z",
+    updatedAt: "2026-04-16T00:00:00.000Z"
+  } satisfies InvoiceDraft;
+  let inboxLookupCount = 0;
+  let customerLookupCount = 0;
+
+  const store = {
+    getInboxMessage: async () => {
+      inboxLookupCount += 1;
+      return null;
+    },
+    getCustomer: async () => {
+      customerLookupCount += 1;
+      return null;
+    },
+    listCompletedBillingMonths: async () => [],
+    findCustomerByMatchAddress: async () => null,
+    addCustomerMatchAddress: async () => ({
+      ...customer,
+      matchAddresses: [parsedMail.plantAddress]
+    }),
+    findDraftByCustomerAndBillingMonth: async () => null,
+    updateInboxMatchResult: async () => ({} as never),
+    createDraft: async () => draft,
+    createLog: async () => undefined
+  } as unknown as AppStore;
+
+  const result = await reprocessInboxMessage(store, 10, {
+    parseKepcoMail: () => parsedMail,
+    message: buildInboxMessage(),
+    customerId: customer.id,
+    customer
+  });
+
+  assert.equal(result.status, "parsed");
+  assert.equal(inboxLookupCount, 0);
+  assert.equal(customerLookupCount, 0);
+});
+
 test("mail reprocess writes explicit customer-match logs for unmatched messages", async () => {
   const logs: Array<{ level: string; scope: string; message: string; context?: unknown }> = [];
   const updates: Array<Parameters<AppStore["updateInboxMatchResult"]>[0]> = [];
@@ -128,6 +203,7 @@ test("mail reprocess writes explicit customer-match logs for unmatched messages"
 });
 
 test("mail reprocess can use a manually selected customer when names or addresses differ", async () => {
+  const logs: Array<{ level: string; scope: string; message: string; context?: unknown }> = [];
   const updates: Array<Parameters<AppStore["updateInboxMatchResult"]>[0]> = [];
   const customer = buildCustomer({
     id: 12,
@@ -171,7 +247,7 @@ test("mail reprocess can use a manually selected customer when names or addresse
     createdAt: "2026-04-16T00:00:00.000Z",
     updatedAt: "2026-04-16T00:00:00.000Z"
   } satisfies InvoiceDraft;
-  let autoMatchCalled = false;
+  let matchAddressOwnerLookupCount = 0;
   const savedMatchAddresses: Array<{ customerId: number; matchAddress: string }> = [];
 
   const store = {
@@ -186,7 +262,7 @@ test("mail reprocess can use a manually selected customer when names or addresse
       };
     },
     findCustomerByMatchAddress: async () => {
-      autoMatchCalled = true;
+      matchAddressOwnerLookupCount += 1;
       return null;
     },
     findDraftByCustomerAndBillingMonth: async (customerId: number, billingMonth: string) => {
@@ -204,7 +280,9 @@ test("mail reprocess can use a manually selected customer when names or addresse
       assert.equal(input.parsedMail, parsedMail);
       return draft;
     },
-    createLog: async () => {}
+    createLog: async (level: string, scope: string, message: string, context?: unknown) => {
+      logs.push({ level, scope, message, context });
+    }
   } as unknown as AppStore;
 
   const result = await reprocessInboxMessage(store, 10, {
@@ -212,7 +290,7 @@ test("mail reprocess can use a manually selected customer when names or addresse
     customerId: customer.id
   });
 
-  assert.equal(autoMatchCalled, false);
+  assert.equal(matchAddressOwnerLookupCount, 1);
   assert.equal(result.status, "parsed");
   assert.equal(result.draft?.customerId, customer.id);
   assert.deepEqual(savedMatchAddresses, [
@@ -229,6 +307,25 @@ test("mail reprocess can use a manually selected customer when names or addresse
       parsedMail,
       customerId: customer.id,
       draftId: null
+    }
+  ]);
+  assert.deepEqual(logs, [
+    {
+      level: "info",
+      scope: "mail-reprocess",
+      message: "미매칭 메일 재처리에 성공했습니다.",
+      context: {
+        messageId: 10,
+        customerId: customer.id,
+        draftId: draft.id,
+        issueMode: "review",
+        manualMatchAddress: parsedMail.plantAddress,
+        manualMatchAddressAdded: true,
+        pipeline: "mail-reprocess",
+        draftSource: "mail-reprocess",
+        eventType: "draft-created",
+        status: "parsed"
+      }
     }
   ]);
 });
@@ -248,6 +345,7 @@ test("mail reprocess fails a manual customer match when parsed address belongs t
     getInboxMessage: async () => buildInboxMessage(),
     listCompletedBillingMonths: async () => [],
     getCustomer: async (customerId: number) => (customerId === customer.id ? customer : null),
+    findCustomerByMatchAddress: async () => null,
     addCustomerMatchAddress: async () => {
       throw new Error("이미 다른 고객에 등록된 매칭 주소입니다. 기존 고객: 기존 고객");
     },

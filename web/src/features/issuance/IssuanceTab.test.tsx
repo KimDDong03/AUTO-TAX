@@ -177,7 +177,6 @@ function renderIssuanceTab(options: RenderIssuanceTabOptions = {}) {
         userLabel="테스트 사용자"
         workspaceLabel="테스트 작업공간"
         popbillModeLabel="테스트"
-        kepcoMailAddress="kepco-mail@example.com"
         requestedFilter={requestedFilter}
         onConsumeRequestedFilter={() => {}}
         drafts={drafts}
@@ -202,6 +201,7 @@ function renderIssuanceTab(options: RenderIssuanceTabOptions = {}) {
         onPrintDraft={() => {}}
         onCancelDraft={() => {}}
         onUnmatchDraft={() => {}}
+        onCreateManualDraft={async () => buildDraft()}
         onUpdateDraftTaxInvoiceInfo={async () => {}}
         formatMoney={(value) => String(value)}
         formatDateTime={(value) => value ?? "-"}
@@ -250,6 +250,7 @@ test("IssuanceTab shows mail sync progress while sync is busy", () => {
 test("IssuanceTab labels the draft edit action as tax invoice info editing", () => {
   const { buttons, markup } = renderIssuanceTab({
     drafts: [buildDraft()],
+    inboxMessages: [buildInboxMessage({ receivedAt: "2026-05-15T14:32:00.000Z" })],
     customers: [buildCustomer()]
   });
 
@@ -259,20 +260,53 @@ test("IssuanceTab labels the draft edit action as tax invoice info editing", () 
   assert.match(markup, /발행 내용/);
   assert.match(markup, /등록번호/);
   assert.match(markup, /종사업장번호/);
-  assert.match(markup, /한전 수신메일/);
+  assert.match(markup, /2026\. 5\. 15\./);
   assert.match(markup, /하예리발전소/);
   assert.match(markup, /4490303746/);
   assert.match(markup, /제주특별자치도 서귀포시/);
-  assert.match(markup, /kepco-mail@example\.com/);
   assert.match(markup, /품목/);
-  assert.match(markup, /비고\/발전소명/);
   assert.match(markup, /공급가액/);
   assert.match(markup, /부가세/);
   assert.match(markup, /합계금액/);
+  assert.doesNotMatch(markup, /비고\/발전소명/);
+  assert.doesNotMatch(markup, /kepco-mail@example\.com/);
+  assert.doesNotMatch(markup, /kepcoppa@kepco\.co\.kr/);
+  assert.doesNotMatch(markup, /ppa0194@kepco\.co\.kr/);
   assert.doesNotMatch(markup, /문서번호/);
   assert.doesNotMatch(markup, /상세 구매일자/);
   assert.ok(buttons.some((button) => button.label.includes("세금계산서 정보 수정")));
   assert.ok(buttons.some((button) => button.label.includes("매칭 해제")));
+});
+
+test("IssuanceTab shows manual draft controls for customers without current-month mail", () => {
+  const { buttons, markup } = renderIssuanceTab({
+    requestedFilter: "missingMail",
+    customers: [buildCustomer()]
+  });
+
+  assert.match(markup, /수동 발행/);
+  assert.match(markup, /공급가액/);
+  assert.match(markup, /작성일자/);
+  assert.match(markup, /한국전력공사/);
+  assert.ok(buttons.some((button) => button.label.includes("수동 발행")));
+});
+
+test("IssuanceTab reuses the previous draft basis for manual missing-mail drafts", () => {
+  const { markup } = renderIssuanceTab({
+    requestedFilter: "missingMail",
+    customers: [buildCustomer()],
+    drafts: [
+      buildDraft({
+        billingMonth: "2026-04",
+        kepcoCorpName: "기존 공급받는자",
+        kepcoBranchId: "7777"
+      })
+    ]
+  });
+
+  assert.match(markup, /최근 초안 기준/);
+  assert.match(markup, /기준 정보 수정/);
+  assert.doesNotMatch(markup, /기존 공급받는자/);
 });
 
 test("IssuanceTab lays out unmatched mail details for side-by-side review", () => {
@@ -281,6 +315,7 @@ test("IssuanceTab lays out unmatched mail details for side-by-side review", () =
     unmatchedInboxMessages: [
       buildInboxMessage({
         customerId: null,
+        fromAddress: "hidden-sender@example.test",
         parseStatus: "unmatched"
       })
     ]
@@ -289,7 +324,26 @@ test("IssuanceTab lays out unmatched mail details for side-by-side review", () =
   assert.match(markup, /issuance-invoice-compare issuance-unmatched-mail-grid/);
   assert.match(markup, /aria-label="메일 정보"/);
   assert.match(markup, /aria-label="자동 추출 정보"/);
+  assert.doesNotMatch(markup, /발신 주소/);
+  assert.doesNotMatch(markup, /hidden-sender@example\.test/);
   assert.doesNotMatch(markup, /aria-label="예외 사유"/);
+});
+
+test("IssuanceTab does not use sender address as unmatched mail title fallback", () => {
+  const { markup } = renderIssuanceTab({
+    requestedFilter: "unmatched",
+    unmatchedInboxMessages: [
+      buildInboxMessage({
+        customerId: null,
+        fromAddress: "sender-fallback@example.test",
+        parseStatus: "unmatched",
+        subject: ""
+      })
+    ]
+  });
+
+  assert.match(markup, /제목 없음/);
+  assert.doesNotMatch(markup, /sender-fallback@example\.test/);
 });
 
 test("IssuanceTab keeps unmatched exception details out of the detail panel", () => {

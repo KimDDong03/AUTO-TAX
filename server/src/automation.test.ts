@@ -77,7 +77,7 @@ function buildCustomer(): Customer {
   };
 }
 
-function buildDraft(): InvoiceDraft {
+function buildDraft(overrides: Partial<InvoiceDraft> = {}): InvoiceDraft {
   return {
     id: 21,
     customerId: 11,
@@ -107,7 +107,8 @@ function buildDraft(): InvoiceDraft {
     popbillEnvironment: null,
     popbillResultJson: "",
     createdAt: "2026-05-07T00:00:00.000Z",
-    updatedAt: "2026-05-07T00:00:00.000Z"
+    updatedAt: "2026-05-07T00:00:00.000Z",
+    ...overrides
   };
 }
 
@@ -185,6 +186,17 @@ test("issue succeeds even when completion message delivery fails", async () => {
   try {
     const store = {
       getOrganizationIssueQuota: async () => buildQuota({ issuedDraftCount: 9 }),
+      getInboxMessage: async () => ({
+        id: 12,
+        subject: "한전 5월분",
+        fromAddress: "kepco@example.test",
+        receivedAt: "2026-05-15T14:32:00.000Z",
+        parseStatus: "parsed",
+        parseError: "",
+        customerId: 11,
+        draftId: 21,
+        parsedData: null
+      }),
       updateDraftStatus: async (_draftId: number, status: string, _error: string, writeDate?: string | null) => ({
         ...buildDraft(),
         status,
@@ -200,7 +212,64 @@ test("issue succeeds even when completion message delivery fails", async () => {
     const issued = await issueDraftNow(store, buildSettings(), buildCustomer(), buildDraft());
 
     assert.equal(issued.status, "issued");
+    assert.equal(issued.writeDate, "20260515");
     assert.equal(logs.some((log) => log.level === "warn" && log.message === "발행은 완료됐지만 문자 전송에 실패했습니다."), true);
+  } finally {
+    popbill.config = originalConfig;
+    popbill.TaxinvoiceService = originalTaxinvoiceService;
+    popbill.MessageService = originalMessageService;
+  }
+});
+
+test("issueDraftNow uses a manual draft write date when no source mail exists", async () => {
+  const popbill = require("popbill") as {
+    config: (...args: unknown[]) => unknown;
+    TaxinvoiceService: () => unknown;
+    MessageService: () => unknown;
+  };
+  const originalConfig = popbill.config;
+  const originalTaxinvoiceService = popbill.TaxinvoiceService;
+  const originalMessageService = popbill.MessageService;
+  let capturedWriteDate: string | null = null;
+
+  popbill.config = () => undefined;
+  popbill.TaxinvoiceService = () => ({
+    registIssue: (...args: unknown[]) => {
+      capturedWriteDate = (args[1] as Record<string, unknown>).writeDate as string;
+      const onSuccess = args[8] as (response: unknown) => void;
+      onSuccess({ code: 1 });
+    }
+  });
+  popbill.MessageService = () => ({
+    sendXMS: (...args: unknown[]) => {
+      const onSuccess = args[11] as (response: unknown) => void;
+      onSuccess({ receiptNum: "MSG-1" });
+    }
+  });
+
+  try {
+    const store = {
+      getOrganizationIssueQuota: async () => buildQuota({ organizationName: "", issuedDraftCount: 0 }),
+      getInboxMessage: async () => null,
+      updateDraftStatus: async (_draftId: number, status: string, _error: string, writeDate?: string | null) => ({
+        ...buildDraft({ sourceMessageId: 0, writeDate: "2026-05-20" }),
+        status,
+        issuedAt: "2026-05-20T00:00:00.000Z",
+        writeDate: writeDate ?? null
+      }),
+      upsertCustomerReportDetailFromIssuedDraft: async () => ({}),
+      createLog: async () => {}
+    } as unknown as AppStore;
+
+    const issued = await issueDraftNow(
+      store,
+      buildSettings(),
+      buildCustomer(),
+      buildDraft({ sourceMessageId: 0, writeDate: "2026-05-20" })
+    );
+
+    assert.equal(capturedWriteDate, "20260520");
+    assert.equal(issued.writeDate, "20260520");
   } finally {
     popbill.config = originalConfig;
     popbill.TaxinvoiceService = originalTaxinvoiceService;
