@@ -158,7 +158,7 @@ const CONTENT_SECURITY_POLICY = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co http://127.0.0.1:35119",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co http://127.0.0.1",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

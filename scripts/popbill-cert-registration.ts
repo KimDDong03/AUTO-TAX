@@ -79,11 +79,22 @@ export const POPBILL_DEBUG_ARTIFACT_STAGES = [
 
 export type PopbillDebugArtifactStage = (typeof POPBILL_DEBUG_ARTIFACT_STAGES)[number];
 
-const BROWSER_CHANNEL_CANDIDATES = [
-  process.env.AUTO_TAX_POPBILL_HELPER_BROWSER_CHANNEL?.trim() || "",
-  "chrome",
-  "msedge"
-].filter(Boolean);
+const BROWSER_CHANNEL_CANDIDATES = (() => {
+  const configured = (process.env.AUTO_TAX_POPBILL_HELPER_BROWSER_CHANNEL ?? "")
+    .split(",")
+    .flatMap((value) => value.split(";"))
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const defaults = ["chrome", "msedge", "chromium"];
+  const seen = new Set<string>();
+  return [...configured, ...defaults].filter((value) => {
+    if (seen.has(value)) {
+      return false;
+    }
+    seen.add(value);
+    return true;
+  });
+})();
 
 function resolveUserDataDir(): string {
   const configured = process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR?.trim();
@@ -110,7 +121,7 @@ async function launchBrowserContext(userDataDir: string): Promise<{ context: Bro
     }
   }
 
-  throw new Error(`Chrome 또는 Edge를 실행하지 못했습니다.\n${errors.join("\n")}`);
+  throw new Error(`브라우저 실행에 실패했습니다.\n${errors.join("\n")}`);
 }
 
 async function waitForPageText(page: Page, text: string, timeoutMs: number) {

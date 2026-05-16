@@ -37,11 +37,22 @@ export type SignGateRenewPaymentPageResult = {
 const FEE_PAYMENT_URL = "https://www.signgate.com/feepayment/formPurchsrInfoCnfrm.sg";
 const SIGNGATE_ORIGIN = "https://www.signgate.com";
 const RENEW_PAYMENT_URL = `${SIGNGATE_ORIGIN}/renew/stepEntrpsRenewPayment.sg`;
-const BROWSER_CHANNEL_CANDIDATES = [
-  process.env.AUTO_TAX_SIGNGATE_HELPER_BROWSER_CHANNEL?.trim() || "",
-  "chrome",
-  "msedge"
-].filter(Boolean);
+const BROWSER_CHANNEL_CANDIDATES = (() => {
+  const configured = (process.env.AUTO_TAX_SIGNGATE_HELPER_BROWSER_CHANNEL ?? "")
+    .split(",")
+    .flatMap((value) => value.split(";"))
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const defaults = ["chrome", "msedge", "chromium"];
+  const seen = new Set<string>();
+  return [...configured, ...defaults].filter((value) => {
+    if (seen.has(value)) {
+      return false;
+    }
+    seen.add(value);
+    return true;
+  });
+})();
 
 let activeContextPromise: Promise<{ context: BrowserContext; browserChannel: string }> | null = null;
 let activeContext: BrowserContext | null = null;
@@ -99,7 +110,7 @@ async function getOrLaunchBrowserContext(): Promise<{ context: BrowserContext; b
     }
 
     activeContextPromise = null;
-    throw new Error(`Chrome 또는 Edge를 실행하지 못했습니다.\n${errors.join("\n")}`);
+    throw new Error(`브라우저 실행에 실패했습니다.\n${errors.join("\n")}`);
   })();
 
   return activeContextPromise;
@@ -133,7 +144,7 @@ async function launchStandaloneBrowserWindow(): Promise<{ browser: Browser; cont
     }
   }
 
-  throw new Error(`Chrome 또는 Edge를 실행하지 못했습니다.\n${errors.join("\n")}`);
+  throw new Error(`브라우저 실행에 실패했습니다.\n${errors.join("\n")}`);
 }
 
 function normalizeApplicationNumber(value: string): string {

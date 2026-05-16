@@ -7,7 +7,12 @@ import { chromium } from "playwright";
 import * as XLSX from "@e965/xlsx";
 
 const baseUrl = process.env.AUTO_TAX_E2E_BASE_URL?.trim() || "http://127.0.0.1:4300";
-const localRenewalHelperUrl = "http://127.0.0.1:35119";
+const configuredLocalRenewalHelperPort = process.env.VITE_RENEWAL_HELPER_PORT?.trim() ?? "";
+const parsedLocalRenewalHelperPort = Number(configuredLocalRenewalHelperPort);
+const localRenewalHelperPort = Number.isFinite(parsedLocalRenewalHelperPort) && parsedLocalRenewalHelperPort > 0
+  ? parsedLocalRenewalHelperPort
+  : 35119;
+const localRenewalHelperUrl = `http://127.0.0.1:${localRenewalHelperPort}`;
 
 function parseEnvText(text) {
   return Object.fromEntries(
@@ -887,7 +892,7 @@ try {
         }
         const certUrlPayload = await certUrlResponse.json();
 
-        const helperResponse = await fetch("http://127.0.0.1:35119/api/popbill/certificate-registration", {
+        const helperResponse = await fetch(`${localRenewalHelperUrl}/api/popbill/certificate-registration`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"

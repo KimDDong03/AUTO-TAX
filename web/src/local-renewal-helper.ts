@@ -7,7 +7,17 @@ import type {
   RenewalPreflightSubmissionProfile
 } from "./types";
 
-export const LOCAL_RENEWAL_HELPER_URL = "http://127.0.0.1:35119";
+const DEFAULT_LOCAL_RENEWAL_HELPER_PORT = 35119;
+const configuredLocalRenewalHelperPort = typeof import.meta.env.VITE_RENEWAL_HELPER_PORT === "string"
+  ? import.meta.env.VITE_RENEWAL_HELPER_PORT.trim()
+  : "";
+
+function resolveLocalRenewalHelperPort(): number {
+  const parsed = Number(configuredLocalRenewalHelperPort);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LOCAL_RENEWAL_HELPER_PORT;
+}
+
+export const LOCAL_RENEWAL_HELPER_URL = `http://127.0.0.1:${resolveLocalRenewalHelperPort()}`;
 export const LOCAL_RENEWAL_HELPER_RELEASE_METADATA_URL = "/downloads/renewal-local-helper.json";
 
 type LocalRenewalHelperHealthResponse = {

@@ -12,8 +12,8 @@ function Get-HelperPort {
   } else {
     $env:AUTO_TAX_RENEWAL_HELPER_PORT
   }
-  $configuredPort = [int]$configuredPortValue
-  if ($configuredPort -gt 0) {
+  $configuredPort = 0
+  if ([int]::TryParse($configuredPortValue, [ref]$configuredPort) -and $configuredPort -gt 0) {
     return $configuredPort
   }
 
