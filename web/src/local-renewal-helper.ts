@@ -12,6 +12,14 @@ const configuredLocalRenewalHelperPort = typeof import.meta.env.VITE_RENEWAL_HEL
   ? import.meta.env.VITE_RENEWAL_HELPER_PORT.trim()
   : "";
 
+function shouldUseLocalRenewalHelperHost(): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  const hostname = window.location.hostname?.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 function resolveLocalRenewalHelperPort(): number {
   const parsed = Number(configuredLocalRenewalHelperPort);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LOCAL_RENEWAL_HELPER_PORT;
@@ -137,6 +145,10 @@ function buildHelperUnavailableMessage(): string {
 }
 
 async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit): Promise<T> {
+  if (!shouldUseLocalRenewalHelperHost()) {
+    throw new Error(buildHelperUnavailableMessage());
+  }
+
   const headers = new Headers(init?.headers ?? {});
   if (!headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
