@@ -82,6 +82,10 @@ function Wait-LocalRenewalHelperStop {
       return $true
     }
 
+    if (($attempt % 5) -eq 0) {
+      $elapsed = [math]::Round(($attempt + 1) * $DelayMs / 1000, 1)
+      Write-Output "waiting-for-stop=ongoing attempt=$($attempt + 1)/$Attempts elapsedSec=$elapsed"
+    }
     Start-Sleep -Milliseconds $DelayMs
   }
 
@@ -100,6 +104,10 @@ function Wait-LocalRenewalHelperStart {
       return $true
     }
 
+    if (($attempt % 5) -eq 0) {
+      $elapsed = [math]::Round(($attempt + 1) * $DelayMs / 1000, 1)
+      Write-Output "waiting-for-start=ongoing attempt=$($attempt + 1)/$Attempts elapsedSec=$elapsed"
+    }
     Start-Sleep -Milliseconds $DelayMs
   }
 
@@ -268,13 +276,23 @@ function Copy-InstallFilesWithRetry {
   )
 
   $sourceFiles = Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -ErrorAction Stop
+  $totalFiles = $sourceFiles.Count
+  $copiedCount = 0
+  $skippedCount = 0
+  $current = 0
+  Write-Output "copy-start totalFiles=$totalFiles"
+
   foreach ($sourceFile in $sourceFiles) {
+    $current += 1
     $relativePath = $sourceFile.FullName.Substring($SourceRoot.Length).TrimStart('\', '/')
     $destinationPath = Join-Path $InstallRoot $relativePath
     $lastError = $null
     $copied = $false
 
     for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
+      if ($attempt -eq 0) {
+        Write-Output "copying=$current/$totalFiles $relativePath"
+      }
       try {
         New-Item -ItemType Directory -Path (Split-Path -Parent $destinationPath) -Force | Out-Null
         Copy-Item -LiteralPath $sourceFile.FullName -Destination $destinationPath -Force
@@ -283,16 +301,20 @@ function Copy-InstallFilesWithRetry {
       } catch {
         $lastError = $_
         if ($attempt -lt ($Attempts - 1)) {
+          Write-Warning "copy-retry file=$relativePath attempt=$($attempt + 1)/$Attempts delayMs=$DelayMs"
           Start-Sleep -Milliseconds $DelayMs
         }
       }
     }
 
     if ($copied) {
+      $copiedCount += 1
       continue
     }
 
     if ($AllowLockedRuntimeNode -and $relativePath -ieq "runtime\node.exe") {
+      $skippedCount += 1
+      Write-Output "copy-skipped=runtime\\node.exe (in use)"
       Write-Warning "Skipping runtime\\node.exe replacement because the helper runtime is still in use. The new helper will fully activate after the old process exits."
       continue
     }
@@ -301,6 +323,8 @@ function Copy-InstallFilesWithRetry {
       throw $lastError
     }
   }
+
+  Write-Output "copy-complete copied=$copiedCount skipped=$skippedCount total=$totalFiles"
 }
 
 $sourceRoot = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
@@ -323,6 +347,7 @@ $launcherScriptCandidates = @(
 ) | Select-Object -Unique
 
 if (Test-LocalRenewalHelperRunning -Port $helperPort) {
+  Write-Output "running-detected=true"
   $stopped = $false
   if ($PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Stop running helper before reinstall")) {
     $stopped = Stop-ExistingLocalRenewalHelper `
@@ -383,7 +408,8 @@ if ($PSCmdlet.ShouldProcess($taskName, "Register renewal local helper scheduled 
 
 if ($StartNow -and -not $restartRequired -and $PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Start helper immediately after install")) {
   & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $launcherScript -Detached | Out-Null
-  [void](Wait-LocalRenewalHelperStart -Port $helperPort)
+  $started = [bool](Wait-LocalRenewalHelperStart -Port $helperPort)
+  Write-Output "startResult=$(if ($started) { 'running' } else { 'timeout' })"
 }
 
 if (-not $SkipDesktopShortcuts) {
