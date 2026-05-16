@@ -160,8 +160,9 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
     throw new Error(buildHelperUnavailableMessage());
   }
 
+  const method = (init?.method ?? "GET").toUpperCase();
   const headers = new Headers(init?.headers ?? {});
-  if (!headers.has("Content-Type")) {
+  if (method !== "GET" && method !== "HEAD" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
