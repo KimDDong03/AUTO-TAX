@@ -357,13 +357,33 @@ export function registerCoreRoutes(deps: RouteDeps) {
 
   app.post("/api/public/signup/phone-verifications/send", publicSignupLimiter, async (req, res) => {
     const payload = publicSignupPhoneVerificationSendSchema.parse(req.body ?? {});
-    const result = await createSignupPhoneVerification(createSupabaseAdminClient(), createSmsProvider(), {
-      phone: payload.phone,
-      requestIp: req.ip ?? req.socket.remoteAddress ?? "",
-      requestUserAgent: req.header("user-agent") ?? ""
-    });
+    let smsProvider;
+    try {
+      smsProvider = createSmsProvider();
+    } catch (error) {
+      throw new HttpError(
+        503,
+        "휴대폰 인증 문자 발송 설정이 아직 준비되지 않았습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요."
+      );
+    }
 
-    res.status(201).json(result);
+    try {
+      const result = await createSignupPhoneVerification(createSupabaseAdminClient(), smsProvider, {
+        phone: payload.phone,
+        requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+        requestUserAgent: req.header("user-agent") ?? ""
+      });
+      res.status(201).json(result);
+      return;
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+      console.error("[signup] 휴대폰 인증 문자 발송에 실패했습니다.", error);
+      throw new HttpError(503, "휴대폰 인증번호 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+
+    return;
   });
 
   app.post("/api/public/signup/phone-verifications/confirm", publicSignupLimiter, async (req, res) => {
