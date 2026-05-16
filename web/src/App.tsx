@@ -73,6 +73,7 @@ import {
   type SettingsSectionId,
   useSettingsScreenState
 } from "./features/settings/useSettingsScreenState";
+import { SettingsScreen } from "./features/settings/SettingsScreen";
 import { useSettingsDerivedModel } from "./features/settings/useSettingsDerivedModel";
 import {
   selectSettingsOnboardingState,
@@ -210,9 +211,6 @@ const OnboardingTab = lazy(() =>
 );
 const PublicLanding = lazy(() =>
   import("./features/public/PublicLanding").then((module) => ({ default: module.PublicLanding }))
-);
-const SettingsScreen = lazy(() =>
-  import("./features/settings/SettingsScreen").then((module) => ({ default: module.SettingsScreen }))
 );
 
 const OPS_DEFAULT_SECTION: OpsSectionId = "subscription";

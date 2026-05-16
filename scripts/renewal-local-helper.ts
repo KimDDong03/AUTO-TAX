@@ -128,14 +128,13 @@ function applyCors(req: express.Request, res: express.Response): boolean {
   const origin = req.header("origin")?.trim();
   const isAllowedOrigin = isAllowedLocalRenewalHelperOrigin(origin);
 
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
+  const resolvedAllowedOrigin = origin || "*";
+  res.setHeader("Access-Control-Allow-Origin", resolvedAllowedOrigin);
 
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Credentials", origin ? "true" : "false");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Access-Control-Request-Private-Network");
   res.setHeader("Access-Control-Allow-Private-Network", "true");
 
   if (!isAllowedOrigin) {
