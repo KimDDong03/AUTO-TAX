@@ -73,6 +73,15 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function normalizeKeywordText(value: string): string {
   return value.replace(/\s+/g, "");
 }
@@ -376,6 +385,84 @@ async function renderCurrentPagePreview(page: Page, generatedFrom: MailPreviewGe
   };
 }
 
+function buildTextFallbackImage(
+  bodyForRendering: string,
+  generatedFrom: MailPreviewGeneratedFrom,
+  sourceMessageId: number
+): MailPreviewImageResponse {
+  const lines = bodyForRendering
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim()
+    .split("\n")
+    .filter((line) => line.trim() !== "");
+  const previewLines = lines.length > 0 ? lines.slice(0, 24) : ["미리보기 텍스트가 없습니다."];
+  const lineHeight = 30;
+  const width = 980;
+  const height = Math.max(260, previewLines.length * lineHeight + 100);
+  const yOffset = 50;
+  const lineElements = previewLines
+    .map(
+      (line, index) =>
+        `<text x="30" y="${yOffset + index * lineHeight}" font-size="20" font-family="Consolas, 'Courier New', monospace">${escapeXml(line)}</text>`
+    )
+    .join("\n");
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+  <rect width="${width}" height="${height}" fill="#ffffff" />
+  <text x="26" y="30" font-size="17" font-family="Arial, sans-serif" fill="#444444">메일 원문 미리보기</text>
+  <line x1="26" y1="40" x2="${width - 26}" y2="40" stroke="#d0d0d0" />
+  ${lineElements}
+</svg>`;
+
+  return {
+    imageDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
+    width,
+    height,
+    sourceMessageId,
+    generatedFrom,
+    cropKind: generatedFrom === "raw-source-html" ? "body-fallback" : "text-keyword-window"
+  };
+}
+
+async function renderMailPreviewWithBrowser(bodyForRendering: string, generatedFrom: MailPreviewGeneratedFrom): Promise<
+  Omit<MailPreviewImageResponse, "sourceMessageId" | "generatedFrom"> | null
+> {
+  let browser: Browser | null = null;
+  let page: Page | null = null;
+  try {
+    browser = await chromium.launch({ headless: true });
+    page = await createLockedDownPage(browser);
+
+    if (generatedFrom === "raw-source-html") {
+      await page.setContent(buildHtmlPreviewDocument(bodyForRendering), { waitUntil: "domcontentloaded", timeout: 10000 });
+    } else {
+      await page.setContent(buildTextPreviewHtml(bodyForRendering), { waitUntil: "domcontentloaded", timeout: 10000 });
+    }
+
+    return await renderCurrentPagePreview(page, generatedFrom);
+  } catch {
+    return null;
+  } finally {
+    if (page) {
+      try {
+        await page.context().close();
+      } catch {
+        // ignore browser cleanup failure on serverless environments
+      }
+    }
+
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {
+        // ignore browser cleanup failure on serverless environments
+      }
+    }
+  }
+}
+
 export async function renderMailPreviewImage(message: SourceMessageForPreview): Promise<MailPreviewImageResponse> {
   const rawSource = message.rawSource.trim();
   const storedTextBody = message.textBody.trim();
@@ -386,9 +473,14 @@ export async function renderMailPreviewImage(message: SourceMessageForPreview): 
   let htmlBody = "";
   let parsedTextBody = "";
   if (rawSource) {
-    const parsedMime = await simpleParser(Buffer.from(rawSource, "utf8"));
-    htmlBody = typeof parsedMime.html === "string" ? parsedMime.html : "";
-    parsedTextBody = parsedMime.text?.trim() ?? "";
+    try {
+      const parsedMime = await simpleParser(Buffer.from(rawSource, "utf8"));
+      htmlBody = typeof parsedMime.html === "string" ? parsedMime.html : "";
+      parsedTextBody = parsedMime.text?.trim() ?? "";
+    } catch {
+      parsedTextBody = "";
+      htmlBody = "";
+    }
   }
 
   const generatedFrom: MailPreviewGeneratedFrom = htmlBody.trim()
@@ -398,23 +490,14 @@ export async function renderMailPreviewImage(message: SourceMessageForPreview): 
       : "stored-text-body";
   const bodyForRendering = generatedFrom === "raw-source-html" ? htmlBody : parsedTextBody || storedTextBody || rawSource;
 
-  const browser = await chromium.launch({ headless: true });
-  const page = await createLockedDownPage(browser);
-  try {
-    if (generatedFrom === "raw-source-html") {
-      await page.setContent(buildHtmlPreviewDocument(bodyForRendering), { waitUntil: "domcontentloaded", timeout: 10000 });
-    } else {
-      await page.setContent(buildTextPreviewHtml(bodyForRendering), { waitUntil: "domcontentloaded", timeout: 10000 });
-    }
-
-    const preview = await renderCurrentPagePreview(page, generatedFrom);
+  const preview = await renderMailPreviewWithBrowser(bodyForRendering, generatedFrom);
+  if (preview) {
     return {
       ...preview,
       sourceMessageId: message.id,
       generatedFrom
     };
-  } finally {
-    await page.context().close();
-    await browser.close();
   }
+
+  return buildTextFallbackImage(bodyForRendering, generatedFrom, message.id);
 }
