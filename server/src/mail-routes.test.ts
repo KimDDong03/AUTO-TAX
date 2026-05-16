@@ -129,3 +129,74 @@ test("inbox reprocess route forwards a manually selected customer id", async () 
     });
   }
 });
+
+test("mail sync route keeps receivedMonth precedence and ignores billingMonth for month selection", async () => {
+  const calls: Array<string | null> = [];
+  const app = express();
+  app.use(express.json());
+  registerMailRoutes({
+    app,
+    store: null,
+    getRequestStore: () => ({}) as never,
+    requireWorkspaceEditor: () => ({}) as never,
+    reprocessInboxMessage: async () => ({ status: "parsed" }),
+    syncMailbox: async (_requestStore, options) => {
+      calls.push(options?.receivedMonth ?? null);
+      return {
+        scanned: 0,
+        imported: 0,
+        createdDrafts: 0,
+        scheduledDrafts: 0,
+        unmatched: 0,
+        failures: 0,
+        receivedMonth: options?.receivedMonth ?? "2026-05"
+      };
+    }
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+
+  try {
+    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const defaultResponse = await fetch(`${baseUrl}/api/mail/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: "{}"
+    });
+    assert.equal(defaultResponse.status, 200);
+
+    const receivedMonthResponse = await fetch(`${baseUrl}/api/mail/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ receivedMonth: "2026-04" })
+    });
+    assert.equal(receivedMonthResponse.status, 200);
+
+    const billingMonthResponse = await fetch(`${baseUrl}/api/mail/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ billingMonth: "2026-03" })
+    });
+    assert.equal(billingMonthResponse.status, 200);
+
+    assert.deepEqual(calls, [null, "2026-04", null]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});

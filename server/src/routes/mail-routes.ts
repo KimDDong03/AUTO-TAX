@@ -91,7 +91,7 @@ export function registerMailRoutes(deps: RouteDeps) {
     const requestStore = getRequestStore(res, store);
     const payload = mailSyncSchema.parse(req.body ?? {});
     const result = await syncMailbox(requestStore, {
-      receivedMonth: payload.receivedMonth ?? payload.billingMonth ?? null
+      receivedMonth: payload.receivedMonth ?? null
     });
     res.json(result);
   });

@@ -34,6 +34,10 @@ function toIso(value: Date | string | undefined): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+function formatMonthPart(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
 function getSeoulYearMonth(now: Date): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
@@ -73,11 +77,32 @@ export function buildMailSyncMonthRange(receivedMonth: string): { since: Date; b
   const month = Number(monthText);
   const nextYear = month === 12 ? year + 1 : year;
   const nextMonth = month === 12 ? 1 : month + 1;
+  const monthStart = new Date(
+    `${year}-${monthText}-01T00:00:00+09:00`
+  );
+  const nextMonthStart = new Date(
+    `${nextYear}-${formatMonthPart(nextMonth)}-01T00:00:00+09:00`
+  );
 
   return {
-    since: new Date(Date.UTC(year, month - 1, 1)),
-    before: new Date(Date.UTC(nextYear, nextMonth - 1, 1))
+    since: monthStart,
+    before: nextMonthStart
   };
+}
+
+export function isMessageInReceivedMonthRange(
+  internalDate: Date | string | undefined,
+  range: { since: Date; before: Date }
+): boolean {
+  if (!internalDate) {
+    return false;
+  }
+  const parsedDate = internalDate instanceof Date ? internalDate : new Date(internalDate);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return false;
+  }
+
+  return parsedDate >= range.since && parsedDate < range.before;
 }
 
 export function buildMailSyncSearchQuery(options: {
@@ -111,6 +136,11 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
   const currentReceivedMonth = getSeoulYearMonth(now);
   const useCheckpoint = receivedMonth === currentReceivedMonth && !options.receivedMonth;
   const completedBillingMonthSet = new Set((await store.listCompletedBillingMonths()).map((item) => item.billingMonth));
+  const monthRange = buildMailSyncMonthRange(receivedMonth);
+  const mailSyncWindow = {
+    since: monthRange.since.toISOString(),
+    before: monthRange.before.toISOString()
+  };
   const result: MailSyncResult = {
     scanned: 0,
     imported: 0,
@@ -157,6 +187,10 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
     }, { uid: true })) {
       maxSeenUid = Math.max(maxSeenUid, message.uid ?? 0);
       result.scanned += 1;
+      if (!isMessageInReceivedMonthRange(message.internalDate, monthRange)) {
+        continue;
+      }
+
       const subject = message.envelope?.subject ?? "";
       if (!isRelevantSubject(subject)) {
         continue;
@@ -364,11 +398,12 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
       "mail-sync",
       "메일 동기화가 중단되었습니다.",
       buildPilotLogContext(
-        {
-          mode,
-          receivedMonth,
-          error: messageText
-        },
+      {
+        mode,
+        receivedMonth,
+        mailSyncWindow,
+        error: messageText
+      },
         {
           pipeline: "mail-sync",
           errorCategory: "mail-sync",
@@ -386,7 +421,8 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
   await store.createLog("info", "mail-sync", "메일 동기화를 완료했습니다.", {
     ...result,
     mode,
-    receivedMonth
+    receivedMonth,
+    mailSyncWindow
   });
   return result;
 }
