@@ -267,7 +267,8 @@ export function resetLocalRenewalHelperStatusCacheForTests(): void {
 export async function getLocalRenewalHelperReleaseMetadata(): Promise<LocalRenewalHelperReleaseMetadata | null> {
   try {
     const response = await fetch(LOCAL_RENEWAL_HELPER_RELEASE_METADATA_URL, {
-      method: "GET"
+      method: "GET",
+      cache: "no-store"
     });
     if (!response.ok) {
       return null;

@@ -19,6 +19,12 @@ const staticDownloadDir = path.join(repoRoot, "web", "public", "downloads");
 const staticDownloadMetadataPath = path.join(staticDownloadDir, "renewal-local-helper.json");
 const staticDownloadZipPath = path.join(staticDownloadDir, "renewal-local-helper.zip");
 const runtimeVersionPath = path.join(appDir, "renewal-local-helper-release.json");
+const ZIP_BASENAME = "renewal-local-helper";
+
+function resolveVersionedZipFileName(version) {
+  const safeVersion = typeof version === "string" && version.trim() ? version.trim() : "0.0.0";
+  return `${ZIP_BASENAME}-${safeVersion}.zip`;
+}
 
 function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -60,7 +66,7 @@ function buildHelperReleaseMetadata() {
   return {
     latestVersion: config.latestVersion,
     minSupportedVersion: config.minSupportedVersion,
-    downloadUrl: "/downloads/renewal-local-helper.zip",
+    downloadUrl: `/downloads/${resolveVersionedZipFileName(config.latestVersion)}`,
     releasedAt: config.releasedAt
   };
 }
@@ -106,13 +112,13 @@ function writePackageReadme() {
   fs.writeFileSync(path.join(outputRoot, "README.txt"), content, "utf8");
 }
 
-function writeZipArchive() {
-  if (fs.existsSync(outputZipPath)) {
-    fs.rmSync(outputZipPath, { force: true });
+function writeZipArchive(archivePath = outputZipPath) {
+  if (fs.existsSync(archivePath)) {
+    fs.rmSync(archivePath, { force: true });
   }
 
   const sourcePattern = path.join(outputRoot, "*").replace(/\\/g, "\\\\");
-  const destinationPath = outputZipPath.replace(/\\/g, "\\\\");
+  const destinationPath = archivePath.replace(/\\/g, "\\\\");
   const command = `Compress-Archive -Path "${sourcePattern}" -DestinationPath "${destinationPath}" -Force`;
   const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command], {
     cwd: repoRoot,
@@ -126,9 +132,10 @@ function writeZipArchive() {
   }
 }
 
-function syncStaticDownloadAsset() {
+function syncStaticDownloadAsset(versionedZipPath, versionedStaticZipPath) {
   fs.mkdirSync(staticDownloadDir, { recursive: true });
-  copyRecursive(outputZipPath, staticDownloadZipPath);
+  copyRecursive(versionedZipPath, versionedStaticZipPath);
+  copyRecursive(versionedZipPath, staticDownloadZipPath);
   copyRecursive(outputMetadataPath, staticDownloadMetadataPath);
 }
 
@@ -273,6 +280,10 @@ function writeReleaseMetadataAssets() {
 }
 
 async function main() {
+  const metadata = buildHelperReleaseMetadata();
+  const versionedZipPath = path.join(repoRoot, "dist", resolveVersionedZipFileName(metadata.latestVersion));
+  const versionedStaticZipPath = path.join(staticDownloadDir, resolveVersionedZipFileName(metadata.latestVersion));
+
   resetDir(outputRoot);
   fs.mkdirSync(appNodeModulesDir, { recursive: true });
   fs.mkdirSync(runtimeDir, { recursive: true });
@@ -284,14 +295,20 @@ async function main() {
   copyScripts();
   writeReleaseMetadataAssets();
   writePackageReadme();
-  writeZipArchive();
-  syncStaticDownloadAsset();
+  writeZipArchive(versionedZipPath);
+  if (fs.existsSync(outputZipPath)) {
+    fs.rmSync(outputZipPath, { force: true });
+  }
+  fs.copyFileSync(versionedZipPath, outputZipPath);
+  syncStaticDownloadAsset(versionedZipPath, versionedStaticZipPath);
 
   console.log(`output=${outputRoot}`);
   console.log(`metadata=${outputMetadataPath}`);
-  console.log(`zip=${outputZipPath}`);
+  console.log(`zip=${versionedZipPath}`);
+  console.log(`legacyZip=${outputZipPath}`);
   console.log(`publicMetadata=${staticDownloadMetadataPath}`);
-  console.log(`publicZip=${staticDownloadZipPath}`);
+  console.log(`publicZip=${versionedStaticZipPath}`);
+  console.log(`publicLegacyZip=${staticDownloadZipPath}`);
 }
 
 await main();
