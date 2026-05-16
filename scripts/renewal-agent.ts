@@ -232,6 +232,21 @@ type BridgeCommandResult = {
   error: string | null;
 };
 
+type SelectStorageIssueParams = {
+  mediaType: string;
+  extraValue: string;
+};
+
+const SELECT_STORAGE_ISSUE_CANDIDATES: SelectStorageIssueParams[] = [
+  { mediaType: "HDD", extraValue: "NULL" },
+  { mediaType: "HDD", extraValue: "TradeSign" },
+  { mediaType: "HDD", extraValue: "TRADE" },
+  { mediaType: "PFX", extraValue: "NULL" },
+  { mediaType: "PFX", extraValue: "TradeSign" },
+  { mediaType: "PFX", extraValue: "TRADE" },
+  { mediaType: "ALL", extraValue: "NULL" },
+];
+
 type SelectionProbeRequest = {
   certificateIndex: number;
   certificateCn: string | null;
@@ -2338,7 +2353,10 @@ async function probeStorageOnTarget(
   signGateConfig: SignGateRuntimeConfig,
 ): Promise<BridgeProbeResult["bridge"]["storageProbe"]> {
   return await runWithBridgeSelectionLock(async () => {
-    const storageResult = await runSelectStorageIssue(target, signGateConfig);
+    const { storageResult, certificates } = await runSelectStorageIssueWithCandidates(
+      target,
+      signGateConfig,
+    );
 
     const storageReply = storageResult.reply;
     const storageErrorCode =
@@ -2362,7 +2380,6 @@ async function probeStorageOnTarget(
     }
 
     markStorageSelected(target.port);
-    const certificates = parseStorageCertificates(storageReply);
     const detailedCertificates: typeof certificates = [];
 
     for (const certificate of certificates) {
@@ -2404,7 +2421,10 @@ async function probeStorageSummaryOnTarget(
   signGateConfig: SignGateRuntimeConfig,
 ): Promise<BridgeProbeResult["bridge"]["storageProbe"]> {
   return await runWithBridgeSelectionLock(async () => {
-    const storageResult = await runSelectStorageIssue(target, signGateConfig);
+    const { storageResult, certificates } = await runSelectStorageIssueWithCandidates(
+      target,
+      signGateConfig,
+    );
 
     const storageReply = storageResult.reply;
     const storageErrorCode =
@@ -2428,7 +2448,6 @@ async function probeStorageSummaryOnTarget(
     }
 
     markStorageSelected(target.port);
-    const certificates = parseStorageCertificates(storageReply);
     return {
       ok: true,
       sourcePort: target.port,
@@ -2443,15 +2462,68 @@ async function probeStorageSummaryOnTarget(
 async function runSelectStorageIssue(
   target: (typeof PORT_TARGETS)[number],
   signGateConfig: SignGateRuntimeConfig,
+  params: SelectStorageIssueParams,
 ): Promise<BridgeCommandResult> {
   return await invokeBridgeCommand(target, {
     token: "empty",
     callback: "probeCallback",
     fname: "selectStorageIssue",
-    args: [{ mediaType: "HDD", extraValue: "NULL" }],
+    args: [params],
     origin: signGateConfig.origin,
     referer: signGateConfig.referer,
   });
+}
+
+async function runSelectStorageIssueWithCandidates(
+  target: (typeof PORT_TARGETS)[number],
+  signGateConfig: SignGateRuntimeConfig,
+): Promise<{
+  storageResult: BridgeCommandResult;
+  certificates: BridgeProbeResult["bridge"]["storageProbe"]["certificates"];
+}> {
+  let fallbackResult: BridgeCommandResult | null = null;
+  let fallbackCertificates: BridgeProbeResult["bridge"]["storageProbe"]["certificates"] =
+    [];
+
+  for (const params of SELECT_STORAGE_ISSUE_CANDIDATES) {
+    const storageResult = await runSelectStorageIssue(target, signGateConfig, params);
+    const storageReply = storageResult.reply;
+    const storageErrorCode =
+      typeof storageReply?.ERROR_CODE === "string"
+        ? storageReply.ERROR_CODE
+        : null;
+    if (!storageResult.ok || storageErrorCode) {
+      fallbackResult = storageResult;
+      continue;
+    }
+
+    const certificates = parseStorageCertificates(storageReply);
+    if (certificates.length > 0) {
+      return {
+        storageResult,
+        certificates,
+      };
+    }
+
+    if (!fallbackResult) {
+      fallbackResult = storageResult;
+      fallbackCertificates = certificates;
+    }
+  }
+
+  return {
+    storageResult:
+      fallbackResult ??
+      ({
+        ok: false,
+        sourcePort: target.port,
+        status: "storageIssueCandidateExhausted",
+        reply: null,
+        error:
+          "selectStorageIssue 후보를 모두 시도했지만 저장소를 찾지 못했습니다.",
+      } satisfies BridgeCommandResult),
+    certificates: fallbackCertificates,
+  };
 }
 
 async function ensureStorageSelectedOnTarget(
@@ -2463,7 +2535,10 @@ async function ensureStorageSelectedOnTarget(
     return null;
   }
 
-  const storageResult = await runSelectStorageIssue(target, signGateConfig);
+  const { storageResult } = await runSelectStorageIssueWithCandidates(
+    target,
+    signGateConfig,
+  );
   const storageReply = storageResult.reply;
   const storageErrorCode =
     typeof storageReply?.ERROR_CODE === "string"
