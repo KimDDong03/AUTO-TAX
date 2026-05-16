@@ -42,6 +42,19 @@ function isExpired(expiresAt: string): boolean {
   return new Date(expiresAt).getTime() <= Date.now();
 }
 
+function getSmsSendFailureMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "휴대폰 인증 문자 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  const message = `${error.message} ${asString((error as { errorMessage?: unknown }).errorMessage, "")}`.trim();
+  if (message.includes("허용되지 않은 IP")) {
+    return "현재 SOLAPI API 접근이 차단되어 휴대폰 인증 문자를 발송할 수 없습니다. SOLAPI 콘솔에서 Vercel 서버 아웃바운드 IP를 허용 목록에 추가해 주세요.";
+  }
+
+  return "휴대폰 인증번호 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
 async function getVerificationRow(adminClient: AdminClient, verificationId: string): Promise<Row | null> {
   const { data, error } = await adminClient
     .from("public_signup_phone_verifications")
@@ -89,10 +102,15 @@ export async function createSignupPhoneVerification(
     throw new Error(`휴대폰 인증 저장에 실패했습니다: ${error.message}`);
   }
 
-  const sent = await smsProvider.send({
-    to: phone,
-    text: `[AUTO-TAX] 인증번호는 ${code}입니다. 5분 안에 입력해주세요.`
-  });
+  let sent;
+  try {
+    sent = await smsProvider.send({
+      to: phone,
+      text: `[AUTO-TAX] 인증번호는 ${code}입니다. 5분 안에 입력해주세요.`
+    });
+  } catch (error) {
+    throw new HttpError(503, getSmsSendFailureMessage(error));
+  }
 
   if (sent.providerMessageId) {
     const { error: updateError } = await adminClient
