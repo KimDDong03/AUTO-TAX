@@ -14,7 +14,7 @@ import { openSignGateRenewPaymentWindow } from "./signgate-fee-payment.ts";
 import { sanitizeSensitiveData, sanitizeSensitiveText } from "../server/src/utils.js";
 
 const DEFAULT_PORT = 35119;
-const DEFAULT_ALLOWED_ORIGINS = ["https://kiyo.kr", "https://www.kiyo.kr"];
+const DEFAULT_ALLOWED_ORIGINS = ["kiyo.kr", "www.kiyo.kr"];
 const PREFLIGHT_TRANSPORT_RETRY_COUNT = 1;
 const PREFLIGHT_TRANSPORT_RETRY_DELAY_MS = 250;
 const UPLOAD_SESSION_MAX_FILE_COUNT = 80;
@@ -75,11 +75,31 @@ function readAllowedOrigins(): string[] {
     ?.split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  return [...DEFAULT_ALLOWED_ORIGINS, ...(configured ?? [])];
+  return [...DEFAULT_ALLOWED_ORIGINS, ...(configured ?? [])]
+    .map(resolveAllowedOriginHost)
+    .filter(Boolean);
 }
 
 function isLocalLoopbackOrigin(origin: string): boolean {
   return /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/i.test(origin);
+}
+
+function resolveAllowedOriginHost(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.hostname.toLowerCase();
+    }
+  } catch {
+    // no-op
+  }
+
+  return normalized;
 }
 
 export function isAllowedLocalRenewalHelperOrigin(origin: string | null | undefined, allowedOrigins = readAllowedOrigins()): boolean {
@@ -87,18 +107,29 @@ export function isAllowedLocalRenewalHelperOrigin(origin: string | null | undefi
     return true;
   }
 
+  const normalizedOrigin = origin.trim().toLowerCase();
   if (isLocalLoopbackOrigin(origin)) {
     return true;
   }
 
-  return allowedOrigins.includes(origin);
+  if (allowedOrigins.includes(normalizedOrigin)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(normalizedOrigin);
+    return allowedOrigins.includes(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 function applyCors(req: express.Request, res: express.Response): boolean {
   const origin = req.header("origin")?.trim();
-  if (!isAllowedLocalRenewalHelperOrigin(origin)) {
-    res.status(403).json({ error: "허용되지 않은 Origin입니다." });
-    return false;
+  const isAllowedOrigin = isAllowedLocalRenewalHelperOrigin(origin);
+
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
   }
 
   res.setHeader("Vary", "Origin");
@@ -107,8 +138,10 @@ function applyCors(req: express.Request, res: express.Response): boolean {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Private-Network", "true");
 
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+  if (!isAllowedOrigin) {
+    console.warn(`[renewal-local-helper] blocked origin: ${origin}`);
+    res.status(403).json({ error: "허용되지 않은 Origin입니다." });
+    return false;
   }
 
   return true;
