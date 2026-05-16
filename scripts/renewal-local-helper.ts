@@ -729,7 +729,11 @@ const isDirectExecution = (() => {
   }
 
   const entryBasename = path.basename(entryArg).toLowerCase();
-  return entryBasename === "renewal-local-helper" || entryBasename === "renewal-local-helper.ts" || entryBasename === "renewal-local-helper.js";
+  return entryBasename === "renewal-local-helper" ||
+    entryBasename === "renewal-local-helper.ts" ||
+    entryBasename === "renewal-local-helper.js" ||
+    entryBasename === "renewal-local-helper.cjs" ||
+    entryBasename === "renewal-local-helper.mjs";
 })();
 
 if (isDirectExecution) {
