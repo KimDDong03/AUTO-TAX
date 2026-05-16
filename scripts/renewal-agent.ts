@@ -42,6 +42,9 @@ const PORT_TARGETS = [
 ];
 
 const FILESYSTEM_ELECTRONIC_TAX_OID = "1.2.410.200004.5.2.1.6.257";
+const FILESYSTEM_ELECTRONIC_TAX_OID_SET = new Set<string>([
+  FILESYSTEM_ELECTRONIC_TAX_OID,
+]);
 const FILESYSTEM_USAGE_NAME_BY_OID: Record<string, string> = {
   "1.2.410.200004.5.2.1.6.257": "전자세금용",
   "1.2.410.200004.5.2.1.2": "범용(기업)",
@@ -1988,21 +1991,138 @@ function collectSignCertDerFiles(
   return results;
 }
 
+function collectPfxCertificateFiles(
+  rootDir: string,
+  depth = 0,
+  maxDepth = 8,
+  results = new Set<string>(),
+): Set<string> {
+  if (depth > maxDepth || shouldSkipFilesystemDirectoryScan(rootDir)) {
+    return results;
+  }
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(rootDir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+
+  for (const entry of entries) {
+    const fullPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      collectPfxCertificateFiles(fullPath, depth + 1, maxDepth, results);
+      continue;
+    }
+    if (entry.isFile() && /\.(p12|pfx)$/i.test(entry.name)) {
+      results.add(fullPath);
+    }
+  }
+
+  return results;
+}
+
 function extractDnAttributeValue(userDn: string, attribute: string): string | null {
-  const pattern = new RegExp(`(?:^|,)${attribute}=([^,]+)`, "i");
+  const pattern = new RegExp(`(?:^|,|\\n)\\s*${attribute}\\s*=\\s*([^,\\n]+)`, "i");
   const match = userDn.match(pattern);
   return match?.[1]?.trim() ?? null;
 }
 
 function resolveFilesystemCertificatePolicyOid(filePath: string): string | null {
+  const dumpText = readCertificateDumpText(filePath);
+  if (!dumpText) {
+    return null;
+  }
+  const match = dumpText.match(/Policy Identifier=([0-9.]+)/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+function isLikelyTradeSignPfxPath(filePath: string): boolean {
+  const normalizedPath = filePath.replace(/\//g, "\\").toLowerCase();
+  return (
+    normalizedPath.endsWith("\\tradesign.pfx") ||
+    normalizedPath.endsWith("\\tradesign.p12") ||
+    normalizedPath.includes("\\tradesign\\")
+  );
+}
+
+function parseCertificateDateFromDump(dumpText: string, label: string): string | null {
+  const match = dumpText.match(new RegExp(`${label}\\s*:?\\s*([^\\r\\n]+)`, "i"));
+  if (!match?.[1]) {
+    return null;
+  }
+  const parsed = new Date(match[1].trim());
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+}
+
+function resolveFilesystemPfxCertificateMetadata(
+  filePath: string,
+): BridgeProbeResult["bridge"]["storageProbe"]["certificates"][number] | null {
+  const dumpText = readCertificateDumpText(filePath);
+  if (!dumpText) {
+    return null;
+  }
+
+  const policyOidMatch = dumpText.match(/Policy Identifier=([0-9.]+)/i);
+  const policyOid = policyOidMatch?.[1]?.trim() ?? null;
+  if (!FILESYSTEM_ELECTRONIC_TAX_OID_SET.has(policyOid ?? "")) {
+    if (!isLikelyTradeSignPfxPath(filePath)) {
+      return null;
+    }
+  }
+
+  const serial = convertHexSerialToDecimal(
+    (dumpText.match(/Serial Number:\s*([^\r\n]+)/i)?.[1] ?? "").trim(),
+  );
+  const validFrom = parseCertificateDateFromDump(dumpText, "Not Before");
+  const validTo = parseCertificateDateFromDump(dumpText, "Not After");
+  const certDirPath = path.dirname(filePath);
+
+  const subjectLineMatch = dumpText.match(/Subject\s*:\s*([^\r\n]+(?:\r?\n[^:]+)*)/i);
+  const subjectLine = subjectLineMatch?.[1] ?? "";
+  const normalizedSubject = subjectLine
+    .replace(/\r?\n/g, ",")
+    .replace(/\s*,\s*/g, ",")
+    .trim();
+
+  const cn =
+    extractDnAttributeValue(normalizedSubject, "CN") ??
+    extractDnAttributeValue(normalizedSubject, "cn") ??
+    "";
+  const issuerLine = (dumpText.match(/Issuer\s*:\s*([^\r\n]+(?:\r?\n[^:]+)*)/i)?.[1] ?? "")
+    .replace(/\r?\n/g, ",")
+    .replace(/\s*,\s*/g, ",")
+    .trim();
+  const issuer = issuerLine || normalizedSubject;
+
+  return {
+    index: buildFilesystemCertificateIndex(`${serial ?? ""}|${filePath}`),
+    cn,
+    issuerToName: resolveIssuerDisplayName(issuer),
+    usageToName: resolveUsageNameFromPolicyOid(policyOid),
+    todate: validTo,
+    oid: policyOid ?? FILESYSTEM_ELECTRONIC_TAX_OID,
+    serial,
+    userDN: cn || path.basename(certDirPath) || null,
+    validateFrom: validFrom,
+    detailValidateTo: validTo,
+    certDirPath,
+    listSource: "filesystem-hdd",
+    supportsPreflight: false,
+  };
+}
+
+function readCertificateDumpText(filePath: string): string | null {
   const result = spawnSync("certutil.exe", ["-dump", filePath], {
     encoding: "utf8",
     timeout: 8000,
     windowsHide: true,
   });
   const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-  const match = text.match(/Policy Identifier=([0-9.]+)/i);
-  return match?.[1]?.trim() ?? null;
+  return text.trim() ? text : null;
 }
 
 function resolveUsageNameFromPolicyOid(oid: string | null): string {
@@ -2059,8 +2179,10 @@ function collectFilesystemElectronicTaxCertificates(): BridgeProbeResult["bridge
   }
 
   const signCertPaths = new Set<string>();
+  const pfxCertificatePaths = new Set<string>();
   for (const directory of namedDirectories) {
     collectSignCertDerFiles(directory, 0, 8, signCertPaths);
+    collectPfxCertificateFiles(directory, 0, 8, pfxCertificatePaths);
   }
 
   const certificates: BridgeProbeResult["bridge"]["storageProbe"]["certificates"] = [];
@@ -2070,7 +2192,7 @@ function collectFilesystemElectronicTaxCertificates(): BridgeProbeResult["bridge
       const certificate = new X509Certificate(raw);
       const userDn = path.basename(path.dirname(filePath));
       const policyOid = resolveFilesystemCertificatePolicyOid(filePath);
-      if (policyOid !== FILESYSTEM_ELECTRONIC_TAX_OID) {
+      if (!FILESYSTEM_ELECTRONIC_TAX_OID_SET.has(policyOid ?? "")) {
         continue;
       }
 
@@ -2104,6 +2226,14 @@ function collectFilesystemElectronicTaxCertificates(): BridgeProbeResult["bridge
     } catch {
       continue;
     }
+  }
+
+  for (const filePath of pfxCertificatePaths) {
+    const metadata = resolveFilesystemPfxCertificateMetadata(filePath);
+    if (!metadata) {
+      continue;
+    }
+    certificates.push(metadata);
   }
 
   return certificates;
