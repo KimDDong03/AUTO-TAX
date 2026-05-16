@@ -238,13 +238,25 @@ type SelectStorageIssueParams = {
 };
 
 const SELECT_STORAGE_ISSUE_CANDIDATES: SelectStorageIssueParams[] = [
+  { mediaType: "HDD", extraValue: "" },
   { mediaType: "HDD", extraValue: "NULL" },
+  { mediaType: "HDD", extraValue: "NPKI" },
   { mediaType: "HDD", extraValue: "TradeSign" },
+  { mediaType: "HDD", extraValue: "Trade Sign" },
+  { mediaType: "HDD", extraValue: "YESSIGN" },
+  { mediaType: "HDD", extraValue: "YesSign" },
   { mediaType: "HDD", extraValue: "TRADE" },
+  { mediaType: "PFX", extraValue: "" },
   { mediaType: "PFX", extraValue: "NULL" },
   { mediaType: "PFX", extraValue: "TradeSign" },
+  { mediaType: "PFX", extraValue: "Trade Sign" },
+  { mediaType: "PFX", extraValue: "YESSIGN" },
+  { mediaType: "PFX", extraValue: "YesSign" },
   { mediaType: "PFX", extraValue: "TRADE" },
+  { mediaType: "ALL", extraValue: "" },
   { mediaType: "ALL", extraValue: "NULL" },
+  { mediaType: "ALL", extraValue: "NPKI" },
+  { mediaType: "ALL", extraValue: "YESSIGN" },
 ];
 
 type SelectionProbeRequest = {
@@ -1746,38 +1758,229 @@ function parseStorageCertificates(
     return [];
   }
 
+  const asRecord = (value: unknown): Record<string, unknown> | null => {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  };
+
+  const asRecordList = (value: unknown): Record<string, unknown>[] => {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.flatMap((item) => {
+      const record = asRecord(item);
+      return record ? [record] : [];
+    });
+  };
+
+  const normalizeRecordKeys = (record: Record<string, unknown>): Record<string, unknown> => {
+    const normalized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      normalized[key.toLowerCase()] = value;
+    }
+    return normalized;
+  };
+
+  const readValue = (
+    record: Record<string, unknown>,
+    ...keys: string[]
+  ): string | null => {
+    for (const key of keys) {
+      const value = record[key.toLowerCase()];
+      if (typeof value === "string" && value.trim() !== "") {
+        return value.trim();
+      }
+      if (typeof value === "number") {
+        return String(value);
+      }
+    }
+    return null;
+  };
+
+  const candidateEntries: Array<{ entry: Record<string, unknown>; indexHint: string }> = [];
+  const parseEntriesFromObject = (container: Record<string, unknown>): void => {
+    for (const [key, value] of Object.entries(container)) {
+      const normalizedKey = key.toLowerCase();
+      if (
+        normalizedKey === "size" ||
+        normalizedKey === "status" ||
+        normalizedKey.startsWith("error_") ||
+        normalizedKey === "errorcode" ||
+        normalizedKey === "errormessage"
+      ) {
+        continue;
+      }
+      const record = asRecord(value);
+      if (!record) {
+        continue;
+      }
+      candidateEntries.push({
+        entry: record,
+        indexHint: String(key),
+      });
+    }
+  };
+
+  const arrayContainerCandidates = [
+    "certificates",
+    "certificate",
+    "certificateList",
+    "certList",
+    "items",
+    "list",
+    "result",
+    "results",
+    "data",
+  ];
   const count = Number.parseInt(String(reply.size ?? "0"), 10);
-  if (!Number.isFinite(count) || count <= 0) {
-    return [];
+  if (Number.isFinite(count) && count > 0) {
+    for (let index = 1; index <= count; index += 1) {
+      const rawEntry = asRecord(reply[String(index)]);
+      if (rawEntry) {
+        candidateEntries.push({
+          entry: rawEntry,
+          indexHint: String(index),
+        });
+      }
+    }
   }
 
   const certificates: BridgeProbeResult["bridge"]["storageProbe"]["certificates"] =
     [];
-  for (let index = 1; index <= count; index += 1) {
-    const rawEntry = reply[String(index)] as
-      | Record<string, unknown>
-      | undefined;
-    if (!rawEntry || typeof rawEntry !== "object") {
-      continue;
-    }
 
-    certificates.push({
-      index: String(rawEntry.index ?? index),
-      cn: typeof rawEntry.cn === "string" ? rawEntry.cn : "",
-      issuerToName:
-        typeof rawEntry.issuerToName === "string" ? rawEntry.issuerToName : "",
-      usageToName:
-        typeof rawEntry.usageToName === "string" ? rawEntry.usageToName : "",
-      todate: typeof rawEntry.todate === "string" ? rawEntry.todate : null,
-      oid: typeof rawEntry.oid === "string" ? rawEntry.oid : null,
-      serial: null,
-      userDN: typeof rawEntry.userDN === "string" ? rawEntry.userDN : null,
-      validateFrom: null,
-      detailValidateTo: null,
+  for (const containerName of arrayContainerCandidates) {
+    for (const value of asRecordList(reply[containerName])) {
+      candidateEntries.push({
+        entry: value,
+        indexHint: String(candidateEntries.length + 1),
+      });
+    }
+  }
+
+  const dataContainer = asRecord(reply.data);
+  if (dataContainer) {
+    parseEntriesFromObject(dataContainer);
+  }
+  parseEntriesFromObject(reply);
+
+  const seen = new Set<string>();
+  const seenFallback = new Set<string>();
+
+  for (const { entry, indexHint } of candidateEntries) {
+    const normalizedEntry = normalizeRecordKeys(entry);
+    const index =
+      readValue(
+        normalizedEntry,
+        "index",
+        "id",
+        "idx",
+        "certid",
+        "issueid",
+        "certificateid",
+      ) ?? indexHint;
+    const serial = readValue(
+      normalizedEntry,
+      "serial",
+      "serialnumber",
+      "serial_number",
+    );
+    const oid = readValue(
+      normalizedEntry,
+      "oid",
+      "policy",
+      "policyid",
+      "policy_id",
+      "policyoid",
+      "policy_oid",
+    );
+    const fallbackUsage = oid ? resolveUsageNameFromPolicyOid(oid) : null;
+    const validateToFromIssue = readValue(
+      normalizedEntry,
+      "todate",
+      "validateTo",
+      "detailvalidateto",
+      "expired",
+      "validity",
+      "expirydate",
+    );
+    const usageToName =
+      readValue(
+        normalizedEntry,
+        "usagetoname",
+        "policytoname",
+        "usage",
+        "usagetext",
+      ) ??
+      readValue(
+        normalizedEntry,
+        "usagename",
+        "usename",
+        "description",
+      ) ??
+      fallbackUsage ??
+      "";
+    const issuerToName =
+      readValue(
+        normalizedEntry,
+        "issuertostring",
+        "issuertoname",
+        "issuer",
+        "issuerdn",
+        "issuedn",
+      ) ??
+      readValue(
+        normalizedEntry,
+        "issuername",
+        "issuedby",
+      );
+    const cert = {
+      index,
+      cn:
+        readValue(normalizedEntry, "cn", "issuercn", "subject", "name") ?? "",
+      issuerToName: issuerToName ?? "",
+      usageToName,
+      todate: validateToFromIssue ?? null,
+      oid: oid ?? null,
+      serial,
+      userDN:
+        readValue(
+          normalizedEntry,
+          "userdn",
+          "subjectdn",
+          "distinguishedname",
+          "subject",
+        ) ?? null,
+      validateFrom:
+        readValue(
+          normalizedEntry,
+          "validatefrom",
+          "validfrom",
+          "issuedat",
+          "issueddate",
+        ) ?? null,
+      detailValidateTo: validateToFromIssue ?? null,
       certDirPath: null,
       listSource: "bridge-hdd",
       supportsPreflight: true,
-    });
+    };
+
+    if (!seen.has(index)) {
+      const fallbackKey = [
+        index,
+        cert.cn,
+        cert.issuerToName,
+        cert.usageToName,
+        cert.todate ?? "",
+        serial ?? "",
+      ].join("|");
+      if (!seenFallback.has(fallbackKey)) {
+        certificates.push(cert);
+        seen.add(index);
+        seenFallback.add(fallbackKey);
+      }
+      continue;
+    }
   }
 
   return certificates;
@@ -2048,8 +2251,13 @@ function resolveFilesystemCertificatePolicyOid(filePath: string): string | null 
   if (!dumpText) {
     return null;
   }
-  const match = dumpText.match(/Policy Identifier=([0-9.]+)/i);
-  return match?.[1]?.trim() ?? null;
+  return normalizePolicyOid(
+    extractDumpFieldValue(dumpText, [
+      "Policy Identifier",
+      "정책 식별자",
+      "정책식별자",
+    ]),
+  );
 }
 
 function isLikelyTradeSignPfxPath(filePath: string): boolean {
@@ -2062,15 +2270,48 @@ function isLikelyTradeSignPfxPath(filePath: string): boolean {
 }
 
 function parseCertificateDateFromDump(dumpText: string, label: string): string | null {
-  const match = dumpText.match(new RegExp(`${label}\\s*:?\\s*([^\\r\\n]+)`, "i"));
-  if (!match?.[1]) {
+  const labels = label.includes("||") ? label.split("||").map((item) => item.trim()) : [label];
+  const match = extractDumpFieldValue(dumpText, labels);
+  if (!match) {
     return null;
   }
-  const parsed = new Date(match[1].trim());
+  const parsed = new Date(match.trim());
   if (Number.isNaN(parsed.getTime())) {
     return null;
   }
   return parsed.toISOString();
+}
+
+function normalizePolicyOid(rawOid: string | null): string | null {
+  if (!rawOid) {
+    return null;
+  }
+  const match = rawOid.match(/[0-9]+(?:\.[0-9]+)*/);
+  return match?.[0] ?? null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractDumpFieldValue(
+  dumpText: string,
+  labels: string[],
+): string | null {
+  const escapedLabels = labels
+    .map((label) => escapeRegExp(label))
+    .filter(Boolean)
+    .join("|");
+  if (!escapedLabels) {
+    return null;
+  }
+
+  const regex = new RegExp(
+    `(?:^|\\r?\\n)\\s*(?:${escapedLabels})\\s*[:=]\\s*([^\\r\\n]+)`,
+    "i",
+  );
+  const match = dumpText.match(regex);
+  return match?.[1]?.trim() ?? null;
 }
 
 function resolveFilesystemPfxCertificateMetadata(
@@ -2081,8 +2322,14 @@ function resolveFilesystemPfxCertificateMetadata(
     return null;
   }
 
-  const policyOidMatch = dumpText.match(/Policy Identifier=([0-9.]+)/i);
-  const policyOid = policyOidMatch?.[1]?.trim() ?? null;
+  const policyOid = normalizePolicyOid(
+    extractDumpFieldValue(dumpText, [
+      "Policy Identifier",
+      "정책 식별자",
+      "정책식별자",
+    ]),
+  );
+  const resolvedPolicyOid = policyOid ?? FILESYSTEM_ELECTRONIC_TAX_OID;
   if (!FILESYSTEM_ELECTRONIC_TAX_OID_SET.has(policyOid ?? "")) {
     if (!isLikelyTradeSignPfxPath(filePath)) {
       return null;
@@ -2090,14 +2337,25 @@ function resolveFilesystemPfxCertificateMetadata(
   }
 
   const serial = convertHexSerialToDecimal(
-    (dumpText.match(/Serial Number:\s*([^\r\n]+)/i)?.[1] ?? "").trim(),
+    (extractDumpFieldValue(dumpText, [
+      "Serial Number",
+      "Serial",
+      "일련 번호",
+      "시리얼 번호",
+    ]) ?? "").trim(),
   );
-  const validFrom = parseCertificateDateFromDump(dumpText, "Not Before");
-  const validTo = parseCertificateDateFromDump(dumpText, "Not After");
+  const validFrom = parseCertificateDateFromDump(
+    dumpText,
+    "Not Before||유효 시작일||발급일",
+  );
+  const validTo = parseCertificateDateFromDump(
+    dumpText,
+    "Not After||유효 종료일||만료일",
+  );
   const certDirPath = path.dirname(filePath);
 
-  const subjectLineMatch = dumpText.match(/Subject\s*:\s*([^\r\n]+(?:\r?\n[^:]+)*)/i);
-  const subjectLine = subjectLineMatch?.[1] ?? "";
+  const subjectLine =
+    extractDumpFieldValue(dumpText, ["Subject", "주체"]) ?? "";
   const normalizedSubject = subjectLine
     .replace(/\r?\n/g, ",")
     .replace(/\s*,\s*/g, ",")
@@ -2117,9 +2375,9 @@ function resolveFilesystemPfxCertificateMetadata(
     index: buildFilesystemCertificateIndex(`${serial ?? ""}|${filePath}`),
     cn,
     issuerToName: resolveIssuerDisplayName(issuer),
-    usageToName: resolveUsageNameFromPolicyOid(policyOid),
+    usageToName: resolveUsageNameFromPolicyOid(resolvedPolicyOid),
     todate: validTo,
-    oid: policyOid ?? FILESYSTEM_ELECTRONIC_TAX_OID,
+    oid: resolvedPolicyOid,
     serial,
     userDN: cn || path.basename(certDirPath) || null,
     validateFrom: validFrom,
