@@ -986,7 +986,7 @@ function parseChangeCompanyAction(html: string): {
   };
 }
 
-function escapeRegExp(value: string): string {
+function escapeDumpFieldRegExpLabel(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -2299,7 +2299,7 @@ function extractDumpFieldValue(
   labels: string[],
 ): string | null {
   const escapedLabels = labels
-    .map((label) => escapeRegExp(label))
+    .map((label) => escapeDumpFieldRegExpLabel(label))
     .filter(Boolean)
     .join("|");
   if (!escapedLabels) {
