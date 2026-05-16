@@ -11,13 +11,24 @@ const DEFAULT_LOCAL_RENEWAL_HELPER_PORT = 35119;
 const configuredLocalRenewalHelperPort = typeof import.meta.env.VITE_RENEWAL_HELPER_PORT === "string"
   ? import.meta.env.VITE_RENEWAL_HELPER_PORT.trim()
   : "";
+const configuredLocalRenewalHelperHosts = typeof import.meta.env.VITE_RENEWAL_HELPER_ALLOWED_ORIGINS === "string"
+  ? import.meta.env.VITE_RENEWAL_HELPER_ALLOWED_ORIGINS.split(",").map((value) => value.trim().toLowerCase())
+  : [];
+const LOCAL_RENEWAL_HELPER_HOST_ALLOWLIST = new Set([
+  "localhost",
+  "127.0.0.1",
+  "[::1]",
+  "kiyo.kr",
+  "www.kiyo.kr",
+  ...configuredLocalRenewalHelperHosts
+]);
 
 function shouldUseLocalRenewalHelperHost(): boolean {
   if (typeof window === "undefined") {
     return true;
   }
   const hostname = window.location.hostname?.toLowerCase();
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  return hostname != null && LOCAL_RENEWAL_HELPER_HOST_ALLOWLIST.has(hostname);
 }
 
 function resolveLocalRenewalHelperPort(): number {
