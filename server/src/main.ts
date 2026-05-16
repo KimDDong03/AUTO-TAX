@@ -854,14 +854,13 @@ const publicConsultationLimiter = createRateLimiter({
   keyGenerator: (req) => resolveRequestIp(req)
 });
 
-const publicSignupLimiter = createRateLimiter({
-  keyPrefix: "public-signup",
-  windowMs: 60 * 60 * 1000,
-  max: 5,
-  message: "회원가입 신청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
-  persistent: true,
-  keyGenerator: (req) => resolveRequestIp(req)
-});
+const publicSignupLimiter = (
+  _req: express.Request,
+  _res: express.Response,
+  next: express.NextFunction
+) => {
+  next();
+};
 
 const requireInternalJobAccess = createInternalJobAccessGuard({
   hasValidJobSecret
