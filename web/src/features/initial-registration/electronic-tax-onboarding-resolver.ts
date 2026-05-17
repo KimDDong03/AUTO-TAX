@@ -130,8 +130,15 @@ function isRenewalCertificateExpiredDate(value: string | null | undefined): bool
   return normalized < getTodayDateKey();
 }
 
-function buildRenewalPreflightFailureMessage(prefix: string, _detail: string, _fallback: string): string {
-  return prefix;
+function buildRenewalPreflightFailureMessage(prefix: string, detail: string, fallback: string): string {
+  const normalizedDetail = detail.trim();
+  const readableDetail =
+    normalizedDetail && !normalizedDetail.toLowerCase().startsWith("curl:")
+      ? normalizedDetail
+      : fallback;
+  const clippedDetail = readableDetail.length > 180 ? `${readableDetail.slice(0, 177)}...` : readableDetail;
+
+  return clippedDetail && clippedDetail !== prefix ? `${prefix}: ${clippedDetail}` : prefix;
 }
 
 function isRenewalWindowPendingDetail(detail: string): boolean {

@@ -166,3 +166,56 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook skips expired certificates 
   assert.equal(result.skippedCertificateCount, 1);
   assert.match(result.errors[0] ?? "", /만료된 전자세금용 공동인증서/);
 });
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook includes SignGate preflight detail in skipped row errors", async () => {
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook({
+      plants: [
+        {
+          rowIndex: 2,
+          certificateIndex: "12",
+          certificateName: "지석기 발전소",
+          plantName: "지석기 발전소",
+          certificatePassword: ""
+        }
+      ]
+    }),
+    loadAvailableCertificates: async () => [createCertificate({ cn: "지석기 발전소" })],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => ({
+      result: {
+        bridge: {
+          preflightProbe: {
+            ok: false,
+            rawCode: "9106",
+            error: "<p>폐지된 인증서 정보입니다.</p><p>관리자에게 문의하여 주십시요</p>",
+            renewInfoSnapshot: {
+              companyName: "지석기 발전소",
+              businessNumber: "164-41-01441",
+              ceoName: "지석기",
+              bizType: "전기업",
+              bizClass: "태양광",
+              businessFieldCode: null,
+              postalCode: null,
+              baseAddress: "충청북도 음성군 대금로247번길 25-2",
+              detailAddress: null,
+              contactName: null,
+              contactDepartment: null,
+              contactEmail: null,
+              contactTel: null,
+              contactFax: null,
+              contactMobile: "010-6363-5337"
+            }
+          } as RenewalBridgePreflightProbe
+        }
+      }
+    })
+  });
+
+  assert.equal(result.resolvedCertificateCount, 0);
+  assert.equal(result.skippedCertificateCount, 1);
+  assert.match(
+    result.errors[0] ?? "",
+    /발전소 시트 \(지석기 발전소\): 사전조회 실패: 폐지된 인증서 정보입니다\. 관리자에게 문의하여 주십시요/
+  );
+});
