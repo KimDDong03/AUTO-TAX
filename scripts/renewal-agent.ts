@@ -36,6 +36,12 @@ const SIGNGATE_RENEW_URL =
 const SIGNGATE_ORIGIN = "https://www.signgate.com";
 const SIGNGATE_CONFIG_CACHE_TTL_MS = 10 * 60 * 1000;
 const SIGNGATE_COOKIE_HEADER_CACHE_TTL_MS = 30 * 1000;
+const HOMETAX_ORIGIN = "https://hometax.go.kr";
+const HOMETAX_MAGICLINE_CONFIG_URL =
+  "https://hometax.go.kr/NTSMagicLine4Web/ML4Web/js/ML4Web_Config.js";
+const HOMETAX_MAGICLINE_CONFIG_CACHE_TTL_MS = 10 * 60 * 1000;
+const HOMETAX_MAGICLINE_PORT = 42235;
+const HOMETAX_MAGICLINE_SESSION_TIMEOUT = "60";
 const PORT_TARGETS = [
   { port: 14315, protocol: "https" as const },
   { port: 14319, protocol: "http" as const },
@@ -224,6 +230,18 @@ type SignGateRuntimeConfig = {
   configUrl: string;
 };
 
+type MagicLineRuntimeConfig = {
+  origin: string;
+  referer: string;
+  configUrl: string;
+  authKey: string;
+  crossServerUrl: string;
+  crossServerCert: string;
+  serviceId: string;
+  certPathMap: Record<string, string[]>;
+  policyOidNameMap: Record<string, string>;
+};
+
 type BridgeCommandResult = {
   ok: boolean;
   sourcePort: number | null;
@@ -274,6 +292,11 @@ type RenewalPreflightRequest = SelectionProbeRequest & {
 let cachedSignGateRuntimeConfig: {
   fetchedAt: number;
   value: SignGateRuntimeConfig;
+} | null = null;
+
+let cachedMagicLineRuntimeConfig: {
+  fetchedAt: number;
+  value: MagicLineRuntimeConfig;
 } | null = null;
 
 let cachedRenewPageCookieHeader: {
@@ -1737,6 +1760,94 @@ export async function resolveSignGateRuntimeConfig(
   return cachedSignGateRuntimeConfig.value;
 }
 
+function extractMagicLineConfigString(
+  configSource: string,
+  key: string,
+): string {
+  const escapedKey = escapeRegExp(key);
+  const match = configSource.match(
+    new RegExp(`(?:^|[\\s,{])${escapedKey}\\s*:\\s*["']([^"']*)["']`),
+  );
+  const value = match?.[1]?.trim();
+  if (!value) {
+    throw new Error(`HomeTax MagicLine ${key} 값을 찾지 못했습니다.`);
+  }
+  return value;
+}
+
+function extractMagicLineConfigJson<T>(
+  configSource: string,
+  key: string,
+  fallback: T,
+): T {
+  const escapedKey = escapeRegExp(key);
+  const match = configSource.match(
+    new RegExp(
+      `(?:^|[\\s,{])${escapedKey}\\s*:\\s*(\\{[^;]+?\\})\\s*,?\\r?\\n`,
+      "s",
+    ),
+  );
+  if (!match?.[1]) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(match[1]) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function resolveMagicLineRuntimeConfig(
+  forceRefresh = false,
+): Promise<MagicLineRuntimeConfig> {
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    cachedMagicLineRuntimeConfig &&
+    now - cachedMagicLineRuntimeConfig.fetchedAt <
+      HOMETAX_MAGICLINE_CONFIG_CACHE_TTL_MS
+  ) {
+    return cachedMagicLineRuntimeConfig.value;
+  }
+
+  const configSource = await fetchText(HOMETAX_MAGICLINE_CONFIG_URL);
+  const authKey = extractMagicLineConfigString(configSource, "MAGICJS_LIC");
+  const crossServerCert = extractMagicLineConfigString(
+    configSource,
+    "CS_AUTHSERVER_CERT",
+  );
+  const serviceId =
+    extractMagicLineConfigString(configSource, "ServiceID") || "MagicLineWeb";
+  const certPathMap = extractMagicLineConfigJson<Record<string, string[]>>(
+    configSource,
+    "DS_PKI_CERT_PATH",
+    { GPKI: [], NPKI: ["INIPASS"], MPKI: [], PPKI: [] },
+  );
+  const policyOidNameMap = extractMagicLineConfigJson<Record<string, string>>(
+    configSource,
+    "DS_PKI_POLICY_OID",
+    {},
+  );
+
+  cachedMagicLineRuntimeConfig = {
+    fetchedAt: now,
+    value: {
+      origin: HOMETAX_ORIGIN,
+      referer: `${HOMETAX_ORIGIN}/websquare/websquare.html?w2xPath=/ui/pp/index_pp.xml&menuCd=index3`,
+      configUrl: HOMETAX_MAGICLINE_CONFIG_URL,
+      authKey,
+      crossServerUrl: `${HOMETAX_ORIGIN}/jsp/magicNX/`,
+      crossServerCert,
+      serviceId,
+      certPathMap,
+      policyOidNameMap,
+    },
+  };
+
+  return cachedMagicLineRuntimeConfig.value;
+}
+
 function normalizeBridgeError(
   reply: Record<string, unknown> | null,
   fallback: string,
@@ -3058,6 +3169,134 @@ export async function invokeBridgeCommand(
   });
 }
 
+type MagicLineCommandResult = {
+  ok: boolean;
+  sourcePort: number;
+  resultCode: number | null;
+  messageId: string | null;
+  resultMessage: string | null;
+  reply: Record<string, unknown> | null;
+  error: string | null;
+};
+
+function makeMagicLineSessionId(): string {
+  return Math.random().toString(36).slice(2, 22).padEnd(20, "0");
+}
+
+function buildMagicLineJsonMessage(
+  config: MagicLineRuntimeConfig,
+  sessionId: string,
+  messageId: string,
+  args: string[],
+): string {
+  const payload: Record<string, string> = {
+    Version: "1",
+    ServiceID: config.serviceId,
+    AuthKey: config.authKey,
+    SessionID: sessionId,
+    CrossServerURL: config.crossServerUrl,
+    CrossServerCert: config.crossServerCert,
+    SessionTimeout: HOMETAX_MAGICLINE_SESSION_TIMEOUT,
+    MessageID: messageId,
+  };
+
+  args.forEach((arg, index) => {
+    payload[String(index)] = arg;
+  });
+
+  return JSON.stringify(payload);
+}
+
+async function invokeMagicLineCommand(
+  config: MagicLineRuntimeConfig,
+  sessionId: string,
+  messageId: string,
+  args: string[],
+): Promise<MagicLineCommandResult> {
+  const payload = buildMagicLineJsonMessage(config, sessionId, messageId, args);
+
+  return await new Promise((resolve) => {
+    const req = https.request(
+      {
+        host: "127.0.0.1",
+        port: HOMETAX_MAGICLINE_PORT,
+        path: "/",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": Buffer.byteLength(payload),
+          Origin: config.origin,
+          Referer: config.referer,
+        },
+        agent: new https.Agent({ rejectUnauthorized: false }),
+        timeout: 5000,
+      },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => {
+          try {
+            const reply = JSON.parse(body) as Record<string, unknown>;
+            const rawCode = reply.ResultCode;
+            const resultCode =
+              typeof rawCode === "number"
+                ? rawCode
+                : Number.parseInt(String(rawCode ?? ""), 10);
+            const normalizedCode = Number.isFinite(resultCode)
+              ? resultCode
+              : null;
+            resolve({
+              ok: normalizedCode === 0,
+              sourcePort: HOMETAX_MAGICLINE_PORT,
+              resultCode: normalizedCode,
+              messageId:
+                typeof reply.MessageID === "string" ? reply.MessageID : null,
+              resultMessage:
+                typeof reply.ResultMessage === "string"
+                  ? reply.ResultMessage
+                  : null,
+              reply,
+              error: null,
+            });
+          } catch (error) {
+            resolve({
+              ok: false,
+              sourcePort: HOMETAX_MAGICLINE_PORT,
+              resultCode: null,
+              messageId,
+              resultMessage: null,
+              reply: null,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "MagicLine 응답을 읽지 못했습니다.",
+            });
+          }
+        });
+      },
+    );
+
+    req.on("timeout", () => {
+      req.destroy(new Error("MagicLine 로컬 서비스 응답 시간이 초과되었습니다."));
+    });
+    req.on("error", (error) => {
+      resolve({
+        ok: false,
+        sourcePort: HOMETAX_MAGICLINE_PORT,
+        resultCode: null,
+        messageId,
+        resultMessage: null,
+        reply: null,
+        error: error.message,
+      });
+    });
+    req.end(payload);
+  });
+}
+
 export async function detectSecuKitProcesses(): Promise<{
   detected: boolean;
   names: string[];
@@ -3232,6 +3471,120 @@ export async function probeLicenseAndStorage(
   return { licenseProbe, storageProbe, selectionProbe };
 }
 
+function buildMagicLineHddCertificateListOption(
+  config: MagicLineRuntimeConfig,
+): Record<string, unknown> {
+  return {
+    storageName: "HDD",
+    storageOpt: {},
+    DS_PKI_CERT_PATH: encodeURIComponent(JSON.stringify(config.certPathMap)),
+    DS_PKI_POLICY_OID: encodeURIComponent(
+      JSON.stringify(config.policyOidNameMap),
+    ),
+  };
+}
+
+function parseMagicLineResultMessage(
+  result: MagicLineCommandResult,
+): Record<string, unknown> | null {
+  if (!result.resultMessage) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(result.resultMessage) as unknown;
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMagicLineCertificates(
+  reply: Record<string, unknown> | null,
+): BridgeProbeResult["bridge"]["storageProbe"]["certificates"] {
+  return parseStorageCertificates(reply).map((certificate) => ({
+    ...certificate,
+    listSource: "ml4web-hdd" as const,
+    supportsPreflight: false,
+  }));
+}
+
+async function collectMagicLineCertificateList(): Promise<
+  Pick<BridgeProbeResult["bridge"], "licenseProbe" | "storageProbe">
+> {
+  const config = await resolveMagicLineRuntimeConfig();
+  const sessionId = makeMagicLineSessionId();
+  const installResult = await invokeMagicLineCommand(
+    config,
+    sessionId,
+    "InstallCheck",
+    [sessionId, "Chrome 124", HOMETAX_MAGICLINE_SESSION_TIMEOUT],
+  );
+  const licenseProbe: BridgeProbeResult["bridge"]["licenseProbe"] = {
+    ok: installResult.ok,
+    sourcePort: HOMETAX_MAGICLINE_PORT,
+    error: installResult.ok
+      ? null
+      : installResult.error ??
+        installResult.resultMessage ??
+        "HomeTax MagicLine4NX 설치 확인에 실패했습니다.",
+  };
+
+  if (!installResult.ok) {
+    return {
+      licenseProbe,
+      storageProbe: {
+        ...defaultStorageProbe(),
+        sourcePort: HOMETAX_MAGICLINE_PORT,
+        error: licenseProbe.error,
+      },
+    };
+  }
+
+  await invokeMagicLineCommand(config, sessionId, "SelectStorageInfo", ["hdd"]);
+  const listOption = buildMagicLineHddCertificateListOption(config);
+  const listResult = await invokeMagicLineCommand(
+    config,
+    sessionId,
+    "GetCertList",
+    [encodeURIComponent(JSON.stringify(listOption))],
+  );
+  const certificates = normalizeMagicLineCertificates(
+    parseMagicLineResultMessage(listResult),
+  );
+  const noCertificate =
+    listResult.resultCode === 10004 ||
+    /no\s*cert|not\s*found/i.test(listResult.resultMessage ?? "");
+
+  if (listResult.ok || noCertificate) {
+    return {
+      licenseProbe,
+      storageProbe: {
+        ok: true,
+        sourcePort: HOMETAX_MAGICLINE_PORT,
+        mediaType: "HDD",
+        certificateCount: certificates.length,
+        certificates,
+        error: null,
+      },
+    };
+  }
+
+  return {
+    licenseProbe,
+    storageProbe: {
+      ...defaultStorageProbe(),
+      sourcePort: HOMETAX_MAGICLINE_PORT,
+      error:
+        listResult.error ??
+        listResult.resultMessage ??
+        `HomeTax MagicLine GetCertList ResultCode=${listResult.resultCode ?? "unknown"}`,
+    },
+  };
+}
+
 export async function collectBridgeCertificateList(options?: {
   preferCached?: boolean;
 }): Promise<
@@ -3247,34 +3600,77 @@ export async function collectBridgeCertificateList(options?: {
     return cached;
   }
 
-  const signGateConfig = await resolveSignGateRuntimeConfig();
-  const preferredPort =
-    cached.storageProbe.sourcePort ?? cached.licenseProbe.sourcePort ?? null;
+  let magicLineStorageProbe: BridgeProbeResult["bridge"]["storageProbe"] | null =
+    null;
   let licenseProbe = cached.licenseProbe.error
     ? cached.licenseProbe
     : defaultLicenseProbe();
   let storageProbe = defaultStorageProbe();
 
-  for (const target of buildOrderedPortTargets(preferredPort)) {
-    licenseProbe = await probeLicenseOnTarget(target, signGateConfig);
-    if (!licenseProbe.ok) {
-      continue;
+  try {
+    const magicLineResult = await collectMagicLineCertificateList();
+    magicLineStorageProbe = magicLineResult.storageProbe;
+    if (magicLineResult.storageProbe.ok) {
+      licenseProbe = magicLineResult.licenseProbe;
+      storageProbe = magicLineResult.storageProbe;
     }
-
-    storageProbe = await probeStorageSummaryOnTarget(target, signGateConfig);
-    if (storageProbe.ok) {
-      cacheDetailedBridgeStatusValue(licenseProbe, storageProbe);
-      break;
-    }
+  } catch (error) {
+    magicLineStorageProbe = {
+      ...defaultStorageProbe(),
+      sourcePort: HOMETAX_MAGICLINE_PORT,
+      error:
+        error instanceof Error
+          ? error.message
+          : "HomeTax MagicLine 인증서 목록을 읽지 못했습니다.",
+    };
   }
 
   if (!storageProbe.ok || storageProbe.certificateCount === 0) {
-    const detailedBridgeResult = await collectBridgeProbeResult({
-      includeDetailedProbe: true,
-    });
-    if (detailedBridgeResult.bridge.storageProbe.ok) {
-      licenseProbe = detailedBridgeResult.bridge.licenseProbe;
-      storageProbe = detailedBridgeResult.bridge.storageProbe;
+    try {
+      const signGateConfig = await resolveSignGateRuntimeConfig();
+      const preferredPort =
+        cached.storageProbe.sourcePort ?? cached.licenseProbe.sourcePort ?? null;
+
+      for (const target of buildOrderedPortTargets(preferredPort)) {
+        const signGateLicenseProbe = await probeLicenseOnTarget(
+          target,
+          signGateConfig,
+        );
+        if (!signGateLicenseProbe.ok) {
+          if (!licenseProbe.ok) {
+            licenseProbe = signGateLicenseProbe;
+          }
+          continue;
+        }
+
+        licenseProbe = signGateLicenseProbe;
+        storageProbe = await probeStorageSummaryOnTarget(target, signGateConfig);
+        if (storageProbe.ok) {
+          cacheDetailedBridgeStatusValue(licenseProbe, storageProbe);
+          break;
+        }
+      }
+
+      if (!storageProbe.ok || storageProbe.certificateCount === 0) {
+        const detailedBridgeResult = await collectBridgeProbeResult({
+          includeDetailedProbe: true,
+        });
+        if (detailedBridgeResult.bridge.storageProbe.ok) {
+          licenseProbe = detailedBridgeResult.bridge.licenseProbe;
+          storageProbe = detailedBridgeResult.bridge.storageProbe;
+        }
+      }
+    } catch (error) {
+      if (!storageProbe.ok) {
+        storageProbe = {
+          ...defaultStorageProbe(),
+          sourcePort: licenseProbe.sourcePort,
+          error:
+            error instanceof Error
+              ? error.message
+              : "HDD 인증서 목록을 읽지 못했습니다.",
+        };
+      }
     }
   }
 
@@ -3287,6 +3683,15 @@ export async function collectBridgeCertificateList(options?: {
   }
 
   const filesystemCertificates = collectFilesystemElectronicTaxCertificates();
+  const bridgeCertificates =
+    magicLineStorageProbe?.ok &&
+    magicLineStorageProbe.certificates.length > 0 &&
+    magicLineStorageProbe !== storageProbe
+      ? mergeCertificateLists({
+          bridgeCertificates: magicLineStorageProbe.certificates,
+          filesystemCertificates: storageProbe.certificates,
+        })
+      : storageProbe.certificates;
   const mergedStorageProbe =
     filesystemCertificates.length > 0
       ? {
@@ -3294,13 +3699,16 @@ export async function collectBridgeCertificateList(options?: {
           sourcePort: storageProbe.sourcePort ?? licenseProbe.sourcePort,
           mediaType: "HDD" as const,
           certificates: mergeCertificateLists({
-            bridgeCertificates: storageProbe.certificates,
+            bridgeCertificates,
             filesystemCertificates,
           }),
           certificateCount: 0,
           error: storageProbe.ok ? null : storageProbe.error,
         }
-      : storageProbe;
+      : {
+          ...storageProbe,
+          certificates: bridgeCertificates,
+        };
 
   mergedStorageProbe.certificateCount = mergedStorageProbe.certificates.length;
   cacheBridgeCertificateListStatusValue(licenseProbe, mergedStorageProbe);

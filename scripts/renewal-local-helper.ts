@@ -562,6 +562,9 @@ export function createRenewalLocalHelperApp() {
   app.post("/api/bridge-probe", async (_req, res, next) => {
     try {
       const result = await collectBridgeProbeResult({ includeDetailedProbe: true });
+      const certificateList = await collectBridgeCertificateList({ preferCached: false });
+      result.bridge.licenseProbe = certificateList.licenseProbe;
+      result.bridge.storageProbe = certificateList.storageProbe;
       res.json({ ok: true, version, result });
     } catch (error) {
       next(error);
