@@ -22861,6 +22861,16 @@ button.issuance-list-item {
   background: #f8fafc;
 }
 
+.onboarding-stage-item.is-clickable {
+  cursor: pointer;
+}
+
+.onboarding-stage-item.is-clickable:hover,
+.onboarding-stage-item.is-clickable:focus-visible,
+.onboarding-stage-item.is-selected {
+  background: #eef6ff;
+}
+
 .onboarding-stage-number {
   display: inline-flex;
   align-items: center;

@@ -21,7 +21,7 @@ type BillingMonthSummary = {
 };
 
 type InboxMessage = BootstrapPayload["inbox"][number];
-type InitialRegistrationTabMode = "registration" | "exceptions";
+export type InitialRegistrationTabMode = "registration" | "exceptions";
 export type InitialRegistrationStage = "download" | "upload" | "commit" | "certificate" | "done";
 type InitialRegistrationStepStatus = "complete" | "current" | "locked";
 
@@ -251,6 +251,20 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
   };
 }
 
+export function shouldShowInitialRegistrationTemplateActions(input: {
+  mode: InitialRegistrationTabMode;
+  registrationStage: InitialRegistrationStage;
+  uploadCompleted: boolean;
+  templateStepSelected: boolean;
+}) {
+  return (
+    input.mode === "registration" &&
+    (input.registrationStage === "download" ||
+      input.registrationStage === "upload" ||
+      (input.uploadCompleted && input.templateStepSelected))
+  );
+}
+
 type InitialRegistrationTabProps = {
   mode: InitialRegistrationTabMode;
   busyKey: string | null;
@@ -307,6 +321,7 @@ type InitialRegistrationTabProps = {
 export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const onboardingFileInputRef = useRef<HTMLInputElement | null>(null);
   const [sharedPasswordVisible, setSharedPasswordVisible] = useState(false);
+  const [selectedRegistrationStep, setSelectedRegistrationStep] = useState<number | null>(null);
   const onboardingBusyKey = props.busyKey?.startsWith("customer-onboarding-") ? props.busyKey : null;
   const isDownloadingOnboardingTemplate = onboardingBusyKey === "customer-onboarding-template";
   const isPreviewingOnboarding = onboardingBusyKey === "customer-onboarding-preview";
@@ -336,9 +351,17 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   });
   const registrationStage = props.registrationStage ?? registrationFlow.stage;
   const isTemplateStage = registrationStage === "download" || registrationStage === "upload";
-  const registrationTaskTitle = isTemplateStage
+  const isTemplateStepSelected =
+    props.mode === "registration" &&
+    selectedRegistrationStep === 1 &&
+    registrationFlow.uploadCompleted &&
+    !isTemplateStage;
+  const registrationTaskTitle = isTemplateStage || isTemplateStepSelected
     ? "양식 받기/올리기"
     : registrationFlow.headline.replace("지금 할 일 · ", "");
+  const registrationTaskDescription = isTemplateStepSelected
+    ? "필요하면 양식을 다시 내려받거나 수정한 파일을 다시 올리세요."
+    : registrationFlow.description;
   const sharedPasswordReady = props.customerOnboardingSharedPassword.trim() !== "";
   const canDownloadOnboardingTemplate = props.helperReady && props.helperCertificateCount > 0;
   const uploadBlockedTitle = !sharedPasswordReady
@@ -386,7 +409,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     <div className="empty">정산월이 파싱된 메일이 아직 없습니다.</div>
   );
   const registrationPrimaryAction =
-    props.mode !== "registration" || registrationStage === "done"
+    props.mode !== "registration" || registrationStage === "done" || isTemplateStepSelected
       ? null
       : registrationStage === "download"
         ? null
@@ -414,8 +437,12 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                 title: props.certificateActionTitle,
                 onClick: () => props.proceedOnboardingCertificateFollowUp()
               };
-  const showTemplateActions =
-    props.mode === "registration" && isTemplateStage;
+  const showTemplateActions = shouldShowInitialRegistrationTemplateActions({
+    mode: props.mode,
+    registrationStage,
+    uploadCompleted: registrationFlow.uploadCompleted,
+    templateStepSelected: selectedRegistrationStep === 1
+  });
   const showOnboardingInlineStatus = Boolean(props.customerOnboardingFileName || props.customerOnboardingPreview);
   const uploadProgressMessage = isPreviewingOnboarding
     ? props.customerOnboardingNotice || "양식 업로드를 확인하는 중입니다..."
@@ -486,7 +513,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             <div className="onboarding-main-head">
               <div className="onboarding-main-copy onboarding-main-copy-focal">
                 <strong>{registrationTaskTitle}</strong>
-                <p>{registrationFlow.description}</p>
+                <p>{registrationTaskDescription}</p>
                 {registrationPrimaryAction ? (
                   <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
                     <button
@@ -563,29 +590,57 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             </div>
 
             <ol className="onboarding-stage-list">
-              {registrationFlow.stepItems.map((item) => (
-                <li
-                  key={`onboarding-registration-step-${item.step}`}
-                  data-status={item.status}
-                  className={[
-                    "onboarding-stage-item",
-                    item.status === "current" ? "is-current" : "",
-                    item.status === "complete" ? "is-complete" : "",
-                    item.status === "locked" ? "is-locked" : ""
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                >
-                  <span className="onboarding-stage-number">{item.step}</span>
-                  <div className="onboarding-stage-copy">
-                    <div className="initial-onboarding-step-head">
-                      <strong>{item.title}</strong>
-                      <span className={item.chipClass}>{item.statusLabel}</span>
+              {registrationFlow.stepItems.map((item) => {
+                const isClickableStep =
+                  props.mode === "registration" &&
+                  (item.step === 1
+                    ? registrationFlow.uploadCompleted
+                    : item.status !== "locked");
+                const selectStep = () => {
+                  if (!isClickableStep) {
+                    return;
+                  }
+
+                  setSelectedRegistrationStep(item.step === 1 ? 1 : null);
+                };
+
+                return (
+                  <li
+                    key={`onboarding-registration-step-${item.step}`}
+                    data-status={item.status}
+                    className={[
+                      "onboarding-stage-item",
+                      item.status === "current" ? "is-current" : "",
+                      item.status === "complete" ? "is-complete" : "",
+                      item.status === "locked" ? "is-locked" : "",
+                      isClickableStep ? "is-clickable" : "",
+                      selectedRegistrationStep === item.step ? "is-selected" : ""
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    role={isClickableStep ? "button" : undefined}
+                    tabIndex={isClickableStep ? 0 : undefined}
+                    onClick={selectStep}
+                    onKeyDown={(event) => {
+                      if (!isClickableStep || (event.key !== "Enter" && event.key !== " ")) {
+                        return;
+                      }
+
+                      event.preventDefault();
+                      selectStep();
+                    }}
+                  >
+                    <span className="onboarding-stage-number">{item.step}</span>
+                    <div className="onboarding-stage-copy">
+                      <div className="initial-onboarding-step-head">
+                        <strong>{item.title}</strong>
+                        <span className={item.chipClass}>{item.statusLabel}</span>
+                      </div>
+                      <p>{item.description}</p>
                     </div>
-                    <p>{item.description}</p>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ol>
 
             {showOnboardingInlineStatus ? (
