@@ -875,9 +875,6 @@ export function CustomersTab(props: CustomersTabProps) {
           setCustomerOnestopCertificates(certificates);
           setCustomerOnestopCertificateSearchQuery("");
           setCustomerOnestopNotice(buildCustomerOnestopCertificateNotice("PC에서", certificates, filterResult));
-          if (filterResult.availableCertificates.length === 1) {
-            selectCustomerOnestopCertificate(filterResult.availableCertificates[0]!);
-          }
         } catch (error) {
           setCustomerOnestopError(getCustomerOnestopErrorMessage(error, "공동인증서 목록을 읽지 못했습니다."));
         }
