@@ -105,11 +105,6 @@ export async function resetPasswordForEmailSafely(
   }
 }
 
-export async function clearLocalSupabaseSession() {
-  const { error } = await signOutSafely({ scope: "local" });
-  if (error) throw error;
-}
-
 export async function setSessionSafely(session: {
   access_token: string;
   refresh_token: string;
@@ -126,9 +121,30 @@ export async function setSessionSafely(session: {
   }
 }
 
+export async function refreshSessionSafely(): Promise<{
+  session: Session | null;
+  invalidRefreshToken: boolean;
+  error: Error | null;
+}> {
+  try {
+    const { data, error } = await withSupabaseAuthTimeout(supabase.auth.refreshSession(), supabaseAuthTimeoutMs);
+    return {
+      session: data.session,
+      invalidRefreshToken: isInvalidRefreshTokenError(error),
+      error: error ? toSupabaseSessionError(error, "세션을 갱신하지 못했습니다.") : null
+    };
+  } catch (error) {
+    return {
+      session: null,
+      invalidRefreshToken: isInvalidRefreshTokenError(error),
+      error: toSupabaseSessionError(error, "세션을 갱신하지 못했습니다.")
+    };
+  }
+}
+
 export async function getSessionSafely(): Promise<{
   session: Session | null;
-  clearedInvalidRefreshToken: boolean;
+  invalidRefreshToken: boolean;
   error: Error | null;
 }> {
   let sessionResult: Awaited<ReturnType<typeof supabase.auth.getSession>>;
@@ -138,7 +154,7 @@ export async function getSessionSafely(): Promise<{
   } catch (error) {
     return {
       session: null,
-      clearedInvalidRefreshToken: false,
+      invalidRefreshToken: false,
       error: toSupabaseSessionError(error, "세션을 확인하지 못했습니다.")
     };
   }
@@ -146,17 +162,16 @@ export async function getSessionSafely(): Promise<{
   const { data, error } = sessionResult;
 
   if (isInvalidRefreshTokenError(error)) {
-    await clearLocalSupabaseSession().catch(() => undefined);
     return {
       session: null,
-      clearedInvalidRefreshToken: true,
+      invalidRefreshToken: true,
       error: toSupabaseSessionError(error, "세션을 복구하지 못했습니다.")
     };
   }
 
   return {
     session: data.session,
-    clearedInvalidRefreshToken: false,
+    invalidRefreshToken: false,
     error: error ? toSupabaseSessionError(error, "세션을 확인하지 못했습니다.") : null
   };
 }

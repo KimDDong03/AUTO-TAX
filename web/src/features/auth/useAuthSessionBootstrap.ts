@@ -50,12 +50,12 @@ export function useAuthSessionBootstrap({
     }
 
     void getSessionSafely()
-      .then(({ session, clearedInvalidRefreshToken }) => {
+      .then(({ session, invalidRefreshToken }) => {
         if (!mounted) return;
         authSessionRef.current = session;
         setAuthSession(session);
-        if (clearedInvalidRefreshToken) {
-          setAuthNotice("로그인 세션이 만료되어 다시 로그인해 주세요.");
+        if (invalidRefreshToken) {
+          setAuthNotice("로그인 확인 정보가 오래되어 다시 로그인해 주세요.");
         }
         setAuthReady(true);
       })

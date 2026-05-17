@@ -2917,17 +2917,18 @@ export function App() {
         const message = getDisplayErrorMessage(loadError, "초기 데이터를 불러오지 못했습니다.");
         if (loadError instanceof ApiError && (loadError.status === 401 || loadError.status === 403)) {
           invalidateActiveLoads();
+          if (loadError.status === 401) {
+            setError("로그인 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+            return;
+          }
+
           authSessionRef.current = null;
           setAuthSession(null);
           setData(null);
           setOpsConsole(null);
           setCustomerContractRenewalsDue([]);
           setActiveOrganizationId(null);
-          setAuthNotice(
-            loadError.status === 401
-              ? "로그인 세션이 만료되어 다시 로그인해야 합니다."
-              : "접속 가능한 작업공간이 없어 다시 로그인해야 합니다."
-          );
+          setAuthNotice("접속 가능한 작업공간이 없어 다시 로그인해야 합니다.");
           await signOutSafely({ scope: "local" });
           return;
         }

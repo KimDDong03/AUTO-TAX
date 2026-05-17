@@ -1,4 +1,4 @@
-import { getSessionSafely } from "./supabase";
+import { getSessionSafely, refreshSessionSafely } from "./supabase";
 import { resolveApiUrl } from "./api-url";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "auto-tax.active-organization-id";
@@ -42,41 +42,50 @@ export function setActiveOrganizationId(organizationId: string | null) {
 }
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers ?? {});
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const buildHeaders = (accessToken?: string) => {
+    const headers = new Headers(init?.headers ?? {});
 
-  if (!isFormData && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  const { session, clearedInvalidRefreshToken } = await getSessionSafely();
-
-  if (clearedInvalidRefreshToken) {
-    throw new ApiError(401, "로그인 세션이 만료되어 다시 로그인해야 합니다.");
-  }
-
-  if (session?.access_token) {
-    headers.set("Authorization", `Bearer ${session.access_token}`);
-  }
-
-  const activeOrganizationId = getActiveOrganizationId();
-  if (activeOrganizationId) {
-    headers.set("X-Organization-Id", activeOrganizationId);
-  }
-
-  const response = await fetch(
-    resolveApiUrl(url, {
-      explicitBaseUrl: import.meta.env.VITE_API_BASE_URL,
-      isDev: import.meta.env.DEV,
-      locationProtocol: typeof window !== "undefined" ? window.location.protocol : null,
-      locationHostname: typeof window !== "undefined" ? window.location.hostname : null
-    }),
-    {
-      ...init,
-      cache: "no-store",
-      headers
+    if (!isFormData && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
     }
-  );
+
+    if (accessToken) {
+      headers.set("Authorization", `Bearer ${accessToken}`);
+    }
+
+    const activeOrganizationId = getActiveOrganizationId();
+    if (activeOrganizationId) {
+      headers.set("X-Organization-Id", activeOrganizationId);
+    }
+
+    return headers;
+  };
+
+  const fetchWithSession = (accessToken?: string) =>
+    fetch(
+      resolveApiUrl(url, {
+        explicitBaseUrl: import.meta.env.VITE_API_BASE_URL,
+        isDev: import.meta.env.DEV,
+        locationProtocol: typeof window !== "undefined" ? window.location.protocol : null,
+        locationHostname: typeof window !== "undefined" ? window.location.hostname : null
+      }),
+      {
+        ...init,
+        cache: "no-store",
+        headers: buildHeaders(accessToken)
+      }
+    );
+
+  const { session } = await getSessionSafely();
+  let response = await fetchWithSession(session?.access_token);
+
+  if (response.status === 401 && session?.refresh_token) {
+    const refreshed = await refreshSessionSafely();
+    if (refreshed.session?.access_token) {
+      response = await fetchWithSession(refreshed.session.access_token);
+    }
+  }
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({ error: "요청 실패" }))) as {
