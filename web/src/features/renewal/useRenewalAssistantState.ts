@@ -250,6 +250,14 @@ export function useRenewalAssistantState({
   }, [canUseCustomerRenewalAssistant, defaultRenewalHelperDownloadUrl]);
 
   const refreshCustomerRenewalAssistant = useCallback(async () => {
+    setCustomerRenewalAssistant((prev) =>
+      buildCustomerRenewalAssistant({
+        current: prev,
+        helperMessage: "로컬 헬퍼 연결을 확인하는 중입니다...",
+        defaultRenewalHelperDownloadUrl
+      })
+    );
+
     const [status, releaseMetadata] = await Promise.all([
       getLocalRenewalHelperStatus({ force: true }),
       getLocalRenewalHelperReleaseMetadata()
@@ -269,6 +277,16 @@ export function useRenewalAssistantState({
     }
 
     try {
+      setCustomerRenewalAssistant((prev) =>
+        buildCustomerRenewalAssistant({
+          current: prev,
+          status,
+          helperMessage: "공동인증서 저장소를 읽는 중입니다. 완료되면 건수가 표시됩니다...",
+          releaseMetadata,
+          defaultRenewalHelperDownloadUrl
+        })
+      );
+
       const response = await requestLocalRenewalBridgeProbe();
       const allCertificates = response.result.bridge.storageProbe.ok
         ? response.result.bridge.storageProbe.certificates
@@ -336,6 +354,14 @@ export function useRenewalAssistantState({
       if (!options?.skipReadinessCheck) {
         ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
       }
+
+      setCustomerRenewalAssistant((prev) =>
+        buildCustomerRenewalAssistant({
+          current: prev,
+          helperMessage: "공동인증서 저장소를 읽는 중입니다. 완료되면 건수가 표시됩니다...",
+          defaultRenewalHelperDownloadUrl
+        })
+      );
 
       const showLoadAlert = options?.showAlert ?? true;
       const response = await requestLocalRenewalBridgeProbe();

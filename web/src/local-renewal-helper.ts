@@ -141,6 +141,10 @@ type GetLocalRenewalHelperStatusOptions = {
   force?: boolean;
 };
 
+type LocalNetworkFetchInit = RequestInit & {
+  targetAddressSpace?: "local";
+};
+
 const LOCAL_RENEWAL_HELPER_OFFLINE_RETRY_MS = 15_000;
 
 let localRenewalHelperStatusInFlight: Promise<LocalRenewalHelperStatus> | null = null;
@@ -168,11 +172,13 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
 
   let response: Response;
   try {
-    response = await fetch(`${LOCAL_RENEWAL_HELPER_URL}${pathname}`, {
+    const fetchOptions: LocalNetworkFetchInit = {
       ...init,
       cache: "no-store",
-      headers
-    });
+      headers,
+      targetAddressSpace: "local"
+    };
+    response = await fetch(`${LOCAL_RENEWAL_HELPER_URL}${pathname}`, fetchOptions);
   } catch {
     throw new Error(buildHelperUnavailableMessage());
   }

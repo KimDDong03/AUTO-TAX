@@ -99,13 +99,16 @@ export async function runElectronicTaxOnboardingUploadFlow<TFile>(options: {
     templateWorkbook: CustomerOnboardingTemplateWorkbookInput
   ) => Promise<CustomerOnboardingResolutionResult>;
   previewWorkbook: (workbook: CustomerOnboardingWorkbookInput) => Promise<CustomerOnboardingPreviewResponse>;
+  onProgress?: (message: string) => void;
 }): Promise<ElectronicTaxOnboardingUploadFlowResult> {
   if (!options.file) {
     return buildElectronicTaxOnboardingUploadClearedResult(options.previousSessionState);
   }
 
   try {
+    options.onProgress?.("엑셀 양식을 읽는 중입니다...");
     const parsed = await options.parseWorkbook(options.file);
+    options.onProgress?.("공동인증서와 고객 행을 맞춰 보는 중입니다...");
     const resolved = await options.resolveWorkbook(parsed.workbook);
     const workbookMessages = joinElectronicTaxOnboardingMessages([...parsed.warnings, ...resolved.errors]);
     const baseSessionState: ElectronicTaxOnboardingSessionState = {
@@ -127,6 +130,7 @@ export async function runElectronicTaxOnboardingUploadFlow<TFile>(options: {
       };
     }
 
+    options.onProgress?.(`고객 ${resolved.workbook.customers.length}건을 미리 검토하는 중입니다...`);
     const preview = await options.previewWorkbook(resolved.workbook);
     return {
       fileName: parsed.fileName,

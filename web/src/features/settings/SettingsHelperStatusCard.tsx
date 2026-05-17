@@ -10,6 +10,11 @@ export function SettingsHelperStatusCard({
   helperStatus,
   showRefreshAction
 }: SettingsHelperStatusCardProps) {
+  const isCheckingHelper =
+    helperStatus.busyKey === "refresh-customer-renewal-helper" ||
+    helperStatus.busyKey === "customer-renewal-bridge-probe";
+  const certificateCountText = isCheckingHelper ? "확인 중" : `${helperStatus.loadedCertificateCount}건`;
+
   return (
     <div className="helper-box-stack settings-helper-status-card">
       <div className="settings-helper-status-head">
@@ -42,7 +47,7 @@ export function SettingsHelperStatusCard({
                 void helperStatus.onRefreshCustomerRenewalAssistant()
               }
             >
-              상태 다시 확인
+              {isCheckingHelper ? "확인 중..." : "상태 다시 확인"}
             </button>
           ) : null}
           <button type="button" onClick={helperStatus.openCertificates}>
@@ -51,6 +56,11 @@ export function SettingsHelperStatusCard({
         </div>
       </div>
       <span>상태: {helperStatus.helperMessage}</span>
+      {isCheckingHelper ? (
+        <span className="settings-helper-progress">
+          공동인증서를 읽는 중입니다. 잠시만 기다려 주세요.
+        </span>
+      ) : null}
       {helperStatus.upgradeNotice ? (
         <div className="helper-box-stack settings-install-guide">
           <strong>{helperStatus.upgradeNotice.title}</strong>
@@ -64,7 +74,7 @@ export function SettingsHelperStatusCard({
         </div>
       ) : null}
       <span>마지막 확인: {helperStatus.formatDateTime(helperStatus.checkedAt)}</span>
-      <span>읽은 공동인증서: {helperStatus.loadedCertificateCount}건</span>
+      <span>읽은 공동인증서: {certificateCountText}</span>
     </div>
   );
 }

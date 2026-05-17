@@ -19,6 +19,16 @@ export type CustomerOnboardingResolutionResult = {
   errors: string[];
 };
 
+type OnboardingPreflightResponse = {
+  result: {
+    bridge: {
+      preflightProbe: RenewalBridgePreflightProbe | null | undefined;
+    };
+  };
+};
+
+export type OnboardingPreflightCache = Map<string, OnboardingPreflightResponse>;
+
 type OnboardingPreflightImportDecision =
   | {
       canImport: true;
@@ -38,14 +48,10 @@ type ResolveElectronicTaxOnboardingTemplateWorkbookArgs = {
     certificateIndex: number;
     certificateCn?: string | null;
     certificatePassword?: string | null;
-  }) => Promise<{
-    result: {
-      bridge: {
-        preflightProbe: RenewalBridgePreflightProbe | null | undefined;
-      };
-    };
-  }>;
+  }) => Promise<OnboardingPreflightResponse>;
+  preflightCache?: OnboardingPreflightCache;
   onboardingPreflightConcurrency?: number;
+  onProgress?: (message: string) => void;
 };
 
 function digitsOnly(value: string): string {
@@ -308,7 +314,7 @@ async function mapWithConcurrency<T, TResult>(
 export async function resolveElectronicTaxOnboardingTemplateWorkbook(
   args: ResolveElectronicTaxOnboardingTemplateWorkbookArgs
 ): Promise<CustomerOnboardingResolutionResult> {
-  const onboardingPreflightConcurrency = args.onboardingPreflightConcurrency ?? 6;
+  const onboardingPreflightConcurrency = args.onboardingPreflightConcurrency ?? 8;
   const sharedPassword = await args.resolveSharedPassword();
   const availableCertificates = await args.loadAvailableCertificates();
   const errors: string[] = [];
@@ -493,6 +499,8 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     });
   }
 
+  let completedPreflightCount = 0;
+  const totalPreflightCount = electronicTaxSelections.length;
   const electronicTaxResults = await mapWithConcurrency(
     electronicTaxSelections,
     onboardingPreflightConcurrency,
@@ -504,11 +512,29 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
           message: `발전소 시트 (${certificateLabel}): 이 인증서는 추가 HDD 경로에서만 확인되어 현재 SignGate 사전조회 자동화를 지원하지 않습니다. 표준 HDD 공동인증서 보관 경로로 옮긴 뒤 다시 시도해 주세요.`
         };
       }
-      const response = await args.requestPreflight({
-        certificateIndex: Number(matchedCertificate.index),
-        certificateCn: matchedCertificate.cn || selection.certificateName || null,
-        certificatePassword: effectivePassword
-      });
+      const preflightCacheKey = [
+        matchedCertificate.index,
+        matchedCertificate.serial ?? "",
+        matchedCertificate.userDN ?? "",
+        effectivePassword
+      ].join("|");
+      let response = args.preflightCache?.get(preflightCacheKey) ?? null;
+      const cacheHit = response !== null;
+      if (!response) {
+        args.onProgress?.(`공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 진행 중...`);
+        response = await args.requestPreflight({
+          certificateIndex: Number(matchedCertificate.index),
+          certificateCn: matchedCertificate.cn || selection.certificateName || null,
+          certificatePassword: effectivePassword
+        });
+        args.preflightCache?.set(preflightCacheKey, response);
+      }
+      completedPreflightCount += 1;
+      args.onProgress?.(
+        cacheHit
+          ? `공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 확인 중...`
+          : `공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 완료`
+      );
       const preflightProbe = response.result.bridge.preflightProbe;
       const decision = classifyOnboardingPreflightImportDecision(preflightProbe, {
         certificateExpireDate: matchedCertificate.todate || matchedCertificate.detailValidateTo || null

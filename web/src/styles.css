@@ -2476,6 +2476,11 @@ textarea {
   margin-bottom: 0.85rem;
 }
 
+.initial-upload-progress {
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
 .month-completion-list {
   display: grid;
   gap: 0.75rem;
@@ -4491,6 +4496,11 @@ textarea {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
+}
+
+.settings-helper-progress {
+  color: var(--primary-strong);
+  font-weight: 700;
 }
 
 .settings-install-guide code {

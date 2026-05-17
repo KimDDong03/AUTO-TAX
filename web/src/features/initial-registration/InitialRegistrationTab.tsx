@@ -116,13 +116,11 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           : stage === "certificate" && input.certificateFailedJoinCount > 0
             ? `등록 처리 확인이 필요한 고객 ${input.certificateFailedJoinCount}건이 있습니다.`
               : undefined;
-  const uploadStepStatus: InitialRegistrationStepStatus = needsUploadRetry
-    ? "current"
-    : uploadCompleted
-      ? "complete"
-      : stage === "upload"
-        ? "current"
-        : "locked";
+  const templateStepStatus: InitialRegistrationStepStatus = uploadCompleted
+    ? "complete"
+    : stage === "download" || stage === "upload"
+      ? "current"
+      : "locked";
   const certificateStepStatus: InitialRegistrationStepStatus = certificateCompleted
     ? "complete"
     : stage === "certificate"
@@ -188,32 +186,25 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
   const stepItems: InitialRegistrationStepItem[] = [
     {
       step: 1,
-      title: "양식 받기",
-      description: downloadCompleted
-        ? "완료"
-        : input.helperReady
-          ? hasElectronicTaxCertificates
-            ? "전자세금 기준"
-            : "전자세금용 없음"
-          : "헬퍼 필요",
-      status: downloadCompleted ? "complete" : stage === "download" ? "current" : "locked",
-      ...getInitialRegistrationStepMeta(downloadCompleted ? "complete" : stage === "download" ? "current" : "locked")
-    },
-    {
-      step: 2,
-      title: "양식 올리기",
+      title: "양식 받기/올리기",
       description: uploadCompleted
         ? needsUploadRetry
           ? "재업로드"
           : "완료"
-        : input.hasSelectedFile
-          ? "선택됨"
-          : "업로드",
-      status: uploadStepStatus,
-      ...getInitialRegistrationStepMeta(uploadStepStatus)
+        : downloadCompleted
+          ? input.hasSelectedFile
+            ? "선택됨"
+            : "업로드"
+          : input.helperReady
+            ? hasElectronicTaxCertificates
+              ? "다운로드 후 업로드"
+              : "전자세금용 없음"
+            : "헬퍼 필요",
+      status: templateStepStatus,
+      ...getInitialRegistrationStepMeta(templateStepStatus)
     },
     {
-      step: 3,
+      step: 2,
       title: "고객 반영",
       description: commitCompleted
         ? "완료"
@@ -226,7 +217,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
       ...getInitialRegistrationStepMeta(commitCompleted ? "complete" : stage === "commit" ? "current" : "locked")
     },
     {
-      step: 4,
+      step: 3,
       title: "전자세금용 등록",
       description: certificateCompleted
         ? "완료"
@@ -344,7 +335,20 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     hasSelectedFile: Boolean(props.customerOnboardingFileName)
   });
   const registrationStage = props.registrationStage ?? registrationFlow.stage;
-  const registrationTaskTitle = registrationFlow.headline.replace("지금 할 일 · ", "");
+  const isTemplateStage = registrationStage === "download" || registrationStage === "upload";
+  const registrationTaskTitle = isTemplateStage
+    ? "양식 받기/올리기"
+    : registrationFlow.headline.replace("지금 할 일 · ", "");
+  const sharedPasswordReady = props.customerOnboardingSharedPassword.trim() !== "";
+  const canDownloadOnboardingTemplate = props.helperReady && props.helperCertificateCount > 0;
+  const uploadBlockedTitle = !sharedPasswordReady
+    ? "공통 공동인증서 비밀번호를 입력한 뒤 양식을 업로드하세요."
+    : undefined;
+  const downloadBlockedTitle = !props.helperReady
+    ? "먼저 로컬 헬퍼 준비 단계에서 전자세금용 공동인증서 읽기 상태를 확인하세요."
+    : props.helperCertificateCount === 0
+      ? "이 PC에서 전자세금용 공동인증서를 먼저 확인하세요."
+      : undefined;
   const billingMonthCompletionList = props.billingMonthSummaries.length > 0 ? (
     <div className="list month-completion-list">
       {props.billingMonthSummaries.map((summary) => (
@@ -385,28 +389,9 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     props.mode !== "registration" || registrationStage === "done"
       ? null
       : registrationStage === "download"
-        ? {
-            label: isDownloadingOnboardingTemplate ? "다운로드 중..." : "양식 다운로드",
-            disabled: props.busyKey !== null || !props.helperReady || props.helperCertificateCount === 0,
-            title: !props.helperReady
-              ? "먼저 로컬 헬퍼 준비 단계에서 전자세금용 공동인증서 읽기 상태를 확인하세요."
-              : props.helperCertificateCount === 0
-                ? "이 PC에서 전자세금용 공동인증서를 먼저 확인하세요."
-                : undefined,
-            onClick: () =>
-              void props.runAction(
-                "customer-onboarding-template",
-                props.downloadCustomerOnboardingTemplate,
-                { reload: false }
-              )
-          }
+        ? null
         : registrationStage === "upload"
-          ? {
-              label: isPreviewingOnboarding ? "확인 중..." : registrationFlow.primaryActionLabel,
-              disabled: props.busyKey !== null,
-              title: undefined,
-              onClick: () => onboardingFileInputRef.current?.click()
-            }
+          ? null
           : registrationStage === "commit"
             ? {
                 label: isCommittingOnboarding ? "반영 중..." : "고객 등록 반영",
@@ -429,7 +414,12 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                 title: props.certificateActionTitle,
                 onClick: () => props.proceedOnboardingCertificateFollowUp()
               };
+  const showTemplateActions =
+    props.mode === "registration" && isTemplateStage;
   const showOnboardingInlineStatus = Boolean(props.customerOnboardingFileName || props.customerOnboardingPreview);
+  const uploadProgressMessage = isPreviewingOnboarding
+    ? props.customerOnboardingNotice || "양식 업로드를 확인하는 중입니다..."
+    : "";
   const showCertificatePasswordOverrides =
     registrationFlow.commitCompleted &&
     props.certificatePasswordOverrideEntries.length > 0;
@@ -538,6 +528,37 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                     설정에 저장하지 않습니다. 이번 업로드에서만 쓰고, 발전소 시트의 인증서 비밀번호 칸이 비어 있는 행에만 적용합니다.
                   </span>
                 </label>
+                {showTemplateActions ? (
+                  <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
+                    <button
+                      type="button"
+                      disabled={props.busyKey !== null || !canDownloadOnboardingTemplate}
+                      title={downloadBlockedTitle}
+                      onClick={() =>
+                        void props.runAction(
+                          "customer-onboarding-template",
+                          props.downloadCustomerOnboardingTemplate,
+                          { reload: false }
+                        )
+                      }
+                    >
+                      {isDownloadingOnboardingTemplate ? "다운로드 중..." : "양식 다운로드"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={props.busyKey !== null || !sharedPasswordReady}
+                      title={uploadBlockedTitle}
+                      onClick={() => onboardingFileInputRef.current?.click()}
+                    >
+                      {isPreviewingOnboarding
+                        ? "확인 중..."
+                        : registrationFlow.uploadCompleted
+                          ? "다시 업로드"
+                          : "양식 업로드"}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -585,7 +606,14 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             ) : null}
           </section>
 
-          {!registrationFlow.commitCompleted ? (
+          {uploadProgressMessage ? (
+            <div className="helper-box import-helper-box initial-upload-progress">
+              <strong>업로드 진행 중</strong>
+              <span>{uploadProgressMessage}</span>
+            </div>
+          ) : null}
+
+          {!registrationFlow.commitCompleted && !showTemplateActions ? (
             <details className="onboarding-advanced-details onboarding-assist-details">
               <summary>보조 작업 보기</summary>
               <div className="helper-box-stack onboarding-assist-body">

@@ -50,7 +50,8 @@ import {
 } from "./features/initial-registration/electronic-tax-onboarding-formatters";
 import {
   resolveElectronicTaxOnboardingTemplateWorkbook,
-  type CustomerOnboardingResolutionResult
+  type CustomerOnboardingResolutionResult,
+  type OnboardingPreflightCache
 } from "./features/initial-registration/electronic-tax-onboarding-resolver";
 import {
   processElectronicTaxOnboardingCertificateRegistrations,
@@ -2102,6 +2103,7 @@ export function App() {
   const customerRenewalIssuePasswordRef = useRef("");
   const customerCertificatePasswordCacheRef = useRef<Record<number, string>>({});
   const customerOnboardingCertificatesRef = useRef<RenewalAgentCertificate[] | null>(null);
+  const customerOnboardingPreflightCacheRef = useRef<OnboardingPreflightCache>(new Map());
   const customerOnboardingStorageHydratedOrganizationRef = useRef<string | null>(null);
   const customerNameInputRef = useRef<HTMLInputElement | null>(null);
   const certSyncInFlightRef = useRef(false);
@@ -2147,6 +2149,7 @@ export function App() {
   }, [taskNotificationOpen]);
   useEffect(() => {
     setCustomerOnboardingSharedPassword("");
+    customerOnboardingPreflightCacheRef.current.clear();
   }, [activeOrganizationId]);
   useEffect(() => {
     if (!activeOrganizationId) {
@@ -3806,14 +3809,17 @@ export function App() {
   });
 
   const resolveCustomerOnboardingTemplateWorkbook = async (
-    templateWorkbook: CustomerOnboardingTemplateWorkbookInput
+    templateWorkbook: CustomerOnboardingTemplateWorkbookInput,
+    onProgress?: (message: string) => void
   ): Promise<CustomerOnboardingResolutionResult> => {
     ensureLocalRenewalHelperActionAllowed("고객 초기 등록 준비");
     return await resolveElectronicTaxOnboardingTemplateWorkbook({
       templateWorkbook,
       loadAvailableCertificates: loadCustomerOnboardingAvailableCertificates,
       resolveSharedPassword: async () => customerOnboardingSharedPassword.trim(),
-      requestPreflight: requestLocalRenewalPreflight
+      requestPreflight: requestLocalRenewalPreflight,
+      preflightCache: customerOnboardingPreflightCacheRef.current,
+      onProgress
     });
   };
 
@@ -3836,6 +3842,7 @@ export function App() {
     setCustomerOnboardingPreview(null);
     setCustomerOnboardingCertificatePasswordOverrides({});
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+    customerOnboardingPreflightCacheRef.current.clear();
     setCustomerOnboardingSessionState({
       templateDownloaded: true,
       previewReady: false,
@@ -3859,15 +3866,28 @@ export function App() {
   };
 
   const handleCustomerOnboardingFileChange = async (file: File | null) => {
+    if (!customerOnboardingSharedPassword.trim()) {
+      setCustomerOnboardingError("공통 공동인증서 비밀번호를 입력한 뒤 양식을 업로드하세요.");
+      return;
+    }
+
+    setCustomerOnboardingNotice("양식 업로드를 시작합니다...");
+    setCustomerOnboardingError("");
     const result = await runElectronicTaxOnboardingUploadFlow({
       file,
       previousSessionState: customerOnboardingSessionState,
+      onProgress: (message) => {
+        setCustomerOnboardingNotice(message);
+      },
       parseWorkbook: async (selectedFile) => {
         assertSafeSpreadsheetFile(selectedFile);
         const XLSX = await loadXlsxModule();
         return await parseCustomerOnboardingWorkbook(XLSX, selectedFile);
       },
-      resolveWorkbook: resolveCustomerOnboardingTemplateWorkbook,
+      resolveWorkbook: async (templateWorkbook) =>
+        resolveCustomerOnboardingTemplateWorkbook(templateWorkbook, (message) => {
+          setCustomerOnboardingNotice(message);
+        }),
       previewWorkbook: async (workbook) =>
         await api<CustomerOnboardingPreviewResponse>("/api/customer-onboarding/preview", {
           method: "POST",
@@ -6802,8 +6822,8 @@ export function App() {
       title: "고객 초기 등록",
       summary: onboardingCustomerRegistrationReady
         ? `등록 ${data.customers.length}명`
-        : onboardingRegistrationStage === "download"
-          ? "양식 받기"
+        : onboardingRegistrationStage === "download" || onboardingRegistrationStage === "upload"
+          ? "양식 받기/올리기"
           : onboardingRegistrationStage === "commit"
             ? `반영 ${onboardingImportableCount}건`
             : onboardingRegistrationFlow.needsUploadRetry
