@@ -27,6 +27,12 @@ type OnboardingPreflightResponse = {
   };
 };
 
+type OnboardingPreflightPayload = {
+  certificateIndex: number;
+  certificateCn?: string | null;
+  certificatePassword?: string | null;
+};
+
 export type OnboardingPreflightCache = Map<string, OnboardingPreflightResponse>;
 
 type OnboardingPreflightImportDecision =
@@ -44,13 +50,11 @@ type ResolveElectronicTaxOnboardingTemplateWorkbookArgs = {
   templateWorkbook: CustomerOnboardingTemplateWorkbookInput;
   loadAvailableCertificates: () => Promise<RenewalAgentCertificate[]>;
   resolveSharedPassword: () => Promise<string>;
-  requestPreflight: (payload: {
-    certificateIndex: number;
-    certificateCn?: string | null;
-    certificatePassword?: string | null;
-  }) => Promise<OnboardingPreflightResponse>;
+  requestPreflight: (payload: OnboardingPreflightPayload) => Promise<OnboardingPreflightResponse>;
+  requestPreflightBatch?: (payloads: OnboardingPreflightPayload[]) => Promise<OnboardingPreflightResponse[]>;
   preflightCache?: OnboardingPreflightCache;
   onboardingPreflightConcurrency?: number;
+  onboardingPreflightBatchSize?: number;
   onProgress?: (message: string) => void;
 };
 
@@ -318,10 +322,20 @@ async function mapWithConcurrency<T, TResult>(
   return results;
 }
 
+function chunkItems<T>(items: T[], chunkSize: number): T[][] {
+  const size = Math.max(1, chunkSize);
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
 export async function resolveElectronicTaxOnboardingTemplateWorkbook(
   args: ResolveElectronicTaxOnboardingTemplateWorkbookArgs
 ): Promise<CustomerOnboardingResolutionResult> {
-  const onboardingPreflightConcurrency = args.onboardingPreflightConcurrency ?? 8;
+  const onboardingPreflightConcurrency = args.onboardingPreflightConcurrency ?? 16;
+  const onboardingPreflightBatchSize = args.onboardingPreflightBatchSize ?? 40;
   const sharedPassword = await args.resolveSharedPassword();
   const availableCertificates = await args.loadAvailableCertificates();
   const errors: string[] = [];
@@ -508,40 +522,110 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
 
   let completedPreflightCount = 0;
   const totalPreflightCount = electronicTaxSelections.length;
-  const electronicTaxResults = await mapWithConcurrency(
-    electronicTaxSelections,
-    onboardingPreflightConcurrency,
-    async (selection) => {
-      const { matchedCertificate, certificateLabel, effectivePassword } = selection;
-      if (matchedCertificate.supportsPreflight === false) {
-        return {
-          ok: false as const,
-          message: `발전소 시트 (${certificateLabel}): 이 인증서는 추가 HDD 경로에서만 확인되어 현재 SignGate 사전조회 자동화를 지원하지 않습니다. 표준 HDD 공동인증서 보관 경로로 옮긴 뒤 다시 시도해 주세요.`
-        };
-      }
-      const preflightCacheKey = [
-        matchedCertificate.index,
-        matchedCertificate.serial ?? "",
-        matchedCertificate.userDN ?? "",
-        effectivePassword
-      ].join("|");
-      let response = args.preflightCache?.get(preflightCacheKey) ?? null;
-      const cacheHit = response !== null;
-      if (!response) {
+  const preflightCache = args.preflightCache ?? new Map<string, OnboardingPreflightResponse>();
+  const requestSelectionPreflight = async (
+    selection: (typeof electronicTaxSelections)[number],
+    trackProgress = true
+  ) => {
+    const { matchedCertificate, effectivePassword } = selection;
+    const preflightCacheKey = [
+      matchedCertificate.index,
+      matchedCertificate.serial ?? "",
+      matchedCertificate.userDN ?? "",
+      effectivePassword
+    ].join("|");
+    let response = preflightCache.get(preflightCacheKey) ?? null;
+    const cacheHit = response !== null;
+    if (!response) {
+      if (trackProgress) {
         args.onProgress?.(`공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 진행 중...`);
-        response = await args.requestPreflight({
-          certificateIndex: Number(matchedCertificate.index),
-          certificateCn: matchedCertificate.cn || selection.certificateName || null,
-          certificatePassword: effectivePassword
-        });
-        args.preflightCache?.set(preflightCacheKey, response);
       }
+      response = await args.requestPreflight({
+        certificateIndex: Number(matchedCertificate.index),
+        certificateCn: matchedCertificate.cn || selection.certificateName || null,
+        certificatePassword: effectivePassword
+      });
+      preflightCache.set(preflightCacheKey, response);
+    }
+    if (trackProgress) {
       completedPreflightCount += 1;
       args.onProgress?.(
         cacheHit
           ? `공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 확인 중...`
           : `공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 완료`
       );
+    }
+    return response;
+  };
+
+  if (args.requestPreflightBatch) {
+    type BatchPreflightRequest = {
+      cacheKey: string;
+      payload: OnboardingPreflightPayload;
+    };
+    const pendingBatchRequests = new Map<string, BatchPreflightRequest>();
+
+    for (const selection of electronicTaxSelections) {
+      const { matchedCertificate, effectivePassword } = selection;
+      if (matchedCertificate.supportsPreflight === false) {
+        continue;
+      }
+
+      const preflightCacheKey = [
+        matchedCertificate.index,
+        matchedCertificate.serial ?? "",
+        matchedCertificate.userDN ?? "",
+        effectivePassword
+      ].join("|");
+
+      if (preflightCache.has(preflightCacheKey)) {
+        completedPreflightCount += 1;
+        continue;
+      }
+
+      if (!pendingBatchRequests.has(preflightCacheKey)) {
+        pendingBatchRequests.set(preflightCacheKey, {
+          cacheKey: preflightCacheKey,
+          payload: {
+            certificateIndex: Number(matchedCertificate.index),
+            certificateCn: matchedCertificate.cn || selection.certificateName || null,
+            certificatePassword: effectivePassword
+          }
+        });
+      }
+    }
+
+    const uncachedRequests = Array.from(pendingBatchRequests.values());
+    if (completedPreflightCount > 0) {
+      args.onProgress?.(`공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 확인 중...`);
+    }
+
+    for (const chunk of chunkItems(uncachedRequests, onboardingPreflightBatchSize)) {
+      args.onProgress?.(`공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 진행 중...`);
+      const responses = await args.requestPreflightBatch(chunk.map((request) => request.payload));
+      responses.forEach((response, index) => {
+        const request = chunk[index];
+        if (request) {
+          preflightCache.set(request.cacheKey, response);
+        }
+      });
+      completedPreflightCount += responses.length;
+      args.onProgress?.(`공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 완료`);
+    }
+  }
+
+  const electronicTaxResults = await mapWithConcurrency(
+    electronicTaxSelections,
+    args.requestPreflightBatch ? Number.MAX_SAFE_INTEGER : onboardingPreflightConcurrency,
+    async (selection) => {
+      const { matchedCertificate, certificateLabel } = selection;
+      if (matchedCertificate.supportsPreflight === false) {
+        return {
+          ok: false as const,
+          message: `발전소 시트 (${certificateLabel}): 이 인증서는 추가 HDD 경로에서만 확인되어 현재 SignGate 사전조회 자동화를 지원하지 않습니다. 표준 HDD 공동인증서 보관 경로로 옮긴 뒤 다시 시도해 주세요.`
+        };
+      }
+      const response = await requestSelectionPreflight(selection, !args.requestPreflightBatch);
       const preflightProbe = response.result.bridge.preflightProbe;
       const decision = classifyOnboardingPreflightImportDecision(preflightProbe, {
         certificateExpireDate: matchedCertificate.todate || matchedCertificate.detailValidateTo || null

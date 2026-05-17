@@ -219,3 +219,80 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook includes SignGate preflight
     /발전소 시트 \(지석기 발전소\): 사전조회 실패: 폐지된 인증서 정보입니다\. 관리자에게 문의하여 주십시요/
   );
 });
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook batches SignGate preflight requests when available", async () => {
+  const batchPayloads: Array<Array<{ certificateIndex: number }>> = [];
+
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook({
+      plants: [
+        {
+          rowIndex: 2,
+          certificateIndex: "12",
+          certificateName: "한빛태양광",
+          plantName: "한빛 1호기",
+          certificatePassword: ""
+        },
+        {
+          rowIndex: 3,
+          certificateIndex: "13",
+          certificateName: "서해태양광",
+          plantName: "서해 1호기",
+          certificatePassword: ""
+        },
+        {
+          rowIndex: 4,
+          certificateIndex: "14",
+          certificateName: "동해태양광",
+          plantName: "동해 1호기",
+          certificatePassword: ""
+        }
+      ]
+    }),
+    loadAvailableCertificates: async () => [
+      createCertificate({ index: "12", cn: "한빛태양광", serial: "SERIAL-012", userDN: "USER-DN-012" }),
+      createCertificate({ index: "13", cn: "서해태양광", serial: "SERIAL-013", userDN: "USER-DN-013" }),
+      createCertificate({ index: "14", cn: "동해태양광", serial: "SERIAL-014", userDN: "USER-DN-014" })
+    ],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => {
+      throw new Error("single preflight should not be used when batch preflight is available");
+    },
+    requestPreflightBatch: async (payloads) => {
+      batchPayloads.push(payloads.map((payload) => ({ certificateIndex: payload.certificateIndex })));
+      return payloads.map((payload) => ({
+        result: {
+          bridge: {
+            preflightProbe: {
+              ok: true,
+              renewInfoSnapshot: {
+                companyName: `회사 ${payload.certificateIndex}`,
+                businessNumber: `123-45-6${String(payload.certificateIndex).padStart(4, "0")}`,
+                ceoName: "홍길동",
+                bizType: "전기업",
+                bizClass: "태양광발전",
+                businessFieldCode: null,
+                postalCode: null,
+                baseAddress: "서울시 중구 세종대로 1",
+                detailAddress: null,
+                contactName: null,
+                contactDepartment: null,
+                contactEmail: null,
+                contactTel: null,
+                contactFax: null,
+                contactMobile: "010-1234-5678"
+              }
+            } as RenewalBridgePreflightProbe
+          }
+        }
+      }));
+    },
+    onboardingPreflightBatchSize: 2
+  });
+
+  assert.deepEqual(batchPayloads, [
+    [{ certificateIndex: 12 }, { certificateIndex: 13 }],
+    [{ certificateIndex: 14 }]
+  ]);
+  assert.equal(result.resolvedCertificateCount, 3);
+});

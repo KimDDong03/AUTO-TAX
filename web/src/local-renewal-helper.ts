@@ -55,6 +55,12 @@ type LocalRenewalHelperProbeResponse = {
   result: RenewalBridgeProbeResult;
 };
 
+type LocalRenewalHelperPreflightBatchResponse = {
+  ok: true;
+  version: string;
+  results: RenewalBridgeProbeResult[];
+};
+
 type LocalRenewalHelperCertificateListResponse = {
   ok: true;
   version: string;
@@ -335,6 +341,33 @@ export async function requestLocalRenewalPreflight(payload: {
     method: "POST",
     body: JSON.stringify(payload)
   });
+}
+
+export async function requestLocalRenewalPreflightBatch(payloads: Array<{
+  certificateIndex: number;
+  certificateCn?: string | null;
+  certificatePassword?: string | null;
+}>) {
+  if (payloads.length === 0) {
+    return [];
+  }
+
+  try {
+    const response = await localRenewalHelperRequest<LocalRenewalHelperPreflightBatchResponse>("/api/preflight-batch", {
+      method: "POST",
+      body: JSON.stringify({
+        requests: payloads,
+        concurrency: 16
+      })
+    });
+    return response.results.map((result) => ({
+      ok: true as const,
+      version: response.version,
+      result
+    }));
+  } catch {
+    return await Promise.all(payloads.map((payload) => requestLocalRenewalPreflight(payload)));
+  }
 }
 
 export async function requestLocalRenewalPreparePayment(payload: {

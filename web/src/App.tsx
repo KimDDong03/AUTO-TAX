@@ -124,7 +124,8 @@ import {
   requestLocalRenewalBridgeProbe,
   requestLocalRenewalOpenPayment,
   requestLocalRenewalPreparePayment,
-  requestLocalRenewalPreflight
+  requestLocalRenewalPreflight,
+  requestLocalRenewalPreflightBatch
 } from "./local-renewal-helper";
 import {
   buildOpsSubscriptionMetrics,
@@ -3818,6 +3819,7 @@ export function App() {
       loadAvailableCertificates: loadCustomerOnboardingAvailableCertificates,
       resolveSharedPassword: async () => customerOnboardingSharedPassword.trim(),
       requestPreflight: requestLocalRenewalPreflight,
+      requestPreflightBatch: requestLocalRenewalPreflightBatch,
       preflightCache: customerOnboardingPreflightCacheRef.current,
       onProgress
     });

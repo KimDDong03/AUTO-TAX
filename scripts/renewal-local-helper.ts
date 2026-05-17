@@ -17,6 +17,9 @@ const DEFAULT_PORT = 35119;
 const DEFAULT_ALLOWED_ORIGINS = ["kiyo.kr", "www.kiyo.kr"];
 const PREFLIGHT_TRANSPORT_RETRY_COUNT = 1;
 const PREFLIGHT_TRANSPORT_RETRY_DELAY_MS = 250;
+const PREFLIGHT_BATCH_MAX_COUNT = 200;
+const PREFLIGHT_BATCH_DEFAULT_CONCURRENCY = 16;
+const PREFLIGHT_BATCH_MAX_CONCURRENCY = 32;
 const UPLOAD_SESSION_MAX_FILE_COUNT = 80;
 const UPLOAD_SESSION_MAX_BASE64_CHARS = 2_500_000;
 const UPLOAD_ELECTRONIC_TAX_OID = "1.2.410.200004.5.2.1.6.257";
@@ -155,6 +158,11 @@ const preflightRequestSchema = z.object({
   certificateIndex: z.number().int().positive(),
   certificateCn: z.string().trim().nullable().optional(),
   certificatePassword: z.string().trim().min(1).nullable().optional()
+});
+
+const preflightBatchRequestSchema = z.object({
+  requests: z.array(preflightRequestSchema).min(1).max(PREFLIGHT_BATCH_MAX_COUNT),
+  concurrency: z.number().int().min(1).max(PREFLIGHT_BATCH_MAX_CONCURRENCY).optional()
 });
 
 const renewalComparisonProfileSchema = z.object({
@@ -514,6 +522,35 @@ async function collectPreflightProbeResultWithRetry(
   return result;
 }
 
+async function mapWithConcurrency<T, TResult>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<TResult>
+): Promise<TResult[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<TResult>(items.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+
+      results[currentIndex] = await mapper(items[currentIndex] as T, currentIndex);
+    }
+  };
+
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+  return results;
+}
+
 export function createRenewalLocalHelperApp() {
   const app = express();
   const version = readHelperVersionMetadata();
@@ -591,6 +628,21 @@ export function createRenewalLocalHelperApp() {
       const payload = preflightRequestSchema.parse(req.body ?? {});
       const result = await collectPreflightProbeResultWithRetry(payload);
       res.json({ ok: true, version, result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/preflight-batch", async (req, res, next) => {
+    try {
+      const payload = preflightBatchRequestSchema.parse(req.body ?? {});
+      const concurrency = payload.concurrency ?? PREFLIGHT_BATCH_DEFAULT_CONCURRENCY;
+      const results = await mapWithConcurrency(
+        payload.requests,
+        concurrency,
+        async (request) => await collectPreflightProbeResultWithRetry(request)
+      );
+      res.json({ ok: true, version, results });
     } catch (error) {
       next(error);
     }
