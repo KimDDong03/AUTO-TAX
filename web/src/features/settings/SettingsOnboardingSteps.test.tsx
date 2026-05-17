@@ -86,7 +86,7 @@ test("SettingsMailOnboardingStep keeps required-field hints and busy test button
     imapHost: "imap.gmail.com",
     imapPort: "993",
     imapSecure: true,
-    imapMailbox: "INBOX",
+    imapMailbox: "*",
     requiresManualImapSettings: false,
     mailPasswordConfigured: true,
     mailPasswordReveal: {

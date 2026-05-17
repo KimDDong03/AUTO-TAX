@@ -87,7 +87,7 @@ export function selectSettingsOnboardingState(
         imapHost: "",
         imapPort: "993",
         imapSecure: true,
-        imapMailbox: "INBOX",
+        imapMailbox: "*",
         popbillUserIdPrefix: "",
         popbillSharedPassword: "",
         renewalIssuePassword: "",

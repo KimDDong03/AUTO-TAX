@@ -19,7 +19,7 @@ function createSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     imapSecure: true,
     imapUser: "owner@gmail.com",
     imapPass: "",
-    imapMailbox: "INBOX",
+    imapMailbox: "*",
     smtpHost: "smtp.gmail.com",
     smtpPort: 465,
     smtpSecure: true,
@@ -120,14 +120,14 @@ test("buildSettingsPayload preserves custom IMAP settings for unsupported domain
     imapHost: "imap.company.co.kr",
     imapPort: "993",
     imapSecure: true,
-    imapMailbox: "INBOX"
+    imapMailbox: "*"
   });
 
   assert.equal(normalized.mailProvider, "custom");
   assert.equal(payload.imapHost, "imap.company.co.kr");
   assert.equal(payload.imapPort, 993);
   assert.equal(payload.imapSecure, true);
-  assert.equal(payload.imapMailbox, "INBOX");
+  assert.equal(payload.imapMailbox, "*");
 });
 
 test("buildSettingsPayload uses official Outlook IMAP host", () => {

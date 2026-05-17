@@ -29,7 +29,7 @@ test("selectSettingsOnboardingState falls back to empty onboarding fields before
     imapHost: "",
     imapPort: "993",
     imapSecure: true,
-    imapMailbox: "INBOX",
+    imapMailbox: "*",
     popbillUserIdPrefix: "",
     popbillSharedPassword: "",
     renewalIssuePassword: "",

@@ -1,5 +1,19 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import {
+  ArrowRight,
+  BarChart3,
+  CheckCircle2,
+  FileText,
+  Mail,
+  MessageCircle,
+  Send,
+  ShieldCheck,
+  Sparkles,
+  UsersRound,
+  Zap
+} from "lucide-react";
+import { ApiError, api } from "../../api";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "../auth/passwordPolicy";
 import { PUBLIC_PORTAL_COPY } from "./public-content";
 
@@ -124,6 +138,40 @@ type PublicLandingProps = {
 };
 
 type PublicAuthMode = "login" | "signup";
+
+const landingNavItems = ["서비스 소개", "기능", "서비스 과정", "요금 안내", "문의하기"];
+
+const landingFeatures = [
+  {
+    icon: FileText,
+    title: "세금계산서 원클릭 발행",
+    description: "한전 이메일 데이터를 기반으로 세금계산서 초안을 자동 생성하고, 원클릭으로 간편하게 발행합니다."
+  },
+  {
+    icon: UsersRound,
+    title: "손쉬운 고객 관리",
+    description: "고객별 발행 현황, 미발행 건, 오류 건을 한눈에 확인하고 관리할 수 있습니다."
+  },
+  {
+    icon: BarChart3,
+    title: "데이터 조회 및 분석",
+    description: "발행 완료된 데이터를 기반으로 다양한 분석 리포트와 통계를 제공합니다."
+  }
+];
+
+const landingSteps = [
+  { icon: Mail, title: "이메일 수신", description: "한전에서 발송한 발전량 이메일을 시스템이 자동 수신" },
+  { icon: FileText, title: "데이터 자동 추출", description: "이메일 내용을 분석하여 필요한 데이터를 자동 추출" },
+  { icon: Sparkles, title: "세금계산서 자동 생성", description: "추출된 데이터로 세금계산서 초안을 자동 생성" },
+  { icon: Send, title: "원클릭 발행", description: "확인 후 원클릭으로 발행 완료" }
+];
+
+const landingPlans = [
+  ["0 ~ 100 고객사", "100,000원"],
+  ["100 ~ 200 고객사", "200,000원"],
+  ["200 ~ 300 고객사", "300,000원"],
+  ["300 ~ 400 고객사", "400,000원"]
+];
 
 const emptySignupForm: PublicSignupFormState = {
   loginId: "",
@@ -446,6 +494,219 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
+function LandingDashboardPreview() {
+  return (
+    <div className="landing-dashboard-preview">
+      <div className="landing-dashboard-topbar">
+        <div>
+          <span>
+            <Zap size={14} aria-hidden="true" />
+            AUTO-TAX
+          </span>
+          <span>대시보드</span>
+          <span>고객</span>
+          <span>발행</span>
+          <span>조회</span>
+        </div>
+        <strong>+ 발행</strong>
+      </div>
+      <div className="landing-dashboard-body">
+        <p>My dashboard · March 2024</p>
+        <div className="landing-stat-grid">
+          {[
+            ["이번 달 발행 건수", "1,248"],
+            ["이번 달 공급가액", "₩124.8M"],
+            ["발행 대기", "32"]
+          ].map(([label, value]) => (
+            <div key={label} className="landing-stat-card">
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="landing-preview-grid">
+          <div className="landing-chart-card">
+            <div className="landing-card-head">
+              <strong>월별 공급가액</strong>
+              <span>고단 태양광</span>
+            </div>
+            <div className="landing-chart">
+              {[0, 1, 2, 3].map((index) => (
+                <i key={index} style={{ bottom: `${index * 33}%` }} />
+              ))}
+              <svg viewBox="0 0 280 112" aria-hidden="true" focusable="false">
+                <path d="M8 92 C42 84, 52 60, 84 56 S128 70, 156 45 S218 50, 270 22" />
+                {[8, 84, 156, 220, 270].map((x, index) => (
+                  <circle key={x} cx={x} cy={[92, 56, 45, 50, 22][index]} r="2.5" />
+                ))}
+              </svg>
+            </div>
+          </div>
+          <div className="landing-list-card">
+            <strong>최근 발행 내역</strong>
+            <ul>
+              {["(주)OO에너지", "태양광회사(주)", "OO솔라(주)", "ABC파워"].map((item) => (
+                <li key={item}>
+                  <span>{item}</span>
+                  <time>2024-05-24</time>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContactInquiryModal({ onClose }: { onClose: () => void }) {
+  const [sendStatus, setSendStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [sendMessage, setSendMessage] = useState("");
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const consent = formData.get("consent");
+
+    if (!consent) {
+      setSendStatus("error");
+      setSendMessage("개인정보 수집·이용에 동의해 주세요.");
+      return;
+    }
+
+    const category = String(formData.get("category") ?? "기타 문의");
+    const message = String(formData.get("message") ?? "");
+    const email = String(formData.get("email") ?? "");
+    const name = String(formData.get("name") ?? "");
+    const phone = String(formData.get("phone") ?? "");
+    const region = String(formData.get("region") ?? "대한민국");
+
+    setSendStatus("sending");
+    setSendMessage("");
+
+    try {
+      await api<{ ok: boolean }>("/api/public/contact-inquiries", {
+        method: "POST",
+        body: JSON.stringify({
+          category,
+          message,
+          email,
+          name,
+          phone,
+          region,
+          consent: true
+        })
+      });
+      setSendStatus("sent");
+      setSendMessage("문의가 접수되었습니다. 영업일 기준 24시간 이내에 연락드리겠습니다.");
+      event.currentTarget.reset();
+    } catch (error) {
+      setSendStatus("error");
+      setSendMessage(error instanceof ApiError ? error.message : "문의 접수에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+  }
+
+  return (
+    <div className="landing-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div
+        className="landing-contact-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="landing-contact-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button type="button" className="landing-modal-close" aria-label="문의 창 닫기" onClick={onClose}>
+          ×
+        </button>
+        <form onSubmit={handleSubmit} className="landing-contact-form">
+          <div className="landing-modal-head">
+            <span>
+              <MessageCircle size={20} aria-hidden="true" />
+            </span>
+            <h2 id="landing-contact-title">무엇을 도와드릴까요?</h2>
+            <p>영업일 기준 24시간 이내에 답변드리겠습니다.</p>
+          </div>
+
+          <label>
+            <span>문의 카테고리</span>
+            <select name="category" defaultValue="요금제 문의">
+              <option>요금제 문의</option>
+              <option>서비스 문의</option>
+              <option>기타 문의</option>
+            </select>
+          </label>
+
+          <label>
+            <span>문의 내용</span>
+            <textarea
+              name="message"
+              required
+              rows={5}
+              placeholder="예: 태양광 고객사 세금계산서 발행 자동화 도입을 검토하고 있습니다."
+            />
+          </label>
+
+          <label>
+            <span>이메일</span>
+            <input name="email" type="email" required placeholder="your@example.com" />
+          </label>
+
+          <label>
+            <span>이름 / 회사명</span>
+            <input name="name" placeholder="이름 또는 회사명" />
+          </label>
+
+          <label>
+            <span>담당자 연락처</span>
+            <input name="phone" type="tel" required placeholder="010-1234-5678" autoComplete="tel" />
+          </label>
+
+          <label>
+            <span>지역</span>
+            <select name="region" defaultValue="대한민국">
+              <option>대한민국</option>
+              <option>수도권</option>
+              <option>충청권</option>
+              <option>전라권</option>
+              <option>경상권</option>
+              <option>강원·제주권</option>
+            </select>
+          </label>
+
+          <label className="landing-consent-box">
+            <input type="checkbox" name="consent" required />
+            <span>
+              <strong>[필수]</strong> 개인정보 수집·이용에 동의합니다.
+              <small>수집 항목: 이메일, 이름/회사명, 담당자 연락처 · 이용 목적: 문의 응대 · 보유 기간: 문의 처리 완료 후 1년</small>
+            </span>
+          </label>
+
+          {sendMessage ? (
+            <p className={`landing-modal-message ${sendStatus === "error" ? "error" : "success"}`} role={sendStatus === "error" ? "alert" : "status"}>
+              {sendMessage}
+            </p>
+          ) : null}
+
+          <button type="submit" className="landing-modal-submit" disabled={sendStatus === "sending"}>
+            {sendStatus === "sending" ? "문의 접수 중..." : "문의 보내기"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function getPublicAuthModeFromHash(): PublicAuthMode {
   if (typeof window === "undefined") {
     return "login";
@@ -475,6 +736,7 @@ export function PublicLanding({
   onPasswordReset
 }: PublicLandingProps) {
   const [activeMode, setActiveMode] = useState<PublicAuthMode>(() => getPublicAuthModeFromHash());
+  const [contactModalOpen, setContactModalOpen] = useState(false);
   const [signupForm, setSignupForm] = useState<PublicSignupFormState>(emptySignupForm);
   const [signupError, setSignupError] = useState("");
   const [signupLoginIdAvailability, setSignupLoginIdAvailability] = useState<SignupLoginIdAvailabilityState>({
@@ -529,6 +791,9 @@ export function PublicLanding({
       }
     }
   };
+
+  const openContactModal = () => setContactModalOpen(true);
+  const closeContactModal = () => setContactModalOpen(false);
 
   const updateSignupForm = <Key extends keyof PublicSignupFormState>(
     key: Key,
@@ -1111,11 +1376,163 @@ export function PublicLanding({
   return (
     <div className="portal-shell">
       <div className="portal-page">
-        <header className="portal-header">
-          <div className="portal-brand">
-            <img src="/logo-O2APlXk3.png" alt="AUTO-TAX" className="portal-brand-logo" />
-          </div>
+        <header className="landing-header">
+          <nav className="landing-nav" aria-label="AUTO-TAX 공개 페이지">
+            <a href="#서비스-소개" className="portal-brand landing-brand" aria-label="AUTO-TAX 서비스 소개로 이동">
+              <img src="/logo-O2APlXk3.png" alt="AUTO-TAX" className="portal-brand-logo" />
+            </a>
+            <div className="landing-nav-links">
+              {landingNavItems.map((item) =>
+                item === "문의하기" ? (
+                  <button key={item} type="button" className="landing-nav-link-button" onClick={openContactModal}>
+                    {item}
+                  </button>
+                ) : (
+                  <a key={item} href={`#${item.replaceAll(" ", "-")}`}>
+                    {item}
+                  </a>
+                )
+              )}
+            </div>
+            <button type="button" className="landing-nav-cta" onClick={() => navigatePublicAuthMode("signup")}>
+              데모 사용 신청
+            </button>
+          </nav>
         </header>
+
+        {activeMode === "login" ? (
+          <div className="landing-page">
+            <section id="서비스-소개" className="landing-hero">
+              <div className="landing-hero-copy">
+                <p className="landing-pill">태양광 회사를 위한 세금계산서 자동화 솔루션</p>
+                <h1>
+                  세금계산서 <span>원클릭 발행</span>,
+                  <br />
+                  고객관리도 손쉽게
+                </h1>
+                <p className="landing-lead">
+                  한전 이메일 자동 수집부터 세금계산서 발행, 고객 관리까지 AUTO-TAX가 모두 자동으로 처리해 드립니다.
+                </p>
+                <div className="landing-hero-actions">
+                  <button type="button" className="landing-primary-action" onClick={openContactModal}>
+                    도입 문의하기
+                  </button>
+                  <button type="button" className="landing-secondary-action" onClick={() => navigatePublicAuthMode("signup")}>
+                    데모 사용 신청 <ArrowRight size={16} aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="landing-proof-grid">
+                  {[
+                    [Zap, "원클릭 발행", "이메일 데이터로 자동 생성"],
+                    [UsersRound, "손쉬운 고객관리", "발행 현황을 한눈에"],
+                    [ShieldCheck, "정확하고 안전하게", "검증 및 보안 처리"]
+                  ].map(([Icon, title, description]) => {
+                    const IconComponent = Icon as typeof Zap;
+                    return (
+                      <div key={title as string} className="landing-proof-item">
+                        <span>
+                          <IconComponent size={17} aria-hidden="true" />
+                        </span>
+                        <div>
+                          <strong>{title as string}</strong>
+                          <small>{description as string}</small>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <LandingDashboardPreview />
+            </section>
+
+            <section id="기능" className="landing-section landing-muted-section">
+              <div className="landing-section-inner">
+                <div className="landing-section-title">
+                  <span>Features</span>
+                  <h2>AUTO-TAX가 제공하는 핵심 기능</h2>
+                </div>
+                <div className="landing-card-grid landing-three-grid">
+                  {landingFeatures.map(({ icon: Icon, title, description }) => (
+                    <article key={title} className="landing-feature-card">
+                      <span>
+                        <Icon size={22} aria-hidden="true" />
+                      </span>
+                      <h3>{title}</h3>
+                      <p>{description}</p>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section id="서비스-과정" className="landing-section">
+              <div className="landing-section-inner">
+                <div className="landing-section-title">
+                  <span>How it works</span>
+                  <h2>AUTO-TAX 서비스 과정</h2>
+                </div>
+                <div className="landing-card-grid landing-four-grid">
+                  {landingSteps.map(({ icon: Icon, title, description }, index) => (
+                    <article key={title} className="landing-step-card">
+                      <div>
+                        <span>
+                          <Icon size={22} aria-hidden="true" />
+                        </span>
+                        <strong>0{index + 1}</strong>
+                      </div>
+                      <h3>{title}</h3>
+                      <p>{description}</p>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section id="요금-안내" className="landing-section landing-muted-section">
+              <div className="landing-section-inner">
+                <div className="landing-section-title">
+                  <span>Pricing</span>
+                  <h2>합리적인 요금제로 시작하세요</h2>
+                </div>
+                <div className="landing-card-grid landing-four-grid">
+                  {landingPlans.map(([range, price]) => (
+                    <article key={range} className="landing-plan-card">
+                      <p>{range}</p>
+                      <strong>
+                        {price}
+                        <span> / 월</span>
+                      </strong>
+                      <div>
+                        <CheckCircle2 size={16} aria-hidden="true" />
+                        기본 기능 모두 포함
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <p className="landing-pricing-note">부가세 별도 · 연 구독 시 1개월 무료 지원</p>
+                <p className="landing-pricing-note">400 고객사 이상 또는 맞춤형 플랜은 별도 문의</p>
+              </div>
+            </section>
+
+            <section id="문의하기" className="landing-contact">
+              <div>
+                <h2>AUTO-TAX와 함께 업무 효율을 높여보세요.</h2>
+                <p>지금 바로 도입 문의하거나 데모를 신청하세요.</p>
+              </div>
+              <div>
+                <button type="button" className="landing-primary-action" onClick={openContactModal}>
+                  <MessageCircle size={16} aria-hidden="true" />
+                  도입 문의하기
+                </button>
+                <button type="button" className="landing-secondary-action" onClick={() => navigatePublicAuthMode("signup")}>
+                  데모 사용 신청 <ArrowRight size={16} aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {contactModalOpen ? <ContactInquiryModal onClose={closeContactModal} /> : null}
 
         <main
           className={`portal-layout ${activeMode === "signup" ? "portal-layout-signup" : "portal-layout-login"}`}

@@ -490,7 +490,7 @@ function createEmptySettings(): AppSettings {
     imapSecure: true,
     imapUser: "",
     imapPass: "",
-    imapMailbox: "INBOX",
+    imapMailbox: "*",
     smtpHost: "",
     smtpPort: 465,
     smtpSecure: true,

@@ -47,9 +47,30 @@ export async function testMailConnections(input: MailTestInput): Promise<MailTes
 
   try {
     await imapClient.connect();
-    await imapClient.mailboxOpen(input.imapMailbox || "INBOX");
-    imapOk = true;
-    imapMessage = `IMAP 연결 성공 (${input.imapMailbox || "INBOX"})`;
+    const configuredMailbox = input.imapMailbox?.trim() ?? "";
+    const mailboxCandidates = Array.from(
+      new Set(
+        [configuredMailbox, "INBOX"].filter((mailbox) => mailbox && mailbox !== "*")
+      )
+    );
+    if (mailboxCandidates.length === 0) {
+      mailboxCandidates.push("INBOX");
+    }
+
+    let lastMailboxError = "IMAP 연결 성공했지만 메일함 접속에 실패했습니다.";
+    for (const mailbox of mailboxCandidates) {
+      try {
+        await imapClient.mailboxOpen(mailbox);
+        imapOk = true;
+        imapMessage = `IMAP 연결 성공 (${mailbox})`;
+        break;
+      } catch (error) {
+        lastMailboxError = error instanceof Error ? error.message : "IMAP 메일함 연결 실패";
+      }
+    }
+    if (!imapOk) {
+      imapMessage = lastMailboxError;
+    }
   } catch (error) {
     imapMessage = error instanceof Error ? error.message : "IMAP 연결 실패";
   } finally {

@@ -41,9 +41,20 @@ function parseAmount(value: string): number {
 
 function matchBillingMonthAndSupplyCost(text: string): RegExpMatchArray | null {
   return (
-    text.match(/(\d{4})\s*\.\s*(\d{1,2})\s*월분\s+구입전력금액은\s+공급가액\s+기준\s*([\d,]+)원/) ??
-    text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월분\s+구입전력금액은\s+공급가액\s+기준\s*([\d,]+)원/)
+    text.match(/(\d{4})\s*[.\-]?\s*(\d{1,2})\s*월분\s+구입\s*전력금액\s*(?:은|는)\s+공급가액\s*기준?\s*([\d,]+)원/i) ??
+    text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월분\s+구입\s*전력금액\s*(?:은|는)\s+공급가액\s*기준?\s*([\d,]+)원/i)
   );
+}
+
+function matchBillingMonthFallback(text: string): RegExpMatchArray | null {
+  return (
+    text.match(/(\d{4})\s*[.\-]?\s*(\d{1,2})\s*월분/i) ??
+    text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월분/i)
+  );
+}
+
+function matchSupplyCostFallback(text: string): string | null {
+  return text.match(/공급가액\s*[:：]?\s*([\d,]+)원/i)?.[1] ?? null;
 }
 
 export function parseKepcoMail(rawText: string): ParsedMail {
@@ -57,12 +68,18 @@ export function parseKepcoMail(rawText: string): ParsedMail {
   const plantAddress = toRoadAddress(matchRequired(normalized, /(?:^|\n)\s*(?:○\s*)?주\s*소\s*[:：]\s*([^\n]+)/, "발전소 주소"));
 
   const monthMatch = matchBillingMonthAndSupplyCost(normalized);
-  if (!monthMatch) {
+  const fallbackMonthMatch = monthMatch ? null : matchBillingMonthFallback(normalized);
+  const amountText = monthMatch?.[3] ?? matchSupplyCostFallback(normalized);
+
+  const monthText = monthMatch?.[1] ?? fallbackMonthMatch?.[1];
+  const monthIndex = monthMatch?.[2] ?? fallbackMonthMatch?.[2];
+
+  if (!monthText || !monthIndex || !amountText) {
     throw new Error("정산월 또는 공급가액을 찾지 못했습니다.");
   }
 
-  const billingMonth = `${monthMatch[1]}-${monthMatch[2].padStart(2, "0")}`;
-  const supplyCost = parseAmount(monthMatch[3]);
+  const billingMonth = `${monthText}-${monthIndex.padStart(2, "0")}`;
+  const supplyCost = parseAmount(amountText);
 
   const vatMatch = normalized.match(/(?:VAT|부가세|부가가치세)\s*[:：]?\s*([\d,]+)원/i);
   const taxTotal = vatMatch ? parseAmount(vatMatch[1]) : Math.floor(supplyCost * 0.1);

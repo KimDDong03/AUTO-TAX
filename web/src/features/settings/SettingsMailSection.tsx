@@ -110,7 +110,7 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
               <label>
                 읽을 폴더
                 <input
-                  placeholder="INBOX"
+                  placeholder="*"
                   value={model.fields.imapMailbox}
                   onChange={(event) => model.onImapMailboxChange(event.target.value)}
                 />

@@ -86,3 +86,31 @@ Subject: 신재생에너지 요금안내
   assert.equal(parsed.taxTotal, 12186);
   assert.equal(parsed.kepcoBranchId, "0194");
 });
+
+test("parseKepcoMail accepts spacing and invoice-summary fallback format", () => {
+  const parsed = parseKepcoMail(`
+From: 한전발전소 <noreply@kepco.co.kr>
+Subject: 신재생에너지 요금안내 (계약번호 : 5001046207)
+
+이상한태양광발전소 2026.07월분
+
+[공급가액: 121,867원 / 부가세: 12,186원]
+
+□ 기본사항
+○ 발전소명 : 이상한태양광발전소
+○ 주 소 : 경상북도 의성군 중하길 397-3 (안사면 중하리522-0)
+
+□ 전자세금계산서 발행정보
+○ 등록번호: 120-82-00052
+○ 종사업장: 194
+○ 상호: 한국전력공사
+○ 성명: 김동철
+○ 사업장 주소: 전라남도 나주시 전력로 55 (빛가람동, 한국전력공사)
+○ 업태: 전기가스
+○ 종목: 전기공급
+`);
+
+  assert.equal(parsed.plantName, "이상한태양광발전소");
+  assert.equal(parsed.billingMonth, "2026-07");
+  assert.equal(parsed.supplyCost, 121867);
+});

@@ -358,7 +358,7 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
               <label className="settings-option1-field">
                 읽을 폴더
                 <input
-                  placeholder="INBOX"
+                  placeholder="*"
                   value={mailDraft.imapMailbox}
                   readOnly={!mailEditing}
                   onChange={(event) =>

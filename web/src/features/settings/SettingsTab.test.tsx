@@ -101,7 +101,7 @@ function createModel(
           imapHost: "imap.gmail.com",
           imapPort: "993",
           imapSecure: true,
-          imapMailbox: "INBOX",
+          imapMailbox: "*",
           schedulerEnabled: true,
           defaultIssueDay: "20",
           defaultIssueHour: "9",

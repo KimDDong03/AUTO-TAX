@@ -42,6 +42,20 @@ export interface OrganizationIssueQuota {
   currentMonthIssuedDraftCount: number;
 }
 
+export interface MailSyncPruneInput {
+  activeMessageUids: string[];
+  receivedAtSince: string;
+  receivedAtBefore: string;
+  relevantSubject: string;
+  deletableDraftStatuses: DraftStatus[];
+}
+
+export interface MailSyncPruneResult {
+  deletedDrafts: number;
+  deletedInboxMessages: number;
+  keptDrafts: number;
+}
+
 export interface AppStore {
   initialize(): Promise<void>;
   getSettings(): Promise<AppSettings>;
@@ -51,6 +65,7 @@ export interface AppStore {
   markCompletedBillingMonth(billingMonth: string): Promise<CompletedBillingMonth>;
   getMailSyncCheckpoint(mailbox: string): Promise<number | null>;
   updateMailSyncCheckpoint(mailbox: string, lastUid: number): Promise<void>;
+  pruneMailSyncArtifacts?(input: MailSyncPruneInput): Promise<MailSyncPruneResult>;
   listCustomers(): Promise<Customer[]>;
   listCustomerCertificates(): Promise<CustomerCertificate[]>;
   getCustomerCertificatePassword(certificateId: number): Promise<string>;

@@ -49,7 +49,13 @@ import {
 import { createSupabaseAdminClient } from "./supabase.js";
 import { applyServerManagedSettings } from "./server-managed-settings.js";
 import { decryptSecret, encryptSecret } from "./secret-box.js";
-import type { AppStore, CertificateCheckMetadataUpdate, OrganizationIssueQuota } from "./store-contract.js";
+import type {
+  AppStore,
+  CertificateCheckMetadataUpdate,
+  MailSyncPruneInput,
+  MailSyncPruneResult,
+  OrganizationIssueQuota
+} from "./store-contract.js";
 import {
   buildDraftMgtKey,
   buildPopbillUserId,
@@ -131,6 +137,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   }
 
   return null;
+}
+
+function buildMailboxSyncKey(imapHost: string, imapUser: string, imapMailbox: string): string {
+  const host = imapHost.trim().toLowerCase();
+  const user = imapUser.trim().toLowerCase();
+  const mailbox = imapMailbox.trim() || "*";
+  return `${host}|${user}|${mailbox}`;
 }
 
 function normalizedPlantNameMatches(left: string, right: string): boolean {
@@ -331,6 +344,7 @@ function buildSeoulMonthRange(): { startIso: string; endIso: string } {
 function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
   const settingsUpdatedAt = asString(settingsRow.updated_at, nowIso());
   const integrationUpdatedAt = asString(integrationRow.updated_at, settingsUpdatedAt);
+  const imapMailbox = asString(integrationRow.imap_mailbox, "*").trim();
   return {
     id: asNumber(settingsRow.legacy_id, 1),
     imapHost: asString(integrationRow.imap_host),
@@ -338,7 +352,7 @@ function mapSettings(settingsRow: Row, integrationRow: Row): AppSettings {
     imapSecure: asBoolean(integrationRow.imap_secure, true),
     imapUser: asString(integrationRow.imap_user),
     imapPass: decryptSecret(asString(integrationRow.imap_pass_encrypted)),
-    imapMailbox: asString(integrationRow.imap_mailbox, "INBOX"),
+    imapMailbox: imapMailbox.toUpperCase() === "INBOX" ? "*" : imapMailbox || "*",
     smtpHost: asString(integrationRow.smtp_host),
     smtpPort: asNumber(integrationRow.smtp_port, 465),
     smtpSecure: asBoolean(integrationRow.smtp_secure, true),
@@ -1373,6 +1387,27 @@ export class SupabaseStore implements AppStore {
     }
   }
 
+  private async clearMailSyncCheckpoint(mailbox: string): Promise<void> {
+    await this.initialize();
+    const normalizedMailbox = mailbox.trim();
+    if (!normalizedMailbox) {
+      return;
+    }
+
+    const { error } = await this.client
+      .from("mail_sync_checkpoints")
+      .delete()
+      .eq("organization_id", this.requireOrganizationId())
+      .eq("mailbox", normalizedMailbox);
+
+    if (error) {
+      if (isMissingMailSyncCheckpointsTableError(error)) {
+        return;
+      }
+      throw new Error(`메일 동기화 체크포인트 초기화 실패: ${error.message}`);
+    }
+  }
+
   async updateSettings(input: Partial<AppSettings>): Promise<AppSettings> {
     const current = await this.getSettings();
     const nextPopbillUserIdPrefix =
@@ -1422,6 +1457,19 @@ export class SupabaseStore implements AppStore {
     if (mailSettingsChanged) {
       next.mailConnectionVerifiedAt = null;
     }
+    const hasMailAccountScopeChanged =
+      current.imapHost !== next.imapHost ||
+      current.imapMailbox !== next.imapMailbox ||
+      current.imapUser !== next.imapUser;
+    if (hasMailAccountScopeChanged) {
+      const oldMailboxSyncKey = buildMailboxSyncKey(current.imapHost, current.imapUser, current.imapMailbox || "*");
+      const newMailboxSyncKey = buildMailboxSyncKey(next.imapHost, next.imapUser, next.imapMailbox || "*");
+      await this.clearMailSyncCheckpoint(oldMailboxSyncKey);
+      if (newMailboxSyncKey !== oldMailboxSyncKey) {
+        await this.clearMailSyncCheckpoint(newMailboxSyncKey);
+      }
+    }
+
     const organizationId = this.requireOrganizationId();
 
     if (
@@ -3164,6 +3212,127 @@ export class SupabaseStore implements AppStore {
         .limit(200)
     );
     return this.buildDraftPayloads((rows as Row[]) ?? []);
+  }
+
+  async pruneMailSyncArtifacts(input: MailSyncPruneInput): Promise<MailSyncPruneResult> {
+    await this.initialize();
+    const organizationId = this.requireOrganizationId();
+    const activeMessageUidSet = new Set(input.activeMessageUids);
+    const pageSize = 1000;
+    const inboxRows: Row[] = [];
+
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await assertNoError(
+        "메일 동기화 정리 대상 조회 실패",
+        this.client
+          .from("inbox_messages")
+          .select("id, message_uid, subject, invoice_draft_id")
+          .eq("organization_id", organizationId)
+          .gte("received_at", input.receivedAtSince)
+          .lt("received_at", input.receivedAtBefore)
+          .order("received_at", { ascending: false })
+          .range(offset, offset + pageSize - 1)
+      );
+      const pageRows = (page as Row[]) ?? [];
+      inboxRows.push(...pageRows);
+      if (pageRows.length < pageSize) {
+        break;
+      }
+    }
+
+    const staleInboxRows = inboxRows.filter((row) => {
+      const subject = asString(row.subject);
+      const messageUid = asString(row.message_uid);
+      return subject.includes(input.relevantSubject) && !activeMessageUidSet.has(messageUid);
+    });
+    const staleInboxIds = uniqueStrings(staleInboxRows.map((row) => asString(row.id)));
+    if (staleInboxIds.length === 0) {
+      return {
+        deletedDrafts: 0,
+        deletedInboxMessages: 0,
+        keptDrafts: 0
+      };
+    }
+
+    const draftRowsBySource = await assertNoError(
+      "메일 동기화 정리 대상 초안 조회 실패",
+      this.client
+        .from("invoice_drafts")
+        .select("id, status, source_message_id")
+        .eq("organization_id", organizationId)
+        .in("source_message_id", staleInboxIds)
+    );
+    const linkedDraftIds = uniqueStrings(staleInboxRows.map((row) => asString(row.invoice_draft_id)));
+    const draftRowsByLinkedId = linkedDraftIds.length > 0
+      ? await assertNoError(
+          "메일 동기화 연결 초안 조회 실패",
+          this.client
+            .from("invoice_drafts")
+            .select("id, status, source_message_id")
+            .eq("organization_id", organizationId)
+            .in("id", linkedDraftIds)
+        )
+      : [];
+
+    const draftRowsById = new Map<string, Row>();
+    for (const row of [...((draftRowsBySource as Row[]) ?? []), ...((draftRowsByLinkedId as Row[]) ?? [])]) {
+      draftRowsById.set(asString(row.id), row);
+    }
+
+    const deletableStatusSet = new Set(input.deletableDraftStatuses);
+    const deletableDraftIds: string[] = [];
+    const keptDraftSourceMessageIds = new Set<string>();
+    for (const row of draftRowsById.values()) {
+      const draftId = asString(row.id);
+      const sourceMessageId = asString(row.source_message_id);
+      const status = asString(row.status) as DraftStatus;
+      if (sourceMessageId && staleInboxIds.includes(sourceMessageId) && deletableStatusSet.has(status)) {
+        deletableDraftIds.push(draftId);
+      } else if (sourceMessageId && staleInboxIds.includes(sourceMessageId)) {
+        keptDraftSourceMessageIds.add(sourceMessageId);
+      }
+    }
+
+    const deletableDraftIdSet = new Set(deletableDraftIds);
+    const deletableInboxIds = staleInboxRows
+      .filter((row) => {
+        const inboxId = asString(row.id);
+        const linkedDraftId = asString(row.invoice_draft_id);
+        if (keptDraftSourceMessageIds.has(inboxId)) {
+          return false;
+        }
+        return !linkedDraftId || deletableDraftIdSet.has(linkedDraftId);
+      })
+      .map((row) => asString(row.id))
+      .filter(Boolean);
+
+    if (deletableDraftIds.length > 0) {
+      await assertNoError(
+        "메일 동기화 누락 초안 삭제 실패",
+        this.client
+          .from("invoice_drafts")
+          .delete()
+          .eq("organization_id", organizationId)
+          .in("id", uniqueStrings(deletableDraftIds))
+      );
+    }
+
+    if (deletableInboxIds.length > 0) {
+      await assertNoError(
+        "메일 동기화 누락 메일 삭제 실패",
+        this.client
+          .from("inbox_messages")
+          .delete()
+          .eq("organization_id", organizationId)
+          .in("id", uniqueStrings(deletableInboxIds))
+      );
+    }
+
+    return {
+      deletedDrafts: uniqueStrings(deletableDraftIds).length,
+      deletedInboxMessages: uniqueStrings(deletableInboxIds).length,
+      keptDrafts: keptDraftSourceMessageIds.size
+    };
   }
 
   async getIssuedMonthlyTrend(anchorBillingYear: string) {

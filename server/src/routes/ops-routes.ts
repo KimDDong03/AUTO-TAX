@@ -52,7 +52,7 @@ const signupRequestRejectSchema = z.object({
 const opsWorkspaceMailSettingsSchema = z.object({
   mailAddress: z.string().trim().email(),
   mailPassword: z.string().default(""),
-  imapMailbox: z.string().trim().default("INBOX"),
+  imapMailbox: z.string().trim().default("*"),
   testConnection: z.boolean().default(true)
 });
 
@@ -232,7 +232,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
         const provider = inferMailProviderSettings(mailAddress);
         Object.assign(nextSettingsInput, {
           imapUser: mailAddress,
-          imapMailbox: currentSettings.imapMailbox || "INBOX",
+          imapMailbox: currentSettings.imapMailbox || "*",
           smtpUser: mailAddress,
           smtpFromName: currentSettings.smtpFromName || "AUTO-TAX",
           smtpFromEmail: mailAddress
@@ -591,7 +591,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
         imapSecure: provider.imapSecure,
         imapUser: payload.mailAddress,
         imapPass: nextPassword,
-        imapMailbox: payload.imapMailbox || currentSettings.imapMailbox || "INBOX",
+        imapMailbox: payload.imapMailbox || currentSettings.imapMailbox || "*",
         smtpHost: provider.smtpHost,
         smtpPort: provider.smtpPort,
         smtpSecure: provider.smtpSecure,

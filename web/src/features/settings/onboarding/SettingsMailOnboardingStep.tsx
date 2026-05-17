@@ -192,7 +192,7 @@ export function SettingsMailOnboardingStep({
               <label>
                 읽을 폴더
                 <input
-                  placeholder="INBOX"
+                  placeholder="*"
                   value={imapMailbox}
                   onChange={(event) => onImapMailboxChange(event.target.value)}
                 />

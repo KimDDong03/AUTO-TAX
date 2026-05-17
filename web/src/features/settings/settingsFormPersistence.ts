@@ -27,7 +27,7 @@ export const MAIL_PROVIDER_CONFIG: Record<
     smtpHost: "smtp.gmail.com",
     smtpPort: "465",
     smtpSecure: true,
-    defaultMailbox: "INBOX"
+    defaultMailbox: "*"
   },
   naver: {
     label: "네이버 메일",
@@ -37,7 +37,7 @@ export const MAIL_PROVIDER_CONFIG: Record<
     smtpHost: "smtp.naver.com",
     smtpPort: "587",
     smtpSecure: false,
-    defaultMailbox: "INBOX"
+    defaultMailbox: "*"
   },
   daum: {
     label: "다음 메일",
@@ -47,7 +47,7 @@ export const MAIL_PROVIDER_CONFIG: Record<
     smtpHost: "smtp.daum.net",
     smtpPort: "465",
     smtpSecure: true,
-    defaultMailbox: "INBOX"
+    defaultMailbox: "*"
   },
   kakao: {
     label: "카카오메일",
@@ -57,7 +57,7 @@ export const MAIL_PROVIDER_CONFIG: Record<
     smtpHost: "smtp.kakao.com",
     smtpPort: "465",
     smtpSecure: true,
-    defaultMailbox: "INBOX"
+    defaultMailbox: "*"
   },
   outlook: {
     label: "Outlook",
@@ -67,7 +67,7 @@ export const MAIL_PROVIDER_CONFIG: Record<
     smtpHost: "smtp-mail.outlook.com",
     smtpPort: "587",
     smtpSecure: false,
-    defaultMailbox: "INBOX"
+    defaultMailbox: "*"
   },
   icloud: {
     label: "iCloud Mail",
@@ -77,7 +77,7 @@ export const MAIL_PROVIDER_CONFIG: Record<
     smtpHost: "smtp.mail.me.com",
     smtpPort: "587",
     smtpSecure: false,
-    defaultMailbox: "INBOX"
+    defaultMailbox: "*"
   },
   yahoo: {
     label: "Yahoo Mail",
@@ -87,7 +87,7 @@ export const MAIL_PROVIDER_CONFIG: Record<
     smtpHost: "smtp.mail.yahoo.com",
     smtpPort: "465",
     smtpSecure: true,
-    defaultMailbox: "INBOX"
+    defaultMailbox: "*"
   },
   custom: {
     label: "직접 설정",
@@ -97,7 +97,7 @@ export const MAIL_PROVIDER_CONFIG: Record<
     smtpHost: "",
     smtpPort: "465",
     smtpSecure: true,
-    defaultMailbox: "INBOX"
+    defaultMailbox: "*"
   }
 };
 

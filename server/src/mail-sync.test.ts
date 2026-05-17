@@ -4,6 +4,7 @@ import {
   buildMailSyncMonthRange,
   buildMailSyncSearchQuery,
   isMessageInReceivedMonthRange,
+  resolveMailboxList,
   resolveMailSyncReceivedMonth
 } from "./mail-sync.js";
 
@@ -73,4 +74,24 @@ test("mail sync filters internalDate by Seoul month boundaries", () => {
     isMessageInReceivedMonthRange(new Date("2026-05-01T00:00:00+09:00"), range),
     false
   );
+});
+
+test("mail sync expands wildcard mailbox setting to selectable mailboxes", async () => {
+  const client = {
+    async list() {
+      return [
+        { path: "INBOX", flags: new Set<string>() },
+        { path: "Deleted Messages", flags: new Set<string>(["\\Trash"]) },
+        { path: "Junk", flags: new Set<string>(["\\Junk"]) },
+        { path: "Sent Messages", flags: new Set<string>(["\\Sent"]) },
+        { path: "[Gmail]", flags: new Set<string>(["\\NoSelect"]) },
+        { path: "프로모션", flags: [] }
+      ];
+    }
+  };
+
+  assert.deepEqual(await resolveMailboxList(client as never, ["*"]), [
+    "INBOX",
+    "프로모션"
+  ]);
 });

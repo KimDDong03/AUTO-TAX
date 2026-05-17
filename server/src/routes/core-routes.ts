@@ -4,6 +4,7 @@ import type { AppSettings, Customer } from "../domain.js";
 import type { AppStore } from "../store-contract.js";
 import type { AuthenticatedAppSession } from "../supabase.js";
 import type { AuthUserSummary } from "../admin-types.js";
+import { sendContactInquiryEmail } from "../contact-inquiry-email.js";
 import { createPublicConsultationRequest } from "../consultation-requests.js";
 import {
   createPublicSignupRequest,
@@ -139,6 +140,21 @@ const publicConsultationRequestSchema = z.object({
     .min(7)
     .max(32)
     .regex(/^[0-9+\-()\s.]+$/, "전화번호 형식이 올바르지 않습니다.")
+});
+
+const publicContactInquirySchema = z.object({
+  category: z.enum(["요금제 문의", "서비스 문의", "기타 문의"]),
+  message: z.string().trim().min(1).max(2000),
+  email: z.string().trim().email().max(160),
+  name: z.string().trim().min(1).max(80),
+  phone: z
+    .string()
+    .trim()
+    .min(7)
+    .max(32)
+    .regex(/^[0-9+\-()\s.]+$/, "전화번호 형식이 올바르지 않습니다."),
+  region: z.string().trim().min(1).max(40),
+  consent: z.boolean().refine((value) => value, "개인정보 수집·이용에 동의해야 합니다.")
 });
 
 const DUPLICATE_SIGNUP_LOGIN_ID_MESSAGE = "이미 사용중인 아이디입니다.";
@@ -523,6 +539,28 @@ export function registerCoreRoutes(deps: RouteDeps) {
     });
 
     res.status(201).json({ request });
+  });
+
+  app.post("/api/public/contact-inquiries", publicConsultationLimiter, async (req, res) => {
+    const payload = publicContactInquirySchema.parse(req.body ?? {});
+
+    try {
+      const result = await sendContactInquiryEmail({
+        category: payload.category,
+        message: payload.message,
+        email: payload.email,
+        name: payload.name,
+        phone: payload.phone,
+        region: payload.region,
+        requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+        requestUserAgent: req.header("user-agent") ?? ""
+      });
+
+      res.status(201).json({ ok: true, messageId: result.messageId });
+    } catch (error) {
+      console.error("[contact] 문의 메일 발송에 실패했습니다.", error);
+      throw new HttpError(503, "문의 메일 발송 설정이 아직 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.");
+    }
   });
 
   app.get("/api/bootstrap", async (_req, res) => {
