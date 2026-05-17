@@ -56,3 +56,40 @@ test("getLocalRenewalHelperStatus reuses cached offline status until a forced re
     resetLocalRenewalHelperStatusCacheForTests();
   }
 });
+
+test("getLocalRenewalHelperStatus does not force the wrong private network target space", async () => {
+  resetLocalRenewalHelperStatusCacheForTests();
+  const originalFetch = globalThis.fetch;
+  let capturedInit: RequestInit | undefined;
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedInit = init;
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        version: "0.1.17",
+        status: {
+          processDetected: true,
+          bridgeSummary: "ok",
+          notes: ["로컬 헬퍼가 준비되었습니다."]
+        }
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const status = await getLocalRenewalHelperStatus({ force: true });
+
+    assert.equal(status.online, true);
+    assert.equal((capturedInit as RequestInit & { targetAddressSpace?: string } | undefined)?.targetAddressSpace, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    resetLocalRenewalHelperStatusCacheForTests();
+  }
+});

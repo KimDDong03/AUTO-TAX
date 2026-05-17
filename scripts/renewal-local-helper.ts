@@ -539,10 +539,7 @@ export function createRenewalLocalHelperApp() {
 
   app.get("/health", async (_req, res, next) => {
     try {
-      const [probe, popbillChooserDebug] = await Promise.all([
-        collectBridgeProbeResult({ includeDetailedProbe: false }),
-        getPopbillChooserDebugReadiness()
-      ]);
+      const probe = await collectBridgeProbeResult({ includeDetailedProbe: false });
       res.json({
         ok: true,
         version,
@@ -551,8 +548,7 @@ export function createRenewalLocalHelperApp() {
           bridgeSummary: probe.bridge.summary,
           notes: probe.notes
         },
-        popbillDebugArtifacts: getPopbillDebugArtifactSupport(),
-        popbillChooserDebug
+        popbillDebugArtifacts: getPopbillDebugArtifactSupport()
       });
     } catch (error) {
       next(error);

@@ -8,10 +8,10 @@ import type {
 } from "./types";
 
 const DEFAULT_LOCAL_RENEWAL_HELPER_PORT = 35119;
-const configuredLocalRenewalHelperPort = typeof import.meta.env.VITE_RENEWAL_HELPER_PORT === "string"
+const configuredLocalRenewalHelperPort = typeof import.meta.env?.VITE_RENEWAL_HELPER_PORT === "string"
   ? import.meta.env.VITE_RENEWAL_HELPER_PORT.trim()
   : "";
-const configuredLocalRenewalHelperHosts = typeof import.meta.env.VITE_RENEWAL_HELPER_ALLOWED_ORIGINS === "string"
+const configuredLocalRenewalHelperHosts = typeof import.meta.env?.VITE_RENEWAL_HELPER_ALLOWED_ORIGINS === "string"
   ? import.meta.env.VITE_RENEWAL_HELPER_ALLOWED_ORIGINS.split(",").map((value) => value.trim().toLowerCase())
   : [];
 const LOCAL_RENEWAL_HELPER_HOST_ALLOWLIST = new Set([
@@ -141,10 +141,6 @@ type GetLocalRenewalHelperStatusOptions = {
   force?: boolean;
 };
 
-type LocalNetworkFetchInit = RequestInit & {
-  targetAddressSpace?: "local";
-};
-
 const LOCAL_RENEWAL_HELPER_OFFLINE_RETRY_MS = 15_000;
 
 let localRenewalHelperStatusInFlight: Promise<LocalRenewalHelperStatus> | null = null;
@@ -172,11 +168,10 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
 
   let response: Response;
   try {
-    const fetchOptions: LocalNetworkFetchInit = {
+    const fetchOptions: RequestInit = {
       ...init,
       cache: "no-store",
-      headers,
-      targetAddressSpace: "local"
+      headers
     };
     response = await fetch(`${LOCAL_RENEWAL_HELPER_URL}${pathname}`, fetchOptions);
   } catch {
