@@ -256,6 +256,12 @@ function isRetryablePreflightFailureDetail(detail: string): boolean {
   );
 }
 
+function shouldRetryPreflightResult(result: Awaited<ReturnType<typeof collectPreflightProbeResult>>): boolean {
+  const probe = result.bridge.preflightProbe;
+  const detail = `${probe.error ?? ""} ${probe.message ?? ""}`.trim();
+  return isRetryablePreflightFailureDetail(detail) || (probe.ok && !probe.renewInfoSnapshot && !detail);
+}
+
 async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -510,8 +516,7 @@ async function collectPreflightProbeResultWithRetry(
   let result = await collectPreflightProbeResult(payload);
 
   for (let attempt = 0; attempt < retryCount; attempt += 1) {
-    const detail = `${result.bridge.preflightProbe.error ?? ""} ${result.bridge.preflightProbe.message ?? ""}`.trim();
-    if (!isRetryablePreflightFailureDetail(detail)) {
+    if (!shouldRetryPreflightResult(result)) {
       return result;
     }
 

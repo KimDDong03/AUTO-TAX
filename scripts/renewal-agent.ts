@@ -35,7 +35,8 @@ const SIGNGATE_RENEW_URL =
   "https://www.signgate.com/renew/stepEntrpsCrtfctCnfirm.sg";
 const SIGNGATE_ORIGIN = "https://www.signgate.com";
 const SIGNGATE_CONFIG_CACHE_TTL_MS = 10 * 60 * 1000;
-const SIGNGATE_COOKIE_HEADER_CACHE_TTL_MS = 30 * 1000;
+// SignGate renewal AJAX is session-stateful; sharing one cookie across parallel preflights can return empty company fields.
+const SIGNGATE_COOKIE_HEADER_CACHE_TTL_MS = 0;
 const HOMETAX_ORIGIN = "https://hometax.go.kr";
 const HOMETAX_MAGICLINE_CONFIG_URL =
   "https://hometax.go.kr/NTSMagicLine4Web/ML4Web/js/ML4Web_Config.js";
