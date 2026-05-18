@@ -33255,6 +33255,13 @@ button.issuance-list-item {
   letter-spacing: 0 !important;
 }
 
+.app-shell-topnav .content-settings .onboarding-inline-status strong {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  word-break: keep-all !important;
+}
+
 .app-shell-topnav .content-settings .button-row.onboarding-primary-row {
   gap: var(--settings-gap-sm) !important;
   align-items: center !important;

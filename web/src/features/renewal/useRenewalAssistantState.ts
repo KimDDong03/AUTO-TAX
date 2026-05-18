@@ -271,57 +271,6 @@ export function useRenewalAssistantState({
         defaultRenewalHelperDownloadUrl
       })
     );
-
-    if (!status.online) {
-      return;
-    }
-
-    try {
-      setCustomerRenewalAssistant((prev) =>
-        buildCustomerRenewalAssistant({
-          current: prev,
-          status,
-          helperMessage: "공동인증서 저장소를 읽는 중입니다. 완료되면 건수가 표시됩니다...",
-          releaseMetadata,
-          defaultRenewalHelperDownloadUrl
-        })
-      );
-
-      const response = await requestLocalRenewalBridgeProbe();
-      const allCertificates = response.result.bridge.storageProbe.ok
-        ? response.result.bridge.storageProbe.certificates
-        : [];
-      const availableCertificates = allCertificates.filter(
-        (certificate) =>
-          !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
-      );
-      const bridgeJob = buildLocalRenewalBridgeJob(
-        response.result,
-        availableCertificates.length,
-        "사용 가능한 공동인증서",
-        "만료되지 않은 공동인증서를 찾지 못했습니다."
-      );
-      const helperMessage = bridgeJob.error ?? bridgeJob.summary;
-
-      setCustomerRenewalAssistant((prev) =>
-        buildCustomerRenewalAssistant({
-          current: prev,
-          status: {
-            online: true,
-            version: response.version,
-            message: helperMessage
-          },
-          helperVersion: response.version,
-          helperMessage,
-          jobs: [bridgeJob, ...(prev?.jobs ?? [])],
-          certificates: allCertificates,
-          releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
-          defaultRenewalHelperDownloadUrl
-        })
-      );
-    } catch {
-      // Keep the latest /health 상태 결과 as-is when bridge probe fails.
-    }
   }, [defaultRenewalHelperDownloadUrl]);
 
   const ensureLocalRenewalHelperActionAllowed = useCallback(
