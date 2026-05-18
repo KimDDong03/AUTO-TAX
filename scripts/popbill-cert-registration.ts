@@ -14,6 +14,53 @@ export type PopbillCertificateRegistrationInput = {
   certificatePassword: string;
 };
 
+export type PopbillCertificateRegistrationTiming = {
+  totalMs: number;
+  browserLaunchMs: number;
+  permissionMs: number;
+  pageLoadMs: number;
+  certificateResolveMs: number;
+  sectionOpenMs: number;
+  frameReadyMs: number;
+  candidateInspectMs: number;
+  selectionReadyMs: number;
+  submitMs: number;
+  completionConfirmMs: number;
+};
+
+export type PopbillCertificateRegistrationStage =
+  | "browser-launch"
+  | "permission"
+  | "page-load"
+  | "certificate-resolve"
+  | "already-registered-check"
+  | "section-open"
+  | "frame-ready"
+  | "candidate-inspect"
+  | "selection-ready"
+  | "password-fill"
+  | "submit"
+  | "completion-confirm";
+
+export class PopbillCertificateRegistrationError extends Error {
+  readonly stage: PopbillCertificateRegistrationStage;
+  readonly timing: PopbillCertificateRegistrationTiming;
+
+  constructor(
+    message: string,
+    options: {
+      stage: PopbillCertificateRegistrationStage;
+      timing: PopbillCertificateRegistrationTiming;
+      cause?: unknown;
+    }
+  ) {
+    super(message, { cause: options.cause });
+    this.name = "PopbillCertificateRegistrationError";
+    this.stage = options.stage;
+    this.timing = options.timing;
+  }
+}
+
 export type PopbillCertificateRegistrationResult = {
   outcome: "registered" | "already-registered";
   browserChannel: string;
@@ -24,6 +71,7 @@ export type PopbillCertificateRegistrationResult = {
   userDN: string | null;
   localBridgeBaseUrl: string | null;
   message: string;
+  timing: PopbillCertificateRegistrationTiming;
 };
 
 export type PopbillCertificateCandidateIdentifier = "serial" | "userDN" | "certificateIndex";
@@ -1807,6 +1855,25 @@ async function inspectPopbillCertificateSelectionDetails(
 export async function registerPopbillCertificate(
   input: PopbillCertificateRegistrationInput
 ): Promise<PopbillCertificateRegistrationResult> {
+  const timingStartedAt = Date.now();
+  const timing = {
+    browserLaunchMs: 0,
+    permissionMs: 0,
+    pageLoadMs: 0,
+    certificateResolveMs: 0,
+    sectionOpenMs: 0,
+    frameReadyMs: 0,
+    candidateInspectMs: 0,
+    selectionReadyMs: 0,
+    submitMs: 0,
+    completionConfirmMs: 0
+  };
+  let registrationOutcome: "registered" | "already-registered" | "failed" = "failed";
+  let registrationStage: PopbillCertificateRegistrationStage = "browser-launch";
+  const buildTiming = () => ({
+    totalMs: Date.now() - timingStartedAt,
+    ...timing
+  });
   const userDataDir = resolveUserDataDir();
   const requestedCertificateCn = input.certificateCn?.trim() ?? "";
   const resolvedCertificatePromise =
@@ -1831,9 +1898,14 @@ export async function registerPopbillCertificate(
   let localBridgeBaseUrl: string | null = null;
 
   try {
+    const browserLaunchStartedAt = Date.now();
     const launched = await launchBrowserContext(userDataDir);
+    timing.browserLaunchMs = Date.now() - browserLaunchStartedAt;
     context = launched.context;
+    registrationStage = "permission";
+    const permissionStartedAt = Date.now();
     await tryGrantLocalNetworkAccessPermission(context, input.certificateRegistrationUrl);
+    timing.permissionMs = Date.now() - permissionStartedAt;
     for (const existingPage of context.pages()) {
       try {
         await existingPage.close({ runBeforeUnload: true });
@@ -1859,22 +1931,30 @@ export async function registerPopbillCertificate(
       void dialog.accept();
     });
 
+    registrationStage = "page-load";
+    const pageLoadStartedAt = Date.now();
     await page.goto(input.certificateRegistrationUrl, {
       waitUntil: "domcontentloaded",
       timeout: 120_000
     });
     await page.waitForTimeout(4_000);
+    timing.pageLoadMs = Date.now() - pageLoadStartedAt;
 
     await throwIfExpiredTokenVisible(page, dialogMessages);
 
     const initialText = await page.locator("body").innerText().catch(() => "");
+    registrationStage = "certificate-resolve";
+    const certificateResolveStartedAt = Date.now();
     const resolvedCertificateResult = await resolvedCertificatePromise;
+    timing.certificateResolveMs = Date.now() - certificateResolveStartedAt;
     if (!resolvedCertificateResult.ok) {
       throw resolvedCertificateResult.error;
     }
     const resolvedCertificate = resolvedCertificateResult.value;
 
+    registrationStage = "already-registered-check";
     if (detectAlreadyRegistered(initialText)) {
+      registrationOutcome = "already-registered";
       return {
         outcome: "already-registered",
         browserChannel: launched.browserChannel,
@@ -1884,14 +1964,20 @@ export async function registerPopbillCertificate(
         serial: resolvedCertificate.serial,
         userDN: resolvedCertificate.userDN,
         localBridgeBaseUrl,
-        message: "이미 팝빌 공동인증서가 등록되어 있습니다."
+        message: "이미 팝빌 공동인증서가 등록되어 있습니다.",
+        timing: buildTiming()
       };
     }
 
+    registrationStage = "section-open";
+    const sectionOpenStartedAt = Date.now();
     await openPopbillElectronicTaxCertificateSection(page, dialogMessages);
     await page.waitForTimeout(5_000);
+    timing.sectionOpenMs = Date.now() - sectionOpenStartedAt;
     await throwIfExpiredTokenVisible(page, dialogMessages);
 
+    registrationStage = "frame-ready";
+    const frameReadyStartedAt = Date.now();
     const childFrame = page.frames().find((frame) => frame.url().includes("/App/ML4Web/Child.html"));
     if (!childFrame) {
       await throwIfExpiredTokenVisible(page, dialogMessages);
@@ -1899,7 +1985,10 @@ export async function registerPopbillCertificate(
     }
 
     await childFrame.locator("#input_cert_pw").waitFor({ state: "visible", timeout: 20_000 });
+    timing.frameReadyMs = Date.now() - frameReadyStartedAt;
     await throwIfExpiredTokenVisible(page, dialogMessages);
+    registrationStage = "candidate-inspect";
+    const candidateInspectStartedAt = Date.now();
     let frameInspection = await inspectPopbillCertificateSelectionFrame(childFrame, {
       certificateCn: resolvedCertificate.certificateCn,
       certificateIndex: resolvedCertificate.certificateIndex,
@@ -1916,6 +2005,7 @@ export async function registerPopbillCertificate(
         userDN: resolvedCertificate.userDN
       });
     }
+    timing.candidateInspectMs = Date.now() - candidateInspectStartedAt;
     if (frameInspection.visibleMatchCount === 0) {
       const artifact = await writePopbillDebugArtifact({
         stage: "no-visible-cn-match",
@@ -1989,10 +2079,13 @@ export async function registerPopbillCertificate(
     console.info(
       `[popbill-cert-registration] selecting ${resolvedCertificate.certificateCn} using ${selectedCandidate.reason ?? frameInspection.selectionReason ?? "CN match"} (${selectedCandidate.selector})`
     );
+    registrationStage = "selection-ready";
+    const selectionReadyStartedAt = Date.now();
     const selectionActivationState = await ensurePopbillCertificateSelectionReady(
       childFrame,
       selectedCandidate.selector
     );
+    timing.selectionReadyMs = Date.now() - selectionReadyStartedAt;
     if (!isPopbillSelectionReady(selectionActivationState)) {
       const artifact = await writePopbillDebugArtifact({
         stage: "registration-confirmation-failed",
@@ -2012,6 +2105,7 @@ export async function registerPopbillCertificate(
       );
     }
 
+    registrationStage = "password-fill";
     try {
       await childFrame.locator("#input_cert_pw").fill(input.certificatePassword);
     } catch (error) {
@@ -2043,11 +2137,13 @@ export async function registerPopbillCertificate(
       );
     }
 
+    registrationStage = "submit";
     const registrationResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" && response.url().includes("/__API_V1__/Taxinvoice/Preference/Certificate"),
       { timeout: 30_000 }
     );
+    const submitStartedAt = Date.now();
     await childFrame.locator("#btn_confirm_iframe").click({ force: true });
     try {
       await registrationResponse;
@@ -2071,7 +2167,10 @@ export async function registerPopbillCertificate(
       });
       throw new Error(`${resolvedError} ${formatPopbillDebugArtifactSummary(artifact)}`);
     }
+    timing.submitMs = Date.now() - submitStartedAt;
 
+    registrationStage = "completion-confirm";
+    const completionConfirmStartedAt = Date.now();
     try {
       await waitForPageText(page, "인증서가 등록", 30_000);
     } catch {
@@ -2092,7 +2191,9 @@ export async function registerPopbillCertificate(
       });
       throw new Error(`${resolvedError} ${formatPopbillDebugArtifactSummary(artifact)}`);
     }
+    timing.completionConfirmMs = Date.now() - completionConfirmStartedAt;
 
+    registrationOutcome = "registered";
     return {
       outcome: "registered",
       browserChannel: launched.browserChannel,
@@ -2102,9 +2203,25 @@ export async function registerPopbillCertificate(
       serial: resolvedCertificate.serial,
       userDN: resolvedCertificate.userDN,
       localBridgeBaseUrl,
-      message: "팝빌 공동인증서 등록을 완료했습니다."
+      message: "팝빌 공동인증서 등록을 완료했습니다.",
+      timing: buildTiming()
     };
+  } catch (error) {
+    if (error instanceof PopbillCertificateRegistrationError) {
+      throw error;
+    }
+    throw new PopbillCertificateRegistrationError(
+      error instanceof Error ? error.message : "팝빌 공동인증서 등록 중 알 수 없는 오류가 발생했습니다.",
+      {
+        stage: registrationStage,
+        timing: buildTiming(),
+        cause: error
+      }
+    );
   } finally {
+    console.info(
+      `[popbill-cert-registration-timing] outcome=${registrationOutcome} stage=${registrationStage} totalMs=${Date.now() - timingStartedAt} browserLaunchMs=${timing.browserLaunchMs} permissionMs=${timing.permissionMs} pageLoadMs=${timing.pageLoadMs} certificateResolveMs=${timing.certificateResolveMs} sectionOpenMs=${timing.sectionOpenMs} frameReadyMs=${timing.frameReadyMs} candidateInspectMs=${timing.candidateInspectMs} selectionReadyMs=${timing.selectionReadyMs} submitMs=${timing.submitMs} completionConfirmMs=${timing.completionConfirmMs}`
+    );
     if (context) {
       await context.close().catch(() => undefined);
     }

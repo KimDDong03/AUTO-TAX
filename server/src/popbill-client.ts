@@ -65,15 +65,11 @@ function envString(name: string): string | undefined {
 }
 
 function resolvePopbillNoticeContactName(): string {
-  return envString("AUTO_TAX_POPBILL_CONTACT_NAME") ?? "AUTO-TAX";
+  return envString("AUTO_TAX_POPBILL_CONTACT_NAME") ?? "";
 }
 
 function resolvePopbillNoticeContactTel(): string {
-  return (
-    envString("AUTO_TAX_POPBILL_CONTACT_TEL") ??
-    envString("SOLAPI_SENDER_NUMBER") ??
-    ""
-  );
+  return envString("AUTO_TAX_POPBILL_CONTACT_TEL") ?? "";
 }
 
 function resolveIssueMessageSenderNumber(): string {
@@ -90,16 +86,7 @@ function resolveIssueMessageSenderName(input: IssueCompleteMessageInput): string
 }
 
 function resolvePopbillNoticeContactEmail(): string {
-  const explicitContactEmail = envString("AUTO_TAX_POPBILL_CONTACT_EMAIL");
-  if (explicitContactEmail) {
-    return explicitContactEmail;
-  }
-
-  const opsEmail = envString("AUTO_TAX_OPS_EMAILS")
-    ?.split(",")
-    .map((item) => item.trim())
-    .find(Boolean);
-  return opsEmail ?? "";
+  return envString("AUTO_TAX_POPBILL_CONTACT_EMAIL") ?? "";
 }
 
 function matchesAny(source: string, patterns: string[]): boolean {
@@ -209,9 +196,16 @@ export function isPopbillMemberMissingError(error: unknown): boolean {
   const normalizedRawMessage = error.rawMessage.toLowerCase();
   return (
     error.code === "-99003008" ||
-    (error.operation === "contact-update" && error.code === "-10000006") ||
     normalizedRawMessage.includes("연동회원으로 가입된 사업자 번호가 존재하지 않습니다") ||
     normalizedRawMessage.includes("가입된 사업자 번호가 존재하지 않습니다")
+  );
+}
+
+function isPopbillContactUserIdMismatchError(error: unknown): boolean {
+  return (
+    error instanceof PopbillApiError &&
+    error.operation === "contact-update" &&
+    (error.code === "-10000006" || error.code === "-10000038")
   );
 }
 
@@ -395,11 +389,6 @@ export async function quitMember(settings: AppSettings, customer: Customer, quit
   }
   const corpNum = digitsOnly(customer.businessNumber);
   const popbillUserId = customer.popbillUserId?.trim() ?? "";
-
-  if (popbillUserId) {
-    await updatePopbillMemberContact(settings, customer);
-  }
-
   const service = getService(settings);
   const quitByCorpNumOnly = async () =>
     await promisify("quit-member", (done) => {
@@ -410,6 +399,18 @@ export async function quitMember(settings: AppSettings, customer: Customer, quit
         (error: CallbackResult<never>["error"]) => done({ error })
       );
     });
+
+  if (popbillUserId) {
+    try {
+      await updatePopbillMemberContact(settings, customer);
+    } catch (error) {
+      if (!isPopbillContactUserIdMismatchError(error)) {
+        throw error;
+      }
+
+      return await quitByCorpNumOnly();
+    }
+  }
 
   if (!popbillUserId) {
     return await quitByCorpNumOnly();

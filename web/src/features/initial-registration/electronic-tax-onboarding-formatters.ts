@@ -81,10 +81,13 @@ export function buildElectronicTaxRegistrationFollowupNotice(options: {
   alreadyRegisteredNames: string[];
   failedDetails: string[];
   refreshWarnings: string[];
+  joinedBeforeRegisterCount?: number;
   skippedBeforeJoinCount?: number;
 }): string {
+  const joinedBeforeRegisterCount = options.joinedBeforeRegisterCount ?? 0;
   const skippedBeforeJoinCount = options.skippedBeforeJoinCount ?? 0;
   const summaryParts = [
+    joinedBeforeRegisterCount > 0 ? `발행준비 ${joinedBeforeRegisterCount}건` : null,
     options.completedNames.length > 0 ? `자동 등록 ${options.completedNames.length}건` : null,
     options.alreadyRegisteredNames.length > 0 ? `이미 등록 ${options.alreadyRegisteredNames.length}건` : null,
     options.failedDetails.length > 0 ? `실패 ${options.failedDetails.length}건` : null,

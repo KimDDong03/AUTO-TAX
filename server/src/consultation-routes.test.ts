@@ -9,6 +9,12 @@ type ConsultationRow = {
   id: string;
   name: string;
   phone: string;
+  category: string;
+  message: string;
+  email: string;
+  region: string;
+  request_ip: string;
+  request_user_agent: string;
   status: "new" | "contacted" | "workspace_opened" | "closed";
   note: string;
   handled_by: string | null;
@@ -59,6 +65,12 @@ function createConsultationAdminClient() {
         id: `00000000-0000-4000-8000-${String(rows.length + 1).padStart(12, "0")}`,
         name: this.insertPayload.name ?? "",
         phone: this.insertPayload.phone ?? "",
+        category: this.insertPayload.category ?? "상담 신청",
+        message: this.insertPayload.message ?? "",
+        email: this.insertPayload.email ?? "",
+        region: this.insertPayload.region ?? "",
+        request_ip: this.insertPayload.request_ip ?? "",
+        request_user_agent: this.insertPayload.request_user_agent ?? "",
         status: this.insertPayload.status ?? "new",
         note: "",
         handled_by: null,
@@ -195,6 +207,44 @@ test("public consultation route validates, stores, and applies its limiter", asy
   }
 });
 
+test("public contact inquiry route stores full inquiry details for ops review", async () => {
+  const { client, rows } = createConsultationAdminClient();
+  const app = express();
+  app.use(express.json());
+  registerCoreForConsultationTest(app, client);
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    const created = await fetch(`${baseUrl}/api/public/contact-inquiries`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        category: "서비스 문의",
+        message: "데모를 보고 싶습니다.",
+        email: "demo@example.com",
+        name: "홍길동",
+        phone: "010-1234-5678",
+        region: "수도권",
+        consent: true
+      })
+    });
+    assert.equal(created.status, 201);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.category, "서비스 문의");
+    assert.equal(rows[0]?.message, "데모를 보고 싶습니다.");
+    assert.equal(rows[0]?.email, "demo@example.com");
+    assert.equal(rows[0]?.region, "수도권");
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
 test("ops consultation routes list and update requests behind platform-admin guard", async () => {
   const { client } = createConsultationAdminClient();
   const app = express();
@@ -251,6 +301,12 @@ test("ops consultation routes list and update requests behind platform-admin gua
       id: createdPayload.request.id,
       name: "홍길동",
       phone: "010-1234-5678",
+      category: "상담 신청",
+      message: "",
+      email: "",
+      region: "",
+      requestIp: "",
+      requestUserAgent: "",
       status: "contacted",
       note: "통화 완료",
       handledBy: "11111111-1111-4111-8111-111111111111",

@@ -51,7 +51,12 @@ type ResolveElectronicTaxOnboardingTemplateWorkbookArgs = {
   loadAvailableCertificates: () => Promise<RenewalAgentCertificate[]>;
   resolveSharedPassword: () => Promise<string>;
   requestPreflight: (payload: OnboardingPreflightPayload) => Promise<OnboardingPreflightResponse>;
-  requestPreflightBatch?: (payloads: OnboardingPreflightPayload[]) => Promise<OnboardingPreflightResponse[]>;
+  requestPreflightBatch?: (
+    payloads: OnboardingPreflightPayload[],
+    options?: {
+      onProgress?: (message: string) => void;
+    }
+  ) => Promise<OnboardingPreflightResponse[]>;
   preflightCache?: OnboardingPreflightCache;
   onboardingPreflightConcurrency?: number;
   onboardingPreflightBatchSize?: number;
@@ -601,8 +606,21 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     }
 
     for (const chunk of chunkItems(uncachedRequests, onboardingPreflightBatchSize)) {
-      args.onProgress?.(`공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 진행 중...`);
-      const responses = await args.requestPreflightBatch(chunk.map((request) => request.payload));
+      const chunkStart = completedPreflightCount + 1;
+      const chunkEnd = completedPreflightCount + chunk.length;
+      args.onProgress?.(
+        `공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 완료 · ${chunkStart}-${chunkEnd}번 묶음 요청 중`
+      );
+      args.onProgress?.(
+        `공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 완료 · ${chunkStart}-${chunkEnd}번 응답 대기 중`
+      );
+      const responses = await args.requestPreflightBatch(chunk.map((request) => request.payload), {
+        onProgress: (message) => {
+          args.onProgress?.(
+            `공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 완료 · ${message}`
+          );
+        }
+      });
       responses.forEach((response, index) => {
         const request = chunk[index];
         if (request) {
@@ -610,7 +628,9 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
         }
       });
       completedPreflightCount += responses.length;
-      args.onProgress?.(`공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 완료`);
+      args.onProgress?.(
+        `공동인증서 사전조회 ${completedPreflightCount}/${totalPreflightCount}건 완료 · ${chunkStart}-${chunkEnd}번 묶음 처리 완료`
+      );
     }
   }
 

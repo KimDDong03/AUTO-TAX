@@ -7,6 +7,14 @@ function envString(name: string): string | undefined {
   return value ? value : undefined;
 }
 
+function requiredEnvString(name: string): string {
+  const value = envString(name);
+  if (!value) {
+    throw new Error(`${name} 환경변수가 설정되지 않았습니다.`);
+  }
+  return value;
+}
+
 function envBool(name: string): boolean | undefined {
   const value = envString(name)?.toLowerCase();
   if (!value) return undefined;
@@ -28,6 +36,16 @@ export function applyServerManagedSettings(settings: AppSettings): AppSettings {
         : settings.popbillUserIdPrefix,
     popbillSharedPassword:
       envString("AUTO_TAX_POPBILL_SHARED_PASSWORD") ?? settings.popbillSharedPassword
+  };
+}
+
+export function getRequiredServerManagedPopbillCustomerDefaults(): Pick<
+  AppSettings,
+  "popbillUserIdPrefix" | "popbillSharedPassword"
+> {
+  return {
+    popbillUserIdPrefix: normalizePopbillUserPrefix(requiredEnvString("AUTO_TAX_POPBILL_USER_ID_PREFIX")),
+    popbillSharedPassword: requiredEnvString("AUTO_TAX_POPBILL_SHARED_PASSWORD")
   };
 }
 

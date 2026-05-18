@@ -21,17 +21,24 @@ Environment templates are split by runtime:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `AUTO_TAX_ENCRYPTION_KEY`
 - `AUTO_TAX_OPS_EMAILS`
+- `AUTO_TAX_JOB_SECRET`
 - `AUTO_TAX_POPBILL_LINK_ID`
 - `AUTO_TAX_POPBILL_SECRET_KEY`
 - `AUTO_TAX_POPBILL_IS_TEST`
 - `AUTO_TAX_POPBILL_USER_ID_PREFIX`
 - `AUTO_TAX_POPBILL_SHARED_PASSWORD`
+- `AUTO_TAX_POPBILL_CONTACT_NAME`
+- `AUTO_TAX_POPBILL_CONTACT_EMAIL`
+- `AUTO_TAX_POPBILL_CONTACT_TEL`
+
+Popbill customer identity values are intentionally fail-closed. If `AUTO_TAX_POPBILL_USER_ID_PREFIX`
+or `AUTO_TAX_POPBILL_SHARED_PASSWORD` is missing, new customer creation fails instead of falling back
+to an organization default prefix.
 
 ### Optional or situational
 
 - `VITE_API_BASE_URL`
 - `AUTO_TAX_ALLOWED_ORIGINS`
-- `AUTO_TAX_POPBILL_CONTACT_EMAIL` (falls back to the first `AUTO_TAX_OPS_EMAILS` address)
 - `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`
 - Signup email verification defaults to Gmail SMTP when both `AUTO_TAX_SUPPORT_TO_EMAIL` and `AUTO_TAX_SUPPORT_APP_PASSWORD` are set.
 - `AUTO_TAX_SIGNUP_EMAIL_PROVIDER=smtp`

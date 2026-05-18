@@ -520,6 +520,9 @@ async function collectPreflightProbeResultWithRetry(
       return result;
     }
 
+    console.info(
+      `[renewal-preflight-helper-retry] certificateIndex=${payload.certificateIndex} attempt=${attempt + 1}/${retryCount} reason=${sanitizeSensitiveText(result.bridge.preflightProbe.error ?? result.bridge.preflightProbe.message ?? "unknown")}`
+    );
     await delay(PREFLIGHT_TRANSPORT_RETRY_DELAY_MS);
     result = await collectPreflightProbeResult(payload);
   }

@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 const webRoot = fileURLToPath(new URL(".", import.meta.url));
 const projectRoot = path.resolve(webRoot, "..");
@@ -9,7 +10,12 @@ const projectRoot = path.resolve(webRoot, "..");
 export default defineConfig({
   root: webRoot,
   envDir: projectRoot,
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": path.resolve(webRoot, "src")
+    }
+  },
   server: {
     port: 5173,
     proxy: {

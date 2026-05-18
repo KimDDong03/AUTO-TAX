@@ -20,6 +20,8 @@ export type QueueAutoJoinCustomerJobResult = {
 const AUTO_JOIN_POPBILL_MAX_ID_RETRIES = 5;
 export const POPBILL_JOIN_SUPPORT_MESSAGE =
   "발행 연동 가입을 완료하지 못했습니다. AUTO-TAX 운영팀에 문의해 주세요.";
+export const POPBILL_ALREADY_MEMBER_MESSAGE =
+  "이미 팝빌에 가입된 사업자번호입니다. 기존 팝빌 계정 정보 확인 후 발행 연동을 진행해야 합니다.";
 type PopbillAutoJoinOperation = "check-is-member" | "join-member";
 
 type AutoJoinCustomerDeps = {
@@ -35,6 +37,13 @@ function isPopbillUserIdConflictError(errorMessage: string): boolean {
     normalized.includes("아이디") ||
     normalized.includes("사용중") ||
     normalized.includes("중복")
+  );
+}
+
+function isAlreadyPopbillMemberError(error: unknown, errorMessage: string): boolean {
+  return (
+    (error instanceof PopbillApiError && error.code === "-10001000") ||
+    errorMessage.includes("가입된 회원")
   );
 }
 
@@ -107,6 +116,12 @@ export async function autoJoinCustomerPopbill(
   _getErrorMessage: (error: unknown, fallbackMessage?: string) => string,
   deps: AutoJoinCustomerDeps = {}
 ): Promise<AutoJoinCustomerResult> {
+  const timingStartedAt = Date.now();
+  let finalStatus: AutoJoinCustomerResult["status"] | "unknown" = "unknown";
+  let checkMembershipMs = 0;
+  let joinMemberMs = 0;
+  let fallbackCheckMs = 0;
+  let joinAttempts = 0;
   const checkCustomerMembership = deps.checkIsMember ?? checkIsMember;
   const joinCustomerMembership = deps.joinMember ?? joinMember;
 
@@ -125,8 +140,15 @@ export async function autoJoinCustomerPopbill(
     );
 
   const toErrorCode = (error: unknown) => (error instanceof PopbillApiError ? error.code : undefined);
+  const logTiming = () => {
+    console.info(
+      `[popbill-auto-join-timing] customerId=${customer.id} status=${finalStatus} totalMs=${Date.now() - timingStartedAt} checkMembershipMs=${checkMembershipMs} joinMemberMs=${joinMemberMs} fallbackCheckMs=${fallbackCheckMs} joinAttempts=${joinAttempts}`
+    );
+  };
 
   if (customer.popbillState === "joined") {
+    finalStatus = "already-joined";
+    logTiming();
     return { customer, status: "already-joined" };
   }
 
@@ -139,7 +161,9 @@ export async function autoJoinCustomerPopbill(
     settings = await getSettings(requestStore);
     let isExistingMember: boolean;
     try {
+      const checkStartedAt = Date.now();
       isExistingMember = await checkCustomerMembership(settings, customer.businessNumber);
+      checkMembershipMs += Date.now() - checkStartedAt;
       lastExternalApiFailure = null;
     } catch (error) {
       lastExternalApiFailure = {
@@ -157,6 +181,7 @@ export async function autoJoinCustomerPopbill(
         "고객 등록 직후 기존 발행 연동 계정으로 확인되어 joined로 연결했습니다.",
         buildAutoJoinLogContext(updated, {})
       );
+      finalStatus = "linked-existing-member";
       return { customer: updated, status: "linked-existing-member" };
     }
 
@@ -186,8 +211,11 @@ export async function autoJoinCustomerPopbill(
         retryJoinFailure = null;
       }
 
+      const joinStartedAt = Date.now();
       try {
+        joinAttempts += 1;
         await joinCustomerMembership(settings, joinTarget);
+        joinMemberMs += Date.now() - joinStartedAt;
         lastExternalApiFailure = null;
         const updated = await requestStore.updateCustomerPopbillState(customer.id, "joined");
         await requestStore.createLog(
@@ -199,15 +227,19 @@ export async function autoJoinCustomerPopbill(
             retryCount: attempt
           })
         );
+        finalStatus = "joined";
         return { customer: updated, status: "joined" };
       } catch (error) {
+        joinMemberMs += Date.now() - joinStartedAt;
         const errorMessage =
           error instanceof PopbillApiError ? error.rawMessage : error instanceof Error ? error.message : "발행 연동 자동 가입에 실패했습니다.";
         lastExternalApiFailure = {
           operation: "join-member",
           code: toErrorCode(error)
         };
+        const fallbackCheckStartedAt = Date.now();
         const fallbackMemberState = await checkCustomerMembership(settings, customer.businessNumber).catch(() => false);
+        fallbackCheckMs += Date.now() - fallbackCheckStartedAt;
 
         if (fallbackMemberState) {
           const updated = await requestStore.updateCustomerPopbillState(customer.id, "joined");
@@ -227,6 +259,7 @@ export async function autoJoinCustomerPopbill(
               }
             )
           );
+          finalStatus = "linked-after-duplicate-check";
           return { customer: updated, status: "linked-after-duplicate-check" };
         }
 
@@ -246,8 +279,13 @@ export async function autoJoinCustomerPopbill(
   } catch (error) {
     const errorMessage =
       error instanceof PopbillApiError ? error.rawMessage : error instanceof Error ? error.message : "발행 연동 자동 가입에 실패했습니다.";
+    const userFacingError = isAlreadyPopbillMemberError(error, errorMessage)
+      ? POPBILL_ALREADY_MEMBER_MESSAGE
+      : POPBILL_JOIN_SUPPORT_MESSAGE;
+    const fallbackCheckStartedAt = Date.now();
     const fallbackMemberState =
       settings ? await checkCustomerMembership(settings, customer.businessNumber).catch(() => false) : false;
+    fallbackCheckMs += Date.now() - fallbackCheckStartedAt;
     const failureContext = lastExternalApiFailure ?? (error instanceof PopbillApiError ? { operation: "join-member" as const, code: error.code } : null);
 
     if (fallbackMemberState) {
@@ -268,6 +306,7 @@ export async function autoJoinCustomerPopbill(
           }
         )
       );
+      finalStatus = "linked-after-duplicate-check";
       return { customer: updated, status: "linked-after-duplicate-check" };
     }
 
@@ -286,14 +325,17 @@ export async function autoJoinCustomerPopbill(
           errorOperation: failureContext?.operation,
           errorCode: failureContext?.code,
           supportCategory: "popbill-join",
-          userFacingError: POPBILL_JOIN_SUPPORT_MESSAGE
+          userFacingError
         }
       )
     );
+    finalStatus = "failed";
     return {
       customer: failedCustomer,
       status: "failed",
-      error: POPBILL_JOIN_SUPPORT_MESSAGE
+      error: userFacingError
     };
+  } finally {
+    logTiming();
   }
 }

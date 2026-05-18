@@ -53,6 +53,12 @@ export interface PublicConsultationRequest {
   id: string;
   name: string;
   phone: string;
+  category: string;
+  message: string;
+  email: string;
+  region: string;
+  requestIp: string;
+  requestUserAgent: string;
   status: PublicConsultationRequestStatus;
   note: string;
   handledBy: string | null;

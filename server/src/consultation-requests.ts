@@ -23,6 +23,12 @@ export function mapPublicConsultationRequest(row: Row): PublicConsultationReques
     id: asString(row.id),
     name: asString(row.name),
     phone: asString(row.phone),
+    category: asString(row.category, "상담 신청"),
+    message: asString(row.message),
+    email: asString(row.email),
+    region: asString(row.region),
+    requestIp: asString(row.request_ip),
+    requestUserAgent: asString(row.request_user_agent),
     status: asString(row.status, "new") as PublicConsultationRequestStatus,
     note: asString(row.note),
     handledBy: asNullableString(row.handled_by),
@@ -33,13 +39,28 @@ export function mapPublicConsultationRequest(row: Row): PublicConsultationReques
 
 export async function createPublicConsultationRequest(
   adminClient: AdminClient,
-  input: { name: string; phone: string }
+  input: {
+    name: string;
+    phone: string;
+    category?: string;
+    message?: string;
+    email?: string;
+    region?: string;
+    requestIp?: string;
+    requestUserAgent?: string;
+  }
 ): Promise<PublicConsultationRequest> {
   const { data, error } = await adminClient
     .from("public_consultation_requests")
     .insert({
       name: input.name,
       phone: input.phone,
+      category: input.category ?? "상담 신청",
+      message: input.message ?? "",
+      email: input.email ?? "",
+      region: input.region ?? "",
+      request_ip: input.requestIp ?? "",
+      request_user_agent: input.requestUserAgent ?? "",
       status: "new"
     })
     .select("*")

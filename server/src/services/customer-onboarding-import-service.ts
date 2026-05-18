@@ -550,8 +550,13 @@ export async function commitCustomerOnboardingPreparedEntry(
   linkedCertificateCount: number;
   warnings: Array<{ rowIndex: number; message: string }>;
 }> {
+  const startedAt = Date.now();
+  let saveCustomerMs = 0;
+  let linkCertificatesMs = 0;
+  let autoJoinQueueMs = 0;
   const customerId = entry.existingCustomerId ?? null;
 
+  const saveCustomerStartedAt = Date.now();
   const customer = await requestStore.saveCustomer(
     {
       customerName: entry.customerName,
@@ -572,11 +577,13 @@ export async function commitCustomerOnboardingPreparedEntry(
     },
     customerId ?? undefined
   );
+  saveCustomerMs = Date.now() - saveCustomerStartedAt;
 
   const electronicTaxCertificates = entry.certificates.filter(
     (certificate) => certificate.certificateKind === "electronic_tax"
   );
   let linkedCertificateCount = 0;
+  const linkCertificatesStartedAt = Date.now();
   for (const [index, certificate] of electronicTaxCertificates.entries()) {
     await requestStore.upsertCustomerCertificate({
       customerId: customer.id,
@@ -594,10 +601,13 @@ export async function commitCustomerOnboardingPreparedEntry(
     });
     linkedCertificateCount += 1;
   }
+  linkCertificatesMs = Date.now() - linkCertificatesStartedAt;
 
   const warnings: Array<{ rowIndex: number; message: string }> = [];
   if (options?.autoJoinCustomer) {
+    const autoJoinQueueStartedAt = Date.now();
     const autoJoinResult = await options.autoJoinCustomer(customer);
+    autoJoinQueueMs = Date.now() - autoJoinQueueStartedAt;
     if (autoJoinResult.status === "failed") {
       warnings.push({
         rowIndex: entry.rowIndex,
@@ -605,6 +615,10 @@ export async function commitCustomerOnboardingPreparedEntry(
       });
     }
   }
+
+  console.info(
+    `[customer-onboarding-timing] row=${entry.rowIndex} customerId=${customer.id} outcome=${customerId ? "update" : "create"} totalMs=${Date.now() - startedAt} saveCustomerMs=${saveCustomerMs} linkCertificatesMs=${linkCertificatesMs} autoJoinQueueMs=${autoJoinQueueMs} certificateCount=${electronicTaxCertificates.length}`
+  );
 
   return {
     customer,

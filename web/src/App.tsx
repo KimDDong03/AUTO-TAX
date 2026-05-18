@@ -569,10 +569,7 @@ type OnboardingCertificateAutoRunnerProps = {
   hasWorkbook: boolean;
   certificateReady: boolean;
   busyKey: string | null;
-  hasUnattemptedTargets: boolean;
-  pendingSignature: string;
   pendingJoinCount: number;
-  triggerRegistration: () => void;
   pollPendingJoins: () => Promise<void>;
 };
 
@@ -582,17 +579,11 @@ function OnboardingCertificateAutoRunner({
   hasWorkbook,
   certificateReady,
   busyKey,
-  hasUnattemptedTargets,
-  pendingSignature,
   pendingJoinCount,
-  triggerRegistration,
   pollPendingJoins
 }: OnboardingCertificateAutoRunnerProps) {
-  const signatureRef = useRef<string | null>(null);
-
   useEffect(() => {
     if (!active || !commitDone || !hasWorkbook || certificateReady) {
-      signatureRef.current = null;
       return;
     }
 
@@ -600,16 +591,6 @@ function OnboardingCertificateAutoRunner({
       busyKey === "customer-onboarding-commit" ||
       busyKey === "customer-onboarding-cert-registration"
     ) {
-      return;
-    }
-
-    if (
-      hasUnattemptedTargets &&
-      pendingSignature &&
-      signatureRef.current !== pendingSignature
-    ) {
-      signatureRef.current = pendingSignature;
-      triggerRegistration();
       return;
     }
 
@@ -624,12 +605,9 @@ function OnboardingCertificateAutoRunner({
     busyKey,
     certificateReady,
     commitDone,
-    hasUnattemptedTargets,
     hasWorkbook,
     pendingJoinCount,
-    pendingSignature,
-    pollPendingJoins,
-    triggerRegistration
+    pollPendingJoins
   ]);
 
   return null;
@@ -1069,8 +1047,22 @@ function getTabFromHash(hash: string): TabId | null {
 }
 
 function isPublicAuthHash(hash: string): boolean {
-  const value = hash.replace(/^#/, "");
-  return value === "" || value === "home" || value === "login" || value === "signup" || value === "public-signup-card";
+  const value = (() => {
+    try {
+      return decodeURIComponent(hash).replace(/^#/, "");
+    } catch {
+      return hash.replace(/^#/, "");
+    }
+  })();
+  return (
+    value === "" ||
+    value === "home" ||
+    value === "login" ||
+    value === "public-login-card" ||
+    value === "signup" ||
+    value === "public-signup-card" ||
+    ["서비스 소개", "기능", "서비스 과정", "요금 안내", "문의하기"].includes(value.replaceAll("-", " "))
+  );
 }
 
 function resolveWorkspaceTab(
@@ -2033,6 +2025,7 @@ export function App() {
   const [customerListFilter, setCustomerListFilter] = useState<CustomerListFilter>("all");
   const [customerSearchField, setCustomerSearchField] = useState<CustomerSearchField>("all");
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [customerIssueMonthQuery, setCustomerIssueMonthQuery] = useState("");
   const [customerDetailTab, setCustomerDetailTab] = useState<CustomerDetailTabId>("info");
   const [workFeedTab, setWorkFeedTab] = useState<"inbox" | "issued">("inbox");
   const [ownerPasswordResetForm, setOwnerPasswordResetForm] = useState<PasswordResetFormState>(
@@ -2120,6 +2113,7 @@ export function App() {
   });
   const deferredCustomerSearchQuery = useDeferredValue(customerSearchQuery);
   const deferredCustomerSearchField = useDeferredValue(customerSearchField);
+  const deferredCustomerIssueMonthQuery = useDeferredValue(customerIssueMonthQuery);
   const activeOrganizationId = data?.auth.activeOrganizationId ?? null;
   useEffect(() => {
     if (!taskNotificationOpen) {
@@ -3069,7 +3063,8 @@ export function App() {
       const matchesFilter = matchesCustomerListFilter(customer, customerListFilter, customerListFilterContext);
       const customerIssueMonths = (issuedDraftsByCustomerId.get(customer.id) ?? []).map((draft) => draft.billingMonth);
       const matchesSearch = matchesCustomerSearchQuery(customer, customerSearchQuery, customerSearchField, customerIssueMonths);
-      return matchesFilter && matchesSearch;
+      const matchesIssueMonth = matchesCustomerSearchQuery(customer, customerIssueMonthQuery, "issueMonth", customerIssueMonths);
+      return matchesFilter && matchesSearch && matchesIssueMonth;
     }).sort(compareCustomersForList);
 
     if (visibleCustomers.length === 0) {
@@ -3088,7 +3083,17 @@ export function App() {
     if (!visibleCustomers.some((customer) => customer.id === customerForm.id)) {
       setCustomerForm(customerToForm(visibleCustomers[0]));
     }
-  }, [activeTab, creatingCustomer, customerContractRenewalsDue, customerForm, customerListFilter, customerSearchField, customerSearchQuery, data]);
+  }, [
+    activeTab,
+    creatingCustomer,
+    customerContractRenewalsDue,
+    customerForm,
+    customerIssueMonthQuery,
+    customerListFilter,
+    customerSearchField,
+    customerSearchQuery,
+    data
+  ]);
 
   useEffect(() => {
     if (!data?.auth.activeOrganizationId) {
@@ -3799,7 +3804,7 @@ export function App() {
         defaultRenewalHelperDownloadUrl
       })
     );
-    const electronicTaxCertificates = certificates.filter(
+    const electronicTaxCertificates = (certificates as RenewalAgentCertificate[]).filter(
       (certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax"
     );
     customerOnboardingCertificatesRef.current = electronicTaxCertificates;
@@ -3830,7 +3835,7 @@ export function App() {
       loadXlsxModule(),
       loadCustomerOnboardingAvailableCertificates({ forceRefresh: true })
     ]);
-    const activeCertificates = certificates.filter(
+    const activeCertificates = (certificates as RenewalAgentCertificate[]).filter(
       (certificate) => !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
     );
 
@@ -3945,8 +3950,8 @@ export function App() {
     setCustomerOnboardingNotice(
       `${buildElectronicTaxOnboardingCommitNotice(result)}\n${
         certificateDone
-          ? "고객 반영 이후 전자세금용 공동인증서 등록까지 완료했습니다."
-          : "고객 반영이 끝났습니다. 4단계에서 전자세금용 공동인증서 등록을 자동으로 이어서 처리합니다."
+          ? "고객 반영 이후 공동인증서 등록까지 완료했습니다."
+          : "고객 반영이 끝났습니다. 공동인증서 연결 단계에서 공동인증서 등록 버튼을 눌러 마무리하세요."
       }`
     );
 
@@ -5254,6 +5259,7 @@ export function App() {
         : (data?.customers ?? []).find((customer) => digitsOnly(customer.businessNumber) === businessNumber) ?? null;
 
     setCustomerSearchQuery("");
+    setCustomerIssueMonthQuery("");
     setCustomerListFilter("all");
     setCustomerDetailTab("info");
     setActiveTab("customers");
@@ -5895,7 +5901,10 @@ export function App() {
     .filter((customer) => matchesCustomerListFilter(customer, customerListFilter, customerListFilterContext))
     .filter((customer) => {
       const customerIssueMonths = (issuedDraftsByCustomerId.get(customer.id) ?? []).map((draft) => draft.billingMonth);
-      return matchesCustomerSearchQuery(customer, deferredCustomerSearchQuery, deferredCustomerSearchField, customerIssueMonths);
+      return (
+        matchesCustomerSearchQuery(customer, deferredCustomerSearchQuery, deferredCustomerSearchField, customerIssueMonths) &&
+        matchesCustomerSearchQuery(customer, deferredCustomerIssueMonthQuery, "issueMonth", customerIssueMonths)
+      );
     })
     .sort(compareCustomersForList);
   const customerImportHeaderCandidates = customerImportFile
@@ -5963,19 +5972,6 @@ export function App() {
   const onboardingCertificateRetryCount = pendingOnboardingCertificateRegistrationTargets.filter((customer) =>
     attemptedOnboardingCertificateBusinessNumberSet.has(digitsOnly(customer.businessNumber))
   ).length;
-  const pendingOnboardingCertificateRegistrationSignature = pendingOnboardingCertificateRegistrationTargets
-    .map((customer) => digitsOnly(customer.businessNumber))
-    .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
-    .sort()
-    .join(",");
-  const onboardingHasUnattemptedCertificateAutoTargets =
-    pendingOnboardingCertificateRegistrationTargets.length > 0 &&
-    pendingOnboardingCertificateRegistrationTargets.some(
-      (customer) =>
-        !attemptedOnboardingCertificateBusinessNumberSet.has(
-          digitsOnly(customer.businessNumber)
-        )
-    );
   const selectedCustomer = customerForm.id ? data.customers.find((customer) => customer.id === customerForm.id) ?? null : null;
   const selectedCustomerReadiness = selectedCustomer
     ? customerReadinessMap.get(selectedCustomer.id) ?? getCustomerIssueReadiness(selectedCustomer)
@@ -6529,9 +6525,9 @@ export function App() {
   const onboardingCertificatePrimaryActionLabel = !onboardingCustomerRegistrationReady
     ? "먼저 고객 초기 등록 완료"
     : onboardingCertificateAutoTargetCount > 0 && onboardingCertificateRetryCount > 0
-      ? "전자세금용 등록 다시 시도"
+      ? "공동인증서 연결 다시 시도"
       : onboardingCertificateAutoTargetCount > 0
-        ? "전자세금용 등록 마무리"
+        ? "공동인증서 연결"
         : onboardingPendingPopbillJoinCount > 0
           ? "등록 처리 대기"
           : onboardingFailedPopbillJoinCount > 0
@@ -6544,7 +6540,7 @@ export function App() {
   const onboardingCertificateActionTitle = !onboardingCustomerRegistrationReady
     ? "먼저 고객 초기 등록을 끝내세요."
     : onboardingPendingPopbillJoinCount > 0
-      ? "등록 처리가 진행 중입니다. 완료되면 전자세금용 등록을 자동으로 이어서 처리합니다."
+      ? "발행 연동 처리가 진행 중입니다. 완료되면 공동인증서 연결 버튼을 눌러 마무리하세요."
       : undefined;
   const proceedOnboardingCertificateFollowUpAction = () => {
     if (onboardingCertificateAutoTargetCount > 0) {
@@ -6680,14 +6676,14 @@ export function App() {
               : onboardingIssueSetupPendingCount === 0
                 ? "발행용 인증서 준비 완료"
                 : onboardingCertificateAutoTargetCount > 0
-                  ? "전자세금용 등록 마무리"
+                  ? "공동인증서 연결"
                   : "인증서 수동 확인 필요"}
           </strong>
         </div>
 
         <div className="onboarding-inline-status">
           <div>
-            <span>자동 마무리 대상</span>
+            <span>등록 대기 대상</span>
             <strong>{onboardingCertificateAutoTargetCount}건</strong>
           </div>
           <div>
@@ -6710,7 +6706,7 @@ export function App() {
             onClick={proceedOnboardingCertificateFollowUpAction}
           >
             {busyKey === "customer-onboarding-cert-registration" && onboardingCertificateAutoTargetCount > 0
-              ? "전자세금용 등록 마무리 중..."
+              ? "공동인증서 연결 중..."
               : onboardingCertificatePrimaryActionLabel}
           </button>
         </div>
@@ -6892,15 +6888,15 @@ export function App() {
     {
       id: "certificates",
       step: 3,
-      title: "인증서 연결 마무리",
+      title: "공동인증서 연결",
       summary: !onboardingCustomerRegistrationReady
         ? "고객 등록 후 진행"
         : onboardingIssueSetupPendingCount === 0
           ? "발행용 인증서 준비 완료"
           : onboardingCertificateAutoTargetCount > 0
-            ? `전자세금용 후속 등록 ${onboardingCertificateAutoTargetCount}건 남음`
+            ? `공동인증서 등록 ${onboardingCertificateAutoTargetCount}건 남음`
             : `인증서 관리에서 수동 확인 ${onboardingIssueSetupPendingCount}명`,
-      primaryActionLabel: onboardingCertificateReady ? "전자세금용 등록 마무리 완료" : onboardingCertificatePrimaryActionLabel,
+      primaryActionLabel: onboardingCertificateReady ? "공동인증서 연결 완료" : onboardingCertificatePrimaryActionLabel,
       blockedReason: !onboardingCustomerRegistrationReady ? "먼저 고객 초기 등록을 끝내세요." : undefined,
       done: onboardingCertificateReady,
       content: onboardingCertificateCompletionContent
@@ -7430,10 +7426,7 @@ export function App() {
             hasWorkbook={customerOnboardingWorkbook !== null}
             certificateReady={onboardingCertificateReady}
             busyKey={busyKey}
-            hasUnattemptedTargets={onboardingHasUnattemptedCertificateAutoTargets}
-            pendingSignature={pendingOnboardingCertificateRegistrationSignature}
             pendingJoinCount={onboardingPendingPopbillJoinCount}
-            triggerRegistration={proceedOnboardingCertificateFollowUpAction}
             pollPendingJoins={pollOnboardingPendingJoins}
           />
 
@@ -7604,6 +7597,7 @@ export function App() {
             isSavingCustomer={isSavingCustomer}
             customerSearchField={customerSearchField}
             customerSearchQuery={customerSearchQuery}
+            customerIssueMonthQuery={customerIssueMonthQuery}
             customerListFilter={customerListFilter}
             customerDetailTab={customerDetailTab}
             customerForm={customerForm}
@@ -7626,6 +7620,7 @@ export function App() {
             customerAddressLookupRef={customerAddressLookupRef}
             setCustomerSearchField={setCustomerSearchField}
             setCustomerSearchQuery={setCustomerSearchQuery}
+            setCustomerIssueMonthQuery={setCustomerIssueMonthQuery}
             setCustomerListFilter={setCustomerListFilter}
             setCustomerDetailTab={setCustomerDetailTab}
             setCustomerForm={setCustomerForm}

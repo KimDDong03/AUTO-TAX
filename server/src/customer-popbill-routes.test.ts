@@ -767,7 +767,7 @@ test("delete customer continues when Popbill member is already missing", async (
   );
 });
 
-test("delete customer continues when Popbill contact update says the member is missing", async () => {
+test("delete customer stops when Popbill contact update failure escapes withdrawal", async () => {
   const customer = buildCustomer();
   const events: string[] = [];
 
@@ -782,13 +782,12 @@ test("delete customer continues when Popbill contact update says the member is m
     },
     async (baseUrl, calls) => {
       const response = await fetch(`${baseUrl}/api/customers/${customer.id}`, { method: "DELETE" });
-      assert.equal(response.status, 200);
+      assert.equal(response.status, 500);
       assert.deepEqual(await response.json(), {
-        ok: true,
-        popbillCleanupStatus: "already-missing-on-delete"
+        error: "발행 연동 연락처를 갱신하지 못했습니다. [POPBILL -10000006]"
       });
-      assert.deepEqual([...events, ...calls.events], ["quit", "delete"]);
-      assert.equal(calls.logs.some((entry) => entry.context), true);
+      assert.deepEqual([...events, ...calls.events], ["quit"]);
+      assert.equal(calls.logs.length, 0);
     }
   );
 });

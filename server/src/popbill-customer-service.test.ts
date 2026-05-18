@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppSettings, Customer } from "./domain.js";
 import { PopbillApiError } from "./popbill-client.js";
-import { POPBILL_JOIN_SUPPORT_MESSAGE, autoJoinCustomerPopbill } from "./services/popbill-customer-service.js";
+import {
+  POPBILL_ALREADY_MEMBER_MESSAGE,
+  POPBILL_JOIN_SUPPORT_MESSAGE,
+  autoJoinCustomerPopbill
+} from "./services/popbill-customer-service.js";
 import type { AppStore } from "./store-contract.js";
 
 function buildCustomer(overrides: Partial<Customer> = {}): Customer {
@@ -121,6 +125,37 @@ test("autoJoinCustomerPopbill writes explicit external-api logs for final join f
       }
     }
   ]);
+});
+
+test("autoJoinCustomerPopbill surfaces already-registered Popbill members clearly", async () => {
+  const customer = buildCustomer();
+  const logs: Array<{ level: string; scope: string; message: string; context?: Record<string, unknown> }> = [];
+
+  const store = {
+    updateCustomerPopbillState: async (_customerId: number, state: Customer["popbillState"]) =>
+      buildCustomer({ popbillState: state }),
+    createLog: async (level: string, scope: string, message: string, context?: Record<string, unknown>) => {
+      logs.push({ level, scope, message, context });
+    }
+  } as unknown as AppStore;
+
+  const result = await autoJoinCustomerPopbill(
+    store,
+    customer,
+    async () => buildSettings(),
+    (_error, fallbackMessage) => fallbackMessage ?? "fallback",
+    {
+      checkIsMember: async () => false,
+      joinMember: async () => {
+        throw new PopbillApiError("join-member", "-10001000", "가입된 회원입니다.");
+      }
+    }
+  );
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.error, POPBILL_ALREADY_MEMBER_MESSAGE);
+  assert.equal(logs[0]?.context?.userFacingError, POPBILL_ALREADY_MEMBER_MESSAGE);
+  assert.equal(logs[0]?.context?.errorCode, "-10001000");
 });
 
 test("autoJoinCustomerPopbill writes explicit external-api retry logs for user-id conflicts", async () => {

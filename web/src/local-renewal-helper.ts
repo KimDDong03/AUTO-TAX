@@ -347,7 +347,9 @@ export async function requestLocalRenewalPreflightBatch(payloads: Array<{
   certificateIndex: number;
   certificateCn?: string | null;
   certificatePassword?: string | null;
-}>) {
+}>, options?: {
+  onProgress?: (message: string) => void;
+}) {
   if (payloads.length === 0) {
     return [];
   }
@@ -366,7 +368,14 @@ export async function requestLocalRenewalPreflightBatch(payloads: Array<{
       result
     }));
   } catch {
-    return await Promise.all(payloads.map((payload) => requestLocalRenewalPreflight(payload)));
+    options?.onProgress?.(`${payloads.length}건 묶음 응답 실패 · 개별 재시도 중`);
+    const results: LocalRenewalHelperProbeResponse[] = [];
+    for (let index = 0; index < payloads.length; index += 1) {
+      options?.onProgress?.(`${index + 1}/${payloads.length}건 개별 재시도 중`);
+      results.push(await requestLocalRenewalPreflight(payloads[index] as (typeof payloads)[number]));
+    }
+    options?.onProgress?.(`${payloads.length}건 개별 재시도 완료`);
+    return results;
   }
 }
 

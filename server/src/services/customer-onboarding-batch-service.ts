@@ -20,7 +20,7 @@ type BatchRowStatus = "pending" | "processing" | "completed" | "failed" | "block
 type FailedRowMessage = { rowIndex: number; message: string };
 type WarningMessage = { rowIndex: number; message: string };
 
-const CUSTOMER_ONBOARDING_COMMIT_CONCURRENCY = 3;
+const CUSTOMER_ONBOARDING_COMMIT_CONCURRENCY = 5;
 const CUSTOMER_ONBOARDING_SNAPSHOT_FLUSH_EVERY = 3;
 
 export type CustomerOnboardingPreviewSessionResult = CustomerOnboardingPreviewResult & {

@@ -1094,7 +1094,8 @@ async function collectSelectedCertificateMaterial(
   signCert: string;
   signedData: string;
 }> {
-  const selectionProbe = await probeCertificateSelection(
+  return await runWithBridgeSelectionLock(async () => {
+  const selectionProbe = await probeCertificateSelectionUnlocked(
     target,
     signGateConfig,
     selectionRequest,
@@ -1191,6 +1192,7 @@ async function collectSelectedCertificateMaterial(
     signCert,
     signedData,
   };
+  });
 }
 
 function buildPreflightNextUrl(renewInfo: Record<string, unknown>): {
@@ -1241,6 +1243,31 @@ function buildPreflightNextUrl(renewInfo: Record<string, unknown>): {
   };
 }
 
+function formatPreflightTimingError(error: string | null | undefined): string {
+  const normalized = String(error ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized ? normalized.slice(0, 160) : "-";
+}
+
+function logRenewalPreflightTiming(options: {
+  startedAt: number;
+  targetPort: number;
+  certificateIndex: number;
+  branch: BridgeProbeResult["bridge"]["preflightProbe"]["branch"];
+  ok: boolean;
+  error?: string | null;
+  materialMs: number;
+  cookieMs: number;
+  companyCheckMs: number;
+  renewInfoMs: number;
+  followupMs: number;
+}) {
+  console.info(
+    `[renewal-preflight-timing] certificateIndex=${options.certificateIndex} port=${options.targetPort} ok=${options.ok} branch=${options.branch} totalMs=${Date.now() - options.startedAt} materialMs=${options.materialMs} cookieMs=${options.cookieMs} companyCheckMs=${options.companyCheckMs} renewInfoMs=${options.renewInfoMs} followupMs=${options.followupMs} error=${formatPreflightTimingError(options.error)}`
+  );
+}
+
 async function probeRenewalPreflight(
   target: (typeof PORT_TARGETS)[number],
   signGateConfig: SignGateRuntimeConfig,
@@ -1250,13 +1277,35 @@ async function probeRenewalPreflight(
   preflightProbe.sourcePort = target.port;
   preflightProbe.certificateIndex = String(selectionRequest.certificateIndex);
   preflightProbe.certificateCn = selectionRequest.certificateCn;
+  const timingStartedAt = Date.now();
+  const timing = {
+    materialMs: 0,
+    cookieMs: 0,
+    companyCheckMs: 0,
+    renewInfoMs: 0,
+    followupMs: 0,
+  };
+  const finish = () => {
+    logRenewalPreflightTiming({
+      startedAt: timingStartedAt,
+      targetPort: target.port,
+      certificateIndex: selectionRequest.certificateIndex,
+      branch: preflightProbe.branch,
+      ok: preflightProbe.ok,
+      error: preflightProbe.error ?? preflightProbe.message,
+      ...timing,
+    });
+    return preflightProbe;
+  };
 
   try {
+    const materialStartedAt = Date.now();
     const material = await collectSelectedCertificateMaterial(
       target,
       signGateConfig,
       selectionRequest,
     );
+    timing.materialMs = Date.now() - materialStartedAt;
     preflightProbe.certID = material.selectionProbe.certID;
 
     const formData = new URLSearchParams({
@@ -1265,12 +1314,16 @@ async function probeRenewalPreflight(
       signCert: material.signCert,
       signData: material.signedData,
     });
+    const cookieStartedAt = Date.now();
     const cookieHeader = await fetchRenewPageCookieHeader();
+    timing.cookieMs = Date.now() - cookieStartedAt;
+    const companyCheckStartedAt = Date.now();
     const companyCheck = await postRenewAjax(
       cookieHeader,
       "/renew/ajaxEntrpsCompanyCheck.json",
       formData,
     );
+    timing.companyCheckMs = Date.now() - companyCheckStartedAt;
 
     preflightProbe.companyChkYn =
       typeof companyCheck.companyChkYn === "string"
@@ -1288,6 +1341,7 @@ async function probeRenewalPreflight(
       typeof companyCheck.ERRMSG === "string" ? companyCheck.ERRMSG : null;
 
     if (preflightProbe.companyChkYn === "Y") {
+      const followupStartedAt = Date.now();
       preflightProbe.branchPageUrl = `${SIGNGATE_ORIGIN}/renew/stepEntrpsChangeCompany.sg`;
       const changeCompanyPage = await postRenewPage(
         cookieHeader,
@@ -1322,14 +1376,17 @@ async function probeRenewalPreflight(
           preflightProbe.externalFlowKind = "unknown";
         }
       }
-      return preflightProbe;
+      timing.followupMs += Date.now() - followupStartedAt;
+      return finish();
     }
 
+    const renewInfoStartedAt = Date.now();
     const renewInfo = await postRenewAjax(
       cookieHeader,
       "/renew/ajaxEntrpsRenewInfoCheck.json",
       formData,
     );
+    timing.renewInfoMs = Date.now() - renewInfoStartedAt;
     preflightProbe.rawCode =
       typeof renewInfo.ERRCODE === "string"
         ? renewInfo.ERRCODE
@@ -1358,7 +1415,7 @@ async function probeRenewalPreflight(
       preflightProbe.branch = "unsupported";
       preflightProbe.error =
         preflightProbe.message ?? "갱신 가능한 공동인증서가 아닙니다.";
-      return preflightProbe;
+      return finish();
     }
 
     const nextStep = buildPreflightNextUrl(renewInfo);
@@ -1367,6 +1424,7 @@ async function probeRenewalPreflight(
     preflightProbe.nextUrl = nextStep.nextUrl;
 
     if (nextStep.branch === "renew-info" && nextStep.nextUrl) {
+      const followupStartedAt = Date.now();
       try {
         const renewInfoPage = await postRenewPage(
           cookieHeader,
@@ -1454,13 +1512,14 @@ async function probeRenewalPreflight(
         // The main preflight result remains valid even when the follow-up page
         // parsing fails during this probe attempt.
       }
+      timing.followupMs += Date.now() - followupStartedAt;
     }
 
-    return preflightProbe;
+    return finish();
   } catch (error) {
     preflightProbe.error =
       error instanceof Error ? error.message : "갱신 경로 분석 실패";
-    return preflightProbe;
+    return finish();
   }
 }
 
@@ -1485,6 +1544,9 @@ async function probeRenewalPreflightWithTransportRetry(
 
     clearBridgeTargetState(target.port);
     if (attempt < retryCount) {
+      console.info(
+        `[renewal-preflight-retry] certificateIndex=${selectionRequest.certificateIndex} port=${target.port} attempt=${attempt + 1}/${retryCount} reason=${formatPreflightTimingError(probe.error)}`
+      );
       await delay(150);
     }
   }

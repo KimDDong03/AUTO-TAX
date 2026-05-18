@@ -17,3 +17,5 @@ supabase/.temp
 supabase/supabase/.temp
 .codex
 output
+
+.vercel

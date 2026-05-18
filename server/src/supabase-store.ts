@@ -47,7 +47,7 @@ import {
   selectCustomerContractSummaryPeriod
 } from "./customer-contract-renewals.js";
 import { createSupabaseAdminClient } from "./supabase.js";
-import { applyServerManagedSettings } from "./server-managed-settings.js";
+import { getRequiredServerManagedPopbillCustomerDefaults } from "./server-managed-settings.js";
 import { decryptSecret, encryptSecret } from "./secret-box.js";
 import type {
   AppStore,
@@ -1706,9 +1706,9 @@ export class SupabaseStore implements AppStore {
 
   async saveCustomer(input: CustomerInput, customerId?: number): Promise<Customer> {
     const timestamp = nowIso();
-    const settings = applyServerManagedSettings(await this.getSettings());
-    const sharedPassword = settings.popbillSharedPassword;
-    const idPrefix = normalizePopbillUserPrefix(settings.popbillUserIdPrefix);
+    const popbillCustomerDefaults = getRequiredServerManagedPopbillCustomerDefaults();
+    const sharedPassword = popbillCustomerDefaults.popbillSharedPassword;
+    const idPrefix = normalizePopbillUserPrefix(popbillCustomerDefaults.popbillUserIdPrefix);
     const normalizedBusinessNumber = digitsOnly(input.businessNumber);
     const roadAddress = toRoadAddress(input.addr);
     const existingByBusinessNumber = await this.findCustomerByBusinessNumber(normalizedBusinessNumber);

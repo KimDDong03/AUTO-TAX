@@ -137,7 +137,7 @@ type PublicLandingProps = {
   onPasswordReset: (email: string) => Promise<boolean>;
 };
 
-type PublicAuthMode = "login" | "signup";
+type PublicAuthMode = "landing" | "login" | "signup";
 
 const landingNavItems = ["서비스 소개", "기능", "서비스 과정", "요금 안내", "문의하기"];
 
@@ -709,12 +709,27 @@ function ContactInquiryModal({ onClose }: { onClose: () => void }) {
 
 function getPublicAuthModeFromHash(): PublicAuthMode {
   if (typeof window === "undefined") {
+    return "landing";
+  }
+
+  const rawHash = window.location.hash;
+  const decodedHash = (() => {
+    try {
+      return decodeURIComponent(rawHash);
+    } catch {
+      return rawHash;
+    }
+  })();
+
+  if (decodedHash === "#login" || decodedHash === "#public-login-card") {
     return "login";
   }
 
-  return window.location.hash === "#signup" || window.location.hash === "#public-signup-card"
-    ? "signup"
-    : "login";
+  if (decodedHash === "#signup" || decodedHash === "#public-signup-card") {
+    return "signup";
+  }
+
+  return "landing";
 }
 
 export function PublicLanding({
@@ -774,7 +789,7 @@ export function PublicLanding({
     return () => window.removeEventListener("hashchange", syncPublicAuthMode);
   }, []);
 
-  const navigatePublicAuthMode = (mode: PublicAuthMode) => {
+  const navigatePublicAuthMode = (mode: Exclude<PublicAuthMode, "landing">) => {
     setActiveMode(mode);
     if (mode === "signup") {
       setLoginIdLookupOpen(false);
@@ -1394,13 +1409,18 @@ export function PublicLanding({
                 )
               )}
             </div>
-            <button type="button" className="landing-nav-cta" onClick={() => navigatePublicAuthMode("signup")}>
-              데모 사용 신청
-            </button>
+            <div className="landing-nav-actions">
+              <button type="button" className="landing-nav-login" onClick={() => navigatePublicAuthMode("login")}>
+                로그인
+              </button>
+              <button type="button" className="landing-nav-cta" onClick={() => navigatePublicAuthMode("signup")}>
+                데모 사용 신청
+              </button>
+            </div>
           </nav>
         </header>
 
-        {activeMode === "login" ? (
+        {activeMode === "landing" ? (
           <div className="landing-page">
             <section id="서비스-소개" className="landing-hero">
               <div className="landing-hero-copy">
@@ -1534,6 +1554,7 @@ export function PublicLanding({
 
         {contactModalOpen ? <ContactInquiryModal onClose={closeContactModal} /> : null}
 
+        {activeMode !== "landing" ? (
         <main
           className={`portal-layout ${activeMode === "signup" ? "portal-layout-signup" : "portal-layout-login"}`}
           aria-label={activeMode === "signup" ? "AUTO-TAX 회원가입 신청" : "AUTO-TAX 로그인"}
@@ -2192,6 +2213,7 @@ export function PublicLanding({
           </section>
           ) : null}
         </main>
+        ) : null}
 
         <footer className="portal-footer" aria-label="AUTO-TAX 회사 및 정책 정보">
           <nav className="portal-footer-links" aria-label="정책 문서">

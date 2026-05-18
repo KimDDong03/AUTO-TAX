@@ -15,7 +15,12 @@ import {
   getCurrentKstYearMonth,
   isValidIsoDate
 } from "../customer-contract-renewals.js";
-import { getCertificateExpireDate, getTaxCertURL, isPopbillMemberMissingError, quitMember } from "../popbill-client.js";
+import {
+  getCertificateExpireDate,
+  getTaxCertURL,
+  isPopbillMemberMissingError,
+  quitMember
+} from "../popbill-client.js";
 import { RenewalAutomationManager } from "../renewal-automation.js";
 import type { AppStore } from "../store-contract.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor, ServerManagedSettingsGetter } from "../route-types.js";

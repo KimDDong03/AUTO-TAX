@@ -4,7 +4,6 @@ import type { AppSettings, Customer } from "../domain.js";
 import type { AppStore } from "../store-contract.js";
 import type { AuthenticatedAppSession } from "../supabase.js";
 import type { AuthUserSummary } from "../admin-types.js";
-import { sendContactInquiryEmail } from "../contact-inquiry-email.js";
 import { createPublicConsultationRequest } from "../consultation-requests.js";
 import {
   createPublicSignupRequest,
@@ -543,24 +542,18 @@ export function registerCoreRoutes(deps: RouteDeps) {
 
   app.post("/api/public/contact-inquiries", publicConsultationLimiter, async (req, res) => {
     const payload = publicContactInquirySchema.parse(req.body ?? {});
+    const request = await createPublicConsultationRequest(createSupabaseAdminClient(), {
+      category: payload.category,
+      message: payload.message,
+      email: payload.email,
+      name: payload.name,
+      phone: payload.phone,
+      region: payload.region,
+      requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+      requestUserAgent: req.header("user-agent") ?? ""
+    });
 
-    try {
-      const result = await sendContactInquiryEmail({
-        category: payload.category,
-        message: payload.message,
-        email: payload.email,
-        name: payload.name,
-        phone: payload.phone,
-        region: payload.region,
-        requestIp: req.ip ?? req.socket.remoteAddress ?? "",
-        requestUserAgent: req.header("user-agent") ?? ""
-      });
-
-      res.status(201).json({ ok: true, messageId: result.messageId });
-    } catch (error) {
-      console.error("[contact] 문의 메일 발송에 실패했습니다.", error);
-      throw new HttpError(503, "문의 메일 발송 설정이 아직 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.");
-    }
+    res.status(201).json({ ok: true, request });
   });
 
   app.get("/api/bootstrap", async (_req, res) => {

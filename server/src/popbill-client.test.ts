@@ -4,6 +4,7 @@ import test from "node:test";
 import type { AppSettings, Customer, InvoiceDraft } from "./domain.js";
 import {
   buildIssueCompleteMessageContent,
+  getTaxCertURL,
   issueTaxInvoice,
   joinMember,
   quitMember,
@@ -118,15 +119,23 @@ function buildDraft(): InvoiceDraft {
 }
 
 async function withPopbillContactEmailEnv<T>(
-  values: { dedicated?: string | null; opsEmails?: string | null },
+  values: { dedicated?: string | null; contactName?: string | null; contactTel?: string | null; opsEmails?: string | null },
   run: () => Promise<T> | T
 ): Promise<T> {
   const previousDedicated = process.env.AUTO_TAX_POPBILL_CONTACT_EMAIL;
   const previousOpsEmails = process.env.AUTO_TAX_OPS_EMAILS;
   const previousContactName = process.env.AUTO_TAX_POPBILL_CONTACT_NAME;
   const previousContactTel = process.env.AUTO_TAX_POPBILL_CONTACT_TEL;
-  process.env.AUTO_TAX_POPBILL_CONTACT_NAME = "발행담당자";
-  process.env.AUTO_TAX_POPBILL_CONTACT_TEL = "02-1234-5678";
+  if (values.contactName === null) {
+    delete process.env.AUTO_TAX_POPBILL_CONTACT_NAME;
+  } else {
+    process.env.AUTO_TAX_POPBILL_CONTACT_NAME = values.contactName ?? "발행담당자";
+  }
+  if (values.contactTel === null) {
+    delete process.env.AUTO_TAX_POPBILL_CONTACT_TEL;
+  } else {
+    process.env.AUTO_TAX_POPBILL_CONTACT_TEL = values.contactTel ?? "02-1234-5678";
+  }
   if (values.dedicated === null || values.dedicated === undefined) {
     delete process.env.AUTO_TAX_POPBILL_CONTACT_EMAIL;
   } else {
@@ -215,7 +224,19 @@ test("issue complete message can use a customer-specific template", () => {
   assert.equal(content, "[Green Farm] Plant A 123,456원 / AUTO SOLAR");
 });
 
-test("joinMember falls back to the first platform ops email for Popbill notices", async () => {
+test("joinMember requires explicit Popbill contact environment values", async () => {
+  await withPopbillContactEmailEnv(
+    { dedicated: null, contactName: "발행담당자", contactTel: "02-1234-5678", opsEmails: "ops-primary@auto-tax.test" },
+    async () => {
+      await assert.rejects(
+        joinMember(buildSettings(), buildCustomer({ popbillState: "pending" })),
+        /서버 Popbill 연락처 환경값/
+      );
+    }
+  );
+});
+
+test("joinMember sends Popbill member notices only to the explicit Popbill contact email", async () => {
   const popbill = require("popbill") as {
     config: (...args: unknown[]) => unknown;
     TaxinvoiceService: () => unknown;
@@ -235,14 +256,14 @@ test("joinMember falls back to the first platform ops email for Popbill notices"
 
   try {
     await withPopbillContactEmailEnv(
-      { dedicated: null, opsEmails: "ops-primary@auto-tax.test, ops-secondary@auto-tax.test" },
+      { dedicated: "popbill-explicit@auto-tax.test", opsEmails: "ops-primary@auto-tax.test, ops-secondary@auto-tax.test" },
       async () => {
         await joinMember(buildSettings(), buildCustomer({ popbillState: "pending" }));
       }
     );
     const joinForm = capturedJoinForm as Record<string, unknown> | null;
     assert.ok(joinForm);
-    assert.equal(joinForm.ContactEmail, "ops-primary@auto-tax.test");
+    assert.equal(joinForm.ContactEmail, "popbill-explicit@auto-tax.test");
   } finally {
     popbill.config = originalConfig;
     popbill.TaxinvoiceService = originalTaxinvoiceService;
@@ -274,7 +295,7 @@ test("quitMember updates the Popbill contact email before member withdrawal", as
 
   try {
     await withPopbillContactEmailEnv(
-      { dedicated: null, opsEmails: "ops-primary@auto-tax.test, ops-secondary@auto-tax.test" },
+      { dedicated: "popbill-notice@auto-tax.test", opsEmails: "ops-primary@auto-tax.test, ops-secondary@auto-tax.test" },
       async () => {
         await quitMember(buildSettings(), buildCustomer(), "AUTO-TAX 고객 삭제");
       }
@@ -287,11 +308,51 @@ test("quitMember updates the Popbill contact email before member withdrawal", as
       personName: "발행담당자",
       tel: "02-1234-5678",
       hp: "",
-      email: "ops-primary@auto-tax.test",
+      email: "popbill-notice@auto-tax.test",
       fax: "",
       searchAllAllowYN: true,
       mgrYN: true
     });
+  } finally {
+    popbill.config = originalConfig;
+    popbill.TaxinvoiceService = originalTaxinvoiceService;
+  }
+});
+
+test("quitMember falls back to corp-number-only withdrawal when contact update cannot use the auto user id", async () => {
+  const popbill = require("popbill") as {
+    config: (...args: unknown[]) => unknown;
+    TaxinvoiceService: () => unknown;
+  };
+  const originalConfig = popbill.config;
+  const originalTaxinvoiceService = popbill.TaxinvoiceService;
+  const calls: Array<{ method: string; args: unknown[] }> = [];
+
+  popbill.config = () => undefined;
+  popbill.TaxinvoiceService = () => ({
+    updateContact: (...args: unknown[]) => {
+      calls.push({ method: "updateContact", args });
+      const onError = args[4] as (error: { code: string; message: string }) => void;
+      onError({ code: "-10000038", message: "회원의 아이디가 아닙니다." });
+    },
+    quitMember: (...args: unknown[]) => {
+      calls.push({ method: "quitMember", args });
+      const onSuccess = args[2] as (response: unknown) => void;
+      onSuccess({ code: 1 });
+    }
+  });
+
+  try {
+    await withPopbillContactEmailEnv(
+      { dedicated: "popbill-notice@auto-tax.test", opsEmails: "ops-primary@auto-tax.test, ops-secondary@auto-tax.test" },
+      async () => {
+        await quitMember(buildSettings(), buildCustomer(), "AUTO-TAX 고객 삭제");
+      }
+    );
+    assert.equal(calls[0]?.method, "updateContact");
+    assert.equal(calls[1]?.method, "quitMember");
+    assert.equal(calls[1]?.args[0], "1208200052");
+    assert.equal(calls[1]?.args[1], "AUTO-TAX 고객 삭제");
   } finally {
     popbill.config = originalConfig;
     popbill.TaxinvoiceService = originalTaxinvoiceService;
