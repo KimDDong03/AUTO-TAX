@@ -11,6 +11,14 @@ const supabasePublishableKey =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabaseAuthTimeoutMs =
   parseSupabaseAuthTimeoutMs(import.meta.env.VITE_SUPABASE_AUTH_TIMEOUT_MS) ?? DEFAULT_SUPABASE_AUTH_TIMEOUT_MS;
+const supabaseProjectRef = (() => {
+  try {
+    return new URL(supabaseUrl).hostname.split(".")[0] ?? "";
+  } catch {
+    return "";
+  }
+})();
+const supabaseAuthStorageKey = supabaseProjectRef ? `sb-${supabaseProjectRef}-auth-token` : "";
 
 function createBrowserSupabaseClient() {
   if (!supabaseUrl || !supabasePublishableKey) {
@@ -26,6 +34,15 @@ function createBrowserSupabaseClient() {
 }
 
 export const supabase = createBrowserSupabaseClient();
+
+function clearStaleSupabaseAuthStorage() {
+  if (typeof window === "undefined" || !supabaseAuthStorageKey) {
+    return;
+  }
+
+  window.localStorage.removeItem(supabaseAuthStorageKey);
+  window.sessionStorage.removeItem(supabaseAuthStorageKey);
+}
 
 function getSupabaseErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -128,12 +145,18 @@ export async function refreshSessionSafely(): Promise<{
 }> {
   try {
     const { data, error } = await withSupabaseAuthTimeout(supabase.auth.refreshSession(), supabaseAuthTimeoutMs);
+    if (isInvalidRefreshTokenError(error)) {
+      clearStaleSupabaseAuthStorage();
+    }
     return {
       session: data.session,
       invalidRefreshToken: isInvalidRefreshTokenError(error),
       error: error ? toSupabaseSessionError(error, "세션을 갱신하지 못했습니다.") : null
     };
   } catch (error) {
+    if (isInvalidRefreshTokenError(error)) {
+      clearStaleSupabaseAuthStorage();
+    }
     return {
       session: null,
       invalidRefreshToken: isInvalidRefreshTokenError(error),
@@ -152,9 +175,12 @@ export async function getSessionSafely(): Promise<{
   try {
     sessionResult = await withSupabaseAuthTimeout(supabase.auth.getSession(), supabaseAuthTimeoutMs);
   } catch (error) {
+    if (isInvalidRefreshTokenError(error)) {
+      clearStaleSupabaseAuthStorage();
+    }
     return {
       session: null,
-      invalidRefreshToken: false,
+      invalidRefreshToken: isInvalidRefreshTokenError(error),
       error: toSupabaseSessionError(error, "세션을 확인하지 못했습니다.")
     };
   }
@@ -162,6 +188,7 @@ export async function getSessionSafely(): Promise<{
   const { data, error } = sessionResult;
 
   if (isInvalidRefreshTokenError(error)) {
+    clearStaleSupabaseAuthStorage();
     return {
       session: null,
       invalidRefreshToken: true,

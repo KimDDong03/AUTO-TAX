@@ -204,22 +204,54 @@ type TopnavTaskNotification = {
   onAction: () => void;
 };
 
-const CertificatesScreen = lazy(() =>
+const LAZY_CHUNK_RELOAD_KEY = "auto-tax.lazy-chunk-reloaded";
+
+function isLazyChunkLoadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk|ChunkLoadError/i.test(message);
+}
+
+function lazyWithReload<T extends React.ComponentType<any>>(
+  loader: () => Promise<{ default: T }>
+) {
+  return lazy(async () => {
+    try {
+      const loaded = await loader();
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(LAZY_CHUNK_RELOAD_KEY);
+      }
+      return loaded;
+    } catch (error) {
+      if (
+        isLazyChunkLoadError(error) &&
+        typeof window !== "undefined" &&
+        window.sessionStorage.getItem(LAZY_CHUNK_RELOAD_KEY) !== "1"
+      ) {
+        window.sessionStorage.setItem(LAZY_CHUNK_RELOAD_KEY, "1");
+        window.location.reload();
+        return await new Promise<{ default: T }>(() => undefined);
+      }
+      throw error;
+    }
+  });
+}
+
+const CertificatesScreen = lazyWithReload(() =>
   import("./features/certificates/CertificatesScreen").then((module) => ({ default: module.CertificatesScreen }))
 );
-const CustomersTab = lazy(() =>
+const CustomersTab = lazyWithReload(() =>
   import("./features/customers/CustomersTab").then((module) => ({ default: module.CustomersTab }))
 );
-const HomeTab = lazy(() =>
+const HomeTab = lazyWithReload(() =>
   import("./features/home/HomeTab").then((module) => ({ default: module.HomeTab }))
 );
-const IssuanceTab = lazy(() =>
+const IssuanceTab = lazyWithReload(() =>
   import("./features/issuance/IssuanceTab").then((module) => ({ default: module.IssuanceTab }))
 );
-const OnboardingTab = lazy(() =>
+const OnboardingTab = lazyWithReload(() =>
   import("./features/onboarding/OnboardingTab").then((module) => ({ default: module.OnboardingTab }))
 );
-const PublicLanding = lazy(() =>
+const PublicLanding = lazyWithReload(() =>
   import("./features/public/PublicLanding").then((module) => ({ default: module.PublicLanding }))
 );
 
