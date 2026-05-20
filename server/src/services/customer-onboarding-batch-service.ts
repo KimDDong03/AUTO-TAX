@@ -21,6 +21,7 @@ type FailedRowMessage = { rowIndex: number; message: string };
 type WarningMessage = { rowIndex: number; message: string };
 
 const CUSTOMER_ONBOARDING_COMMIT_CONCURRENCY = 5;
+const CUSTOMER_ONBOARDING_COMMIT_ROWS_PER_RUN = 15;
 const CUSTOMER_ONBOARDING_SNAPSHOT_FLUSH_EVERY = 3;
 
 export type CustomerOnboardingPreviewSessionResult = CustomerOnboardingPreviewResult & {
@@ -224,6 +225,28 @@ async function updateBatchSnapshot(
         updated_at: nowIso()
       })
       .eq("id", batchId)
+  );
+}
+
+async function enqueueCustomerOnboardingCommitContinuation(options: {
+  organizationId: string;
+  requestedByUserId: string | null;
+  batchId: string;
+}): Promise<void> {
+  const client = createSupabaseAdminClient();
+  await assertNoError(
+    "고객 등록 배치 이어서 처리 작업 등록 실패",
+    client.from("job_queue").insert({
+      organization_id: options.organizationId,
+      managed_customer_id: null,
+      job_type: "customer-onboarding-commit",
+      status: "queued",
+      run_after: nowIso(),
+      requested_by: options.requestedByUserId,
+      payload: {
+        batchId: options.batchId
+      }
+    })
   );
 }
 
@@ -469,7 +492,9 @@ export async function runCustomerOnboardingCommitBatch(batchId: string): Promise
   };
 
   try {
-    const pendingRowsList = (pendingRows ?? []) as Row[];
+    const allPendingRows = (pendingRows ?? []) as Row[];
+    const pendingRowsList = allPendingRows.slice(0, CUSTOMER_ONBOARDING_COMMIT_ROWS_PER_RUN);
+    const hasMorePendingRows = allPendingRows.length > pendingRowsList.length;
     let nextPendingRowIndex = 0;
     let fatalError: unknown = null;
 
@@ -597,6 +622,18 @@ export async function runCustomerOnboardingCommitBatch(batchId: string): Promise
     if (completedSinceLastSnapshot > 0) {
       await queueSnapshot("running", null, null);
       completedSinceLastSnapshot = 0;
+    }
+
+    if (hasMorePendingRows) {
+      await enqueueCustomerOnboardingCommitContinuation({
+        organizationId,
+        requestedByUserId,
+        batchId
+      });
+      return getCustomerOnboardingCommitBatchStatus({
+        organizationId,
+        batchId
+      });
     }
 
     const finishedAt = nowIso();
