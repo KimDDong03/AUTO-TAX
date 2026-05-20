@@ -2710,7 +2710,7 @@ export function CustomersTab(props: CustomersTabProps) {
       initial={shouldReduceMotion ? false : "hidden"}
       animate={shouldReduceMotion ? undefined : "visible"}
     >
-      <div className="customer-console-shell">
+      <div className={`customer-console-shell ${detailPanelOpen ? "is-detail-open" : "is-detail-empty"}`}>
         <motion.section className="customer-summary-grid" aria-label="고객 운영 요약" variants={pageSectionVariants}>
           {customerSummaryCards.map((card) => (
             <motion.button
@@ -2919,16 +2919,25 @@ export function CustomersTab(props: CustomersTabProps) {
 
         </motion.div>
 
-        {detailPanelOpen ? (
-          <motion.section
-            className={`panel customer-detail-panel ${props.creatingCustomer ? "is-create" : "is-detail"}`}
-            aria-label={props.creatingCustomer ? "새 고객 등록" : "고객 상세"}
-            variants={pageSectionVariants}
-            layout
-          >
-            {props.creatingCustomer ? renderCreatePanel() : renderDetailPanel()}
-          </motion.section>
-        ) : null}
+        <motion.section
+          className={`panel customer-detail-panel ${
+            props.creatingCustomer ? "is-create" : selectedCustomer ? "is-detail" : "is-empty"
+          }`}
+          aria-label={props.creatingCustomer ? "새 고객 등록" : selectedCustomer ? "고객 상세" : "고객 선택 안내"}
+          variants={pageSectionVariants}
+          layout
+        >
+          {props.creatingCustomer ? (
+            renderCreatePanel()
+          ) : selectedCustomer ? (
+            renderDetailPanel()
+          ) : (
+            <div className="issuance-empty-state customer-detail-empty-state is-detail">
+              <strong>선택된 고객이 없습니다.</strong>
+              <p>왼쪽 목록에서 고객을 선택하면 상세 정보와 발행 이력을 확인할 수 있습니다.</p>
+            </div>
+          )}
+        </motion.section>
       </div>
       {renderCustomerCertificateSelector()}
     </motion.div>

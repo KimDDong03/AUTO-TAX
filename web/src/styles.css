@@ -28227,6 +28227,18 @@ button.issuance-list-item {
   box-shadow: none !important;
 }
 
+.app-shell-topnav .customer-detail-panel.is-empty {
+  min-height: min(720px, calc(100dvh - 180px)) !important;
+}
+
+.app-shell-topnav .customer-detail-panel .customer-detail-empty-state {
+  min-height: 100% !important;
+  border-color: var(--lovable-border) !important;
+  border-radius: 2px !important;
+  background: #fbfbfc !important;
+  box-shadow: none !important;
+}
+
 .app-shell-topnav .customer-detail-panel-body.customer-detail-option3-body {
   display: flex !important;
   flex-direction: column !important;
@@ -32000,7 +32012,7 @@ button.issuance-list-item {
   }
 
   .app-shell-topnav .customer-console-shell {
-    grid-template-columns: minmax(360px, 410px) minmax(0, 1fr) !important;
+    grid-template-columns: minmax(376px, 410px) minmax(0, 1fr) !important;
     height: auto !important;
     overflow: visible !important;
   }
@@ -34458,7 +34470,7 @@ button.issuance-list-item {
   }
 
   .app-shell-topnav .customer-console-shell {
-    grid-template-columns: minmax(320px, 360px) minmax(0, 1fr) !important;
+    grid-template-columns: minmax(376px, 410px) minmax(0, 1fr) !important;
     grid-template-rows: auto minmax(0, 1fr) !important;
     gap: 14px !important;
     align-items: start !important;
