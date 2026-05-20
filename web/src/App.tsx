@@ -1840,6 +1840,15 @@ function areOnboardingCustomersJoined(customers: Customer[], targetBusinessNumbe
   });
 }
 
+function filterOnboardingTargetBusinessNumbersToExistingCustomers(
+  customers: Customer[],
+  targetBusinessNumbers: string[]
+): string[] {
+  const registeredBusinessNumbers = new Set(customers.map((customer) => digitsOnly(customer.businessNumber)).filter(Boolean));
+  const filtered = targetBusinessNumbers.filter((businessNumber) => registeredBusinessNumbers.has(digitsOnly(businessNumber)));
+  return filtered.length > 0 ? filtered : targetBusinessNumbers;
+}
+
 function getOnboardingElectronicTaxCertificateRowForCustomer(
   workbook: CustomerOnboardingWorkbookInput | null,
   customer: Customer
@@ -2791,6 +2800,17 @@ export function App() {
     customerOnboardingWorkbook !== null ||
     customerOnboardingPreview !== null ||
     customerOnboardingFileName.trim() !== "";
+  const rawCustomerOnboardingTargetBusinessNumbers =
+    customerOnboardingSessionState.targetBusinessNumbers.length > 0
+      ? customerOnboardingSessionState.targetBusinessNumbers
+      : getOnboardingElectronicTaxBusinessNumbers(customerOnboardingWorkbook);
+  const customerOnboardingTargetBusinessNumbers =
+    data &&
+    customerOnboardingSessionActive &&
+    customerOnboardingPreview === null &&
+    customerOnboardingSessionState.previewReady
+      ? filterOnboardingTargetBusinessNumbersToExistingCustomers(data.customers, rawCustomerOnboardingTargetBusinessNumbers)
+      : rawCustomerOnboardingTargetBusinessNumbers;
   const settingsDerivedOnboardingPendingCertificateCount =
     !data
       ? 0
@@ -2798,7 +2818,7 @@ export function App() {
         ? getOnboardingPendingCertificateCustomers(
             customerOnboardingWorkbook,
             data.customers,
-            customerOnboardingSessionState.targetBusinessNumbers,
+            customerOnboardingTargetBusinessNumbers,
             {
               customerCertificates: data.customerCertificates,
               localCertificates: customerRenewalAssistantAllCertificates
@@ -2808,10 +2828,6 @@ export function App() {
             (customer) =>
               customer.popbillState !== "joined" || !customer.popbillCertRegistered
           ).length;
-  const customerOnboardingTargetBusinessNumbers =
-    customerOnboardingSessionState.targetBusinessNumbers.length > 0
-      ? customerOnboardingSessionState.targetBusinessNumbers
-      : getOnboardingElectronicTaxBusinessNumbers(customerOnboardingWorkbook);
   const settingsDerivedOnboardingCustomersRegistered =
     data && customerOnboardingSessionActive
       ? areOnboardingCustomersRegistered(data.customers, customerOnboardingTargetBusinessNumbers)
@@ -4030,21 +4046,25 @@ export function App() {
         ? customerOnboardingSessionState.targetBusinessNumbers
         : getOnboardingElectronicTaxBusinessNumbers(customerOnboardingWorkbook);
     const latestPayload = await load();
-    const joinProgress = buildInitialRegistrationJoinProgress(latestPayload.customers, targetBusinessNumbers);
+    const committedTargetBusinessNumbers = filterOnboardingTargetBusinessNumbersToExistingCustomers(
+      latestPayload.customers,
+      targetBusinessNumbers
+    );
+    const joinProgress = buildInitialRegistrationJoinProgress(latestPayload.customers, committedTargetBusinessNumbers);
     setCustomerOnboardingJoinProgress(joinProgress);
-    const registrationDone = areOnboardingCustomersJoined(latestPayload.customers, targetBusinessNumbers);
+    const registrationDone = areOnboardingCustomersJoined(latestPayload.customers, committedTargetBusinessNumbers);
     const certificateDone =
       registrationDone &&
       getOnboardingPendingCertificateCustomers(
         customerOnboardingWorkbook,
         latestPayload.customers,
-        targetBusinessNumbers,
+        committedTargetBusinessNumbers,
         {
           customerCertificates: latestPayload.customerCertificates,
           localCertificates: customerRenewalAssistantAllCertificates
         }
       ).length === 0;
-    const pendingJoinCount = targetBusinessNumbers.filter((businessNumber) => {
+    const pendingJoinCount = committedTargetBusinessNumbers.filter((businessNumber) => {
       const customer = latestPayload.customers.find((item) => digitsOnly(item.businessNumber) === digitsOnly(businessNumber));
       return !customer || customer.popbillState !== "joined";
     }).length;
@@ -4067,7 +4087,8 @@ export function App() {
       templateDownloaded: true,
       previewReady: true,
       commitDone: registrationDone,
-      certificateDone
+      certificateDone,
+      targetBusinessNumbers: committedTargetBusinessNumbers
     }));
   };
 

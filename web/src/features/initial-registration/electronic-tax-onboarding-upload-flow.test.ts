@@ -171,6 +171,117 @@ test("runElectronicTaxOnboardingUploadFlow returns preview-ready state after pre
   assert.equal(result.error, "인증서 비밀번호 공란은 공통 비밀번호를 사용합니다.");
 });
 
+test("runElectronicTaxOnboardingUploadFlow tracks only importable customers after preview", async () => {
+  const result = await runElectronicTaxOnboardingUploadFlow({
+    file: { name: "AUTO-TAX.xlsx" },
+    previousSessionState,
+    parseWorkbook: async () => ({
+      fileName: "AUTO-TAX.xlsx",
+      warnings: [],
+      workbook: {
+        certificates: [],
+        plants: []
+      }
+    }),
+    resolveWorkbook: async () => ({
+      workbook: {
+        customers: [
+          {
+            rowIndex: 2,
+            customerName: "importable",
+            businessNumber: "111-11-11111",
+            corpName: "importable",
+            addr: "",
+            bizType: "",
+            bizClass: "",
+            renewalContactMobile: "",
+            memo: ""
+          },
+          {
+            rowIndex: 3,
+            customerName: "blocked",
+            businessNumber: "222-22-22222",
+            corpName: "blocked",
+            addr: "",
+            bizType: "",
+            bizClass: "",
+            renewalContactMobile: "",
+            memo: ""
+          }
+        ],
+        plants: [],
+        certificates: [
+          {
+            rowIndex: 2,
+            businessNumber: "111-11-11111",
+            certificateKind: "electronic_tax",
+            certificateIndex: "1",
+            certificateName: "importable",
+            certificateUsageName: "",
+            issuerName: "",
+            certificatePassword: "",
+            isPrimary: true
+          },
+          {
+            rowIndex: 3,
+            businessNumber: "222-22-22222",
+            certificateKind: "electronic_tax",
+            certificateIndex: "2",
+            certificateName: "blocked",
+            certificateUsageName: "",
+            issuerName: "",
+            certificatePassword: "",
+            isPrimary: true
+          }
+        ]
+      },
+      resolvedCertificateCount: 2,
+      skippedCertificateCount: 0,
+      acceptedBeforeWindowCount: 0,
+      passwordFailureEntries: [],
+      errors: []
+    }),
+    previewWorkbook: async () => ({
+      previewId: "preview-1",
+      totalCustomers: 2,
+      createCount: 1,
+      updateCount: 0,
+      blockedCount: 1,
+      totalPlants: 0,
+      totalCertificates: 2,
+      fileErrors: [],
+      rows: [
+        {
+          rowIndex: 2,
+          customerName: "importable",
+          businessNumber: "111-11-11111",
+          corpName: "importable",
+          plantCount: 0,
+          certificateCount: 1,
+          status: "create",
+          errors: [],
+          warnings: [],
+          canImport: true
+        },
+        {
+          rowIndex: 3,
+          customerName: "blocked",
+          businessNumber: "222-22-22222",
+          corpName: "blocked",
+          plantCount: 0,
+          certificateCount: 1,
+          status: "blocked",
+          errors: ["blocked"],
+          warnings: [],
+          canImport: false
+        }
+      ]
+    })
+  });
+
+  assert.deepEqual(result.sessionState.targetBusinessNumbers, ["1111111111"]);
+});
+
 test("runElectronicTaxOnboardingUploadFlow preserves template download state on parse failure", async () => {
   const result = await runElectronicTaxOnboardingUploadFlow({
     file: { name: "AUTO-TAX.xlsx" },

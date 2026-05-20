@@ -56,6 +56,19 @@ function getElectronicTaxOnboardingTargetBusinessNumbers(
   )];
 }
 
+function getImportablePreviewBusinessNumbers(
+  preview: CustomerOnboardingPreviewResponse,
+  fallbackBusinessNumbers: string[]
+): string[] {
+  const businessNumbers = [...new Set(
+    preview.rows
+      .filter((row) => row.canImport)
+      .map((row) => String(row.businessNumber ?? "").replace(/\D/g, ""))
+      .filter((businessNumber) => businessNumber.length > 0)
+  )];
+  return businessNumbers.length > 0 ? businessNumbers : fallbackBusinessNumbers;
+}
+
 function buildElectronicTaxOnboardingUploadClearedResult(
   previousSessionState: ElectronicTaxOnboardingSessionState
 ): ElectronicTaxOnboardingUploadFlowResult {
@@ -117,12 +130,13 @@ export async function runElectronicTaxOnboardingUploadFlow<TFile>(options: {
     options.onProgress?.("인증서 확인 중...");
     const resolved = await options.resolveWorkbook(parsed.workbook);
     const workbookMessages = joinElectronicTaxOnboardingMessages([...parsed.warnings, ...resolved.errors]);
+    const targetBusinessNumbers = getElectronicTaxOnboardingTargetBusinessNumbers(resolved.workbook);
     const baseSessionState: ElectronicTaxOnboardingSessionState = {
       templateDownloaded: true,
       previewReady: false,
       commitDone: false,
       certificateDone: false,
-      targetBusinessNumbers: getElectronicTaxOnboardingTargetBusinessNumbers(resolved.workbook)
+      targetBusinessNumbers
     };
 
     if (resolved.workbook.customers.length === 0) {
@@ -145,7 +159,8 @@ export async function runElectronicTaxOnboardingUploadFlow<TFile>(options: {
       preview,
       sessionState: {
         ...baseSessionState,
-        previewReady: true
+        previewReady: true,
+        targetBusinessNumbers: getImportablePreviewBusinessNumbers(preview, targetBusinessNumbers)
       },
       passwordFailureEntries: resolved.passwordFailureEntries,
       notice: buildElectronicTaxOnboardingPreviewNotice({
