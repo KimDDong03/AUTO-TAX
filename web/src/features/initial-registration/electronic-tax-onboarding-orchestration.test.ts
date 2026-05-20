@@ -153,6 +153,50 @@ test("processElectronicTaxOnboardingCertificateRegistrations aggregates follow-u
   });
 });
 
+test("processElectronicTaxOnboardingCertificateRegistrations reports progress", async () => {
+  const customers = [
+    createCustomer({ id: 1, customerName: "A" }),
+    createCustomer({ id: 2, customerName: "B" })
+  ];
+  const progressStatuses: string[] = [];
+
+  await processElectronicTaxOnboardingCertificateRegistrations({
+    pendingCustomers: customers,
+    getOnboardingCertificateRow: (customer) => ({
+      rowIndex: customer.id,
+      businessNumber: `123-45-6789${customer.id}`,
+      certificateKind: "electronic_tax",
+      certificateIndex: String(customer.id),
+      certificateName: customer.customerName,
+      certificateUsageName: "전자세금용",
+      issuerName: "issuer",
+      serial: `SERIAL-${customer.id}`,
+      userDN: `USER-DN-${customer.id}`,
+      certificatePassword: "pw",
+      isPrimary: true
+    }),
+    registerCustomer: async (customer) => {
+      if (customer.id === 2) {
+        throw new Error("failed");
+      }
+      return { outcome: "registered" as const, refreshErrorMessage: "" };
+    },
+    reloadAll: async () => undefined,
+    onProgress: (progress) => {
+      progressStatuses.push(`${progress.current}/${progress.total}:${progress.status}:${progress.completed}:${progress.failed}`);
+    }
+  });
+
+  assert.deepEqual(progressStatuses, [
+    "1/2:running:0:0",
+    "1/2:success:1:0",
+    "2/2:running:1:0",
+    "2/2:failed:1:1",
+    "2/2:refreshing:1:1"
+  ]);
+});
+
+
 test("processElectronicTaxOnboardingCertificateRegistrations hides raw browser debug details", async () => {
   const customer = createCustomer({ id: 5, customerName: "이주경" });
 

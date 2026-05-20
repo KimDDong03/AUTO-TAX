@@ -7,6 +7,16 @@ import type {
 
 type ElectronicTaxOnboardingCertificateRow = CustomerOnboardingWorkbookInput["certificates"][number];
 
+export type ElectronicTaxOnboardingCertificateRegistrationProgress = {
+  total: number;
+  current: number;
+  completed: number;
+  alreadyRegistered: number;
+  failed: number;
+  currentCustomerName: string;
+  status: "running" | "success" | "already-registered" | "failed" | "skipped" | "refreshing";
+};
+
 function sanitizeElectronicTaxRegistrationMessage(value: string): string {
   if (value.includes("공동인증서 비밀번호가 올바르지 않습니다") || value.includes("비밀번호가 올바르지")) {
     return "사전조회 때 확인한 비밀번호로 등록했지만 등록 화면에서 인증서 확인에 실패했습니다. AT 헬퍼에서 공동인증서를 다시 읽고 재시도하세요.";
@@ -87,6 +97,7 @@ export async function processElectronicTaxOnboardingCertificateRegistrations(opt
     refreshErrorMessage: string;
   }>;
   reloadAll: () => Promise<void>;
+  onProgress?: (progress: ElectronicTaxOnboardingCertificateRegistrationProgress) => void;
 }): Promise<{
   completedNames: string[];
   alreadyRegisteredNames: string[];
@@ -97,11 +108,31 @@ export async function processElectronicTaxOnboardingCertificateRegistrations(opt
   const alreadyRegisteredNames: string[] = [];
   const failedDetails: string[] = [];
   const refreshWarnings: string[] = [];
+  const total = options.pendingCustomers.length;
 
-  for (const customer of options.pendingCustomers) {
+  const emitProgress = (
+    customer: Customer,
+    index: number,
+    status: ElectronicTaxOnboardingCertificateRegistrationProgress["status"]
+  ) => {
+    options.onProgress?.({
+      total,
+      current: Math.min(index + 1, total),
+      completed: completedNames.length,
+      alreadyRegistered: alreadyRegisteredNames.length,
+      failed: failedDetails.length,
+      currentCustomerName: customer.customerName,
+      status
+    });
+  };
+
+  for (let index = 0; index < options.pendingCustomers.length; index += 1) {
+    const customer = options.pendingCustomers[index]!;
+    emitProgress(customer, index, "running");
     const onboardingCertificateRow = options.getOnboardingCertificateRow(customer);
     if (!onboardingCertificateRow) {
       failedDetails.push(`${customer.customerName}: 전자세금용 공동인증서 업로드 정보를 찾지 못했습니다.`);
+      emitProgress(customer, index, "skipped");
       continue;
     }
 
@@ -112,18 +143,32 @@ export async function processElectronicTaxOnboardingCertificateRegistrations(opt
       });
       if (result.outcome === "already-registered") {
         alreadyRegisteredNames.push(customer.customerName);
+        emitProgress(customer, index, "already-registered");
       } else {
         completedNames.push(customer.customerName);
+        emitProgress(customer, index, "success");
       }
       if (result.refreshErrorMessage) {
         refreshWarnings.push(`${customer.customerName}: ${result.refreshErrorMessage}`);
       }
     } catch (error) {
       failedDetails.push(`${customer.customerName}: ${getElectronicTaxRegistrationErrorMessage(error, "자동 등록 실패")}`);
+      emitProgress(customer, index, "failed");
     }
   }
 
   try {
+    if (total > 0) {
+      options.onProgress?.({
+        total,
+        current: total,
+        completed: completedNames.length,
+        alreadyRegistered: alreadyRegisteredNames.length,
+        failed: failedDetails.length,
+        currentCustomerName: "",
+        status: "refreshing"
+      });
+    }
     await options.reloadAll();
   } catch (error) {
     refreshWarnings.push(`전체 새로고침 실패: ${getElectronicTaxRegistrationErrorMessage(error, "새로고침 실패")}`);

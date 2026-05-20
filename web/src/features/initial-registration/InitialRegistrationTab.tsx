@@ -3,9 +3,11 @@ import type React from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { Icon, Panel, RevealIcon, StatusBadge } from "../../components/ui";
 import type { BootstrapPayload } from "../../types";
 import type { CustomerOnboardingPreviewResponse } from "./customer-onboarding-workbook";
+import type { ElectronicTaxOnboardingCertificateRegistrationProgress } from "./electronic-tax-onboarding-orchestration";
 
 type QuickRegisterFormState = {
   messageId: number | null;
@@ -58,6 +60,14 @@ type CertificatePasswordOverrideEntry = {
   customerName: string;
   corpName: string;
   value: string;
+};
+
+export type InitialRegistrationJoinProgress = {
+  total: number;
+  completed: number;
+  pending: number;
+  failed: number;
+  status: "running" | "complete";
 };
 
 type InitialStatusNoticeTone = "info" | "progress" | "success" | "warn" | "danger";
@@ -339,6 +349,8 @@ type InitialRegistrationTabProps = {
   customerOnboardingPreview: CustomerOnboardingPreviewResponse | null;
   customerOnboardingNotice: string;
   customerOnboardingError: string;
+  certificateRegistrationProgress: ElectronicTaxOnboardingCertificateRegistrationProgress | null;
+  joinProgress: InitialRegistrationJoinProgress | null;
   pendingOnboardingCertificateRegistrationCount: number;
   quickRegisterMessages: InboxMessage[];
   quickRegisterForm: QuickRegisterFormState;
@@ -511,16 +523,16 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           : isCommitStepSelected
             ? {
                 label: registrationFlow.commitCompleted
-                  ? "고객 연동 완료"
+                  ? "고객 반영 완료"
                   : isCommittingOnboarding
                     ? "연동 중..."
-                    : "고객 연동",
+                    : "고객 반영",
                 disabled:
                   registrationFlow.commitCompleted ||
                   props.busyKey !== null ||
                   !props.customerOnboardingPreview ||
                   onboardingImportableCount === 0,
-                title: registrationFlow.commitCompleted ? "고객 연동이 완료되었습니다." : undefined,
+                title: registrationFlow.commitCompleted ? "고객 반영이 완료되었습니다." : undefined,
                 onClick: () =>
                   void props.runAction(
                     "customer-onboarding-commit",
@@ -530,7 +542,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               }
           : registrationStage === "commit" && !registrationFlow.commitCompleted
             ? {
-                label: isCommittingOnboarding ? "연동 중..." : "고객 연동",
+                label: isCommittingOnboarding ? "반영 중..." : "고객 반영",
                 disabled: props.busyKey !== null || !props.customerOnboardingPreview || onboardingImportableCount === 0,
                 title: undefined,
                 onClick: () =>
@@ -561,6 +573,28 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const uploadProgressMessage = isPreviewingOnboarding
     ? props.customerOnboardingNotice || "양식 업로드를 확인하는 중입니다..."
     : "";
+  const certificateProgress = props.certificateRegistrationProgress;
+  const certificateProgressPercent =
+    certificateProgress && certificateProgress.total > 0
+      ? Math.round((certificateProgress.current / certificateProgress.total) * 100)
+      : 0;
+  const certificateProgressStatusText =
+    certificateProgress?.status === "refreshing"
+      ? "상태 확인 중"
+      : certificateProgress?.currentCustomerName
+        ? `${certificateProgress.currentCustomerName} 처리 중`
+        : "처리 중";
+  const joinProgress = props.joinProgress;
+  const joinProgressPercent =
+    joinProgress && joinProgress.total > 0
+      ? Math.round((joinProgress.completed / joinProgress.total) * 100)
+      : 0;
+  const joinProgressStatusText =
+    joinProgress?.status === "complete"
+      ? "완료"
+      : joinProgress?.failed
+        ? `확인 필요 ${joinProgress.failed}건`
+        : "진행 중";
   const showCertificatePasswordOverrides =
     !registrationFlow.commitCompleted &&
     props.certificatePasswordOverrideEntries.length > 0;
@@ -706,6 +740,42 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                     </Button>
                   </div>
                 ) : null}
+                {certificateProgress ? (
+                  <div className="certificate-registration-progress-card" role="status" aria-live="polite">
+                    <div className="certificate-registration-progress-head">
+                      <div>
+                        <strong>공동인증서 반영 현황</strong>
+                        <p>{certificateProgressStatusText}</p>
+                      </div>
+                      <span>
+                        {certificateProgress.current}/{certificateProgress.total}건
+                      </span>
+                    </div>
+                    <Progress value={certificateProgressPercent} />
+                    <div className="certificate-registration-progress-meta">
+                      <span>완료 {certificateProgress.completed + certificateProgress.alreadyRegistered}건</span>
+                      <span>실패 {certificateProgress.failed}건</span>
+                    </div>
+                  </div>
+                ) : null}
+                {joinProgress ? (
+                  <div className="registration-followup-progress-card" role="status" aria-live="polite">
+                    <div className="registration-followup-progress-head">
+                      <div>
+                        <strong>발행 연동 준비 현황</strong>
+                        <p>{joinProgressStatusText}</p>
+                      </div>
+                      <span>
+                        {joinProgress.completed}/{joinProgress.total}건
+                      </span>
+                    </div>
+                    <Progress value={joinProgressPercent} />
+                    <div className="registration-followup-progress-meta">
+                      <span>완료 {joinProgress.completed}건</span>
+                      <span>대기 {joinProgress.pending}건</span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -779,49 +849,6 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
 
           {uploadProgressMessage ? (
             <InitialStatusNotice title="진행 중" message={uploadProgressMessage} tone="progress" />
-          ) : null}
-
-          {!registrationFlow.commitCompleted && !showTemplateActions ? (
-            <details className="onboarding-advanced-details onboarding-assist-details">
-              <summary>보조 작업 보기</summary>
-              <div className="helper-box-stack onboarding-assist-body">
-                <strong>보조 작업</strong>
-                <div className="button-row">
-                  {registrationStage !== "download" ? (
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      disabled={props.busyKey !== null || !props.helperReady || props.helperCertificateCount === 0}
-                      onClick={() => void props.runAction("customer-onboarding-template", props.downloadCustomerOnboardingTemplate, { reload: false })}
-                      title={
-                        !props.helperReady
-                          ? "먼저 공동인증서를 읽어주세요."
-                          : props.helperCertificateCount === 0
-                            ? "이 PC에서 전자세금용 공동인증서를 먼저 확인하세요."
-                            : undefined
-                      }
-                    >
-                      양식 다시 다운로드
-                    </button>
-                  ) : null}
-                  {registrationStage !== "upload" ? (
-                    <button type="button" className="btn-secondary" disabled={props.busyKey !== null} onClick={() => onboardingFileInputRef.current?.click()}>
-                      양식 업로드
-                    </button>
-                  ) : null}
-                  {registrationStage !== "commit" && onboardingImportableCount > 0 ? (
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      disabled={props.busyKey !== null || !props.customerOnboardingPreview || onboardingImportableCount === 0}
-                      onClick={() => void props.runAction("customer-onboarding-commit", props.commitCustomerOnboardingWorkbook, { reload: false })}
-                    >
-                      고객 등록 반영
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </details>
           ) : null}
 
           {props.customerOnboardingNotice && !registrationFlow.blockedReason ? (

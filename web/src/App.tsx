@@ -26,7 +26,11 @@ import { downloadSelectedCustomersWorkbook } from "./features/customers/customer
 import { downloadCustomerContractRenewalsWorkbook } from "./features/home/customerContractRenewals";
 import type { DraftTaxInvoiceInfoUpdateInput, ManualDraftCreateInput } from "./features/issuance/IssuanceTab";
 import { buildHomeScreenModel, type HomeActionKey } from "./features/home/homeScreenModel";
-import { InitialRegistrationTab, getInitialRegistrationFlowState } from "./features/initial-registration/InitialRegistrationTab";
+import {
+  InitialRegistrationTab,
+  getInitialRegistrationFlowState,
+  type InitialRegistrationJoinProgress
+} from "./features/initial-registration/InitialRegistrationTab";
 import type { OnboardingStep } from "./features/onboarding/OnboardingTab";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "./features/auth/passwordPolicy";
 import {
@@ -57,6 +61,7 @@ import {
 } from "./features/initial-registration/electronic-tax-onboarding-resolver";
 import {
   processElectronicTaxOnboardingCertificateRegistrations,
+  type ElectronicTaxOnboardingCertificateRegistrationProgress,
   waitForElectronicTaxOnboardingCommitBatch
 } from "./features/initial-registration/electronic-tax-onboarding-orchestration";
 import {
@@ -552,6 +557,43 @@ type OnboardingCertificateAutoRunnerProps = {
   pendingJoinCount: number;
   pollPendingJoins: () => Promise<void>;
 };
+
+function buildInitialRegistrationJoinProgress(
+  customers: Customer[],
+  targetBusinessNumbers: string[]
+): InitialRegistrationJoinProgress | null {
+  const normalizedTargets = Array.from(
+    new Set(
+      targetBusinessNumbers
+        .map((businessNumber) => digitsOnly(businessNumber))
+        .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
+    )
+  );
+  if (normalizedTargets.length === 0) {
+    return null;
+  }
+
+  let completed = 0;
+  let failed = 0;
+  for (const businessNumber of normalizedTargets) {
+    const customer = customers.find((item) => digitsOnly(item.businessNumber) === businessNumber);
+    if (customer?.popbillState === "joined") {
+      completed += 1;
+    } else if (customer?.popbillState === "failed") {
+      failed += 1;
+    }
+  }
+
+  const total = normalizedTargets.length;
+  const pending = Math.max(0, total - completed - failed);
+  return {
+    total,
+    completed,
+    pending,
+    failed,
+    status: completed === total ? "complete" : "running"
+  };
+}
 
 function OnboardingCertificateAutoRunner({
   active,
@@ -2074,6 +2116,10 @@ export function App() {
   const [customerOnboardingAttemptedCertificateBusinessNumbers, setCustomerOnboardingAttemptedCertificateBusinessNumbers] =
     useState<string[]>([]);
   const [customerOnboardingNotice, setCustomerOnboardingNotice] = useState("");
+  const [customerOnboardingCertificateRegistrationProgress, setCustomerOnboardingCertificateRegistrationProgress] =
+    useState<ElectronicTaxOnboardingCertificateRegistrationProgress | null>(null);
+  const [customerOnboardingJoinProgress, setCustomerOnboardingJoinProgress] =
+    useState<InitialRegistrationJoinProgress | null>(null);
   const [customerOnboardingError, setCustomerOnboardingError] = useState("");
   const [quickRegisterForm, setQuickRegisterForm] = useState<QuickRegisterFormState>(createQuickRegisterForm());
   const [quickRegisterNotice, setQuickRegisterNotice] = useState("");
@@ -2655,11 +2701,21 @@ export function App() {
 
     try {
       const payload = await load();
+      const targetBusinessNumbers = customerOnboardingSessionState.targetBusinessNumbers;
+      const joinProgress = buildInitialRegistrationJoinProgress(payload.customers, targetBusinessNumbers);
+      if (joinProgress) {
+        setCustomerOnboardingJoinProgress(joinProgress);
+        setCustomerOnboardingNotice(
+          joinProgress.status === "complete"
+            ? `발행 연동 준비 완료 ${joinProgress.completed}/${joinProgress.total}건`
+            : `발행 연동 준비 중 ${joinProgress.completed}/${joinProgress.total}건`
+        );
+      }
       syncCustomerOnboardingCertificateDone(payload);
     } catch {
       // keep polling on the next cycle
     }
-  }, [load, syncCustomerOnboardingCertificateDone]);
+  }, [customerOnboardingSessionState.targetBusinessNumbers, load, syncCustomerOnboardingCertificateDone]);
 
   const {
     canUseCustomerRenewalAssistant,
@@ -3866,6 +3922,8 @@ export function App() {
     setCustomerOnboardingCertificatePasswordOverrides({});
     setCustomerOnboardingPreflightPasswordFailureEntries([]);
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+    setCustomerOnboardingJoinProgress(null);
+    setCustomerOnboardingCertificateRegistrationProgress(null);
     customerOnboardingPreflightCacheRef.current.clear();
     setCustomerOnboardingSessionState({
       templateDownloaded: true,
@@ -3888,6 +3946,8 @@ export function App() {
     setCustomerOnboardingPreview(result.preview);
     setCustomerOnboardingPreflightPasswordFailureEntries(result.passwordFailureEntries);
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+    setCustomerOnboardingJoinProgress(null);
+    setCustomerOnboardingCertificateRegistrationProgress(null);
     setCustomerOnboardingSessionState(result.sessionState);
     setCustomerOnboardingNotice(result.notice);
     setCustomerOnboardingError(result.error);
@@ -3939,6 +3999,8 @@ export function App() {
 
     setCustomerOnboardingError("");
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+    setCustomerOnboardingJoinProgress(null);
+    setCustomerOnboardingCertificateRegistrationProgress(null);
     setCustomerOnboardingSessionState((prev) => ({
       ...prev,
       commitDone: false,
@@ -3957,11 +4019,13 @@ export function App() {
       onProgress: setCustomerOnboardingNotice
     });
 
-    const latestPayload = await load();
     const targetBusinessNumbers =
       customerOnboardingSessionState.targetBusinessNumbers.length > 0
         ? customerOnboardingSessionState.targetBusinessNumbers
         : getOnboardingElectronicTaxBusinessNumbers(customerOnboardingWorkbook);
+    const latestPayload = await load();
+    const joinProgress = buildInitialRegistrationJoinProgress(latestPayload.customers, targetBusinessNumbers);
+    setCustomerOnboardingJoinProgress(joinProgress);
     const registrationDone = areOnboardingCustomersJoined(latestPayload.customers, targetBusinessNumbers);
     const certificateDone =
       registrationDone &&
@@ -3979,7 +4043,9 @@ export function App() {
       return !customer || customer.popbillState !== "joined";
     }).length;
     const onboardingCommitFollowupNotice = !registrationDone
-      ? `발행 연동 가입 대기 ${pendingJoinCount}건`
+      ? joinProgress
+        ? `발행 연동 준비 중 ${joinProgress.completed}/${joinProgress.total}건`
+        : `발행 연동 가입 대기 ${pendingJoinCount}건`
       : certificateDone
         ? "공동인증서까지 완료"
         : "다음 단계에서 공동인증서를 연결하세요";
@@ -6549,6 +6615,7 @@ export function App() {
     if (pendingCustomers.length === 0) {
       throw new Error("전자세금용 인증서 등록이 필요한 고객이 없습니다.");
     }
+    setCustomerOnboardingCertificateRegistrationProgress(null);
     const skippedBeforeJoinCount = onboardingPendingCertificateCustomers.filter(
       (customer) => customer.popbillState !== "joined"
     ).length;
@@ -6571,7 +6638,8 @@ export function App() {
         registerCustomer: registerCustomerElectronicTaxCertificateAutomatically,
         reloadAll: async () => {
           await load();
-        }
+        },
+        onProgress: setCustomerOnboardingCertificateRegistrationProgress
       });
 
     setCustomerOnboardingNotice(
@@ -6873,6 +6941,8 @@ export function App() {
           customerOnboardingPreview={customerOnboardingPreview}
           customerOnboardingNotice={customerOnboardingNotice}
           customerOnboardingError={customerOnboardingError}
+          certificateRegistrationProgress={customerOnboardingCertificateRegistrationProgress}
+          joinProgress={customerOnboardingJoinProgress}
           pendingOnboardingCertificateRegistrationCount={pendingOnboardingCertificateRegistrationTargets.length}
           quickRegisterMessages={exceptionMessages}
           quickRegisterForm={quickRegisterForm}

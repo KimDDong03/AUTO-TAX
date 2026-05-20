@@ -381,7 +381,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
   args: ResolveElectronicTaxOnboardingTemplateWorkbookArgs
 ): Promise<CustomerOnboardingResolutionResult> {
   const onboardingPreflightConcurrency = args.onboardingPreflightConcurrency ?? 16;
-  const onboardingPreflightBatchSize = args.onboardingPreflightBatchSize ?? 40;
+  const onboardingPreflightBatchSize = args.onboardingPreflightBatchSize ?? onboardingPreflightConcurrency;
   const sharedPassword = await args.resolveSharedPassword();
   const availableCertificates = await args.loadAvailableCertificates();
   const errors: string[] = [];

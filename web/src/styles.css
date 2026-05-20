@@ -2525,6 +2525,94 @@ textarea {
   font-weight: 700;
 }
 
+.certificate-registration-progress-card {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 420px);
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #dbe3ee;
+  background: #ffffff;
+}
+
+.certificate-registration-progress-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.certificate-registration-progress-head strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.certificate-registration-progress-head p,
+.certificate-registration-progress-head span,
+.certificate-registration-progress-meta {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.certificate-registration-progress-head span {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.certificate-registration-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.registration-followup-progress-card {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 420px);
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #dbe3ee;
+  background: #ffffff;
+}
+
+.registration-followup-progress-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.registration-followup-progress-head strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.registration-followup-progress-head p,
+.registration-followup-progress-head span,
+.registration-followup-progress-meta {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.registration-followup-progress-head span {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.registration-followup-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .initial-status-notice {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);

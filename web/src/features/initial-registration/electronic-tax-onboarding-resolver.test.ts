@@ -297,3 +297,63 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook batches SignGate preflight 
   ]);
   assert.equal(result.resolvedCertificateCount, 3);
 });
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook uses concurrency-sized default preflight chunks", async () => {
+  const plants = Array.from({ length: 18 }, (_, index) => ({
+    rowIndex: index + 2,
+    certificateIndex: String(index + 1),
+    certificateName: `발전소 ${index + 1}`,
+    plantName: `발전소 ${index + 1}`,
+    certificatePassword: ""
+  }));
+  const batchSizes: number[] = [];
+
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook({ plants }),
+    loadAvailableCertificates: async () =>
+      plants.map((plant) =>
+        createCertificate({
+          index: plant.certificateIndex,
+          cn: plant.certificateName,
+          serial: `SERIAL-${plant.certificateIndex}`,
+          userDN: `USER-DN-${plant.certificateIndex}`
+        })
+      ),
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => {
+      throw new Error("single preflight should not be used when batch preflight is available");
+    },
+    requestPreflightBatch: async (payloads) => {
+      batchSizes.push(payloads.length);
+      return payloads.map((payload) => ({
+        result: {
+          bridge: {
+            preflightProbe: {
+              ok: true,
+              renewInfoSnapshot: {
+                companyName: `발전소 ${payload.certificateIndex}`,
+                businessNumber: `123-45-${String(payload.certificateIndex).padStart(5, "0")}`,
+                ceoName: "대표자",
+                bizType: "발전업",
+                bizClass: "태양광",
+                businessFieldCode: null,
+                postalCode: null,
+                baseAddress: "서울시 중구 세종대로 1",
+                detailAddress: null,
+                contactName: null,
+                contactDepartment: null,
+                contactEmail: null,
+                contactTel: null,
+                contactFax: null,
+                contactMobile: "010-1234-5678"
+              }
+            } as RenewalBridgePreflightProbe
+          }
+        }
+      }));
+    }
+  });
+
+  assert.deepEqual(batchSizes, [16, 2]);
+  assert.equal(result.resolvedCertificateCount, 18);
+});
