@@ -53,6 +53,7 @@ export async function waitForElectronicTaxOnboardingCommitBatch(options: {
   batchId: string;
   initial?: CustomerOnboardingCommitStartResponse;
   loadBatch: (batchId: string) => Promise<CustomerOnboardingCommitResponse>;
+  kickRunner?: () => Promise<void>;
   onProgress: (notice: string) => void;
   sleep?: (ms: number) => Promise<void>;
 }): Promise<CustomerOnboardingCommitResponse> {
@@ -62,8 +63,23 @@ export async function waitForElectronicTaxOnboardingCommitBatch(options: {
       new Promise<void>((resolve) => {
         window.setTimeout(resolve, ms);
       }));
+  let runnerPromise: Promise<void> | null = null;
+  const kickRunner = () => {
+    if (!options.kickRunner || runnerPromise) {
+      return;
+    }
+    runnerPromise = options.kickRunner().finally(() => {
+      runnerPromise = null;
+    });
+    void runnerPromise.catch(() => {
+      // The batch status poll below is the source of truth for visible errors.
+    });
+  };
 
   if (options.initial) {
+    if (options.initial.status === "queued" || options.initial.status === "running") {
+      kickRunner();
+    }
     options.onProgress(`고객 반영을 시작했습니다. ${options.initial.completedRows}/${options.initial.totalRows}건 처리됨`);
   }
 
@@ -79,6 +95,7 @@ export async function waitForElectronicTaxOnboardingCommitBatch(options: {
     }
 
     options.onProgress(`고객 반영 진행 중... ${batch.completedRows}/${batch.totalRows}건 처리됨`);
+    kickRunner();
     await sleep(1000);
   }
 }

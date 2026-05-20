@@ -4016,6 +4016,12 @@ export function App() {
       batchId: commitStart.batchId,
       initial: commitStart,
       loadBatch: async (batchId) => await api<CustomerOnboardingCommitResponse>(`/api/customer-onboarding/batches/${batchId}`),
+      kickRunner: async () => {
+        await api("/api/customer-onboarding/follow-up/run", {
+          method: "POST",
+          body: JSON.stringify({ limit: 1 })
+        });
+      },
       onProgress: setCustomerOnboardingNotice
     });
 
