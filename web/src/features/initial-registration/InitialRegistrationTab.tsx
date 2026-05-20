@@ -116,6 +116,37 @@ function InitialStatusMetric(props: {
   );
 }
 
+function InitialRegistrationProgressCard(props: {
+  title: string;
+  statusText: string;
+  current: number;
+  total: number;
+  progressValue: number;
+  metaItems: Array<{ label: string; value: number }>;
+}) {
+  return (
+    <div className="initial-registration-progress-card" role="status" aria-live="polite">
+      <div className="initial-registration-progress-head">
+        <div>
+          <strong>{props.title}</strong>
+          <p>{props.statusText}</p>
+        </div>
+        <span>
+          {props.current}/{props.total}건
+        </span>
+      </div>
+      <Progress value={props.progressValue} />
+      <div className="initial-registration-progress-meta">
+        {props.metaItems.map((item) => (
+          <span key={item.label}>
+            {item.label} {item.value}건
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export type InitialRegistrationFlowState = {
   stage: InitialRegistrationStage;
   primaryActionLabel: string;
@@ -573,6 +604,10 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const uploadProgressMessage = isPreviewingOnboarding
     ? props.customerOnboardingNotice || "양식 업로드를 확인하는 중입니다..."
     : "";
+  const showCustomerOnboardingNotice =
+    Boolean(props.customerOnboardingNotice) &&
+    !registrationFlow.blockedReason &&
+    !uploadProgressMessage;
   const certificateProgress = props.certificateRegistrationProgress;
   const certificateProgressPercent =
     certificateProgress && certificateProgress.total > 0
@@ -741,40 +776,30 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                   </div>
                 ) : null}
                 {certificateProgress ? (
-                  <div className="certificate-registration-progress-card" role="status" aria-live="polite">
-                    <div className="certificate-registration-progress-head">
-                      <div>
-                        <strong>공동인증서 반영 현황</strong>
-                        <p>{certificateProgressStatusText}</p>
-                      </div>
-                      <span>
-                        {certificateProgress.current}/{certificateProgress.total}건
-                      </span>
-                    </div>
-                    <Progress value={certificateProgressPercent} />
-                    <div className="certificate-registration-progress-meta">
-                      <span>완료 {certificateProgress.completed + certificateProgress.alreadyRegistered}건</span>
-                      <span>실패 {certificateProgress.failed}건</span>
-                    </div>
-                  </div>
+                  <InitialRegistrationProgressCard
+                    title="공동인증서 반영 현황"
+                    statusText={certificateProgressStatusText}
+                    current={certificateProgress.current}
+                    total={certificateProgress.total}
+                    progressValue={certificateProgressPercent}
+                    metaItems={[
+                      { label: "완료", value: certificateProgress.completed + certificateProgress.alreadyRegistered },
+                      { label: "실패", value: certificateProgress.failed }
+                    ]}
+                  />
                 ) : null}
                 {joinProgress ? (
-                  <div className="registration-followup-progress-card" role="status" aria-live="polite">
-                    <div className="registration-followup-progress-head">
-                      <div>
-                        <strong>발행 연동 준비 현황</strong>
-                        <p>{joinProgressStatusText}</p>
-                      </div>
-                      <span>
-                        {joinProgress.completed}/{joinProgress.total}건
-                      </span>
-                    </div>
-                    <Progress value={joinProgressPercent} />
-                    <div className="registration-followup-progress-meta">
-                      <span>완료 {joinProgress.completed}건</span>
-                      <span>대기 {joinProgress.pending}건</span>
-                    </div>
-                  </div>
+                  <InitialRegistrationProgressCard
+                    title="발행 연동 준비 현황"
+                    statusText={joinProgressStatusText}
+                    current={joinProgress.completed}
+                    total={joinProgress.total}
+                    progressValue={joinProgressPercent}
+                    metaItems={[
+                      { label: "완료", value: joinProgress.completed },
+                      { label: "대기", value: joinProgress.pending }
+                    ]}
+                  />
                 ) : null}
               </div>
             </div>
@@ -851,7 +876,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             <InitialStatusNotice title="진행 중" message={uploadProgressMessage} tone="progress" />
           ) : null}
 
-          {props.customerOnboardingNotice && !registrationFlow.blockedReason ? (
+          {showCustomerOnboardingNotice ? (
             <InitialStatusNotice title="안내" message={props.customerOnboardingNotice} tone={registrationFlow.commitCompleted ? "success" : "info"} />
           ) : null}
           {showCertificatePasswordOverrides ? (

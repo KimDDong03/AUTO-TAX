@@ -217,8 +217,9 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook includes SignGate preflight
   assert.equal(result.skippedCertificateCount, 1);
   assert.match(
     result.errors[0] ?? "",
-    /발전소 시트 \(지석기 발전소\): 사전조회 실패: 폐지된 인증서 정보입니다\. 관리자에게 문의하여 주십시요/
+    /발전소 시트 \(지석기 발전소\): 사전조회 실패: 폐지된 인증서 정보입니다\./
   );
+  assert.doesNotMatch(result.errors[0] ?? "", /관리자에게 문의/);
 });
 
 test("resolveElectronicTaxOnboardingTemplateWorkbook batches SignGate preflight requests when available", async () => {

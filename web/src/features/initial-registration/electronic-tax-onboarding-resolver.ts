@@ -114,7 +114,10 @@ function normalizeRenewalPreflightDetail(value: string | null | undefined): stri
     .replace(/<[^>]+>/g, " ");
   const curlIndex = text.indexOf("curl:");
   const relevantText = curlIndex >= 0 ? text.slice(curlIndex) : text;
-  return relevantText.replace(/\s+/g, " ").trim();
+  return relevantText
+    .replace(/관리자에게\s*문의(?:하여|해)?\s*주(?:십시요|십시오|세요)\.?/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function normalizeRenewalCertificateExpireDate(value: string | null | undefined): string | null {
