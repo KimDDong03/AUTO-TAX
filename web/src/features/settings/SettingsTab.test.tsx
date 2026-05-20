@@ -271,7 +271,7 @@ test("SettingsTab renders onboarding as the first settings detail section", () =
   assert.match(text, /도입 준비 본문/);
   assert.match(text, /발행 설정/);
   assert.match(text, /메일 연결하기/);
-  assert.match(text, /AT 헬퍼/);
+  assert.doesNotMatch(text, /AT 헬퍼/);
   assert.doesNotMatch(text, /메일 연결 설정/);
 });
 

@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { AlertTriangle, CheckCircle2, CircleX, HelpCircle, LoaderCircle, MailX, type LucideIcon } from "lucide-react";
+import { EmptyState, InfoRow, InfoSection, SearchField, StatusBadge, SummaryFilterCard, TableToolbar, type ConsoleTone } from "../../components/console";
 import { CheckboxControl, Icon } from "../../components/ui";
 import { matchesCustomerSearchQuery } from "../customers/customerSearch";
+import { matchesAnySearchText, matchesSearchText, normalizeSearchValue } from "../../lib/searchMatch";
 import type { Customer, InboxMessage, InvoiceDraft, MailPreviewImageResponse } from "../../types";
 import {
   getSubtleHoverMotion,
@@ -284,6 +287,23 @@ function formatDraftMoneyInput(value: number): string {
   return new Intl.NumberFormat("ko-KR").format(value);
 }
 
+function calculateVatInputFromSupplyCostInput(value: string): string {
+  const normalized = value.replace(/[,\s₩원]/g, "");
+  if (!normalized) {
+    return "";
+  }
+  if (!/^\d+$/.test(normalized)) {
+    return "";
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    return "";
+  }
+
+  return formatDraftMoneyInput(Math.floor(parsed / 10));
+}
+
 function formatManualDraftItemName(billingMonth: string): string {
   const match = billingMonth.match(/^(\d{4})-(\d{2})$/);
   if (!match) {
@@ -397,37 +417,50 @@ function formatOptionalInvoiceValue(value: string | number | null | undefined): 
 
 type IssuanceStatus = InvoiceDraft["status"] | "unmatched" | "missing-mail";
 
-function getIssuanceStatusIconName(status: IssuanceStatus): string {
+function getIssuanceStatusIcon(status: IssuanceStatus): LucideIcon {
   switch (status) {
     case "review":
     case "scheduled":
-      return "warning";
+      return AlertTriangle;
     case "issuing":
-      return "loader-circle";
+      return LoaderCircle;
     case "issued":
-      return "complete";
+      return CheckCircle2;
     case "failed":
-      return "circle-x";
+      return CircleX;
     case "unmatched":
-      return "help";
+      return HelpCircle;
     case "missing-mail":
-      return "mail-x";
+      return MailX;
     default:
+      return AlertTriangle;
+  }
+}
+
+function getIssuanceStatusTone(status: IssuanceStatus): ConsoleTone {
+  switch (status) {
+    case "issued":
+      return "success";
+    case "issuing":
+      return "info";
+    case "failed":
+      return "danger";
+    case "missing-mail":
+      return "info";
+    case "review":
+    case "scheduled":
+    case "unmatched":
       return "warning";
+    default:
+      return "default";
   }
 }
 
 function IssuanceStatusBadge(props: { status: IssuanceStatus; label: string; className?: string }) {
-  const iconName = getIssuanceStatusIconName(props.status);
-  const className = ["status", `status-${props.status}`, "issuance-status-badge", props.className]
-    .filter(Boolean)
-    .join(" ");
-
   return (
-    <span className={className}>
-      <Icon name={iconName} className="status-icon" />
-      <span>{props.label}</span>
-    </span>
+    <StatusBadge tone={getIssuanceStatusTone(props.status)} icon={getIssuanceStatusIcon(props.status)} className={props.className}>
+      {props.label}
+    </StatusBadge>
   );
 }
 
@@ -502,12 +535,7 @@ function getIssuanceEntrySearchText(entry: IssuanceListEntry): string {
 }
 
 function matchesIssuanceEntrySearch(entry: IssuanceListEntry, query: string): boolean {
-  const normalizedQuery = normalizeCustomerFinderValue(query);
-  if (normalizedQuery === "") {
-    return true;
-  }
-
-  return normalizeCustomerFinderValue(getIssuanceEntrySearchText(entry)).includes(normalizedQuery);
+  return matchesSearchText(getIssuanceEntrySearchText(entry), query);
 }
 
 function matchesIssuanceEntryPeriod(entry: IssuanceListEntry, period: IssuancePeriodFilter): boolean {
@@ -554,7 +582,7 @@ function compareVisibleIssuanceEntries(sortMode: IssuanceSortMode, left: Issuanc
 }
 
 function normalizeCustomerFinderValue(value: string): string {
-  return value.trim().toLocaleLowerCase("ko-KR").replace(/\s+/g, "");
+  return normalizeSearchValue(value).replace(/\s+/g, "");
 }
 
 function normalizedValueIncludes(source: string, target: string): boolean {
@@ -576,7 +604,7 @@ function matchesCustomerFinderQuery(customer: Customer, query: string): boolean 
     return true;
   }
 
-  return [customer.addr, ...customer.plantNames, ...customer.matchAddresses].some((value) => normalizedValueIncludes(value, query));
+  return matchesAnySearchText(query, [customer.addr, ...customer.plantNames, ...customer.matchAddresses]);
 }
 
 function scoreCustomerForUnmatchedMessage(customer: Customer, message: InboxMessage): number {
@@ -634,8 +662,8 @@ export function IssuanceTab(props: IssuanceTabProps) {
   const [activeFilter, setActiveFilter] = useState<IssuanceFilter>(props.requestedFilter ?? defaultFilter);
   const [selectedEntryKey, setSelectedEntryKey] = useState<string | null>(null);
   const [issuanceSearchQuery, setIssuanceSearchQuery] = useState("");
-  const [periodFilter, setPeriodFilter] = useState<IssuancePeriodFilter>("all");
-  const [sortMode, setSortMode] = useState<IssuanceSortMode>("status");
+  const [periodFilter] = useState<IssuancePeriodFilter>("all");
+  const [sortMode] = useState<IssuanceSortMode>("status");
   const [customerFinderOpen, setCustomerFinderOpen] = useState(false);
   const [customerFinderQuery, setCustomerFinderQuery] = useState("");
   const [taxInvoiceInfoForm, setTaxInvoiceInfoForm] = useState<DraftTaxInvoiceInfoFormState | null>(null);
@@ -644,6 +672,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
   const [manualDraftFormEdits, setManualDraftFormEdits] = useState<Partial<ManualDraftFormState>>({});
   const [manualDraftBasisOpen, setManualDraftBasisOpen] = useState(false);
   const [manualDraftError, setManualDraftError] = useState("");
+  const [manualDraftModalOpen, setManualDraftModalOpen] = useState(false);
   const [manualDraftSaving, setManualDraftSaving] = useState(false);
   const [checkedEntryKeys, setCheckedEntryKeys] = useState<Set<string>>(() => new Set());
   const [mailPreviewByDraftId, setMailPreviewByDraftId] = useState<Record<number, DraftMailPreviewState>>({});
@@ -801,6 +830,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
     [props.inboxMessages, selectedDraft?.sourceMessageId]
   );
   const selectedDraftWriteDate = selectedDraft?.writeDate ?? selectedDraftSourceMessage?.receivedAt ?? null;
+  const selectedDraftTaxInvoiceInfoTitle = selectedDraftHasMailSource ? "자동 등록된 세금계산서 정보" : "수동 등록된 세금계산서 정보";
   const isSelectedDraftIssued = selectedDraft?.status === "issued";
   const canUnmatchSelectedDraft =
     selectedDraft !== null &&
@@ -863,6 +893,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
     setManualDraftFormEdits({});
     setManualDraftBasisOpen(false);
     setManualDraftError("");
+    setManualDraftModalOpen(false);
   }, [selectedMissingMailEntry?.key]);
 
   useEffect(() => {
@@ -1058,6 +1089,12 @@ export function IssuanceTab(props: IssuanceTabProps) {
             billingMonth: value,
             itemName: formatManualDraftItemName(value)
           }
+        : field === "supplyCost"
+          ? {
+              ...prev,
+              supplyCost: value,
+              taxTotal: calculateVatInputFromSupplyCostInput(value)
+            }
         : {
             ...prev,
             [field]: value
@@ -1112,6 +1149,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
       setManualDraftFormEdits({});
       setManualDraftBasisOpen(false);
       setManualDraftError("");
+      setManualDraftModalOpen(false);
     } catch (error) {
       setManualDraftError(getDraftFormErrorMessage(error));
     } finally {
@@ -1134,11 +1172,25 @@ export function IssuanceTab(props: IssuanceTabProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [customerFinderOpen]);
 
+  useEffect(() => {
+    if (!manualDraftModalOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setManualDraftModalOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [manualDraftModalOpen]);
+
   const renderTaxInvoiceValueRow = (label: string, value: string) => (
-    <div className="issuance-tax-invoice-row" key={label}>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
+    <InfoRow label={label} className="issuance-tax-invoice-row" key={label}>
+      {value}
+    </InfoRow>
   );
 
   const renderTaxInvoiceInputRow = (
@@ -1146,9 +1198,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
     field: keyof DraftTaxInvoiceInfoFormState,
     options: { type?: string; inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"]; placeholder?: string } = {}
   ) => (
-    <div className="issuance-tax-invoice-row" key={label}>
-      <dt>{label}</dt>
-      <dd>
+    <InfoRow label={label} className="issuance-tax-invoice-row" key={label}>
         <input
           className="issuance-inline-edit-input"
           value={taxInvoiceInfoForm?.[field] ?? ""}
@@ -1158,8 +1208,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
           placeholder={options.placeholder}
           onChange={(event) => updateTaxInvoiceInfoFormField(field, event.target.value)}
         />
-      </dd>
-    </div>
+    </InfoRow>
   );
 
   const renderManualDraftField = (
@@ -1180,11 +1229,66 @@ export function IssuanceTab(props: IssuanceTabProps) {
     </label>
   );
 
+  const renderManualDraftForm = () => {
+    if (!manualDraftForm || !selectedMissingMailEntry) {
+      return null;
+    }
+
+    return (
+      <>
+        <div className="issuance-manual-draft-form">
+          <div className="issuance-manual-draft-grid">
+            {renderManualDraftField("정산월", "billingMonth", { type: "month" })}
+            {renderManualDraftField("작성일자", "writeDate", { type: "date" })}
+            {renderManualDraftField("품목", "itemName")}
+            {renderManualDraftField("공급가액", "supplyCost", { inputMode: "numeric" })}
+            {renderManualDraftField("부가세", "taxTotal", { inputMode: "numeric" })}
+            <div className="issuance-manual-draft-total">
+              <span>합계금액</span>
+              <strong>
+                {formatDraftFormTotalAmount(
+                  {
+                    ...manualDraftForm,
+                    draftId: 0,
+                    customerLabel: selectedMissingMailEntry.customer.customerName
+                  },
+                  props.formatMoney
+                )}
+              </strong>
+            </div>
+          </div>
+
+          {selectedMissingMailLatestDraft ? (
+            <div className="issuance-manual-draft-basis-note">
+              <span>공급받는자 기준 정보는 최근 초안 기준으로 채웠습니다.</span>
+              <button type="button" className="btn-secondary" onClick={() => setManualDraftBasisOpen((open) => !open)}>
+                {manualDraftBasisOpen ? "기준 정보 닫기" : "기준 정보 수정"}
+              </button>
+            </div>
+          ) : null}
+
+          {!selectedMissingMailLatestDraft || manualDraftBasisOpen ? (
+            <div className="issuance-manual-draft-grid is-basis">
+              {renderManualDraftField("등록번호", "kepcoCorpNum", { inputMode: "numeric" })}
+              {renderManualDraftField("종사업장번호", "kepcoBranchId", { inputMode: "numeric" })}
+              {renderManualDraftField("상호", "kepcoCorpName")}
+              {renderManualDraftField("대표자명", "kepcoCeoName")}
+              {renderManualDraftField("주소", "kepcoAddr")}
+              {renderManualDraftField("업태", "kepcoBizType")}
+              {renderManualDraftField("종목", "kepcoBizClass")}
+              {renderManualDraftField("발전소명", "plantName")}
+            </div>
+          ) : null}
+        </div>
+        {manualDraftError ? <p className="issuance-inline-edit-error">{manualDraftError}</p> : null}
+      </>
+    );
+  };
+
   const renderTaxInvoiceSection = (title: string, rows: React.ReactNode) => (
-    <section className="issuance-tax-invoice-section" aria-label={`${title} 정보`}>
-      <h3>{title}</h3>
-      <dl className="issuance-tax-invoice-table">{rows}</dl>
-    </section>
+    <InfoSection title={title} className="issuance-tax-invoice-section" listClassName="issuance-tax-invoice-table">
+      {rows}
+    </InfoSection>
   );
 
   return (
@@ -1214,22 +1318,25 @@ export function IssuanceTab(props: IssuanceTabProps) {
                           : props.drafts.length + unmatchedMessageCount + missingMailCount;
 
               return (
-                <motion.button
+                <SummaryFilterCard
                   key={filter.id}
-                  type="button"
-                  className={
-                    activeFilter === filter.id
-                      ? "home-header-chip issuance-filter-chip active"
-                      : "home-header-chip issuance-filter-chip"
+                  variant="pill"
+                  active={activeFilter === filter.id}
+                  tone={
+                    filter.id === "issued"
+                      ? "success"
+                      : filter.id === "pending" || filter.id === "unmatched"
+                        ? "warning"
+                        : "default"
                   }
-                  aria-pressed={activeFilter === filter.id}
-                  whileHover={getSubtleHoverMotion(shouldReduceMotion)}
-                  whileTap={getSubtleTapMotion(shouldReduceMotion)}
+                  className="issuance-filter-chip"
                   onClick={() => setActiveFilter(filter.id)}
                 >
                   <span className="issuance-filter-label">{filter.label}</span>
-                  <span className="issuance-filter-count">{count}명</span>
-                </motion.button>
+                  <span className="summary-filter-card-count issuance-filter-count">
+                    <strong>{count}</strong>명
+                  </span>
+                </SummaryFilterCard>
               );
             })}
           </div>
@@ -1316,46 +1423,27 @@ export function IssuanceTab(props: IssuanceTabProps) {
               </div>
             </div>
 
-            <div className="issuance-table-tools">
-              <label className="issuance-search-field" htmlFor="issuance-list-search">
-                <span className="sr-only">초안 검색</span>
-                <input
-                  id="issuance-list-search"
-                  type="search"
-                  value={issuanceSearchQuery}
-                  placeholder="검색 (고객명, 사업자번호, 메일제목)"
-                  onChange={(event) => setIssuanceSearchQuery(event.target.value)}
-                />
-              </label>
-              <label className="sr-only" htmlFor="issuance-period-filter">
-                기간 선택
-              </label>
-              <select
-                id="issuance-period-filter"
-                value={periodFilter}
-                onChange={(event) => setPeriodFilter(event.target.value as IssuancePeriodFilter)}
-              >
-                <option value="all">기간 선택</option>
-                <option value="month">이번 달</option>
-                <option value="recent30">최근 30일</option>
-              </select>
-              <label className="sr-only" htmlFor="issuance-sort-mode">
-                정렬
-              </label>
-              <select id="issuance-sort-mode" value={sortMode} onChange={(event) => setSortMode(event.target.value as IssuanceSortMode)}>
-                <option value="status">정렬</option>
-                <option value="newest">최신순</option>
-                <option value="oldest">오래된순</option>
-                <option value="amountDesc">금액 높은순</option>
-              </select>
-            </div>
+            <TableToolbar unstyled className="issuance-table-tools">
+              <SearchField
+                id="issuance-list-search"
+                variant="console"
+                className="issuance-search-field"
+                iconClassName="issuance-search-icon"
+                inputClassName="issuance-search-input"
+                aria-label="초안 검색"
+                value={issuanceSearchQuery}
+                placeholder="검색"
+                onChange={(event) => setIssuanceSearchQuery(event.target.value)}
+              />
+            </TableToolbar>
 
             <div className="issuance-table-shell">
               {visibleEntries.length === 0 ? (
-                <div className="issuance-empty-state">
-                  <strong>표시할 발행 건이 없습니다.</strong>
-                  <p>현재 필터 조건에 맞는 세금계산서 초안이나 미매칭 메일이 없습니다.</p>
-                </div>
+                <EmptyState
+                  className="issuance-empty-state"
+                  title="표시할 발행 건이 없습니다."
+                  body="현재 필터 조건에 맞는 세금계산서 초안이나 미매칭 메일이 없습니다."
+                />
               ) : (
                 <table className="issuance-list-table">
                   <thead>
@@ -1572,11 +1660,11 @@ export function IssuanceTab(props: IssuanceTabProps) {
                           ? "issuance-detail-facts-shell issuance-tax-invoice-info-shell is-editing"
                           : "issuance-detail-facts-shell issuance-tax-invoice-info-shell"
                       }
-                      aria-label="자동 등록된 세금계산서 정보"
+                      aria-label={selectedDraftTaxInvoiceInfoTitle}
                     >
                       <div className="issuance-card-title">
                         <Icon name="document" className="issuance-card-title-icon" />
-                        자동 등록된 세금계산서 정보
+                        {selectedDraftTaxInvoiceInfoTitle}
                       </div>
                       <div className="issuance-tax-invoice-layout">
                         {renderTaxInvoiceSection(
@@ -1672,7 +1760,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                           className="btn-secondary"
                           onClick={() => openTaxInvoiceInfoEditor(selectedDraft)}
                           disabled={props.busyKey !== null}
-                          aria-label="자동 등록된 세금계산서 정보 수정"
+                          aria-label={`${selectedDraftTaxInvoiceInfoTitle} 수정`}
                         >
                           <Icon name="edit" className="button-icon" />
                           세금계산서 정보 수정
@@ -1851,76 +1939,8 @@ export function IssuanceTab(props: IssuanceTabProps) {
                           <dt>주소</dt>
                           <dd>{selectedMissingMailEntry.customer.addr || "-"}</dd>
                         </div>
-                        <div>
-                          <dt>발전소명</dt>
-                          <dd>
-                            {selectedMissingMailEntry.customer.plantNames.length > 0
-                              ? selectedMissingMailEntry.customer.plantNames.join(", ")
-                              : "-"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>연동 상태</dt>
-                          <dd>
-                            {selectedMissingMailEntry.customer.popbillState} / 인증서{" "}
-                            {selectedMissingMailEntry.customer.popbillCertRegistered ? "등록" : "미등록"}
-                          </dd>
-                        </div>
                       </dl>
                     </section>
-                    {manualDraftForm ? (
-                      <section className="issuance-detail-facts-shell issuance-manual-draft-shell" aria-label="수동 발행 정보">
-                        <div className="issuance-card-title">
-                          <Icon name="pencil" className="issuance-card-title-icon" />
-                          수동 발행
-                        </div>
-                        <div className="issuance-manual-draft-form">
-                          <div className="issuance-manual-draft-grid">
-                            {renderManualDraftField("정산월", "billingMonth", { type: "month" })}
-                            {renderManualDraftField("작성일자", "writeDate", { type: "date" })}
-                            {renderManualDraftField("공급가액", "supplyCost", { inputMode: "numeric", placeholder: "121,867" })}
-                            {renderManualDraftField("부가세", "taxTotal", { inputMode: "numeric", placeholder: "12,186" })}
-                            {renderManualDraftField("품목", "itemName")}
-                            <div className="issuance-manual-draft-total">
-                              <span>합계금액</span>
-                              <strong>
-                                {formatDraftFormTotalAmount(
-                                  {
-                                    ...manualDraftForm,
-                                    draftId: 0,
-                                    customerLabel: selectedMissingMailEntry.customer.customerName
-                                  },
-                                  props.formatMoney
-                                )}
-                              </strong>
-                            </div>
-                          </div>
-
-                          {selectedMissingMailLatestDraft ? (
-                            <div className="issuance-manual-draft-basis-note">
-                              <span>공급받는자 기준 정보는 최근 초안 기준으로 채웠습니다.</span>
-                              <button type="button" className="btn-secondary" onClick={() => setManualDraftBasisOpen((open) => !open)}>
-                                {manualDraftBasisOpen ? "기준 정보 닫기" : "기준 정보 수정"}
-                              </button>
-                            </div>
-                          ) : null}
-
-                          {!selectedMissingMailLatestDraft || manualDraftBasisOpen ? (
-                            <div className="issuance-manual-draft-grid is-basis">
-                              {renderManualDraftField("등록번호", "kepcoCorpNum", { inputMode: "numeric" })}
-                              {renderManualDraftField("종사업장번호", "kepcoBranchId", { inputMode: "numeric" })}
-                              {renderManualDraftField("상호", "kepcoCorpName")}
-                              {renderManualDraftField("대표자명", "kepcoCeoName")}
-                              {renderManualDraftField("주소", "kepcoAddr")}
-                              {renderManualDraftField("업태", "kepcoBizType")}
-                              {renderManualDraftField("종목", "kepcoBizClass")}
-                              {renderManualDraftField("발전소명", "plantName")}
-                            </div>
-                          ) : null}
-                        </div>
-                        {manualDraftError ? <p className="issuance-inline-edit-error">{manualDraftError}</p> : null}
-                      </section>
-                    ) : null}
                   </div>
                 </div>
 
@@ -1931,9 +1951,13 @@ export function IssuanceTab(props: IssuanceTabProps) {
                       <Icon name="sync" className="button-icon" />
                       {props.busyKey === "sync" ? "가져오는 중..." : "메일 다시 가져오기"}
                     </button>
-                    <button type="button" onClick={handleManualDraftCreate} disabled={props.busyKey !== null || manualDraftSaving}>
+                    <button
+                      type="button"
+                      onClick={() => setManualDraftModalOpen(true)}
+                      disabled={props.busyKey !== null || manualDraftSaving || !manualDraftForm}
+                    >
                       <Icon name="issue" className="button-icon" />
-                      {manualDraftSaving ? "만드는 중..." : "수동 발행"}
+                      수동 발행
                     </button>
                   </div>
                 </div>
@@ -1947,6 +1971,41 @@ export function IssuanceTab(props: IssuanceTabProps) {
           </motion.section>
         </motion.div>
       </div>
+      {manualDraftModalOpen && selectedMissingMailEntry && manualDraftForm ? (
+        <div className="issuance-picker-backdrop" role="presentation" onClick={() => setManualDraftModalOpen(false)}>
+          <section
+            className="issuance-picker-modal issuance-manual-draft-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="issuance-manual-draft-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="issuance-picker-head">
+              <div className="issuance-picker-copy">
+                <strong id="issuance-manual-draft-title">수동 발행</strong>
+                <p>
+                  {selectedMissingMailEntry.customer.customerName} · {selectedMissingMailEntry.billingMonth} 정산월
+                </p>
+              </div>
+              <button type="button" className="btn-secondary" onClick={() => setManualDraftModalOpen(false)} disabled={manualDraftSaving}>
+                닫기
+              </button>
+            </header>
+
+            <div className="issuance-manual-draft-modal-body">{renderManualDraftForm()}</div>
+
+            <footer className="issuance-manual-draft-modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setManualDraftModalOpen(false)} disabled={manualDraftSaving}>
+                취소
+              </button>
+              <button type="button" onClick={handleManualDraftCreate} disabled={props.busyKey !== null || manualDraftSaving}>
+                <Icon name="issue" className="button-icon" />
+                {manualDraftSaving ? "만드는 중..." : "초안 만들기"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
       {customerFinderOpen && selectedUnmatchedMessage ? (
         <div className="issuance-picker-backdrop" role="presentation" onClick={() => setCustomerFinderOpen(false)}>
           <section
@@ -2000,7 +2059,11 @@ export function IssuanceTab(props: IssuanceTabProps) {
                         </span>
                       </div>
                       <div className="issuance-picker-result-actions">
-                        {score > 0 ? <span className="status status-review">추천 후보</span> : null}
+                        {score > 0 ? (
+                          <StatusBadge tone="warning" size="xs" icon={false}>
+                            추천 후보
+                          </StatusBadge>
+                        ) : null}
                         <button
                           type="button"
                           className="btn-secondary issuance-picker-select-button"

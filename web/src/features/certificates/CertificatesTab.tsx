@@ -1,4 +1,15 @@
 import { useDeferredValue, useMemo, useRef, useState } from "react";
+import {
+  EmptyState,
+  FilterChip,
+  InlineNotice,
+  MetricCard,
+  SearchField,
+  StatusBadge,
+  TableToolbar,
+  type ConsoleTone
+} from "../../components/console";
+import { matchesAnySearchText } from "../../lib/searchMatch";
 import type { Customer, CustomerCertificateKind } from "../../types";
 
 type CertificateTabItem = {
@@ -75,6 +86,10 @@ function getCertificateExpireTime(value: string | null) {
 }
 
 type CertificateStatusBadgeTone = "success" | "warn" | "danger" | "default";
+
+function toConsoleTone(tone: CertificateStatusBadgeTone): ConsoleTone {
+  return tone === "warn" ? "warning" : tone;
+}
 
 type CertificatesTabProps = {
   model: CertificatesTabModel;
@@ -253,11 +268,8 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
         }),
     [props.certificateItems]
   );
-  const normalizedSearchQuery = deferredSearchQuery.trim().toLocaleLowerCase("ko-KR");
-
   const matchesSearch = (...values: Array<string | null | undefined>) =>
-    normalizedSearchQuery === "" ||
-    values.some((value) => String(value ?? "").toLocaleLowerCase("ko-KR").includes(normalizedSearchQuery));
+    matchesAnySearchText(deferredSearchQuery, values);
 
   const filteredLinkedCustomerRows = linkedCustomerRows.filter((row) => {
     const allCertificates = [...row.electronicTaxCertificates, ...row.generalCertificates];
@@ -842,22 +854,24 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
       <section className="certificate-hero-panel certificate-ops-toolbar" aria-label="인증서 운영 요약">
         <div className="certificate-ops-metrics">
           {certificateMetricCards.map((card) => (
-            <article
+            <MetricCard
               key={card.key}
+              label={
+                <>
+                  {card.key === "helper" ? <i aria-hidden="true" className="certificate-status-dot" /> : null}
+                  {card.label}
+                </>
+              }
+              value={card.value}
+              description={card.note}
+              tone={card.tone === "warn" ? "warning" : card.tone}
               className={[
                 "certificate-ops-metric-card",
                 card.tone === "warn" ? "tone-warn" : card.tone === "success" ? "tone-success" : ""
               ]
                 .filter(Boolean)
                 .join(" ")}
-            >
-              <span>
-                {card.key === "helper" ? <i aria-hidden="true" className="certificate-status-dot" /> : null}
-                {card.label}
-              </span>
-              <strong>{card.value}</strong>
-              <small>{card.note}</small>
-            </article>
+            />
           ))}
         </div>
         <div className="certificate-ops-actions">
@@ -900,34 +914,36 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
             <span className="certificate-main-count">현재 {filteredLinkedCustomerRows.length.toLocaleString("ko-KR")}명</span>
           </div>
 
-          <div className="certificate-list-toolrow certificate-option1-tools">
-            <label className="certificate-search">
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="고객명, 사업자번호, 인증서명 검색"
-              />
-            </label>
+          <TableToolbar unstyled className="certificate-list-toolrow certificate-option1-tools">
+            <SearchField
+              variant="console"
+              className="certificate-search"
+              iconClassName="certificate-search-icon"
+              inputClassName="certificate-search-input"
+              aria-label="고객 인증서 검색"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="고객명, 사업자번호, 인증서명 검색"
+            />
             <div className="certificate-filter-strip" aria-label="고객 인증서 상태 필터">
               {customerFilterOptions.map((filterKey) => (
-                <button
+                <FilterChip
                   key={filterKey}
                   type="button"
-                  className={customerFilter === filterKey ? "chip chip-filter active" : "chip chip-filter"}
+                  variant="pill"
+                  active={customerFilter === filterKey}
+                  count={filterMeta[filterKey].count.toLocaleString("ko-KR")}
                   onClick={() => setCustomerFilter(filterKey)}
                 >
                   {filterMeta[filterKey].label}
-                  <span>{filterMeta[filterKey].count.toLocaleString("ko-KR")}</span>
-                </button>
+                </FilterChip>
               ))}
             </div>
-          </div>
+          </TableToolbar>
           {queueNotice ? (
-            <div className="certificate-inline-note" role="status">
-              <span className="chip chip-warn">안내</span>
-              <span>{queueNotice}</span>
-            </div>
+            <InlineNotice title="안내" tone="warning" className="certificate-inline-note" role="status">
+              {queueNotice}
+            </InlineNotice>
           ) : null}
 
           <div className="certificate-main-table-wrap">
@@ -986,9 +1002,12 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
                           </div>
                         </td>
                         <td>
-                          <span className={rowSummary.statusTone === "default" ? "certificate-status-badge" : `certificate-status-badge ${rowSummary.statusTone}`}>
+                          <StatusBadge
+                            tone={toConsoleTone(rowSummary.statusTone)}
+                            icon={false}
+                          >
                             {rowSummary.statusLabel}
-                          </span>
+                          </StatusBadge>
                         </td>
                         <td>
                           <strong className="certificate-prepare-label">{rowSummary.prepareLabel}</strong>
@@ -1024,10 +1043,12 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
                 </tbody>
               </table>
             ) : (
-              <div className={`context-empty-state ${linkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}>
-                <strong>{linkedTableEmptyState?.title}</strong>
-                <p>{linkedTableEmptyState?.body}</p>
-              </div>
+              <EmptyState
+                className={`context-empty-state ${linkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}
+                tone={linkedTableEmptyState?.tone === "success" ? "success" : "info"}
+                title={linkedTableEmptyState?.title}
+                body={linkedTableEmptyState?.body}
+              />
             )}
           </div>
         </section>
@@ -1087,10 +1108,12 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
                 </table>
               </div>
             ) : (
-              <div className={`context-empty-state ${unlinkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}>
-                <strong>{unlinkedTableEmptyState?.title}</strong>
-                <p>{unlinkedTableEmptyState?.body}</p>
-              </div>
+              <EmptyState
+                className={`context-empty-state ${unlinkedTableEmptyState?.tone === "success" ? "tone-success" : "tone-info"}`}
+                tone={unlinkedTableEmptyState?.tone === "success" ? "success" : "info"}
+                title={unlinkedTableEmptyState?.title}
+                body={unlinkedTableEmptyState?.body}
+              />
             )}
           </section>
 

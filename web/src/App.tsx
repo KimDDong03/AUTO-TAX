@@ -2170,6 +2170,11 @@ export function App() {
   const [quickRegisterError, setQuickRegisterError] = useState("");
   const [completedBillingNotice, setCompletedBillingNotice] = useState("");
   const [customerCertNotice, setCustomerCertNotice] = useState("");
+  const [onboardingFirstSyncResult, setOnboardingFirstSyncResult] = useState<{
+    organizationId: string;
+    status: "success" | "danger";
+    message: string;
+  } | null>(null);
   const [mailboxDataLoading, setMailboxDataLoading] = useState(false);
   const [mailboxDataLoaded, setMailboxDataLoaded] = useState(false);
   const [pendingCertSyncCustomerIds, setPendingCertSyncCustomerIds] = useState<number[]>([]);
@@ -6875,6 +6880,51 @@ export function App() {
     setRequestedIssuanceFilter("unmatched");
     setActiveTab("issuance");
   };
+  const runOnboardingFirstSync = async () => {
+    if (!activeOrganizationId) {
+      const message = "작업공간을 확인할 수 없어 첫 메일 동기화를 실행하지 못했습니다.";
+      setError(message);
+      setOnboardingFirstSyncResult(null);
+      return;
+    }
+
+    try {
+      setError("");
+      setBusyKey("sync");
+      setOnboardingFirstSyncResult(null);
+      await api("/api/mail/sync", { method: "POST" });
+
+      const [inbox, drafts] = await Promise.all([
+        api<BootstrapPayload["inbox"]>("/api/inbox"),
+        api<BootstrapPayload["drafts"]>("/api/drafts")
+      ]);
+      setData((prev) =>
+        prev && prev.auth.activeOrganizationId === activeOrganizationId
+          ? {
+              ...prev,
+              inbox,
+              drafts
+            }
+          : prev
+      );
+      mailboxLoadedOrganizationRef.current = activeOrganizationId;
+      setMailboxDataLoaded(true);
+
+      const actionableCount = inbox.filter(isInboxActionable).length;
+      const resultSummary =
+        inbox.length === 0 && drafts.length === 0
+          ? "첫 메일 동기화가 완료됐습니다. 새로 수신된 메일이나 생성된 초안은 없습니다."
+          : `첫 메일 동기화가 완료됐습니다. 수신 메일 ${inbox.length}건, 초안 ${drafts.length}건, 확인 필요 ${actionableCount}건입니다.`;
+      setOnboardingFirstSyncResult({ organizationId: activeOrganizationId, status: "success", message: resultSummary });
+      await loadIssuedMonthlyTrend(issuedMonthlyTrend?.anchorBillingYear);
+    } catch (syncError) {
+      const message = getDisplayErrorMessage(syncError, "첫 메일 동기화에 실패했습니다.");
+      setError(message);
+      setOnboardingFirstSyncResult({ organizationId: activeOrganizationId, status: "danger", message });
+    } finally {
+      setBusyKey(null);
+    }
+  };
   const topnavTaskNotifications: TopnavTaskNotification[] = [
     ...(failedDraftCount > 0
       ? [
@@ -6978,11 +7028,31 @@ export function App() {
   const topnavTaskNotificationCount = topnavTaskNotifications.reduce((total, item) => total + item.count, 0);
   const topnavTaskNotificationBadge =
     topnavTaskNotificationCount > 99 ? "99+" : topnavTaskNotificationCount > 0 ? String(topnavTaskNotificationCount) : "";
+  const onboardingFirstSyncCompleted =
+    onboardingFirstSyncReady ||
+    (onboardingFirstSyncResult?.organizationId === activeOrganizationId && onboardingFirstSyncResult.status === "success");
+  const activeOnboardingFirstSyncResult =
+    onboardingFirstSyncResult?.organizationId === activeOrganizationId ? onboardingFirstSyncResult : null;
+  const onboardingFirstSyncStatusMessage =
+    busyKey === "sync"
+      ? "메일을 가져오고 초안을 갱신하는 중입니다."
+      : activeOnboardingFirstSyncResult?.message ??
+        (onboardingFirstSyncReady
+          ? `첫 메일 동기화가 완료됐습니다. 현재 초안 ${reviewDrafts.length}건, 미매칭 메일 ${exceptionMessages.length}건입니다.`
+          : "");
   const onboardingFirstSyncContent = (
     <div className="onboarding-step-body">
       <section className="onboarding-main-card">
         <div className="onboarding-main-copy onboarding-task-copy">
-          <strong>{canRunOnboardingFirstSync ? "첫 메일 동기화 실행" : "이전 단계 완료 필요"}</strong>
+          <strong>
+            {busyKey === "sync"
+              ? "첫 메일 동기화 중"
+              : onboardingFirstSyncCompleted
+                ? "첫 메일 동기화 완료"
+                : canRunOnboardingFirstSync
+                  ? "첫 메일 동기화 실행"
+                  : "이전 단계 완료 필요"}
+          </strong>
         </div>
 
         <div className="onboarding-inline-status">
@@ -7004,29 +7074,33 @@ export function App() {
           </div>
         </div>
 
-        {onboardingFirstSyncReady && exceptionMessages.length > 0 ? (
+        {onboardingFirstSyncStatusMessage ? (
+          <div className={`context-empty-state tone-${activeOnboardingFirstSyncResult?.status === "danger" ? "danger" : busyKey === "sync" ? "info" : "success"}`}>
+            <strong>
+              {activeOnboardingFirstSyncResult?.status === "danger"
+                ? "동기화 실패"
+                : busyKey === "sync"
+                  ? "동기화 진행 중"
+                  : "동기화 완료"}
+            </strong>
+            <p>{onboardingFirstSyncStatusMessage}</p>
+          </div>
+        ) : null}
+
+        {onboardingFirstSyncCompleted && exceptionMessages.length > 0 ? (
           <div className="button-row onboarding-primary-row">
             <button type="button" className="btn-secondary" onClick={openUnmatchedIssuanceMessages}>
               세금계산서 발행 &gt; 미매칭 메일로 이동
             </button>
           </div>
-        ) : canRunOnboardingFirstSync ? (
+        ) : canRunOnboardingFirstSync && !onboardingFirstSyncCompleted ? (
           <div className="button-row onboarding-primary-row">
-            <button type="button" disabled={busyKey !== null} onClick={() => void runAction("sync", async () => void (await api("/api/mail/sync", { method: "POST" })))}>
+            <button type="button" disabled={busyKey !== null} onClick={() => void runOnboardingFirstSync()}>
               {busyKey === "sync" ? "동기화 중..." : "첫 메일 동기화 실행"}
             </button>
           </div>
         ) : null}
       </section>
-
-      <details className="settings-advanced-panel">
-        <summary>오늘 작업 화면은 필요할 때만 열기</summary>
-        <div className="button-row">
-          <button type="button" className="btn-secondary" onClick={() => setActiveTab("home")}>
-            오늘 작업 열기
-          </button>
-        </div>
-      </details>
     </div>
   );
   const onboardingSteps: OnboardingStep[] = [
@@ -7133,12 +7207,14 @@ export function App() {
       title: "첫 메일 동기화",
       summary: !onboardingCertificateReady
         ? "이전 단계 완료 후 실행"
-        : onboardingFirstSyncReady
+        : onboardingFirstSyncCompleted
           ? "첫 메일 동기화 완료"
+          : activeOnboardingFirstSyncResult?.status === "danger"
+            ? "동기화 실패"
           : "첫 동기화 필요",
-      primaryActionLabel: onboardingFirstSyncReady ? "첫 메일 동기화 완료" : "첫 메일 동기화 실행",
+      primaryActionLabel: onboardingFirstSyncCompleted ? "첫 메일 동기화 완료" : "첫 메일 동기화 실행",
       blockedReason: canRunOnboardingFirstSync ? undefined : `먼저 ${onboardingFirstSyncBlockedSteps.join(" → ")} 단계를 끝내세요.`,
-      done: onboardingFirstSyncReady,
+      done: onboardingFirstSyncCompleted,
       content: onboardingFirstSyncContent
     }
   ];
@@ -7883,6 +7959,9 @@ export function App() {
             onCustomerReportDetailSaved={handleCustomerReportDetailSaved}
             onLoadCustomerContractPeriods={loadCustomerContractPeriods}
             onAddCustomerContractPeriod={addCustomerContractPeriod}
+            onCompleteCustomerContractRenewal={(item) =>
+              runAction(`contract-renewal-${item.customerId}`, async () => void (await completeCustomerContractRenewal(item)), { reload: false })
+            }
             resolveCustomerAddress={resolveCustomerAddress}
             runAction={runAction}
             formatCertificateExpireDate={formatCertificateExpireDate}

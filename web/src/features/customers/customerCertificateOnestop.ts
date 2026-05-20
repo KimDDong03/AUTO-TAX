@@ -1,4 +1,5 @@
 import type { Customer, CustomerCertificate } from "../../types";
+import { matchesAnySearchText } from "../../lib/searchMatch";
 import {
   deriveCustomerCertificateKind,
   findCandidateCustomersForCertificate,
@@ -110,20 +111,8 @@ function getCustomerOnestopCertificateExpireDate(certificate: RenewalAgentCertif
   return certificate.todate ?? certificate.detailValidateTo ?? null;
 }
 
-function normalizeCustomerOnestopSearchText(value: string | number | null | undefined): string {
-  return String(value ?? "")
-    .replace(/\s+/g, "")
-    .trim()
-    .toLowerCase();
-}
-
 function matchesCustomerOnestopCertificateSearch(certificate: RenewalAgentCertificate, searchQuery: string): boolean {
-  const query = normalizeCustomerOnestopSearchText(searchQuery);
-  if (!query) {
-    return true;
-  }
-
-  return [
+  return matchesAnySearchText(searchQuery, [
     certificate.index,
     certificate.cn,
     certificate.issuerToName,
@@ -132,7 +121,7 @@ function matchesCustomerOnestopCertificateSearch(certificate: RenewalAgentCertif
     certificate.detailValidateTo,
     certificate.serial,
     certificate.userDN
-  ].some((value) => normalizeCustomerOnestopSearchText(value).includes(query));
+  ]);
 }
 
 export function isCustomerOnestopCertificateAlreadyRegistered(

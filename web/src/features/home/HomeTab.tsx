@@ -11,6 +11,7 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import { StatusBadge, type ConsoleTone } from "../../components/console";
 import { Icon } from "../../components/ui";
 import type { Customer, CustomerContractRenewalDueItem, InboxMessage, InvoiceDraft, IssuedMonthlyTrendPayload } from "../../types";
 import type { HomeActionKey, HomeScreenModel } from "./homeScreenModel";
@@ -72,8 +73,17 @@ type RecentCustomerRow = {
   businessNumber: string;
   recentIssuedAt: string | null;
   statusLabel: string;
-  statusClassName: string;
+  statusTone: ConsoleTone;
   sortTime: number;
+};
+
+type RecentActivityRow = {
+  id: string;
+  title: string;
+  detail: string;
+  createdAt: string | null;
+  statusTone: ConsoleTone;
+  statusLabel: string;
 };
 
 type IssuedMonthlyTrendMonth = IssuedMonthlyTrendPayload["months"][number];
@@ -235,6 +245,7 @@ function buildRecentCustomerRows(props: HomeTabProps): RecentCustomerRow[] {
       const latestDraft = getLatestIssuedDraft(props.issuedDraftsByCustomerId.get(customer.id) ?? []);
       const fallbackSortTime = getTimestamp(customer.updatedAt) || getTimestamp(customer.createdAt);
       const hasRenewalDue = renewalCustomerIds.has(customer.id);
+      const statusTone: ConsoleTone = latestDraft ? "success" : hasRenewalDue ? "warning" : "default";
 
       return {
         id: customer.id,
@@ -242,7 +253,7 @@ function buildRecentCustomerRows(props: HomeTabProps): RecentCustomerRow[] {
         businessNumber: customer.businessNumber || "-",
         recentIssuedAt: latestDraft?.issuedAt ?? latestDraft?.updatedAt ?? null,
         statusLabel: latestDraft ? "발행 완료" : hasRenewalDue ? "계약 확인" : "발행 이력 없음",
-        statusClassName: latestDraft ? "status status-issued" : hasRenewalDue ? "status status-review" : "status status-pending",
+        statusTone,
         sortTime: latestDraft ? getDraftSortTime(latestDraft) : fallbackSortTime
       };
     })
@@ -250,16 +261,16 @@ function buildRecentCustomerRows(props: HomeTabProps): RecentCustomerRow[] {
     .slice(0, 4);
 }
 
-function buildRecentActivities(props: HomeTabProps) {
+function buildRecentActivities(props: HomeTabProps): RecentActivityRow[] {
   const issuedActivities = props.recentIssuedDrafts
     .filter((draft) => !isMockHomeRow(draft.id))
     .slice(0, 3)
-    .map((draft) => ({
+    .map((draft): RecentActivityRow => ({
       id: `issued-${draft.id}`,
       title: draft.customerName,
       detail: `${props.formatMoney(draft.totalAmount)}원 발행 완료`,
       createdAt: draft.issuedAt ?? draft.updatedAt,
-      statusClassName: "status status-issued",
+      statusTone: "success",
       statusLabel: "발행 완료"
     }));
 
@@ -278,7 +289,7 @@ function buildRecentActivities(props: HomeTabProps) {
         title: message.parsedData?.plantName ?? "수신 메일",
         detail: props.getParseStatusLabel(status),
         createdAt: message.receivedAt,
-        statusClassName: `status status-${status}`,
+        statusTone: (status === "failed" || status === "unmatched" ? "danger" : status === "parsed" ? "success" : "warning") satisfies ConsoleTone,
         statusLabel: props.getParseStatusLabel(status)
       };
     });
@@ -610,7 +621,9 @@ export function HomeTab(props: HomeTabProps) {
                     <td>{customer.businessNumber}</td>
                     <td>{formatDateOnly(customer.recentIssuedAt)}</td>
                     <td>
-                      <span className={customer.statusClassName}>{customer.statusLabel}</span>
+                      <StatusBadge tone={customer.statusTone} size="xs" icon={false}>
+                        {customer.statusLabel}
+                      </StatusBadge>
                     </td>
                   </tr>
                 ))}
@@ -642,7 +655,9 @@ export function HomeTab(props: HomeTabProps) {
                     <p>{activity.detail}</p>
                     <span>{props.formatDateTime(activity.createdAt)}</span>
                   </div>
-                  <span className={activity.statusClassName}>{activity.statusLabel}</span>
+                  <StatusBadge tone={activity.statusTone} size="xs" icon={false}>
+                    {activity.statusLabel}
+                  </StatusBadge>
                 </motion.article>
               ))}
             </div>

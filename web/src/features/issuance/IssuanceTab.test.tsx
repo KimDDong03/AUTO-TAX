@@ -278,21 +278,32 @@ test("IssuanceTab labels the draft edit action as tax invoice info editing", () 
   assert.ok(buttons.some((button) => button.label.includes("매칭 해제")));
 });
 
-test("IssuanceTab shows manual draft controls for customers without current-month mail", () => {
+test("IssuanceTab labels manually created drafts as manual tax invoice info", () => {
+  const { buttons, markup } = renderIssuanceTab({
+    drafts: [buildDraft({ sourceMessageId: 0 })],
+    customers: [buildCustomer()]
+  });
+
+  assert.match(markup, /수동 등록된 세금계산서 정보/);
+  assert.doesNotMatch(markup, /자동 등록된 세금계산서 정보/);
+  assert.ok(buttons.some((button) => button.props?.["aria-label"] === "수동 등록된 세금계산서 정보 수정"));
+});
+
+test("IssuanceTab shows manual draft action without inline controls for customers without current-month mail", () => {
   const { buttons, markup } = renderIssuanceTab({
     requestedFilter: "missingMail",
     customers: [buildCustomer()]
   });
 
   assert.match(markup, /수동 발행/);
-  assert.match(markup, /공급가액/);
-  assert.match(markup, /작성일자/);
-  assert.match(markup, /한국전력공사/);
+  assert.doesNotMatch(markup, /aria-label="수동 발행 정보"/);
+  assert.doesNotMatch(markup, /작성일자/);
+  assert.doesNotMatch(markup, /한국전력공사/);
   assert.ok(buttons.some((button) => button.label.includes("수동 발행")));
 });
 
-test("IssuanceTab reuses the previous draft basis for manual missing-mail drafts", () => {
-  const { markup } = renderIssuanceTab({
+test("IssuanceTab keeps previous draft basis hidden until manual draft popup opens", () => {
+  const { buttons, markup } = renderIssuanceTab({
     requestedFilter: "missingMail",
     customers: [buildCustomer()],
     drafts: [
@@ -304,8 +315,9 @@ test("IssuanceTab reuses the previous draft basis for manual missing-mail drafts
     ]
   });
 
-  assert.match(markup, /최근 초안 기준/);
-  assert.match(markup, /기준 정보 수정/);
+  assert.ok(buttons.some((button) => button.label.includes("수동 발행") && typeof button.props?.onClick === "function"));
+  assert.doesNotMatch(markup, /최근 초안 기준/);
+  assert.doesNotMatch(markup, /기준 정보 수정/);
   assert.doesNotMatch(markup, /기존 공급받는자/);
 });
 

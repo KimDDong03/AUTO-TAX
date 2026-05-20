@@ -1,9 +1,25 @@
 import React from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { RevealIcon, StatusBadge, type StatusBadgeTone } from "../../components/ui";
+import {
+  ClipboardCheck,
+  FileCog,
+  Mail,
+  UserCog
+} from "lucide-react";
+import {
+  MetricCard,
+  TaskProgressStrip,
+  TaskStepper,
+  WorkPanel,
+  WorkPanelBody,
+  WorkPanelHeader,
+  type ConsoleStatus,
+  type ConsoleTone,
+  type TaskStepItem
+} from "@/components/console";
+import { StatusBadge } from "@/components/console";
+import { RevealIcon } from "../../components/ui";
 import { SettingsAccountSection } from "./SettingsAccountSection";
 import { SettingsDefaultsSection } from "./SettingsDefaultsSection";
 import { SettingsHelperSection } from "./SettingsHelperSection";
@@ -54,11 +70,11 @@ function parseProgressText(progressText: string) {
   };
 }
 
-function getAutosaveBadgeTone(state: SettingsSidebarModel["settingsAutosaveState"]): StatusBadgeTone {
+function getAutosaveBadgeTone(state: SettingsSidebarModel["settingsAutosaveState"]): ConsoleTone {
   return state === "error"
     ? "danger"
     : state === "saving" || state === "pending"
-      ? "warn"
+      ? "warning"
       : "success";
 }
 
@@ -80,42 +96,60 @@ function SettingsReadinessSummary({ model }: SettingsTabProps) {
     : sidebar.settingsAutosaveLabel;
 
   return (
-    <Card className="settings-readiness-card">
-      <div className="settings-option1-status-title">
-        <strong>설정 준비 상태</strong>
-        <StatusBadge tone={getAutosaveBadgeTone(sidebar.settingsAutosaveState)}>
-          {sidebar.settingsAutosaveLabel}
-        </StatusBadge>
-      </div>
-      <div className="settings-option1-progress-row">
-        <div className="settings-option1-progress-copy">
-          <span>전체 진행률</span>
-          <strong>
-            {completed} / {total} 완료
-          </strong>
-          <Progress value={progressPercent} className="settings-option1-progress-track" aria-label={`설정 준비 ${progressPercent}%`} />
+    <WorkPanel className="settings-readiness-card">
+      <WorkPanelHeader
+        title="설정 준비 상태"
+        actions={
+          <StatusBadge tone={getAutosaveBadgeTone(sidebar.settingsAutosaveState)}>
+            {sidebar.settingsAutosaveLabel}
+          </StatusBadge>
+        }
+      />
+      <WorkPanelBody className="settings-readiness-body">
+        <TaskProgressStrip
+          className="settings-option1-progress-copy"
+          title="전체 진행률"
+          description={`${completed} / ${total} 완료`}
+          value={progressPercent}
+          aria-label={`설정 준비 ${progressPercent}%`}
+        />
+        <div className="settings-readiness-metrics">
+          <MetricCard label="필수 완료" value={completed} tone="success" />
+          <MetricCard label="확인 필요" value={reviewCount} tone={reviewCount > 0 ? "warning" : "default"} />
+          <MetricCard label="미완료" value={incomplete} tone={incomplete > 0 ? "warning" : "default"} />
+          <MetricCard label="마지막 업데이트" value={lastUpdate} />
         </div>
-        <div className="settings-option1-status-metrics">
-          <div>
-            <span>필수 완료</span>
-            <strong>{completed}</strong>
-          </div>
-          <div>
-            <span>확인 필요</span>
-            <strong>{reviewCount}</strong>
-          </div>
-          <div>
-            <span>미완료</span>
-            <strong>{incomplete}</strong>
-          </div>
-          <div>
-            <span>마지막 업데이트</span>
-            <strong>{lastUpdate}</strong>
-          </div>
-        </div>
-      </div>
-    </Card>
+      </WorkPanelBody>
+    </WorkPanel>
   );
+}
+
+function getSettingsStepStatus(section: SettingsSidebarModel["settingsSections"][number]): ConsoleStatus {
+  return section.done ? "complete" : "needsAttention";
+}
+
+function getSettingsStepIcon(sectionId: SettingsSidebarModel["settingsSections"][number]["id"]) {
+  const IconComponent =
+    sectionId === "onboarding"
+      ? ClipboardCheck
+      : sectionId === "popbill"
+        ? FileCog
+        : sectionId === "gmail"
+          ? Mail
+        : UserCog;
+
+  return <IconComponent className="size-3.5" aria-hidden="true" />;
+}
+
+function buildSettingsStepItems(sections: SettingsSidebarModel["settingsSections"]): TaskStepItem[] {
+  return sections
+    .filter((section) => section.id !== "helper")
+    .map((section) => ({
+      id: section.id,
+      order: getSettingsStepIcon(section.id),
+      title: section.title,
+      status: getSettingsStepStatus(section)
+    }));
 }
 
 function SettingsOption1MailDetail({ model }: SettingsTabProps) {
@@ -488,6 +522,10 @@ function SettingsTabContent({ model }: SettingsTabProps) {
   const activeSection = sidebar.settingsSections.find(
     (section) => section.id === sidebar.activeSettingsSection
   );
+  const settingsStepItems = React.useMemo(
+    () => buildSettingsStepItems(sidebar.settingsSections),
+    [sidebar.settingsSections]
+  );
 
   return (
     <>
@@ -507,33 +545,15 @@ function SettingsTabContent({ model }: SettingsTabProps) {
         animate={shouldReduceMotion ? undefined : "visible"}
       >
         <motion.aside className="settings-sidebar-stack" variants={pageSectionVariants}>
-          <Card className="panel settings-sidebar-panel">
+          <WorkPanel className="settings-sidebar-panel">
             <motion.div className="settings-step-list" variants={pageContainerVariants}>
-              {sidebar.settingsSections.map((section) => (
-                <motion.button
-                  key={section.id}
-                  className={
-                    sidebar.activeSettingsSection === section.id
-                      ? "settings-step-card active"
-                      : "settings-step-card"
-                  }
-                  onClick={() => sidebar.setActiveSettingsSection(section.id)}
-                  aria-current={
-                    sidebar.activeSettingsSection === section.id ? "page" : undefined
-                  }
-                  variants={pageCardVariants}
-                  whileHover={getSubtleHoverMotion(shouldReduceMotion)}
-                  whileTap={getSubtleTapMotion(shouldReduceMotion)}
-                >
-                  <span className="settings-option1-nav-label">{section.title}</span>
-                  <Badge
-                    variant={section.done ? "secondary" : "outline"}
-                    className="settings-option1-nav-state"
-                  >
-                    {section.done ? "완료" : "확인 필요"}
-                  </Badge>
-                </motion.button>
-              ))}
+              <TaskStepper
+                steps={settingsStepItems}
+                activeId={sidebar.activeSettingsSection}
+                label="설정 섹션"
+                onSelect={(step) => sidebar.setActiveSettingsSection(step.id as SettingsSidebarModel["activeSettingsSection"])}
+                className="settings-console-stepper"
+              />
             </motion.div>
 
             <div className="settings-inline-note">
@@ -550,7 +570,7 @@ function SettingsTabContent({ model }: SettingsTabProps) {
                 </span>
               </div>
             </div>
-          </Card>
+          </WorkPanel>
         </motion.aside>
 
         <motion.main className="settings-option1-main" variants={pageSectionVariants}>

@@ -1,10 +1,23 @@
 import { useRef, useState } from "react";
 import type React from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Icon, Panel, RevealIcon, StatusBadge } from "../../components/ui";
+import {
+  AlertTriangle,
+  Bell,
+  CheckCircle2,
+  LoaderCircle,
+  type LucideIcon
+} from "lucide-react";
+import {
+  InlineNotice,
+  TaskProgressStrip,
+  TaskStepper,
+  StatusBadge,
+  type ConsoleStatus,
+  type ConsoleTone,
+  type TaskStepItem
+} from "@/components/console";
+import { Icon, Panel, RevealIcon } from "../../components/ui";
 import type { BootstrapPayload } from "../../types";
 import type { CustomerOnboardingPreviewResponse } from "./customer-onboarding-workbook";
 import type { ElectronicTaxOnboardingCertificateRegistrationProgress } from "./electronic-tax-onboarding-orchestration";
@@ -73,12 +86,18 @@ export type InitialRegistrationJoinProgress = {
 
 type InitialStatusNoticeTone = "info" | "progress" | "success" | "warn" | "danger";
 
-function getInitialStatusNoticeIcon(tone: InitialStatusNoticeTone) {
-  if (tone === "progress") return "loader-circle";
-  if (tone === "success") return "complete";
+function getInitialStatusNoticeIcon(tone: InitialStatusNoticeTone): LucideIcon {
+  if (tone === "progress") return LoaderCircle;
+  if (tone === "success") return CheckCircle2;
+  if (tone === "warn" || tone === "danger") return AlertTriangle;
+  return Bell;
+}
+
+function getInitialStatusNoticeTone(tone: InitialStatusNoticeTone): ConsoleTone {
+  if (tone === "progress" || tone === "info") return "info";
+  if (tone === "success") return "success";
   if (tone === "warn") return "warning";
-  if (tone === "danger") return "alert-triangle";
-  return "bell";
+  return "danger";
 }
 
 function InitialStatusNotice(props: {
@@ -88,18 +107,16 @@ function InitialStatusNotice(props: {
 }) {
   const tone = props.tone ?? "info";
   return (
-    <Alert
-      variant={tone === "danger" ? "destructive" : "default"}
+    <InlineNotice
+      title={props.title}
+      tone={getInitialStatusNoticeTone(tone)}
+      icon={getInitialStatusNoticeIcon(tone)}
       className={`initial-status-notice initial-status-notice-${tone}`}
     >
-      <Icon name={getInitialStatusNoticeIcon(tone)} className={tone === "progress" ? "is-spinning" : undefined} />
-      <div>
-        <AlertTitle>{props.title}</AlertTitle>
-        <AlertDescription className="helper-multiline-text helper-multiline-scroll">
-          {props.message}
-        </AlertDescription>
-      </div>
-    </Alert>
+      <span className="helper-multiline-text helper-multiline-scroll">
+        {props.message}
+      </span>
+    </InlineNotice>
   );
 }
 
@@ -126,25 +143,18 @@ function InitialRegistrationProgressCard(props: {
   metaItems: Array<{ label: string; value: number }>;
 }) {
   return (
-    <div className="initial-registration-progress-card" role="status" aria-live="polite">
-      <div className="initial-registration-progress-head">
-        <div>
-          <strong>{props.title}</strong>
-          <p>{props.statusText}</p>
-        </div>
-        <span>
-          {props.current}/{props.total}건
-        </span>
-      </div>
-      <Progress value={props.progressValue} />
-      <div className="initial-registration-progress-meta">
-        {props.metaItems.map((item) => (
-          <span key={item.label}>
-            {item.label} {item.value}건
-          </span>
-        ))}
-      </div>
-    </div>
+    <TaskProgressStrip
+      className="initial-registration-progress-card"
+      title={props.title}
+      description={props.statusText}
+      current={props.current}
+      total={props.total}
+      value={props.progressValue}
+      meta={props.metaItems.map((item) => ({
+        label: item.label,
+        value: `${item.value}건`
+      }))}
+    />
   );
 }
 
@@ -173,10 +183,26 @@ function getInitialRegistrationStepMeta(status: InitialRegistrationStepStatus) {
   return { statusLabel: "대기" };
 }
 
-function getInitialStepBadgeVariant(status: InitialRegistrationStepStatus) {
-  if (status === "complete") return "secondary";
-  if (status === "current") return "default";
-  return "outline";
+function getInitialStepConsoleStatus(status: InitialRegistrationStepStatus): ConsoleStatus {
+  if (status === "complete") return "complete";
+  if (status === "current") return "current";
+  return "pending";
+}
+
+function buildInitialRegistrationStepItems(
+  steps: InitialRegistrationStepItem[],
+  options: {
+    isClickableStep: (step: InitialRegistrationStepItem) => boolean;
+  }
+): TaskStepItem[] {
+  return steps.map((step) => ({
+    id: String(step.step),
+    order: step.step,
+    title: step.title,
+    description: step.description,
+    status: getInitialStepConsoleStatus(step.status),
+    disabled: !options.isClickableStep(step)
+  }));
 }
 
 export function getInitialRegistrationFlowState(input: InitialRegistrationFlowStateInput): InitialRegistrationFlowState {
@@ -689,6 +715,19 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     .filter(Boolean)
     .join(" · ");
   const visibleRegistrationSteps = registrationFlow.stepItems;
+  const isRegistrationStepClickable = (item: InitialRegistrationStepItem) =>
+    props.mode === "registration" &&
+    ((item.step === 1 && registrationFlow.uploadCompleted) ||
+      (item.step === 2 && registrationFlow.uploadCompleted) ||
+      (item.step === 3 && registrationFlow.commitCompleted));
+  const initialRegistrationStepItems = buildInitialRegistrationStepItems(
+    visibleRegistrationSteps,
+    { isClickableStep: isRegistrationStepClickable }
+  );
+  const activeRegistrationStepId =
+    selectedRegistrationStep !== null
+      ? String(selectedRegistrationStep)
+      : String(visibleRegistrationSteps.find((item) => item.status === "current")?.step ?? visibleRegistrationSteps[0]?.step ?? 1);
 
   return (
     <div className="initial-screen">
@@ -808,64 +847,13 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               </div>
             </div>
 
-            <ol className="onboarding-stage-list">
-              {visibleRegistrationSteps.map((item) => {
-                const isClickableStep =
-                  props.mode === "registration" &&
-                  ((item.step === 1 && registrationFlow.uploadCompleted) ||
-                    (item.step === 2 && registrationFlow.uploadCompleted) ||
-                    (item.step === 3 && registrationFlow.commitCompleted));
-                const selectStep = () => {
-                  if (!isClickableStep) {
-                    return;
-                  }
-
-                  setSelectedRegistrationStep(item.step);
-                };
-
-                return (
-                  <li
-                    key={`onboarding-registration-step-${item.step}`}
-                    data-status={item.status}
-                    className={[
-                      "onboarding-stage-item",
-                      item.status === "current" ? "is-current" : "",
-                      item.status === "complete" ? "is-complete" : "",
-                      item.status === "locked" ? "is-locked" : "",
-                      isClickableStep ? "is-clickable" : "",
-                      selectedRegistrationStep === item.step ? "is-selected" : ""
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    role={isClickableStep ? "button" : undefined}
-                    tabIndex={isClickableStep ? 0 : undefined}
-                    onClick={selectStep}
-                    onKeyDown={(event) => {
-                      if (!isClickableStep || (event.key !== "Enter" && event.key !== " ")) {
-                        return;
-                      }
-
-                      event.preventDefault();
-                      selectStep();
-                    }}
-                  >
-                    <span className="onboarding-stage-number">{item.step}</span>
-                    <div className="onboarding-stage-copy">
-                      <div className="initial-onboarding-step-head">
-                        <strong>{item.title}</strong>
-                        <Badge
-                          variant={getInitialStepBadgeVariant(item.status)}
-                          className={`initial-step-badge initial-step-badge-${item.status}`}
-                        >
-                          {item.statusLabel}
-                        </Badge>
-                      </div>
-                      <p>{item.description}</p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+            <TaskStepper
+              steps={initialRegistrationStepItems}
+              activeId={activeRegistrationStepId}
+              label="고객 초기 등록 단계"
+              className="onboarding-stage-list initial-registration-stepper"
+              onSelect={(step) => setSelectedRegistrationStep(Number(step.id))}
+            />
 
             {showOnboardingInlineStatus ? (
               <div className="onboarding-inline-status">
@@ -953,7 +941,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                           <strong>{message.parsedData?.plantAddress || message.parsedData?.plantName || "주소/발전소 정보 없음"}</strong>
                           <p>{message.subject}</p>
                         </div>
-                        <StatusBadge tone={messageStatus === "failed" ? "danger" : messageStatus === "unmatched" ? "warn" : "info"}>
+                        <StatusBadge tone={messageStatus === "failed" ? "danger" : messageStatus === "unmatched" ? "warning" : "info"}>
                           {props.getParseStatusLabel(messageStatus)}
                         </StatusBadge>
                       </div>

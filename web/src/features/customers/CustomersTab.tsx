@@ -2,6 +2,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { CheckboxControl, Icon } from "../../components/ui";
+import {
+  EmptyState,
+  InlineNotice,
+  SearchField,
+  StatusBadge,
+  SummaryFilterCard,
+  TableEmptyState,
+  TaskStepper,
+  type ConsoleTone
+} from "../../components/console";
+import type { ConsoleStatus, TaskStepItem } from "../../components/console";
+import { matchesAnySearchText } from "../../lib/searchMatch";
 import type { LocalCertificateUploadSessionResult } from "../../local-renewal-helper";
 import type {
   Customer,
@@ -120,6 +132,13 @@ type CustomerStatusBadge = {
 type CustomerOnestopStepId = "source" | "password" | "confirm" | "result";
 type CustomerRenewalAssistantUpgradeState = "unknown" | "up-to-date" | "upgrade-available" | "upgrade-required";
 
+const CUSTOMER_ONESTOP_STEP_ORDER: Array<{ id: CustomerOnestopStepId; label: string }> = [
+  { id: "source", label: "인증서 선택" },
+  { id: "password", label: "비밀번호" },
+  { id: "confirm", label: "정보 확인" },
+  { id: "result", label: "결과" }
+];
+
 type CustomersTabProps = {
   customers: Customer[];
   customerCertificates: CustomerCertificate[];
@@ -211,6 +230,7 @@ type CustomersTabProps = {
     customerId: number,
     input: { contractStartDate: string; contractEndDate: string }
   ) => Promise<CustomerContractPeriodMutationResult>;
+  onCompleteCustomerContractRenewal: (item: CustomerContractRenewalDueItem) => Promise<void>;
   resolveCustomerAddress: () => Promise<string>;
   runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
   formatCertificateExpireDate: (value: string | null) => string;
@@ -235,15 +255,41 @@ function getToneBadgeClass(tone: CustomerConsoleTone) {
   ].join(" ");
 }
 
+function getCustomerConsoleTone(tone: CustomerConsoleTone): ConsoleTone {
+  if (tone === "warn") return "warning";
+  return tone;
+}
+
+function getCustomerOnestopStepStatus(stepIndex: number, activeIndex: number): ConsoleStatus {
+  if (stepIndex < activeIndex) return "complete";
+  if (stepIndex === activeIndex) return "current";
+  return "pending";
+}
+
+function buildCustomerOnestopStepItems(activeStep: CustomerOnestopStepId): TaskStepItem[] {
+  const activeIndex = Math.max(0, CUSTOMER_ONESTOP_STEP_ORDER.findIndex((step) => step.id === activeStep));
+  return CUSTOMER_ONESTOP_STEP_ORDER.map((step, index) => ({
+    id: step.id,
+    order: index + 1,
+    title: step.label,
+    status: getCustomerOnestopStepStatus(index, activeIndex)
+  }));
+}
+
 function renderCustomerStatusChip(chip: CustomerStatusChip | null) {
   if (!chip) {
     return null;
   }
 
   return (
-    <span className={`${getToneBadgeClass(chip.tone)} customer-list-status-chip`} title={chip.detail}>
+    <StatusBadge
+      tone={getCustomerConsoleTone(chip.tone)}
+      icon={false}
+      className={`${getToneBadgeClass(chip.tone)} customer-list-status-chip`}
+      title={chip.detail}
+    >
       {chip.label}
-    </span>
+    </StatusBadge>
   );
 }
 
@@ -699,28 +745,23 @@ export function CustomersTab(props: CustomersTabProps) {
   const activeFilterCopy: Record<
     CustomerListFilter,
     {
-      title: string;
       empty: string;
       body: string;
     }
   > = {
     all: {
-      title: "전체 고객",
       empty: "등록된 고객이 없습니다.",
       body: "새 고객부터 등록하세요."
     },
     unissued: {
-      title: "이번 달 미발행 고객",
       empty: "이번 달 미발행 고객이 없습니다.",
       body: "이번 달 세금계산서 발행은 모두 끝났습니다."
     },
     "certificate-expiration": {
-      title: "인증서 만료 예정 고객",
       empty: "인증서 만료 예정 고객이 없습니다.",
       body: "만료됐거나 30일 안에 만료되는 인증서가 없습니다."
     },
     "contract-expiration": {
-      title: "계약 만료 예정 고객",
       empty: "계약 만료 예정 고객이 없습니다.",
       body: "계약 갱신 대상 고객이 없습니다."
     }
@@ -1246,18 +1287,13 @@ export function CustomersTab(props: CustomersTabProps) {
   );
   const visibleCustomerCertificateCandidates = unlinkedCustomerCertificateItems
     .filter((item) => {
-      const query = customerCertificateSearchQuery.trim().toLowerCase();
-      if (!query) return true;
-      return [
+      return matchesAnySearchText(customerCertificateSearchQuery, [
         item.certificateCn,
         item.certificateUsage,
         item.issuerName,
         item.suggestedCustomerLabel,
         getCustomerCertificateKindLabel(item.certificateKind)
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(query);
+      ]);
     })
     .sort((left, right) => {
       if (selectedCustomer) {
@@ -1782,19 +1818,20 @@ export function CustomersTab(props: CustomersTabProps) {
   const renderCustomerTableRows = () => {
     if (visibleTableCustomers.length === 0) {
       return (
-        <tr className="customer-console-empty-row">
-          <td colSpan={4}>
-            <div className="context-empty-state customer-table-empty">
-              <strong>{customerListEmptyState.title}</strong>
-              <p>{customerListEmptyState.body}</p>
-              <div className="customer-console-empty-actions">
-                <button type="button" onClick={handleCreateCustomer}>
-                  새 고객 등록
-                </button>
-              </div>
+        <TableEmptyState
+          colSpan={4}
+          title={customerListEmptyState.title}
+          body={customerListEmptyState.body}
+          rowClassName="customer-console-empty-row"
+          className="context-empty-state customer-table-empty"
+          actions={
+            <div className="customer-console-empty-actions">
+              <button type="button" onClick={handleCreateCustomer}>
+                새 고객 등록
+              </button>
             </div>
-          </td>
-        </tr>
+          }
+        />
       );
     }
 
@@ -1871,6 +1908,7 @@ export function CustomersTab(props: CustomersTabProps) {
         ? "저장 대기"
         : "저장됨";
     const selectedContractSummary = customerContractSummaryById.get(selectedCustomer.id);
+    const selectedContractRenewalDueItem = customerContractRenewalDueById.get(selectedCustomer.id);
     const displayContractStartMonth = selectedContractSummary?.contractStartMonth ?? reportProfile.contractStartMonth;
     const displayContractEndMonth =
       selectedContractSummary?.contractEndMonth ?? reportProfile.contractEndMonth ?? deriveContractEndMonth(reportProfile.contractStartMonth);
@@ -1941,9 +1979,21 @@ export function CustomersTab(props: CustomersTabProps) {
               <section className="customer-detail-section customer-info-card customer-info-contract-card">
                 <div className="customer-detail-section-head customer-report-auto-save-head">
                   <h3>계약/발행</h3>
-                  <span className={customerReportDetail.error ? "customer-auto-save-status tone-danger" : customerReportDetail.saving ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
-                    {customerReportDetail.error || customerReportSaveStatus}
-                  </span>
+                  <div className="customer-contract-head-actions">
+                    {selectedContractRenewalDueItem ? (
+                      <button
+                        type="button"
+                        className="btn-secondary customer-contract-renewal-button"
+                        disabled={props.busyKey === `contract-renewal-${selectedCustomer.id}`}
+                        onClick={() => void props.onCompleteCustomerContractRenewal(selectedContractRenewalDueItem)}
+                      >
+                        {props.busyKey === `contract-renewal-${selectedCustomer.id}` ? "갱신 중" : "계약 갱신"}
+                      </button>
+                    ) : null}
+                    <span className={customerReportDetail.error ? "customer-auto-save-status tone-danger" : customerReportDetail.saving ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
+                      {customerReportDetail.error || customerReportSaveStatus}
+                    </span>
+                  </div>
                 </div>
                 {customerDetailEditing ? (
                   <div className="customer-report-profile-grid customer-info-contract-grid">
@@ -2371,59 +2421,45 @@ export function CustomersTab(props: CustomersTabProps) {
   };
 
   const renderCustomerOnestopSteps = () => {
-    const steps: Array<{ id: CustomerOnestopStepId; label: string }> = [
-      { id: "source", label: "인증서 선택" },
-      { id: "password", label: "비밀번호" },
-      { id: "confirm", label: "정보 확인" },
-      { id: "result", label: "결과" }
-    ];
-    const activeIndex = steps.findIndex((step) => step.id === customerOnestopStep);
     return (
-      <div className="customer-onestop-steps" aria-label="고객 등록 단계">
-        {steps.map((step, index) => (
-          <span
-            key={step.id}
-            className={[
-              "customer-onestop-step",
-              step.id === customerOnestopStep ? "is-active" : "",
-              index < activeIndex ? "is-done" : ""
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            {step.label}
-          </span>
-        ))}
-      </div>
+      <TaskStepper
+        className="customer-onestop-steps"
+        label="고객 등록 단계"
+        activeId={customerOnestopStep}
+        steps={buildCustomerOnestopStepItems(customerOnestopStep)}
+      />
     );
   };
 
   const renderCustomerOnestopCertificateList = () => {
     if (customerOnestopCertificates.length === 0) {
       return (
-        <div className="context-empty-state customer-onestop-empty">
-          <strong>인증서 없음</strong>
-          <p>PC에서 찾기 또는 파일/폴더 올리기를 실행하세요.</p>
-        </div>
+        <EmptyState
+          className="context-empty-state customer-onestop-empty"
+          title="인증서 없음"
+          body="PC에서 찾기 또는 파일/폴더 올리기를 실행하세요."
+        />
       );
     }
 
     if (customerOnestopCertificateFilter.availableCertificates.length === 0) {
       const hiddenSummary = formatCustomerOnestopHiddenCertificateSummary(customerOnestopCertificateFilter);
       return (
-        <div className="context-empty-state customer-onestop-empty">
-          <strong>표시할 인증서 없음</strong>
-          <p>{hiddenSummary || "만료되었거나 이미 등록된 고객의 인증서는 제외했습니다."}</p>
-        </div>
+        <EmptyState
+          className="context-empty-state customer-onestop-empty"
+          title="표시할 인증서 없음"
+          body={hiddenSummary || "만료되었거나 이미 등록된 고객의 인증서는 제외했습니다."}
+        />
       );
     }
 
     if (customerOnestopCertificateFilter.visibleCertificates.length === 0) {
       return (
-        <div className="context-empty-state customer-onestop-empty">
-          <strong>검색 결과 없음</strong>
-          <p>인증서명, 발급기관, 만료일로 다시 검색하세요.</p>
-        </div>
+        <EmptyState
+          className="context-empty-state customer-onestop-empty"
+          title="검색 결과 없음"
+          body="인증서명, 발급기관, 만료일로 다시 검색하세요."
+        />
       );
     }
 
@@ -2501,15 +2537,15 @@ export function CustomersTab(props: CustomersTabProps) {
           </label>
         </div>
         {customerOnestopCertificateFilter.availableCertificates.length > 0 ? (
-          <label className="customer-onestop-certificate-search" aria-label="인증서 검색">
-            <Icon name="search" className="customer-onestop-certificate-search-icon" />
-            <input
-              type="search"
-              placeholder="인증서명, 발급기관, 만료일 검색"
-              value={customerOnestopCertificateSearchQuery}
-              onChange={(event) => setCustomerOnestopCertificateSearchQuery(event.target.value)}
-            />
-          </label>
+          <SearchField
+            className="customer-onestop-certificate-search"
+            iconClassName="customer-onestop-certificate-search-icon"
+            inputClassName="customer-onestop-certificate-search-input"
+            aria-label="인증서 검색"
+            placeholder="인증서명, 발급기관, 만료일 검색"
+            value={customerOnestopCertificateSearchQuery}
+            onChange={(event) => setCustomerOnestopCertificateSearchQuery(event.target.value)}
+          />
         ) : null}
         {renderCustomerOnestopCertificateList()}
         {customerOnestopUploadSummary ? (
@@ -2610,9 +2646,14 @@ export function CustomersTab(props: CustomersTabProps) {
       </div>
       <div className="customer-create-progress-list" aria-label="고객 정보 입력 상태">
         {customerOnestopRequiredFieldChecks.map((field) => (
-          <span key={field.label} className={field.done ? "customer-create-progress-chip is-complete" : "customer-create-progress-chip"}>
+          <StatusBadge
+            key={field.label}
+            tone={field.done ? "success" : "muted"}
+            icon={false}
+            className={field.done ? "customer-create-progress-chip is-complete" : "customer-create-progress-chip"}
+          >
             {field.label}
-          </span>
+          </StatusBadge>
         ))}
       </div>
       <div className="customer-form-actions">
@@ -2696,7 +2737,11 @@ export function CustomersTab(props: CustomersTabProps) {
             </div>
           </div>
           {renderCustomerOnestopSteps()}
-          {customerOnestopError ? <p className="customer-onestop-error">{customerOnestopError}</p> : null}
+          {customerOnestopError ? (
+            <InlineNotice tone="danger" className="customer-onestop-error">
+              {customerOnestopError}
+            </InlineNotice>
+          ) : null}
         </section>
         {renderCustomerOnestopActiveStep()}
       </div>
@@ -2713,32 +2758,25 @@ export function CustomersTab(props: CustomersTabProps) {
       <div className={`customer-console-shell ${detailPanelOpen ? "is-detail-open" : "is-detail-empty"}`}>
         <motion.section className="customer-summary-grid" aria-label="고객 운영 요약" variants={pageSectionVariants}>
           {customerSummaryCards.map((card) => (
-            <motion.button
+            <SummaryFilterCard
               key={card.key}
-              type="button"
-              className={[
-                "customer-summary-card",
-                props.customerListFilter === card.filter ? "is-active" : "",
-                card.tone === "danger"
-                  ? "tone-danger"
-                  : card.tone === "warn"
-                    ? "tone-warn"
-                    : card.tone === "success"
-                      ? "tone-success"
-                      : ""
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              aria-pressed={props.customerListFilter === card.filter}
-              whileHover={getSubtleHoverMotion(shouldReduceMotion)}
-              whileTap={getSubtleTapMotion(shouldReduceMotion)}
+              asChild
+              active={props.customerListFilter === card.filter}
+              tone={card.tone === "warn" ? "warning" : card.tone}
+              variant="pill"
               onClick={() => props.setCustomerListFilter(card.filter)}
             >
-              <span>{card.label}</span>
-              <div className="customer-summary-card-row">
-                <strong>{card.value}</strong>
-              </div>
-            </motion.button>
+              <motion.button
+                type="button"
+                whileHover={getSubtleHoverMotion(shouldReduceMotion)}
+                whileTap={getSubtleTapMotion(shouldReduceMotion)}
+              >
+                <span>{card.label}</span>
+                <div className="summary-filter-card-count">
+                  <strong>{card.value}</strong>
+                </div>
+              </motion.button>
+            </SummaryFilterCard>
           ))}
           <div className="customer-summary-actions">
             <button
@@ -2826,29 +2864,19 @@ export function CustomersTab(props: CustomersTabProps) {
 
         <motion.div ref={customerMainColumnRef} className="customer-console-main-column" variants={pageSectionVariants}>
           <header className="customer-console-page-header">
-            <label className="customer-console-page-search" aria-label="고객 통합 검색">
-              <Icon name="search" className="customer-console-page-search-icon" />
-              <span
-                className={[
-                  "customer-console-page-search-text",
-                  props.customerSearchQuery ? "" : "is-placeholder"
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              >
-                {props.customerSearchQuery || "검색"}
-              </span>
-              <input
-                className="customer-console-page-search-input"
-                type="text"
-                placeholder="검색"
-                value={props.customerSearchQuery}
-                onChange={(event) => {
-                  props.setCustomerSearchField("all");
-                  props.setCustomerSearchQuery(event.target.value);
-                }}
-              />
-            </label>
+            <SearchField
+              variant="console"
+              className="customer-console-page-search"
+              iconClassName="customer-console-page-search-icon"
+              inputClassName="customer-console-page-search-input"
+              aria-label="고객 통합 검색"
+              placeholder="검색"
+              value={props.customerSearchQuery}
+              onChange={(event) => {
+                props.setCustomerSearchField("all");
+                props.setCustomerSearchQuery(event.target.value);
+              }}
+            />
             <label className="customer-console-page-search-month" aria-label="세금계산서 발행월 검색">
               <span className="customer-console-page-search-month-label">발행월</span>
               <input
@@ -2861,28 +2889,6 @@ export function CustomersTab(props: CustomersTabProps) {
           </header>
 
           <motion.section className="panel panel-customer-list customer-console-panel" layout style={customerListPanelStyle}>
-            <div className="customer-console-table-topbar">
-              <div className="customer-console-table-title">
-                <strong>{activeFilterCopy[props.customerListFilter].title} ({visibleTableCustomers.length})</strong>
-              </div>
-              <div className="customer-console-table-actions">
-                {hasActiveFilter ? (
-                  <button
-                    type="button"
-                    className="btn-secondary customer-console-reset"
-                    onClick={() => {
-                      props.setCustomerListFilter("all");
-                      props.setCustomerSearchField("all");
-                      props.setCustomerSearchQuery("");
-                      props.setCustomerIssueMonthQuery("");
-                    }}
-                  >
-                    필터 초기화
-                  </button>
-                ) : null}
-              </div>
-            </div>
-
             <div
               ref={customerTableWrapRef}
               className="customer-console-table-wrap"

@@ -1,7 +1,4 @@
 import React from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import {
   AlertTriangle,
   Bell,
@@ -33,6 +30,16 @@ import {
   Users,
   type LucideIcon
 } from "lucide-react";
+import {
+  EmptyState as ConsoleEmptyState,
+  InlineNotice,
+  MetricCard,
+  StatusBadge as ConsoleStatusBadge,
+  WorkPanel,
+  WorkPanelBody,
+  WorkPanelHeader,
+  type ConsoleTone
+} from "./console";
 
 function getStatIcon(label: string): string {
   if (label.includes("고객")) return "group";
@@ -133,22 +140,13 @@ export function StatusBadge(props: {
   className?: string;
 }) {
   const tone = props.tone ?? "default";
-  const className = ["status-badge", `status-badge-${tone}`, props.className]
-    .filter(Boolean)
-    .join(" ");
-  const variant =
-    tone === "danger"
-      ? "destructive"
-      : tone === "success" || tone === "info"
-        ? "secondary"
-        : tone === "warn"
-          ? "outline"
-          : "outline";
+  const consoleTone: ConsoleTone =
+    tone === "warn" ? "warning" : tone === "default" ? "default" : tone;
 
   return (
-    <Badge variant={variant} className={className}>
+    <ConsoleStatusBadge tone={consoleTone} icon={false} className={props.className}>
       {props.children}
-    </Badge>
+    </ConsoleStatusBadge>
   );
 }
 
@@ -160,16 +158,17 @@ export function EmptyState(props: {
   className?: string;
 }) {
   const tone = props.tone ?? "default";
-  const className = ["empty-state", `empty-state-${tone}`, props.className]
-    .filter(Boolean)
-    .join(" ");
+  const consoleTone: ConsoleTone =
+    tone === "warn" ? "warning" : tone === "default" ? "default" : tone;
 
   return (
-    <Card className={className}>
-      <strong>{props.title}</strong>
-      {props.body ? <p>{props.body}</p> : null}
-      {props.actions ? <div className="empty-state-actions">{props.actions}</div> : null}
-    </Card>
+    <ConsoleEmptyState
+      title={props.title}
+      body={props.body}
+      actions={props.actions}
+      tone={consoleTone}
+      className={props.className}
+    />
   );
 }
 
@@ -181,30 +180,27 @@ export function SectionMessage(props: {
   className?: string;
 }) {
   const tone = props.tone ?? "info";
-  const className = ["section-message", `section-message-${tone}`, props.className]
-    .filter(Boolean)
-    .join(" ");
+  const consoleTone: ConsoleTone =
+    tone === "warn" ? "warning" : tone === "default" ? "default" : tone;
 
   return (
-    <Alert variant={tone === "danger" ? "destructive" : "default"} className={className}>
-      <div className="section-message-copy">
-        {props.title ? <AlertTitle>{props.title}</AlertTitle> : null}
-        <AlertDescription>{props.children}</AlertDescription>
-      </div>
-      {props.actions ? <div className="section-message-actions">{props.actions}</div> : null}
-    </Alert>
+    <InlineNotice title={props.title} tone={consoleTone} actions={props.actions} className={props.className}>
+      {props.children}
+    </InlineNotice>
   );
 }
 
 export function StatCard(props: { label: string; value: number | string; tone?: "default" | "warn" | "error" }) {
+  const tone = props.tone === "warn" ? "warning" : props.tone === "error" ? "danger" : "default";
+
   return (
-    <div className={`stat-card stat-${props.tone ?? "default"}`}>
-      <div className="stat-card-head">
-        <span>{props.label}</span>
-        <Icon name={getStatIcon(props.label)} className="stat-card-icon" />
-      </div>
-      <strong>{props.value}</strong>
-    </div>
+    <MetricCard
+      label={props.label}
+      value={props.value}
+      tone={tone}
+      className={`stat-${props.tone ?? "default"}`}
+      icon={<Icon name={getStatIcon(props.label)} className="stat-card-icon" />}
+    />
   );
 }
 
@@ -217,16 +213,10 @@ export function Panel(props: {
   className?: string;
 }) {
   return (
-    <Card id={props.id} className={props.className ? `panel ${props.className}` : "panel"}>
-      <header className="panel-header">
-        <div>
-          <h2>{props.title}</h2>
-          {props.subtitle ? <p>{props.subtitle}</p> : null}
-        </div>
-        {props.actions ? <div className="panel-actions">{props.actions}</div> : null}
-      </header>
-      {props.children}
-    </Card>
+    <WorkPanel id={props.id} className={props.className}>
+      <WorkPanelHeader title={props.title} description={props.subtitle} actions={props.actions} />
+      <WorkPanelBody>{props.children}</WorkPanelBody>
+    </WorkPanel>
   );
 }
 

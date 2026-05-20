@@ -3651,7 +3651,12 @@ textarea {
 }
 
 .certificate-search {
+  position: relative;
   display: block;
+}
+
+.certificate-search-icon {
+  left: 0.9rem;
 }
 
 .certificate-search input {
@@ -3660,7 +3665,7 @@ textarea {
   border: 1px solid rgba(25, 73, 165, 0.12);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.94);
-  padding: 0.72rem 0.9rem;
+  padding: 0.72rem 0.9rem 0.72rem 2.45rem;
   font: inherit;
   color: var(--text-main);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
@@ -3787,19 +3792,6 @@ textarea {
   line-height: 1.45;
   word-break: keep-all;
   line-break: strict;
-}
-
-.chip-filter {
-  border: 1px solid rgba(25, 73, 165, 0.1);
-  background: rgba(255, 255, 255, 0.84);
-  color: var(--text-faint);
-  cursor: pointer;
-}
-
-.chip-filter.active {
-  background: rgba(35, 102, 243, 0.12);
-  border-color: rgba(35, 102, 243, 0.24);
-  color: #1f5bcb;
 }
 
 .customer-renewal-list {
@@ -4248,37 +4240,6 @@ textarea {
   color: var(--text-faint);
   font-size: 0.72rem;
   font-weight: 700;
-}
-
-.certificate-status-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0.16rem 0.48rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  border: 1px solid rgba(32, 55, 94, 0.08);
-  background: rgba(243, 246, 252, 0.92);
-  color: var(--text-faint);
-}
-
-.certificate-status-badge.success {
-  background: rgba(232, 248, 240, 0.95);
-  color: #157357;
-  border-color: rgba(21, 115, 87, 0.16);
-}
-
-.certificate-status-badge.warn {
-  background: rgba(255, 247, 230, 0.96);
-  color: #ad6f00;
-  border-color: rgba(173, 111, 0, 0.18);
-}
-
-.certificate-status-badge.danger {
-  background: rgba(255, 236, 236, 0.96);
-  color: #c53030;
-  border-color: rgba(197, 48, 48, 0.18);
 }
 
 .certificate-table-actions {
@@ -8209,10 +8170,6 @@ textarea {
   font-size: 0.72rem;
 }
 
-.customer-console-reset {
-  margin-left: auto;
-}
-
 .customer-console-table-wrap {
   min-height: 0;
   height: 100%;
@@ -9018,10 +8975,6 @@ textarea {
   .customer-form-actions {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .customer-console-reset {
-    margin-left: 0;
   }
 
   .customer-console-filter-strip,
@@ -11253,6 +11206,25 @@ button.issuance-list-item {
   overflow: hidden;
 }
 
+.issuance-manual-draft-modal {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.issuance-manual-draft-modal-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.issuance-manual-draft-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 16px;
+  border-top: 1px solid #c9c9c9;
+  background: #ffffff;
+}
+
 .issuance-picker-head {
   display: flex;
   align-items: flex-start;
@@ -11760,10 +11732,6 @@ button.issuance-list-item {
   border-radius: 12px;
 }
 
-.customer-console-reset {
-  margin-left: auto;
-}
-
 .customer-console-table-wrap {
   min-height: 0;
   overflow: auto;
@@ -11942,10 +11910,6 @@ button.issuance-list-item {
     align-items: stretch;
     flex-direction: column;
   }
-
-  .customer-console-reset {
-    margin-left: 0;
-  }
 }
 
 @media (max-width: 720px) {
@@ -12053,84 +12017,16 @@ button.issuance-list-item {
   gap: 12px;
 }
 
-.customer-summary-card {
-  display: grid;
-  gap: 14px;
-  padding: 28px 30px;
-  border: 1px solid #e7ebf2;
-  border-radius: 20px;
-  background: #ffffff;
-  box-shadow: 0 10px 26px rgba(20, 30, 48, 0.06);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.customer-summary-card.is-active {
-  border-color: #1b2330;
-  box-shadow:
-    0 10px 26px rgba(20, 30, 48, 0.06),
-    inset 0 0 0 1px #1b2330;
-}
-
-.customer-summary-card:focus-visible {
-  outline: 2px solid #1b2330;
-  outline-offset: 2px;
-}
-
-.customer-summary-card > span {
-  color: #6a7280;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.customer-summary-card-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.customer-summary-card strong {
-  color: #111419;
-  font-size: 24px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.customer-summary-card em {
-  color: #9aa2af;
-  font-size: 13px;
-  font-style: normal;
-  font-weight: 600;
-}
-
-.customer-summary-card.tone-danger strong,
 .customer-console-next-step.tone-danger {
   color: #c91d14;
 }
 
-.customer-summary-card.tone-danger em {
-  color: #d64b43;
-}
-
-.customer-summary-card.tone-success strong,
 .customer-console-next-step.tone-success {
   color: #0e5fd0;
 }
 
-.customer-summary-card.tone-success em {
-  color: #0e5fd0;
-}
-
-.customer-summary-card.tone-warn strong,
 .customer-console-next-step.tone-warn {
   color: #9a4f00;
-}
-
-.customer-summary-card.tone-warn em {
-  color: #b06b1a;
 }
 
 .customer-console-panel {
@@ -12138,16 +12034,6 @@ button.issuance-list-item {
   padding: 0;
   border-radius: 22px;
   overflow: hidden;
-}
-
-.customer-console-table-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 20px 28px;
-  border-bottom: 1px solid #edf0f4;
-  background: #ffffff;
 }
 
 .customer-console-filter-strip {
@@ -12184,8 +12070,7 @@ button.issuance-list-item {
   flex-wrap: wrap;
 }
 
-.customer-console-table-actions .btn-secondary,
-.customer-console-reset {
+.customer-console-table-actions .btn-secondary {
   min-height: 46px;
   padding: 0 18px;
   border-radius: 14px;
@@ -12309,8 +12194,7 @@ button.issuance-list-item {
     padding: 20px 18px 22px;
   }
 
-  .customer-console-hero-row,
-  .customer-console-table-topbar {
+  .customer-console-hero-row {
     align-items: stretch;
     flex-direction: column;
   }
@@ -14186,7 +14070,7 @@ button.issuance-list-item {
 
 .app-shell-topnav .topnav-workspace-select,
 .app-shell-topnav .topnav-logout,
-.app-shell-topnav button,
+.app-shell-topnav button:not([data-slot="summary-filter-card"]),
 .portal-shell button,
 .portal-shell input,
 .app-shell-topnav input,
@@ -14197,7 +14081,7 @@ button.issuance-list-item {
   box-shadow: none;
 }
 
-.app-shell-topnav button,
+.app-shell-topnav button:not([data-slot="summary-filter-card"]),
 .portal-shell button {
   background: var(--wf-surface);
   color: var(--wf-text);
@@ -14241,7 +14125,6 @@ button.issuance-list-item {
 .app-shell-topnav .issuance-detail-panel,
 .app-shell-topnav .customer-console-hero,
 .app-shell-topnav .customer-detail-panel,
-.app-shell-topnav .customer-summary-card,
 .app-shell-topnav .certificate-hero-panel,
 .app-shell-topnav .certificate-toolbar-card,
 .app-shell-topnav .certificate-main-panel,
@@ -14661,30 +14544,6 @@ button.issuance-list-item {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-.app-shell-topnav .issuance-search-field {
-  min-width: 0;
-}
-
-.app-shell-topnav .issuance-table-tools input,
-.app-shell-topnav .issuance-table-tools select {
-  width: 100%;
-  min-height: 30px;
-  border: 1px solid var(--wf-border);
-  border-radius: 2px;
-  background: var(--wf-surface);
-  color: var(--wf-text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.app-shell-topnav .issuance-table-tools input {
-  padding: 0 10px;
-}
-
-.app-shell-topnav .issuance-table-tools select {
-  padding: 0 8px;
 }
 
 .app-shell-topnav .issuance-table-shell {
@@ -15216,17 +15075,6 @@ button.issuance-list-item {
   display: contents;
 }
 
-.app-shell-topnav .customer-summary-card {
-  min-height: 74px;
-  padding: 10px 12px;
-  border-width: 0 0 0 1px;
-  border-radius: 0;
-}
-
-.app-shell-topnav .customer-summary-card p {
-  display: none;
-}
-
 .app-shell-topnav .customer-console-panel {
   padding: 10px;
 }
@@ -15486,6 +15334,7 @@ button.issuance-list-item {
 .app-shell-topnav .certificate-search input {
   min-height: 32px;
   border-radius: 3px;
+  padding-left: 30px;
 }
 
 .app-shell-topnav .certificate-filter-strip {
@@ -17915,65 +17764,6 @@ button.issuance-list-item {
   background: var(--wf-faint);
 }
 
-.app-shell-topnav .customer-summary-card {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: baseline;
-  gap: 8px;
-  min-height: 42px;
-  padding: 8px 12px;
-  border: 1px solid var(--wf-border);
-  border-radius: 3px;
-  background: var(--wf-surface);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  box-shadow: none;
-  cursor: pointer;
-}
-
-.app-shell-topnav .customer-summary-card.is-active {
-  border-color: var(--wf-text);
-  background: var(--wf-faint);
-  box-shadow: inset 0 0 0 1px var(--wf-text);
-}
-
-.app-shell-topnav .customer-summary-card:focus-visible {
-  outline: 2px solid var(--wf-text);
-  outline-offset: 2px;
-}
-
-.app-shell-topnav .customer-summary-card:first-child {
-  border-left: 1px solid var(--wf-border);
-}
-
-.app-shell-topnav .customer-summary-card > span {
-  color: var(--wf-text);
-  font-size: 14px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.app-shell-topnav .customer-summary-card-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-
-.app-shell-topnav .customer-summary-card-row strong {
-  color: var(--wf-text);
-  font-size: 14px;
-  line-height: 1.1;
-  white-space: nowrap;
-}
-
-.app-shell-topnav .customer-summary-card-row em,
-.app-shell-topnav .customer-summary-card p {
-  display: none;
-}
-
 .app-shell-topnav .customer-console-page-header {
   position: static;
   top: auto;
@@ -18145,17 +17935,6 @@ button.issuance-list-item {
   overflow: hidden;
 }
 
-.app-shell-topnav .customer-console-table-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 0;
-  padding: 4px 12px;
-  border-bottom: 0;
-  background: var(--wf-surface);
-}
-
 .app-shell-topnav .customer-console-table-title {
   display: flex;
   align-items: baseline;
@@ -18184,8 +17963,7 @@ button.issuance-list-item {
   flex-wrap: wrap;
 }
 
-.app-shell-topnav .customer-console-table-actions .btn-secondary,
-.app-shell-topnav .customer-console-reset {
+.app-shell-topnav .customer-console-table-actions .btn-secondary {
   min-height: 30px;
   padding: 0 10px;
   border-radius: 3px;
@@ -19689,7 +19467,6 @@ button.issuance-list-item {
     grid-template-columns: 1fr;
   }
 
-  .app-shell-topnav .customer-console-table-topbar,
   .app-shell-topnav .customer-detail-panel-head,
   .app-shell-topnav .customer-issue-mode-editor {
     align-items: stretch;
@@ -19837,37 +19614,11 @@ button.issuance-list-item {
   gap: 0.72rem;
 }
 
-.customer-summary-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  box-shadow: var(--shadow-sm);
-}
-
-.customer-summary-card.tone-success {
-  border-color: rgba(22, 163, 74, 0.2);
-  background: linear-gradient(180deg, #ffffff 0%, var(--success-soft) 100%);
-}
-
-.customer-summary-card.tone-warn {
-  border-color: rgba(217, 119, 6, 0.22);
-  background: linear-gradient(180deg, #ffffff 0%, var(--warning-soft) 100%);
-}
-
-.customer-summary-card.tone-danger {
-  border-color: rgba(220, 38, 38, 0.18);
-  background: linear-gradient(180deg, #ffffff 0%, var(--danger-soft) 100%);
-}
-
 .customer-console-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
-}
-
-.customer-console-table-topbar {
-  padding-bottom: 0.18rem;
 }
 
 .customer-console-table-title strong {
@@ -20072,43 +19823,6 @@ button.issuance-list-item {
     linear-gradient(180deg, rgba(239, 246, 255, 0.68) 0, rgba(248, 250, 252, 0.88) 220px, #f8fafc 100%);
 }
 
-.app-shell-topnav .customer-summary-card {
-  border-color: rgba(203, 213, 225, 0.95);
-  border-radius: 10px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 24px rgba(15, 23, 42, 0.05);
-}
-
-.app-shell-topnav .customer-summary-card:hover,
-.app-shell-topnav .customer-summary-card.is-active {
-  border-color: rgba(37, 99, 235, 0.36);
-  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.08), 0 12px 26px rgba(37, 99, 235, 0.09);
-}
-
-.app-shell-topnav .customer-summary-card.tone-success {
-  border-color: rgba(34, 197, 94, 0.24);
-  background: linear-gradient(180deg, #ffffff 0%, #ecfdf3 100%);
-}
-
-.app-shell-topnav .customer-summary-card.tone-warn {
-  border-color: rgba(245, 158, 11, 0.28);
-  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
-}
-
-.app-shell-topnav .customer-summary-card.tone-danger {
-  border-color: rgba(239, 68, 68, 0.22);
-  background: linear-gradient(180deg, #ffffff 0%, #fef2f2 100%);
-}
-
-.app-shell-topnav .customer-summary-card span {
-  color: #475569;
-}
-
-.app-shell-topnav .customer-summary-card strong {
-  color: #0f172a;
-}
-
 .app-shell-topnav .customer-console-page-search,
 .app-shell-topnav .customer-console-filter-strip,
 .app-shell-topnav .customer-console-panel,
@@ -20163,12 +19877,6 @@ button.issuance-list-item {
 
 .app-shell-topnav .customer-console-panel {
   overflow: hidden;
-}
-
-.app-shell-topnav .customer-console-table-topbar {
-  padding: 9px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  background: rgba(248, 250, 252, 0.72);
 }
 
 .app-shell-topnav .customer-console-table-wrap {
@@ -21794,6 +21502,19 @@ button.issuance-list-item {
   --console-shadow-pop: 0 20px 54px rgba(15, 23, 42, 0.18);
 }
 
+.app-shell-topnav *,
+.app-shell-topnav *::before,
+.app-shell-topnav *::after {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.app-shell-topnav *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 .app-shell-topnav .content-home,
 .app-shell-topnav .content-issuance,
 .app-shell-topnav .content-customers,
@@ -21846,7 +21567,7 @@ button.issuance-list-item {
   box-shadow: var(--console-shadow);
 }
 
-.app-shell-topnav button,
+.app-shell-topnav button:not([data-slot="summary-filter-card"]),
 .app-shell-topnav .btn-secondary,
 .app-shell-topnav .btn-ghost,
 .app-shell-topnav .field-inline-action,
@@ -21952,8 +21673,6 @@ button.issuance-list-item {
 .app-shell-topnav input,
 .app-shell-topnav select,
 .app-shell-topnav textarea,
-.app-shell-topnav .issuance-table-tools input,
-.app-shell-topnav .issuance-table-tools select,
 .app-shell-topnav .certificate-search input,
 .app-shell-topnav .certificate-match-form select,
 .app-shell-topnav .settings-option1-field input,
@@ -21969,8 +21688,6 @@ button.issuance-list-item {
 .app-shell-topnav input:focus,
 .app-shell-topnav select:focus,
 .app-shell-topnav textarea:focus,
-.app-shell-topnav .issuance-table-tools input:focus,
-.app-shell-topnav .issuance-table-tools select:focus,
 .app-shell-topnav .certificate-search input:focus,
 .app-shell-topnav .certificate-match-form select:focus,
 .app-shell-topnav .settings-option1-field input:focus,
@@ -21988,7 +21705,6 @@ button.issuance-list-item {
 .app-shell-topnav .home-priority-tone,
 .app-shell-topnav .issuance-list-table .status,
 .app-shell-topnav .issuance-detail-mode,
-.app-shell-topnav .certificate-status-badge,
 .app-shell-topnav .settings-option1-save-indicator,
 .app-shell-topnav .onboarding-step-chip span:first-child {
   display: inline-flex;
@@ -22021,7 +21737,6 @@ button.issuance-list-item {
 .app-shell-topnav .status-review,
 .app-shell-topnav .status-pending,
 .app-shell-topnav .home-header-chip.tone-warn,
-.app-shell-topnav .certificate-status-badge.warn,
 .app-shell-topnav .context-empty-state.tone-warn {
   border-color: rgba(245, 158, 11, 0.26);
   background: var(--console-warn-soft);
@@ -22033,8 +21748,7 @@ button.issuance-list-item {
 .app-shell-topnav .status-failed,
 .app-shell-topnav .status-unmatched,
 .app-shell-topnav .status-missing-mail,
-.app-shell-topnav .home-header-chip.tone-danger,
-.app-shell-topnav .certificate-status-badge.danger {
+.app-shell-topnav .home-header-chip.tone-danger {
   border-color: rgba(220, 38, 38, 0.2);
   background: var(--console-danger-soft);
   color: var(--console-danger);
@@ -22118,7 +21832,6 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .home-metric-cell,
-.app-shell-topnav .customer-summary-card,
 .app-shell-topnav .certificate-ops-metric-card {
   background: linear-gradient(180deg, #ffffff 0%, var(--console-surface-soft) 100%);
 }
@@ -23846,7 +23559,6 @@ button.issuance-list-item {
   --customer-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px rgba(15, 23, 42, 0.04);
 }
 
-.app-shell-topnav .customer-summary-card,
 .app-shell-topnav .customer-console-panel,
 .app-shell-topnav .customer-detail-panel,
 .app-shell-topnav .customer-detail-section,
@@ -25975,7 +25687,7 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav :is(.content-issuance, .content-customers, .content-settings, .content-ops)
-  :is(button, .btn-primary, .btn-secondary, .btn-ghost, .btn-danger) {
+  :is(button:not([data-slot="summary-filter-card"]), .btn-primary, .btn-secondary, .btn-ghost, .btn-danger) {
   border-radius: var(--lovable-radius-control) !important;
   box-shadow: none !important;
 }
@@ -26366,61 +26078,6 @@ button.issuance-list-item {
   font-weight: 700 !important;
 }
 
-.app-shell-topnav .content-issuance .issuance-status-badge {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 4px !important;
-  border: 0 !important;
-  line-height: 1 !important;
-  white-space: nowrap !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-review,
-.app-shell-topnav .content-issuance .issuance-status-badge.status-scheduled {
-  background: var(--lovable-warning-soft) !important;
-  color: var(--lovable-warning) !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-issuing {
-  background: var(--lovable-primary-soft) !important;
-  color: var(--lovable-primary) !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-issued {
-  background: #f1f3f5 !important;
-  color: #596273 !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-unmatched {
-  background: var(--lovable-warning-soft) !important;
-  color: var(--lovable-warning) !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-missing-mail {
-  background: #edf4ff !important;
-  color: #3578c7 !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-failed {
-  background: var(--lovable-danger-soft) !important;
-  color: var(--lovable-danger) !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge .status-icon {
-  width: 12px !important;
-  min-width: 12px !important;
-  height: 12px !important;
-  padding: 0 !important;
-  background: transparent !important;
-  color: currentColor !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge .status-icon svg {
-  width: 12px !important;
-  height: 12px !important;
-  stroke: currentColor !important;
-}
-
 .app-shell-topnav .issuance-detail-panel {
   height: calc(100vh - 142px) !important;
   max-height: calc(100vh - 142px) !important;
@@ -26468,10 +26125,6 @@ button.issuance-list-item {
 
 .app-shell-topnav .issuance-detail-status-badge {
   flex: 0 0 auto !important;
-  min-height: 22px !important;
-  padding: 0 8px !important;
-  font-size: 11px !important;
-  font-weight: 700 !important;
 }
 
 .app-shell-topnav .issuance-detail-tabset {
@@ -26949,6 +26602,26 @@ button.issuance-list-item {
   background: #f8fafc !important;
 }
 
+.app-shell-topnav .issuance-manual-draft-modal {
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+  width: min(860px, calc(100vw - 48px)) !important;
+}
+
+.app-shell-topnav .issuance-manual-draft-modal-body {
+  min-height: 0 !important;
+  overflow: auto !important;
+}
+
+.app-shell-topnav .issuance-manual-draft-modal-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  padding: 12px 16px !important;
+  border-top: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+}
+
 .app-shell-topnav .issuance-filter-row .issuance-filter-chip {
   min-height: 32px !important;
   padding: 0 12px !important;
@@ -27090,27 +26763,6 @@ button.issuance-list-item {
   margin-bottom: 16px !important;
 }
 
-.app-shell-topnav .customer-summary-card {
-  min-height: 48px !important;
-  padding: 0 14px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: var(--lovable-radius-control) !important;
-  background: var(--lovable-surface) !important;
-  box-shadow: none !important;
-  color: var(--lovable-text) !important;
-}
-
-.app-shell-topnav .customer-summary-card strong,
-.app-shell-topnav .customer-summary-card span {
-  color: inherit !important;
-}
-
-.app-shell-topnav .customer-summary-card.is-active,
-.app-shell-topnav .customer-summary-card[aria-pressed="true"] {
-  border-color: var(--lovable-border-strong) !important;
-  background: #eef1f5 !important;
-}
-
 .app-shell-topnav .customer-summary-actions {
   gap: 8px !important;
 }
@@ -27142,7 +26794,7 @@ button.issuance-list-item {
   box-shadow: none !important;
 }
 
-.app-shell-topnav :is(.customer-console-table-topbar, .customer-detail-panel-header) {
+.app-shell-topnav .customer-detail-panel-header {
   padding: 15px 18px !important;
   border-bottom: 1px solid var(--lovable-border) !important;
   background: var(--lovable-surface) !important;
@@ -27409,40 +27061,6 @@ button.issuance-list-item {
   background: transparent !important;
 }
 
-.app-shell-topnav .customer-summary-card {
-  display: inline-flex !important;
-  flex: 0 0 auto !important;
-  align-items: center !important;
-  gap: 8px !important;
-  min-height: 34px !important;
-  padding: 0 13px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 999px !important;
-  background: #ffffff !important;
-  color: #475569 !important;
-  box-shadow: none !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
-}
-
-.app-shell-topnav .customer-summary-card.is-active,
-.app-shell-topnav .customer-summary-card[aria-pressed="true"] {
-  border-color: #111827 !important;
-  background: #111827 !important;
-  color: #ffffff !important;
-}
-
-.app-shell-topnav .customer-summary-card > span,
-.app-shell-topnav .customer-summary-card-row strong {
-  color: inherit !important;
-  font-size: 12px !important;
-}
-
-.app-shell-topnav .customer-summary-card-row {
-  display: inline-flex !important;
-  align-items: center !important;
-}
-
 .app-shell-topnav .customer-summary-actions {
   display: flex !important;
   align-items: stretch !important;
@@ -27491,8 +27109,7 @@ button.issuance-list-item {
   opacity: 1 !important;
 }
 
-.app-shell-topnav .customer-summary-actions .button-icon,
-.app-shell-topnav .customer-console-filter-button .customer-console-page-header-icon {
+.app-shell-topnav .customer-summary-actions .button-icon {
   width: 16px !important;
   height: 16px !important;
 }
@@ -27521,44 +27138,6 @@ button.issuance-list-item {
   background: transparent !important;
 }
 
-.app-shell-topnav .customer-console-filter-button {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  height: 32px !important;
-  min-height: 32px !important;
-  padding: 0 12px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 2px !important;
-  background: #ffffff !important;
-  color: #111827 !important;
-  box-shadow: none !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
-}
-
-.app-shell-topnav .customer-console-page-search {
-  height: 32px !important;
-  min-height: 32px !important;
-  padding: 0 12px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 2px !important;
-  background: #eef0f3 !important;
-  box-shadow: none !important;
-}
-
-.app-shell-topnav .customer-console-page-search input {
-  height: 30px !important;
-  min-height: 30px !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  line-height: 30px !important;
-}
-
-.app-shell-topnav .customer-console-page-search-icon {
-  color: #64748b !important;
-}
-
 .app-shell-topnav .customer-console-panel {
   display: grid !important;
   grid-template-rows: auto auto !important;
@@ -27572,12 +27151,6 @@ button.issuance-list-item {
   border-radius: 0 !important;
   background: #ffffff !important;
   box-shadow: none !important;
-}
-
-.app-shell-topnav .customer-console-table-topbar {
-  min-height: 52px !important;
-  padding: 12px 16px !important;
-  border-bottom: 1px solid var(--lovable-border) !important;
 }
 
 .app-shell-topnav .customer-console-table-title {
@@ -27638,144 +27211,8 @@ button.issuance-list-item {
   grid-template-columns: auto minmax(0, 1fr) !important;
 }
 
-.app-shell-topnav .content-customers .customer-console-field-filter {
-  position: relative !important;
-  width: auto !important;
-  min-width: 0 !important;
-  height: 32px !important;
-  min-height: 32px !important;
-  padding: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter-trigger {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 6px !important;
-  height: 32px !important;
-  min-height: 32px !important;
-  padding: 0 10px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 2px !important;
-  background: #ffffff !important;
-  color: #111827 !important;
-  box-shadow: none !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  white-space: nowrap !important;
-  cursor: pointer !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter-trigger:hover,
-.app-shell-topnav .content-customers .customer-console-field-filter-trigger:focus-visible {
-  background: #ffffff !important;
-  outline: 0 !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter-trigger .customer-console-page-header-icon {
-  color: #111827 !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter-menu {
-  position: absolute !important;
-  top: calc(100% + 6px) !important;
-  left: 0 !important;
-  z-index: 30 !important;
-  display: grid !important;
-  width: 176px !important;
-  padding: 6px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 4px !important;
-  background: #ffffff !important;
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12) !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter-menu button {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: flex-start !important;
-  min-height: 30px !important;
-  padding: 0 10px !important;
-  border: 0 !important;
-  border-radius: 2px !important;
-  background: transparent !important;
-  color: #475569 !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
-  text-align: left !important;
-  cursor: pointer !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter-menu button:hover,
-.app-shell-topnav .content-customers .customer-console-field-filter-menu button.is-selected {
-  background: #eef0f3 !important;
-  color: #111827 !important;
-}
-
 .app-shell-topnav .content-customers .customer-console-page-header {
   grid-template-columns: minmax(112px, 158px) minmax(0, 1fr) !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search {
-  overflow: hidden !important;
-  background: #eef0f3 !important;
-  background-color: #eef0f3 !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search-input {
-  all: unset !important;
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  opacity: 0 !important;
-  cursor: text !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-header {
-  grid-template-columns: minmax(112px, 158px) minmax(0, 1fr) !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter {
-  position: relative !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: flex-start !important;
-  gap: 6px !important;
-  width: 100% !important;
-  min-width: 0 !important;
-  padding: 0 !important;
-  cursor: pointer !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter select {
-  flex: 1 1 auto !important;
-  min-width: 0 !important;
-  width: 100% !important;
-  height: 30px !important;
-  min-height: 30px !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: #111827 !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
-  line-height: 30px !important;
-  outline: 0 !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search {
-  border-color: #eef0f3 !important;
-  background: #eef0f3 !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search-input:focus {
-  outline: 0 !important;
 }
 
 /* Customer detail IA restore: keep the previous grouped sections with current Lovable tokens. */
@@ -27876,158 +27313,11 @@ button.issuance-list-item {
   overflow-x: auto !important;
 }
 
-.app-shell-topnav .content-customers .customer-summary-card {
-  display: inline-flex !important;
-  flex: 0 0 auto !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 8px !important;
-  width: auto !important;
-  min-width: 0 !important;
-  min-height: 34px !important;
-  height: 34px !important;
-  padding: 0 13px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 999px !important;
-  background: #ffffff !important;
-  color: #475569 !important;
-  box-shadow: none !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
-  line-height: 1 !important;
-  white-space: nowrap !important;
-}
-
-.app-shell-topnav .content-customers .customer-summary-card.is-active,
-.app-shell-topnav .content-customers .customer-summary-card[aria-pressed="true"] {
-  border-color: #111827 !important;
-  background: #111827 !important;
-  color: #ffffff !important;
-}
-
-.app-shell-topnav .content-customers .customer-summary-card > span {
-  display: inline-flex !important;
-  align-items: center !important;
-  color: inherit !important;
-  font-size: 12px !important;
-  font-weight: 800 !important;
-  line-height: 1 !important;
-}
-
-.app-shell-topnav .content-customers .customer-summary-card-row {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-width: 22px !important;
-  height: 20px !important;
-  padding: 0 6px !important;
-  border-radius: 999px !important;
-  background: #f1f5f9 !important;
-  color: #111827 !important;
-  line-height: 1 !important;
-}
-
-.app-shell-topnav .content-customers .customer-summary-card-row strong {
-  color: inherit !important;
-  font-size: 11px !important;
-  font-weight: 800 !important;
-  line-height: 1 !important;
-}
-
-.app-shell-topnav .content-customers .customer-summary-card.is-active .customer-summary-card-row,
-.app-shell-topnav .content-customers .customer-summary-card[aria-pressed="true"] .customer-summary-card-row {
-  background: rgba(255, 255, 255, 0.16) !important;
-  color: #ffffff !important;
-}
-
 .app-shell-topnav .content-customers .customer-console-page-header {
   display: grid !important;
   grid-template-columns: auto minmax(0, 1fr) !important;
   align-items: center !important;
   gap: 8px !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter-trigger,
-.app-shell-topnav .content-customers .customer-console-page-search {
-  display: inline-flex !important;
-  align-items: center !important;
-  height: 32px !important;
-  min-height: 32px !important;
-  border: 1px solid var(--lovable-border) !important;
-  border-radius: 2px !important;
-  box-shadow: none !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter-trigger {
-  justify-content: center !important;
-  gap: 6px !important;
-  padding: 0 10px !important;
-  background: #ffffff !important;
-  color: #111827 !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search {
-  position: relative !important;
-  justify-content: flex-start !important;
-  gap: 8px !important;
-  width: 100% !important;
-  min-width: 0 !important;
-  box-sizing: border-box !important;
-  overflow: hidden !important;
-  padding: 0 12px !important;
-  border-color: #eef0f3 !important;
-  background: #eef0f3 !important;
-  background-color: #eef0f3 !important;
-  cursor: text !important;
-  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search:hover {
-  border-color: #cbd5e1 !important;
-  background: #ffffff !important;
-  background-color: #ffffff !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search:focus-within {
-  border-color: #dbe3ee !important;
-  background: #ffffff !important;
-  background-color: #ffffff !important;
-  box-shadow: none !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search-text {
-  flex: 1 1 0 !important;
-  min-width: 0 !important;
-  overflow: hidden !important;
-  color: #111827 !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  line-height: 30px !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search-text.is-placeholder {
-  color: #9aa3b2 !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search-icon,
-.app-shell-topnav .content-customers .customer-console-field-filter-trigger .customer-console-page-header-icon {
-  display: inline-flex !important;
-  flex: 0 0 16px !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 16px !important;
-  min-width: 16px !important;
-  height: 16px !important;
-  min-height: 16px !important;
-  padding: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: #64748b !important;
-  font-size: 0 !important;
-  line-height: 0 !important;
 }
 
 .app-shell-topnav .content-customers .customer-console-page-header {
@@ -28061,39 +27351,8 @@ button.issuance-list-item {
   white-space: nowrap !important;
 }
 
-.app-shell-topnav .content-customers .customer-console-page-search-month .customer-console-page-search-text {
-  display: none !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search:not(.customer-console-page-search-month) .customer-console-page-search-text {
-  display: block !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search:not(.customer-console-page-search-month) .customer-console-page-search-input {
-  all: unset !important;
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  opacity: 0 !important;
-  cursor: text !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search-input {
-  border: 0 !important;
-  outline: 0 !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-  appearance: none !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search .customer-console-page-search-input {
-  border-left-width: 0 !important;
-  border-right-width: 0 !important;
-  border-color: transparent !important;
-  background: transparent !important;
-  background-color: transparent !important;
+.app-shell-topnav input[type="search"]:focus::placeholder {
+  color: transparent !important;
 }
 
 .app-shell-topnav .content-customers input.customer-console-page-search-input[type="month"] {
@@ -28148,37 +27407,6 @@ button.issuance-list-item {
 
 .app-shell-topnav .content-customers .customer-table-empty {
   margin: 12px !important;
-}
-
-
-.app-shell-topnav .content-customers .customer-console-page-search-select {
-  all: unset !important;
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  border: 0 !important;
-  outline: 0 !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-  color: transparent !important;
-  cursor: pointer !important;
-  opacity: 0 !important;
-  appearance: none !important;
-  -webkit-appearance: none !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-page-search-icon svg,
-.app-shell-topnav .content-customers .customer-console-field-filter-trigger .customer-console-page-header-icon svg {
-  display: block !important;
-  width: 16px !important;
-  height: 16px !important;
-  stroke: currentColor !important;
-}
-
-.app-shell-topnav .content-customers .customer-console-field-filter-trigger .customer-console-page-header-icon {
-  color: #111827 !important;
 }
 
 
@@ -29666,46 +28894,6 @@ button.issuance-list-item {
   font-weight: var(--console-current-weight-label) !important;
 }
 
-.app-shell-topnav .content-issuance .issuance-status-badge {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 4px !important;
-  min-height: 22px !important;
-  padding: 0 8px !important;
-  border: 0 !important;
-  border-radius: var(--console-current-pill-radius) !important;
-  font-size: var(--console-current-font-xs) !important;
-  font-weight: var(--console-current-weight-strong) !important;
-  line-height: 1 !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-review,
-.app-shell-topnav .content-issuance .issuance-status-badge.status-scheduled,
-.app-shell-topnav .content-issuance .issuance-status-badge.status-unmatched {
-  background: var(--lovable-warning-soft) !important;
-  color: var(--lovable-warning) !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-issuing {
-  background: var(--lovable-primary-soft) !important;
-  color: var(--lovable-primary) !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-issued {
-  background: #f1f3f5 !important;
-  color: #596273 !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-missing-mail {
-  background: #edf4ff !important;
-  color: #3578c7 !important;
-}
-
-.app-shell-topnav .content-issuance .issuance-status-badge.status-failed {
-  background: var(--lovable-danger-soft) !important;
-  color: var(--lovable-danger) !important;
-}
-
 .app-shell-topnav .issuance-detail-scroll {
   background: var(--console-current-surface) !important;
 }
@@ -29816,38 +29004,6 @@ button.issuance-list-item {
   box-shadow: none !important;
 }
 
-.app-shell-topnav .customer-summary-card {
-  display: inline-flex !important;
-  flex: 0 0 auto !important;
-  align-items: center !important;
-  gap: var(--console-current-control-gap) !important;
-  min-height: var(--console-current-chip-height) !important;
-  padding: 0 13px !important;
-  border: 1px solid var(--console-current-border) !important;
-  border-radius: var(--console-current-pill-radius) !important;
-  background: var(--console-current-surface) !important;
-  color: var(--console-current-text-muted) !important;
-  box-shadow: none !important;
-  font-size: var(--console-current-font-sm) !important;
-  font-weight: var(--console-current-weight-strong) !important;
-}
-
-.app-shell-topnav .customer-summary-card.is-active,
-.app-shell-topnav .customer-summary-card[aria-pressed="true"] {
-  border-color: var(--console-current-active-bg) !important;
-  background: var(--console-current-active-bg) !important;
-  color: var(--console-current-active-text) !important;
-}
-
-.app-shell-topnav .customer-summary-card > span,
-.app-shell-topnav .customer-summary-card-row,
-.app-shell-topnav .customer-summary-card-row strong {
-  color: inherit !important;
-  font-size: var(--console-current-font-sm) !important;
-  font-weight: var(--console-current-weight-strong) !important;
-  line-height: 1 !important;
-}
-
 .app-shell-topnav .customer-summary-actions {
   display: flex !important;
   align-items: stretch !important;
@@ -29906,16 +29062,14 @@ button.issuance-list-item {
   color: var(--console-current-active-text) !important;
 }
 
-.app-shell-topnav .customer-summary-actions .button-icon,
-.app-shell-topnav .customer-console-filter-button .customer-console-page-header-icon {
+.app-shell-topnav .customer-summary-actions .button-icon {
   width: var(--console-current-icon-size) !important;
   min-width: var(--console-current-icon-size) !important;
   height: var(--console-current-icon-size) !important;
   color: currentColor !important;
 }
 
-.app-shell-topnav .customer-summary-actions .button-icon svg,
-.app-shell-topnav .customer-console-filter-button .customer-console-page-header-icon svg {
+.app-shell-topnav .customer-summary-actions .button-icon svg {
   width: var(--console-current-icon-size) !important;
   height: var(--console-current-icon-size) !important;
   stroke: currentColor !important;
@@ -29954,24 +29108,12 @@ button.issuance-list-item {
   box-shadow: none !important;
 }
 
-.app-shell-topnav .customer-console-field-filter-trigger,
 .app-shell-topnav .customer-console-page-search {
   height: var(--console-current-field-height) !important;
   min-height: var(--console-current-field-height) !important;
   border: 1px solid var(--console-current-border) !important;
   border-radius: var(--console-current-control-radius) !important;
   box-shadow: none !important;
-}
-
-.app-shell-topnav .customer-console-field-filter-trigger {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  padding: 0 10px !important;
-  background: var(--console-current-surface) !important;
-  color: var(--console-current-text) !important;
-  font-size: var(--console-current-font-sm) !important;
-  font-weight: var(--console-current-weight-label) !important;
 }
 
 .app-shell-topnav .customer-console-page-search {
@@ -30011,16 +29153,6 @@ button.issuance-list-item {
 .app-shell-topnav .panel.panel-customer-list.customer-console-panel::after {
   display: none !important;
   content: none !important;
-}
-
-.app-shell-topnav .customer-console-table-topbar {
-  min-height: 26px !important;
-  margin: 0 !important;
-  padding: 0 12px !important;
-  border: 0 !important;
-  border-bottom: 1px solid var(--console-current-border) !important;
-  background: var(--console-current-surface) !important;
-  box-shadow: none !important;
 }
 
 .app-shell-topnav .customer-console-table-title {
@@ -32043,10 +31175,20 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .customer-detail-panel.is-create {
-  grid-template-rows: auto minmax(0, 1fr) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  min-height: 0 !important;
+}
+
+.app-shell-topnav .customer-detail-panel.is-create .customer-detail-panel-head {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  padding: 9px 12px !important;
 }
 
 .app-shell-topnav .customer-detail-panel.is-create .customer-console-create-body {
+  flex: 1 1 auto !important;
   grid-template-columns: minmax(220px, 320px) minmax(0, 1fr) !important;
   align-content: start !important;
   align-items: start !important;
@@ -32272,6 +31414,22 @@ button.issuance-list-item {
   height: 14px !important;
   margin: 0 !important;
   padding: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-contract-head-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-shell-topnav .content-customers .customer-contract-renewal-button {
+  min-height: 28px !important;
+  padding: 0 10px !important;
+  border-radius: 3px !important;
+  font-size: 12px !important;
+  white-space: nowrap;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
@@ -33813,7 +32971,6 @@ button.issuance-list-item {
   .home-header-chip,
   .issuance-filter-chip,
   .customer-summary-grid button,
-  .customer-console-field-filter-trigger,
   .settings-step-card,
   .settings-option1-nav-state,
   .onboarding-active-progress,
@@ -33900,7 +33057,6 @@ button.issuance-list-item {
   .lovable-metric-card strong,
   .home-metric-cell strong,
   .home-issued-trend-summary strong,
-  .customer-summary-card strong,
   .certificate-summary-card strong
 ) {
   font-size: var(--app-type-metric) !important;
@@ -33923,7 +33079,6 @@ button.issuance-list-item {
   .home-issued-trend-summary span,
   .settings-option1-status-metrics span,
   .onboarding-inline-status span,
-  .customer-summary-card span,
   .certificate-summary-card span
 ) {
   font-size: var(--console-current-font-sm) !important;
@@ -34006,13 +33161,44 @@ button.issuance-list-item {
   width: 100% !important;
   padding: 16px !important;
   border: 1px solid var(--lovable-border, var(--console-border)) !important;
-  border-radius: 8px !important;
+  border-radius: 4px !important;
   background: var(--lovable-surface, var(--console-surface)) !important;
   box-shadow: none !important;
   opacity: 1 !important;
   visibility: visible !important;
   transform: none !important;
   overflow: visible !important;
+}
+
+.app-shell-topnav .content-settings .settings-readiness-body {
+  display: grid !important;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr) !important;
+  gap: 12px !important;
+  padding-top: 0 !important;
+}
+
+.app-shell-topnav .content-settings .settings-readiness-metrics {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.app-shell-topnav .content-settings .settings-readiness-metrics [data-slot="metric-card"] {
+  min-height: 58px !important;
+  padding: 10px 12px !important;
+  border-radius: 0 !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-progress-copy {
+  border-radius: 0 !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-progress-copy [data-slot="progress"] {
+  border-radius: 0 !important;
+}
+
+.app-shell-topnav .content-settings .settings-option1-progress-copy [data-slot="progress"] > div {
+  border-radius: 0 !important;
 }
 
 .app-shell-topnav .content-settings .settings-option1-main {
@@ -35086,7 +34272,6 @@ b {
   .onboarding-active-step-meta .chip,
   .onboarding-step-chip .chip,
   .customer-console-primary-cta,
-  .customer-console-field-filter-trigger,
   .issuance-filter-chip
 ) {
   font-weight: var(--app-weight-label) !important;
@@ -35127,7 +34312,6 @@ b {
   .lovable-metric-card strong,
   .home-metric-cell strong,
   .home-issued-trend-summary strong,
-  .customer-summary-card strong,
   .certificate-summary-card strong,
   .stat-card strong
 ) {
@@ -35245,8 +34429,6 @@ b {
   .settings-option1-nav-state,
   .settings-step-copy strong,
   .settings-field-group-head strong,
-  .customer-console-field-filter-trigger,
-  .customer-console-page-search-text,
   .customer-console-page-search-month-label,
   .customer-summary-grid button,
   .issuance-filter-chip,
@@ -35295,8 +34477,6 @@ b {
   .lovable-metric-card strong,
   .home-metric-cell strong,
   .home-issued-trend-summary strong,
-  .customer-summary-card strong,
-  .customer-summary-card-row,
   .certificate-summary-card strong,
   .stat-card strong,
   .settings-option1-status-metrics strong,
@@ -35324,6 +34504,110 @@ b {
   .recharts-text tspan
 ) {
   font-weight: var(--app-weight-muted) !important;
+}
+
+/* Search fields: focused state should show the real caret and hide placeholder text. */
+input[type="search"]:is(:focus, :focus-visible) {
+  caret-color: #111827 !important;
+}
+
+input[type="search"]:is(:focus, :focus-visible)::placeholder {
+  color: transparent !important;
+  opacity: 0 !important;
+}
+
+.app-shell-topnav input[type="search"]:focus::placeholder,
+.app-shell-topnav input[type="search"]:focus-visible::placeholder {
+  color: transparent !important;
+  opacity: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-console-page-search-input:focus,
+.app-shell-topnav .content-customers .customer-console-page-search-input:focus-visible {
+  box-shadow: none !important;
+}
+
+/* Keep the create drawer header compact after the customer detail grid locks. */
+.app-shell-topnav .content-customers .customer-detail-panel.is-create,
+.app-shell-topnav .customer-detail-panel.is-create {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  align-self: start !important;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel.is-create .customer-detail-panel-head,
+.app-shell-topnav .customer-detail-panel.is-create .customer-detail-panel-head {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  padding: 9px 12px !important;
+  border: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel.is-create .customer-console-create-body,
+.app-shell-topnav .customer-detail-panel.is-create .customer-console-create-body {
+  flex: 0 0 auto !important;
+  height: auto !important;
+  max-height: none !important;
+  align-items: stretch !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel.is-create .customer-console-create-body > section,
+.app-shell-topnav .customer-detail-panel.is-create .customer-console-create-body > section {
+  height: 100% !important;
+}
+
+/* Issuance list search: expose the shared search field while keeping secondary sort filters hidden in the compact list. */
+.app-shell-topnav .content-issuance .issuance-list-panel .issuance-table-tools,
+.app-shell-topnav .issuance-list-panel .issuance-table-tools {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+  box-sizing: border-box !important;
+  min-height: 52px !important;
+  padding: 10px 12px !important;
+  border-bottom: 1px solid var(--lovable-border) !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-list-panel,
+.app-shell-topnav .issuance-list-panel {
+  grid-template-rows: 52px auto minmax(0, 1fr) !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-list-panel .issuance-table-tools,
+.app-shell-topnav .issuance-list-panel .issuance-table-tools {
+  order: 1 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-list-panel .issuance-panel-head,
+.app-shell-topnav .issuance-list-panel .issuance-panel-head {
+  order: 2 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-list-panel .issuance-table-shell,
+.app-shell-topnav .issuance-list-panel .issuance-table-shell {
+  order: 3 !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-list-panel .issuance-table-shell,
+.app-shell-topnav .issuance-list-panel .issuance-table-shell {
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
 }
 
 /* Page-specific typography cleanup: keep lists and chips readable without heavy bold. */
@@ -35465,8 +34749,6 @@ b {
   .settings-option1-nav-state,
   .settings-step-copy strong,
   .settings-field-group-head strong,
-  .customer-console-field-filter-trigger,
-  .customer-console-page-search-text,
   .customer-console-page-search-month-label,
   .customer-summary-grid button,
   .issuance-filter-chip,
@@ -35515,8 +34797,6 @@ b {
   .lovable-metric-card strong,
   .home-metric-cell strong,
   .home-issued-trend-summary strong,
-  .customer-summary-card strong,
-  .customer-summary-card-row,
   .certificate-summary-card strong,
   .stat-card strong,
   .settings-option1-status-metrics strong,
