@@ -170,6 +170,7 @@ function createModel(
           minSupportedVersion: null,
           checkedAt: null,
           loadedCertificateCount: 0,
+          certificateReadProgress: null,
           renewalHelperDownloadUrl: "https://example.com/helper.zip",
           openCertificates: () => {},
           onRefreshCustomerRenewalAssistant: async () => {},

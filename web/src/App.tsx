@@ -87,6 +87,7 @@ import {
   selectSettingsOnboardingState,
   useSettingsOnboardingModel
 } from "./features/settings/useSettingsOnboardingModel";
+import type { SettingsCertificateReadProgress } from "./features/settings/settingsSectionModels";
 import {
   deriveCustomerCertificateKind,
   findCandidateCustomersForCertificate,
@@ -2161,6 +2162,8 @@ export function App() {
     useState<ElectronicTaxOnboardingCertificateRegistrationProgress | null>(null);
   const [customerOnboardingJoinProgress, setCustomerOnboardingJoinProgress] =
     useState<InitialRegistrationJoinProgress | null>(null);
+  const [certificateReadProgress, setCertificateReadProgress] =
+    useState<SettingsCertificateReadProgress>(null);
   const [customerOnboardingError, setCustomerOnboardingError] = useState("");
   const [quickRegisterForm, setQuickRegisterForm] = useState<QuickRegisterFormState>(createQuickRegisterForm());
   const [quickRegisterNotice, setQuickRegisterNotice] = useState("");
@@ -2825,6 +2828,58 @@ export function App() {
   const settingsHealth = settingsScreenState.settingsHealth;
   const currentWorkspaceSettings = settingsScreenState.savedSettings ?? data?.settings ?? null;
   const isMailTesting = busyKey === "mail-test";
+  const runSettingsCertificateRead = useCallback(
+    async () =>
+      runAction(
+        "customer-renewal-bridge-probe",
+        async () => {
+          setCertificateReadProgress({
+            label: "AT 헬퍼 확인 중",
+            detail: "공동인증서를 읽기 전에 헬퍼 연결 상태를 확인하고 있습니다.",
+            percent: 20,
+            completedCount: 0,
+            totalCount: null,
+            status: "running"
+          });
+          try {
+            setCertificateReadProgress({
+              label: "공동인증서 저장소 읽는 중",
+              detail: "PC의 공동인증서 저장소에서 전자세금용 인증서를 찾고 있습니다.",
+              percent: 65,
+              completedCount: 0,
+              totalCount: null,
+              status: "running"
+            });
+            const certificates = await syncCustomerRenewalCertificates({ showAlert: false });
+            const electronicTaxCertificateCount = certificates.filter(
+              (certificate) =>
+                deriveCustomerCertificateKind(certificate) === "electronic_tax" &&
+                !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+            ).length;
+            setCertificateReadProgress({
+              label: "읽기 완료",
+              detail: `사용 가능한 전자세금용 공동인증서 ${electronicTaxCertificateCount}건을 확인했습니다.`,
+              percent: 100,
+              completedCount: electronicTaxCertificateCount,
+              totalCount: electronicTaxCertificateCount,
+              status: "done"
+            });
+          } catch (readError) {
+            setCertificateReadProgress({
+              label: "읽기 실패",
+              detail: getDisplayErrorMessage(readError, "공동인증서를 읽지 못했습니다."),
+              percent: 100,
+              completedCount: 0,
+              totalCount: null,
+              status: "error"
+            });
+            throw readError;
+          }
+        },
+        { reload: false }
+      ),
+    [runAction, syncCustomerRenewalCertificates]
+  );
   const customerOnboardingSessionActive =
     customerOnboardingSessionState.commitDone ||
     customerOnboardingSessionState.previewReady ||
@@ -2987,15 +3042,9 @@ export function App() {
       latestVersion: customerRenewalAssistant?.latestVersion ?? null,
       minSupportedVersion: customerRenewalAssistant?.minSupportedVersion ?? null
     },
+    certificateReadProgress,
     renewalHelperDownloadUrl,
-    runReadCertificates: async () =>
-      runAction(
-        "customer-renewal-bridge-probe",
-        async () => {
-          await syncCustomerRenewalCertificates({ showAlert: false });
-        },
-        { reload: false }
-      ),
+    runReadCertificates: runSettingsCertificateRead,
     formatDateTime
   });
 
@@ -7880,6 +7929,7 @@ export function App() {
             customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
             customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
             customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
+            certificateReadProgress={certificateReadProgress}
             renewalHelperDownloadUrl={renewalHelperDownloadUrl}
             setActiveSettingsSection={setActiveSettingsSection}
             orchestration={settingsFeatureOrchestration}

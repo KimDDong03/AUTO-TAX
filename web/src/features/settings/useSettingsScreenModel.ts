@@ -3,7 +3,7 @@ import type React from "react";
 import type { Customer } from "../../types";
 import type { SettingsFeatureOrchestration } from "./createSettingsActionAdapters";
 import type { SettingsTabModel } from "./SettingsTab";
-import type { SettingsSectionSummary } from "./settingsSectionModels";
+import type { SettingsCertificateReadProgress, SettingsSectionSummary } from "./settingsSectionModels";
 import type { SettingsFormState, SettingsScreenState, SettingsSectionId } from "./useSettingsScreenState";
 import { getSettingsSectionLabel } from "./useSettingsDerivedModel";
 
@@ -52,6 +52,7 @@ export type SettingsScreenProps = {
   customerRenewalAssistantMinSupportedVersion: string | null;
   customerRenewalAssistantCheckedAt: string | null;
   customerRenewalLoadedCertificateCount: number;
+  certificateReadProgress: SettingsCertificateReadProgress;
   renewalHelperDownloadUrl: string;
 };
 
@@ -107,6 +108,7 @@ export function useSettingsScreenModel(
       minSupportedVersion: props.customerRenewalAssistantMinSupportedVersion,
       checkedAt: props.customerRenewalAssistantCheckedAt,
       loadedCertificateCount: props.customerRenewalLoadedCertificateCount,
+      certificateReadProgress: props.certificateReadProgress,
       renewalHelperDownloadUrl: props.renewalHelperDownloadUrl,
       openCertificates: props.openCertificates,
       onRefreshCustomerRenewalAssistant:
@@ -117,6 +119,7 @@ export function useSettingsScreenModel(
       helperUpgradeNotice,
       props.busyKey,
       props.customerRenewalAssistantCheckedAt,
+      props.certificateReadProgress,
       props.customerRenewalAssistantHelperMessage,
       props.customerRenewalAssistantHelperVersion,
       props.customerRenewalAssistantLatestVersion,

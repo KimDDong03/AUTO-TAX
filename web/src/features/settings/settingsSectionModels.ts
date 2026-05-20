@@ -117,6 +117,15 @@ export type SettingsHelperUpgradeNotice = {
   message: string | null;
 } | null;
 
+export type SettingsCertificateReadProgress = {
+  label: string;
+  detail: string;
+  percent: number;
+  completedCount: number;
+  totalCount: number | null;
+  status: "running" | "done" | "error";
+} | null;
+
 export type SettingsHelperStatusModel = {
   busyKey: string | null;
   online: boolean;
@@ -127,6 +136,7 @@ export type SettingsHelperStatusModel = {
   minSupportedVersion: string | null;
   checkedAt: string | null;
   loadedCertificateCount: number;
+  certificateReadProgress: SettingsCertificateReadProgress;
   renewalHelperDownloadUrl: string;
   openCertificates: () => void;
   onRefreshCustomerRenewalAssistant: () => Promise<void>;

@@ -19,11 +19,6 @@ export function buildElectronicTaxOnboardingPreviewNotice(options: {
     `확인된 전자세금용 인증서 ${options.resolvedCertificateCount}건`
   ];
 
-  if (options.acceptedBeforeWindowCount > 0) {
-    noticeParts.push(
-      `기간 전 확인 ${options.acceptedBeforeWindowCount}건 포함`
-    );
-  }
   if (options.skippedCertificateCount > 0) {
     noticeParts.push(
       `제외 ${options.skippedCertificateCount}건은 아래 메시지를 확인하세요.`

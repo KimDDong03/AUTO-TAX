@@ -4693,6 +4693,76 @@ textarea {
   font-weight: 700;
 }
 
+.certificate-read-progress {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.75rem 0.85rem;
+}
+
+.certificate-read-progress.is-compact {
+  padding: 0.65rem 0.75rem;
+}
+
+.certificate-read-progress-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.certificate-read-progress-head div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.certificate-read-progress-head span {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.certificate-read-progress-head strong,
+.certificate-read-progress-head b {
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.certificate-read-progress-track {
+  height: 0.42rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+
+.certificate-read-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 180ms ease;
+}
+
+.certificate-read-progress.is-done .certificate-read-progress-track span {
+  background: var(--success);
+}
+
+.certificate-read-progress.is-error .certificate-read-progress-track span {
+  background: var(--danger);
+}
+
+.certificate-read-progress p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .settings-install-guide code {
   font-size: 0.78rem;
 }

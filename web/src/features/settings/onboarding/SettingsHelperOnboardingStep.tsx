@@ -1,4 +1,6 @@
 import React from "react";
+import type { SettingsCertificateReadProgress } from "../settingsSectionModels";
+
 type SettingsHelperOnboardingStepProps = {
   helperReady: boolean;
   helperUpgradeRequired: boolean;
@@ -8,6 +10,7 @@ type SettingsHelperOnboardingStepProps = {
   helperOnline: boolean;
   helperCheckedAt: string | null;
   helperCertificateCount: number;
+  certificateReadProgress: SettingsCertificateReadProgress;
   busy: boolean;
   isReadingCertificates: boolean;
   onReadCertificates: () => Promise<void>;
@@ -25,6 +28,7 @@ export function SettingsHelperOnboardingStep({
   helperOnline,
   helperCheckedAt,
   helperCertificateCount,
+  certificateReadProgress,
   busy,
   isReadingCertificates,
   onReadCertificates,
@@ -69,6 +73,41 @@ export function SettingsHelperOnboardingStep({
             <strong>{formatDateTime(helperCheckedAt)}</strong>
           </div>
         </div>
+
+        {certificateReadProgress ? (
+          <div
+            className={[
+              "certificate-read-progress",
+              certificateReadProgress.status === "done" ? "is-done" : "",
+              certificateReadProgress.status === "error" ? "is-error" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <div className="certificate-read-progress-head">
+              <div>
+                <span>읽기 현황</span>
+                <strong>{certificateReadProgress.label}</strong>
+              </div>
+              <b>
+                {certificateReadProgress.totalCount === null
+                  ? `${certificateReadProgress.completedCount}건`
+                  : `${certificateReadProgress.completedCount}/${certificateReadProgress.totalCount}건`}
+              </b>
+            </div>
+            <div
+              className="certificate-read-progress-track"
+              aria-label="공동인증서 읽기 진행률"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={certificateReadProgress.percent}
+              role="progressbar"
+            >
+              <span style={{ width: `${certificateReadProgress.percent}%` }} />
+            </div>
+            <p>{certificateReadProgress.detail}</p>
+          </div>
+        ) : null}
 
         <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
           <button

@@ -60,6 +60,41 @@ export function SettingsHelperStatusCard({
           공동인증서 읽는 중...
         </span>
       ) : null}
+      {helperStatus.certificateReadProgress ? (
+        <div
+          className={[
+            "certificate-read-progress",
+            "is-compact",
+            helperStatus.certificateReadProgress.status === "done" ? "is-done" : "",
+            helperStatus.certificateReadProgress.status === "error" ? "is-error" : ""
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          <div className="certificate-read-progress-head">
+            <div>
+              <span>읽기 현황</span>
+              <strong>{helperStatus.certificateReadProgress.label}</strong>
+            </div>
+            <b>
+              {helperStatus.certificateReadProgress.totalCount === null
+                ? `${helperStatus.certificateReadProgress.completedCount}건`
+                : `${helperStatus.certificateReadProgress.completedCount}/${helperStatus.certificateReadProgress.totalCount}건`}
+            </b>
+          </div>
+          <div
+            className="certificate-read-progress-track"
+            aria-label="공동인증서 읽기 진행률"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={helperStatus.certificateReadProgress.percent}
+            role="progressbar"
+          >
+            <span style={{ width: `${helperStatus.certificateReadProgress.percent}%` }} />
+          </div>
+          <p>{helperStatus.certificateReadProgress.detail}</p>
+        </div>
+      ) : null}
       {helperStatus.upgradeNotice ? (
         <div className="helper-box-stack settings-install-guide">
           <strong>{helperStatus.upgradeNotice.title}</strong>

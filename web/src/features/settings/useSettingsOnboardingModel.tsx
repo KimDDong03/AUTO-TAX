@@ -4,6 +4,7 @@ import type { SettingsFeatureOrchestration } from "./createSettingsActionAdapter
 import { SettingsDefaultsOnboardingStep } from "./onboarding/SettingsDefaultsOnboardingStep";
 import { SettingsHelperOnboardingStep } from "./onboarding/SettingsHelperOnboardingStep";
 import { SettingsMailOnboardingStep } from "./onboarding/SettingsMailOnboardingStep";
+import type { SettingsCertificateReadProgress } from "./settingsSectionModels";
 import type { SettingsOnboardingModel } from "./useSettingsDerivedModel";
 import type { SettingsFormState, SettingsScreenState } from "./useSettingsScreenState";
 
@@ -144,6 +145,7 @@ type UseSettingsOnboardingModelArgs = {
   busyKey: string | null;
   isMailTesting: boolean;
   helper: SettingsOnboardingHelperStatus;
+  certificateReadProgress: SettingsCertificateReadProgress;
   renewalHelperDownloadUrl: string;
   runReadCertificates: () => Promise<void>;
   formatDateTime: (value: string | null) => string;
@@ -162,6 +164,7 @@ export function useSettingsOnboardingModel({
   busyKey,
   isMailTesting,
   helper,
+  certificateReadProgress,
   renewalHelperDownloadUrl,
   runReadCertificates,
   formatDateTime
@@ -244,6 +247,7 @@ export function useSettingsOnboardingModel({
           helperOnline={helper.online}
           helperCheckedAt={helper.checkedAt}
           helperCertificateCount={helper.certificateCount}
+          certificateReadProgress={certificateReadProgress}
           busy={busy}
           isReadingCertificates={isReadingCertificates}
           onReadCertificates={runReadCertificates}
@@ -257,6 +261,7 @@ export function useSettingsOnboardingModel({
     }),
     [
       busy,
+      certificateReadProgress,
       downloadHelper,
       formatDateTime,
       helper,
