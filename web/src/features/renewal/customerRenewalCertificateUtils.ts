@@ -76,7 +76,7 @@ export function isCustomerCertificateExpired(
   todayDateKey = getCustomerCertificateTodayDateKey()
 ): boolean {
   const expireDateKey = normalizeCustomerCertificateExpireDateKey(value);
-  return expireDateKey !== null && expireDateKey < todayDateKey;
+  return expireDateKey !== null && expireDateKey <= todayDateKey;
 }
 
 function normalizeCustomerCertificateFingerprint(value: string | null | undefined): string {

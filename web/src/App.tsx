@@ -4708,6 +4708,16 @@ export function App() {
     return normalized.includes("공동인증서비밀번호가올바르지않습니다") || normalized.includes("비밀번호가올바르지");
   };
 
+  const isTransientPopbillCertificateBrowserError = (error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : typeof error === "string" ? error : String(error ?? "");
+    return /Target\.createTarget|Failed to open a new tab|Target page, context or browser has been closed|browser has been closed|page has been closed/i.test(message);
+  };
+
+  const waitForPopbillCertificateBrowserRecovery = async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 1500));
+  };
+
   const requestLocalPopbillCertificateRegistrationWithRetry = async (options: {
     customerId: number;
     certificateIndex: number;
@@ -4732,14 +4742,22 @@ export function App() {
       });
     };
 
-    try {
-      return await runOnce();
-    } catch (error) {
-      if (!isExpiredPopbillCertificateRegistrationError(error)) {
-        throw error;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await runOnce();
+      } catch (error) {
+        const canRetry =
+          attempt === 0 &&
+          (isExpiredPopbillCertificateRegistrationError(error) ||
+            isTransientPopbillCertificateBrowserError(error));
+        if (!canRetry) {
+          throw error;
+        }
+        await waitForPopbillCertificateBrowserRecovery();
       }
-      return await runOnce();
     }
+
+    throw new Error("공동인증서 자동 등록에 실패했습니다.");
   };
 
   const verifyElectronicTaxCertificatePasswordByPreflight = async (
@@ -6669,6 +6687,16 @@ export function App() {
         onProgress: setCustomerOnboardingCertificateRegistrationProgress
       });
 
+    setCustomerOnboardingCertificateRegistrationProgress({
+      total: pendingCustomers.length,
+      current: pendingCustomers.length,
+      completed: completedNames.length,
+      alreadyRegistered: alreadyRegisteredNames.length,
+      failed: failedDetails.length,
+      currentCustomerName: "",
+      status: failedDetails.length > 0 ? "failed" : "success"
+    });
+
     setCustomerOnboardingNotice(
       buildElectronicTaxRegistrationFollowupNotice({
         completedNames,
@@ -6704,6 +6732,7 @@ export function App() {
     certificatePendingJoinCount: pendingOnboardingPopbillJoinCustomers.length,
     certificateFailedJoinCount: failedOnboardingPopbillJoinCustomers.length,
     certificateRetryCount: onboardingCertificateRetryCount,
+    certificateRegistrationRunning: busyKey === "customer-onboarding-cert-registration",
     templateDownloaded: customerOnboardingSessionState.templateDownloaded,
     previewReady: customerOnboardingSessionState.previewReady,
     commitDone: onboardingCustomerRegistrationSubmitted,
@@ -6721,17 +6750,17 @@ export function App() {
   const onboardingFailedPopbillJoinCount = failedOnboardingPopbillJoinCustomers.length;
   const onboardingCertificatePrimaryActionLabel = !onboardingCustomerRegistrationReady
     ? "고객 등록 후 가능"
-    : onboardingCertificateAutoTargetCount > 0 && onboardingCertificateRetryCount > 0
-      ? "공동인증서 반영 다시 시도"
-      : onboardingCertificateAutoTargetCount > 0
-        ? "공동인증서 반영"
-        : onboardingPendingPopbillJoinCount > 0
-          ? "고객 반영 확인 중"
-          : onboardingFailedPopbillJoinCount > 0
-            ? "고객 반영 확인 필요"
-            : onboardingCertificateReady
-              ? "공동인증서 반영 완료"
-              : "반영 대상 없음";
+    : onboardingCertificateAutoTargetCount > 0
+      ? onboardingCertificateRetryCount > 0 && busyKey !== "customer-onboarding-cert-registration"
+        ? "공동인증서 다시 확인"
+        : "공동인증서 반영"
+      : onboardingPendingPopbillJoinCount > 0
+        ? "고객 반영 확인 중"
+        : onboardingFailedPopbillJoinCount > 0
+          ? "고객 반영 확인 필요"
+          : onboardingCertificateReady
+            ? "공동인증서 반영 완료"
+            : "반영 대상 없음";
   const onboardingCertificateActionDisabled =
     busyKey !== null ||
     !onboardingCustomerRegistrationReady ||

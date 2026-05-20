@@ -11,6 +11,7 @@ const baseInput = {
   certificatePendingJoinCount: 0,
   certificateFailedJoinCount: 0,
   certificateRetryCount: 0,
+  certificateRegistrationRunning: false,
   templateDownloaded: true,
   previewReady: true,
   commitDone: false,
@@ -48,4 +49,38 @@ test("initial registration opens certificate step after customers are joined", (
   assert.equal(flow.commitCompleted, true);
   assert.equal(flow.stepItems[1]?.status, "complete");
   assert.equal(flow.stepItems[2]?.status, "current");
+});
+
+test("initial registration does not label in-progress certificate attempts as retries", () => {
+  const flow = getInitialRegistrationFlowState({
+    ...baseInput,
+    registrationReady: true,
+    commitDone: true,
+    importableCount: 0,
+    certificateAutoTargetCount: 130,
+    certificateRetryCount: 122,
+    certificateRegistrationRunning: true
+  });
+
+  assert.equal(flow.stage, "certificate");
+  assert.equal(flow.description, "등록 대기 130건");
+  assert.equal(flow.primaryActionLabel, "공동인증서 반영");
+  assert.equal(flow.stepItems[2]?.description, "등록 대기 130건");
+});
+
+test("initial registration labels attempted remaining certificate targets as needing review after processing", () => {
+  const flow = getInitialRegistrationFlowState({
+    ...baseInput,
+    registrationReady: true,
+    commitDone: true,
+    importableCount: 0,
+    certificateAutoTargetCount: 3,
+    certificateRetryCount: 3,
+    certificateRegistrationRunning: false
+  });
+
+  assert.equal(flow.stage, "certificate");
+  assert.equal(flow.description, "확인 필요 3건");
+  assert.equal(flow.primaryActionLabel, "공동인증서 다시 확인");
+  assert.equal(flow.stepItems[2]?.description, "확인 필요 3건");
 });

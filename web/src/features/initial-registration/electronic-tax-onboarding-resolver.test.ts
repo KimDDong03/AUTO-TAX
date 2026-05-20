@@ -168,6 +168,31 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook skips expired certificates 
   assert.match(result.errors[0] ?? "", /만료된 전자세금용 공동인증서/);
 });
 
+test("resolveElectronicTaxOnboardingTemplateWorkbook skips certificates expiring today before preflight", async () => {
+  let preflightCalled = false;
+  const today = new Date();
+  const todayDateKey = [
+    today.getFullYear(),
+    `${today.getMonth() + 1}`.padStart(2, "0"),
+    `${today.getDate()}`.padStart(2, "0")
+  ].join("-");
+
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook(),
+    loadAvailableCertificates: async () => [createCertificate({ todate: todayDateKey, detailValidateTo: null })],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => {
+      preflightCalled = true;
+      throw new Error("should not preflight certificate expiring today");
+    }
+  });
+
+  assert.equal(preflightCalled, false);
+  assert.equal(result.resolvedCertificateCount, 0);
+  assert.equal(result.skippedCertificateCount, 1);
+  assert.match(result.errors[0] ?? "", /만료된 전자세금용 공동인증서/);
+});
+
 test("resolveElectronicTaxOnboardingTemplateWorkbook includes SignGate preflight detail in skipped row errors", async () => {
   const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
     templateWorkbook: createTemplateWorkbook({

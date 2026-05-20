@@ -39,6 +39,7 @@ type InitialRegistrationFlowStateInput = {
   certificatePendingJoinCount: number;
   certificateFailedJoinCount: number;
   certificateRetryCount: number;
+  certificateRegistrationRunning: boolean;
   templateDownloaded: boolean;
   previewReady: boolean;
   commitDone: boolean;
@@ -252,10 +253,10 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
             ? `확인 필요 ${input.certificateFailedJoinCount}건`
             : `반영 ${input.importableCount}건`
         : stage === "certificate"
-          ? input.certificateAutoTargetCount > 0 && input.certificateRetryCount > 0
-            ? `인증서 연결 다시 시도 ${input.certificateRetryCount}건`
-            : input.certificateAutoTargetCount > 0
-              ? `등록 대기 ${input.certificateAutoTargetCount}건`
+          ? input.certificateAutoTargetCount > 0
+            ? input.certificateRetryCount > 0 && !input.certificateRegistrationRunning
+              ? `확인 필요 ${input.certificateRetryCount}건`
+              : `등록 대기 ${input.certificateAutoTargetCount}건`
               : input.certificatePendingJoinCount > 0
                 ? `발행 연동 처리 대기`
                 : input.certificateFailedJoinCount > 0
@@ -275,10 +276,10 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
       : stage === "commit"
         ? "고객 등록 반영"
         : stage === "certificate"
-          ? input.certificateAutoTargetCount > 0 && input.certificateRetryCount > 0
-            ? "공동인증서 반영 다시 시도"
-            : input.certificateAutoTargetCount > 0
-              ? "공동인증서 반영"
+          ? input.certificateAutoTargetCount > 0
+              ? input.certificateRetryCount > 0 && !input.certificateRegistrationRunning
+                ? "공동인증서 다시 확인"
+                : "공동인증서 반영"
               : input.certificatePendingJoinCount > 0
                 ? "발행 연동 다시 확인"
                 : input.certificateFailedJoinCount > 0
@@ -329,10 +330,10 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
       title: "공동인증서 반영",
       description: certificateCompleted
         ? "완료"
-        : input.certificateAutoTargetCount > 0 && input.certificateRetryCount > 0
-          ? `재시도 ${input.certificateRetryCount}건`
         : input.certificateAutoTargetCount > 0
-            ? `등록 대기 ${input.certificateAutoTargetCount}건`
+            ? input.certificateRetryCount > 0 && !input.certificateRegistrationRunning
+              ? `확인 필요 ${input.certificateRetryCount}건`
+              : `등록 대기 ${input.certificateAutoTargetCount}건`
             : input.certificatePendingJoinCount > 0
               ? `대기 ${input.certificatePendingJoinCount}건`
               : input.certificateFailedJoinCount > 0
@@ -452,6 +453,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     certificatePendingJoinCount: props.certificatePendingJoinCount ?? 0,
     certificateFailedJoinCount: props.certificateFailedJoinCount ?? 0,
     certificateRetryCount: props.certificateRetryCount ?? 0,
+    certificateRegistrationRunning: props.busyKey === "customer-onboarding-cert-registration",
     templateDownloaded: props.registrationTemplateDownloaded ?? false,
     previewReady: props.registrationPreviewReady ?? Boolean(props.customerOnboardingPreview),
     commitDone: props.registrationCommitDone ?? registrationReady,
@@ -607,29 +609,56 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const showCustomerOnboardingNotice =
     Boolean(props.customerOnboardingNotice) &&
     !registrationFlow.blockedReason &&
-    !uploadProgressMessage;
+    !uploadProgressMessage &&
+    !props.certificateRegistrationProgress &&
+    !props.joinProgress;
   const certificateProgress = props.certificateRegistrationProgress;
   const certificateProgressPercent =
     certificateProgress && certificateProgress.total > 0
       ? Math.round((certificateProgress.current / certificateProgress.total) * 100)
       : 0;
   const certificateProgressStatusText =
-    certificateProgress?.status === "refreshing"
-      ? "상태 확인 중"
-      : certificateProgress?.currentCustomerName
-        ? `${certificateProgress.currentCustomerName} 처리 중`
-        : "처리 중";
+    certificateProgress?.status === "failed"
+      ? `확인 필요 ${certificateProgress.failed}건`
+      : certificateProgress?.status === "success" || certificateProgress?.status === "already-registered"
+        ? "완료"
+        : certificateProgress?.status === "refreshing"
+          ? "상태 확인 중"
+          : certificateProgress?.currentCustomerName
+            ? `${certificateProgress.currentCustomerName} 처리 중`
+            : "처리 중";
   const joinProgress = props.joinProgress;
-  const joinProgressPercent =
-    joinProgress && joinProgress.total > 0
-      ? Math.round((joinProgress.completed / joinProgress.total) * 100)
-      : 0;
-  const joinProgressStatusText =
-    joinProgress?.status === "complete"
-      ? "완료"
-      : joinProgress?.failed
-        ? `확인 필요 ${joinProgress.failed}건`
-        : "진행 중";
+  const activeRegistrationProgress = certificateProgress
+    ? {
+        title: "공동인증서 반영 현황",
+        statusText: certificateProgressStatusText,
+        current: certificateProgress.current,
+        total: certificateProgress.total,
+        progressValue: certificateProgressPercent,
+        metaItems: [
+          { label: "완료", value: certificateProgress.completed + certificateProgress.alreadyRegistered },
+          { label: "실패", value: certificateProgress.failed }
+        ]
+      }
+    : joinProgress
+      ? {
+          title: "발행 연동 준비 현황",
+          statusText: joinProgress.status === "complete"
+            ? "완료"
+            : joinProgress.failed
+              ? `확인 필요 ${joinProgress.failed}건`
+              : "진행 중",
+          current: joinProgress.completed,
+          total: joinProgress.total,
+          progressValue: joinProgress.total > 0
+            ? Math.round((joinProgress.completed / joinProgress.total) * 100)
+            : 0,
+          metaItems: [
+            { label: "완료", value: joinProgress.completed },
+            { label: "실패", value: joinProgress.failed }
+          ]
+        }
+      : null;
   const showCertificatePasswordOverrides =
     !registrationFlow.commitCompleted &&
     props.certificatePasswordOverrideEntries.length > 0;
@@ -659,20 +688,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   ]
     .filter(Boolean)
     .join(" · ");
-  const previewRows = props.customerOnboardingPreview?.rows ?? [];
-  const blockedPreviewRows = previewRows.filter((row) => row.status === "blocked");
-  const firstBlockedPreviewRow = blockedPreviewRows[0] ?? null;
   const visibleRegistrationSteps = registrationFlow.stepItems;
-  const previewSummaryItems = props.customerOnboardingPreview
-    ? [
-        { label: "전체 고객", value: `${props.customerOnboardingPreview.totalCustomers}건` },
-        { label: "신규", value: `${props.customerOnboardingPreview.createCount}건` },
-        { label: "갱신", value: `${props.customerOnboardingPreview.updateCount}건` },
-        { label: "검토 필요", value: `${props.customerOnboardingPreview.blockedCount}건` },
-        { label: "발전소", value: `${props.customerOnboardingPreview.totalPlants}건` },
-        { label: "인증서", value: `${props.customerOnboardingPreview.totalCertificates}건` }
-      ]
-    : [];
 
   return (
     <div className="initial-screen">
@@ -698,109 +714,97 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               <div className="onboarding-main-copy onboarding-main-copy-focal">
                 <strong>{selectedRegistrationTaskTitle}</strong>
                 <p>{selectedRegistrationTaskDescription}</p>
-                {showSharedPasswordField ? (
-                  <label className="settings-defaults-cell settings-defaults-cell-span-2">
-                    공통 공동인증서 비밀번호 (1회성)
-                    <div className="password-field">
-                      <input
-                        type={sharedPasswordVisible ? "text" : "password"}
-                        value={props.customerOnboardingSharedPassword}
-                        disabled={props.busyKey !== null}
-                        onChange={(event) =>
-                          props.onCustomerOnboardingSharedPasswordChange(event.target.value)
-                        }
-                        placeholder="발전소 시트 비밀번호 칸이 비면 이 값을 사용"
-                      />
-                      <button
-                        type="button"
-                        className="password-toggle"
-                        aria-label={
-                          sharedPasswordVisible
-                            ? "공통 공동인증서 비밀번호 숨기기"
-                            : "공통 공동인증서 비밀번호 보기"
-                        }
-                        onClick={() => setSharedPasswordVisible((prev) => !prev)}
-                      >
-                        <RevealIcon open={sharedPasswordVisible} />
-                      </button>
-                    </div>
-                    <span className="field-hint">
-                      이번 업로드에서만 사용합니다.
-                    </span>
-                  </label>
-                ) : null}
-                {showTemplateActions ? (
-                  <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={props.busyKey !== null || !canDownloadOnboardingTemplate}
-                      title={downloadBlockedTitle}
-                      onClick={() =>
-                        void props.runAction(
-                          "customer-onboarding-template",
-                          props.downloadCustomerOnboardingTemplate,
-                          { reload: false }
-                        )
-                      }
-                    >
-                      {isDownloadingOnboardingTemplate ? "다운로드 중..." : "양식 다운로드"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={props.busyKey !== null || !sharedPasswordReady}
-                      title={uploadBlockedTitle}
-                      onClick={() => onboardingFileInputRef.current?.click()}
-                    >
-                      {isPreviewingOnboarding
-                        ? "확인 중..."
-                        : registrationFlow.uploadCompleted
-                          ? "다시 업로드"
-                          : "양식 업로드"}
-                    </Button>
-                  </div>
-                ) : null}
-                {registrationPrimaryAction ? (
-                  <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={registrationPrimaryAction.disabled}
-                      title={registrationPrimaryAction.title}
-                      onClick={registrationPrimaryAction.onClick}
-                    >
-                      {registrationPrimaryAction.label}
-                    </Button>
-                  </div>
-                ) : null}
-                {certificateProgress ? (
+                {activeRegistrationProgress ? (
                   <InitialRegistrationProgressCard
-                    title="공동인증서 반영 현황"
-                    statusText={certificateProgressStatusText}
-                    current={certificateProgress.current}
-                    total={certificateProgress.total}
-                    progressValue={certificateProgressPercent}
-                    metaItems={[
-                      { label: "완료", value: certificateProgress.completed + certificateProgress.alreadyRegistered },
-                      { label: "실패", value: certificateProgress.failed }
-                    ]}
+                    title={activeRegistrationProgress.title}
+                    statusText={activeRegistrationProgress.statusText}
+                    current={activeRegistrationProgress.current}
+                    total={activeRegistrationProgress.total}
+                    progressValue={activeRegistrationProgress.progressValue}
+                    metaItems={activeRegistrationProgress.metaItems}
                   />
                 ) : null}
-                {joinProgress ? (
-                  <InitialRegistrationProgressCard
-                    title="발행 연동 준비 현황"
-                    statusText={joinProgressStatusText}
-                    current={joinProgress.completed}
-                    total={joinProgress.total}
-                    progressValue={joinProgressPercent}
-                    metaItems={[
-                      { label: "완료", value: joinProgress.completed },
-                      { label: "대기", value: joinProgress.pending }
-                    ]}
-                  />
-                ) : null}
+                <div className="initial-registration-work-row">
+                  <div className="initial-registration-action-stack">
+                    {showSharedPasswordField ? (
+                      <label className="settings-defaults-cell settings-defaults-cell-span-2">
+                        공통 공동인증서 비밀번호 (1회성)
+                        <div className="password-field">
+                          <input
+                            type={sharedPasswordVisible ? "text" : "password"}
+                            value={props.customerOnboardingSharedPassword}
+                            disabled={props.busyKey !== null}
+                            onChange={(event) =>
+                              props.onCustomerOnboardingSharedPasswordChange(event.target.value)
+                            }
+                            placeholder="발전소 시트 비밀번호 칸이 비면 이 값을 사용"
+                          />
+                          <button
+                            type="button"
+                            className="password-toggle"
+                            aria-label={
+                              sharedPasswordVisible
+                                ? "공통 공동인증서 비밀번호 숨기기"
+                                : "공통 공동인증서 비밀번호 보기"
+                            }
+                            onClick={() => setSharedPasswordVisible((prev) => !prev)}
+                          >
+                            <RevealIcon open={sharedPasswordVisible} />
+                          </button>
+                        </div>
+                        <span className="field-hint">
+                          이번 업로드에서만 사용합니다.
+                        </span>
+                      </label>
+                    ) : null}
+                    {showTemplateActions ? (
+                      <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={props.busyKey !== null || !canDownloadOnboardingTemplate}
+                          title={downloadBlockedTitle}
+                          onClick={() =>
+                            void props.runAction(
+                              "customer-onboarding-template",
+                              props.downloadCustomerOnboardingTemplate,
+                              { reload: false }
+                            )
+                          }
+                        >
+                          {isDownloadingOnboardingTemplate ? "다운로드 중..." : "양식 다운로드"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={props.busyKey !== null || !sharedPasswordReady}
+                          title={uploadBlockedTitle}
+                          onClick={() => onboardingFileInputRef.current?.click()}
+                        >
+                          {isPreviewingOnboarding
+                            ? "확인 중..."
+                            : registrationFlow.uploadCompleted
+                              ? "다시 업로드"
+                              : "양식 업로드"}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {registrationPrimaryAction ? (
+                      <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={registrationPrimaryAction.disabled}
+                          title={registrationPrimaryAction.title}
+                          onClick={registrationPrimaryAction.onClick}
+                        >
+                          {registrationPrimaryAction.label}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -912,98 +916,6 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           ) : null}
           {props.customerOnboardingPreview?.fileErrors.length ? (
             <InitialStatusNotice title="시트 연결 오류" message={props.customerOnboardingPreview.fileErrors.join("\n")} tone="warn" />
-          ) : null}
-          {previewRows.length > 0 ? (
-            <section className="initial-preview-console" aria-label="고객 초기 등록 미리보기">
-              <div className="initial-preview-summary">
-                {previewSummaryItems.map((item) => (
-                  <div key={item.label} className="initial-preview-summary-card">
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </div>
-                ))}
-              </div>
-              <div className="initial-preview-grid">
-                <div className="initial-preview-table-card">
-                  <div className="initial-preview-card-head">
-                    <strong>반영 미리 보기</strong>
-                    <span className="chip">{previewRows.length}건</span>
-                  </div>
-                  <div className="initial-preview-table-wrap">
-                    <table className="responsive-table initial-preview-table">
-                      <thead>
-                        <tr>
-                          <th>행</th>
-                          <th>고객</th>
-                          <th>상태</th>
-                          <th>구성</th>
-                          <th>문제 사유</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {previewRows.map((row) => {
-                          const toneClass =
-                            row.status === "blocked" ? "chip-danger" : row.status === "update" ? "chip-warn" : "chip-success";
-                          const statusLabel = row.status === "blocked" ? "검토 필요" : row.status === "update" ? "기존 고객 갱신" : "신규 등록";
-                          const issueText = [...row.errors, ...row.warnings].join(" ") || "-";
-
-                          return (
-                            <tr key={`customer-onboarding-${row.rowIndex}-${row.businessNumber}`} className={row.status === "blocked" ? "is-blocked" : undefined}>
-                              <td data-label="행">{row.rowIndex}</td>
-                              <td data-label="고객">
-                                <div className="initial-preview-customer">
-                                  <strong>{row.corpName || row.customerName || `고객 ${row.rowIndex}행`}</strong>
-                                  <span>{row.businessNumber || "-"}</span>
-                                </div>
-                              </td>
-                              <td data-label="상태">
-                                <span className={`chip ${toneClass}`}>{statusLabel}</span>
-                              </td>
-                              <td data-label="구성">
-                                발전소 {row.plantCount}건 · 인증서 {row.certificateCount}건
-                              </td>
-                              <td data-label="문제 사유">
-                                <span className={row.errors.length > 0 ? "text-danger" : row.warnings.length > 0 ? "text-warn" : undefined}>
-                                  {issueText}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <aside className="initial-preview-blocked-card">
-                  <div className="initial-preview-card-head">
-                    <strong>막힌 행 상세</strong>
-                    <span className={blockedPreviewRows.length > 0 ? "chip chip-danger" : "chip chip-success"}>
-                      {blockedPreviewRows.length}건
-                    </span>
-                  </div>
-                  {firstBlockedPreviewRow ? (
-                    <div className="initial-preview-blocked-body">
-                      <strong>{firstBlockedPreviewRow.corpName || firstBlockedPreviewRow.customerName || `${firstBlockedPreviewRow.rowIndex}행`}</strong>
-                      <span>{firstBlockedPreviewRow.businessNumber || "사업자번호 없음"}</span>
-                      <div className="initial-preview-issue-list">
-                        {firstBlockedPreviewRow.errors.map((error) => (
-                          <p key={`blocked-error-${error}`} className="text-danger">{error}</p>
-                        ))}
-                        {firstBlockedPreviewRow.warnings.map((warning) => (
-                          <p key={`blocked-warning-${warning}`} className="text-warn">{warning}</p>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="context-empty-state tone-success">
-                      <strong>막힌 행이 없습니다.</strong>
-                      <p>미리보기 결과를 확인한 뒤 고객 등록 반영을 진행하면 됩니다.</p>
-                    </div>
-                  )}
-                </aside>
-              </div>
-            </section>
           ) : null}
         </>
       ) : !hasExceptionMessages ? (

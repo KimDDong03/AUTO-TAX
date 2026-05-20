@@ -26,12 +26,14 @@ function sanitizeElectronicTaxRegistrationMessage(value: string): string {
     return "같은 이름의 전자세금용 공동인증서가 여러 개라 자동으로 하나를 고르지 못했습니다.";
   }
 
-  if (value.includes("Target.createTarget") || value.includes("Failed to open a new tab")) {
-    return "자동등록 브라우저 창을 열지 못했습니다. AT 헬퍼와 Chrome을 다시 실행한 뒤 재시도하세요.";
-  }
-
-  if (value.includes("Target page, context or browser has been closed")) {
-    return "자동등록 브라우저가 중간에 닫혔습니다. AT 헬퍼를 다시 실행한 뒤 재시도하세요.";
+  if (
+    value.includes("Target.createTarget") ||
+    value.includes("Failed to open a new tab") ||
+    value.includes("Target page, context or browser has been closed") ||
+    value.includes("browser has been closed") ||
+    value.includes("page has been closed")
+  ) {
+    return "자동등록 브라우저 연결이 끊겼습니다. 잠시 후 다시 시도하세요. 반복되면 AT 헬퍼와 Chrome을 다시 실행하세요.";
   }
 
   return value

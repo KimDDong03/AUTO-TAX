@@ -168,7 +168,7 @@ function isRenewalCertificateExpiredDate(value: string | null | undefined): bool
     return false;
   }
 
-  return normalized < getTodayDateKey();
+  return normalized <= getTodayDateKey();
 }
 
 function buildRenewalPreflightFailureMessage(prefix: string, detail: string, fallback: string): string {

@@ -2503,13 +2503,8 @@ textarea {
   align-items: start;
 }
 
-.panel-initial-import,
-.panel-initial-preview {
+.panel-initial-import {
   min-height: 0;
-}
-
-.panel-initial-preview {
-  overflow: auto;
 }
 
 .panel-initial-months {
@@ -2527,12 +2522,13 @@ textarea {
 
 .initial-registration-progress-card {
   display: grid;
-  gap: 10px;
-  width: min(100%, 420px);
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid #dbe3ee;
-  background: #ffffff;
+  gap: 8px;
+  width: min(100%, 616px);
+  margin: 2px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid #d7e4f8;
+  border-radius: 8px;
+  background: #f8fbff;
 }
 
 .initial-registration-progress-head {
@@ -2545,7 +2541,7 @@ textarea {
 .initial-registration-progress-head strong {
   display: block;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 800;
   line-height: 1.35;
 }
 
@@ -2567,6 +2563,7 @@ textarea {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  max-width: 100%;
 }
 
 .initial-status-notice {
@@ -13736,21 +13733,7 @@ button.issuance-list-item {
   width: 100%;
 }
 
-/* Onboarding step 7-3 and 8-3 dense work areas */
-.initial-preview-console {
-  display: grid;
-  gap: 14px;
-}
-
-.initial-preview-summary {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.initial-preview-summary-card,
-.initial-preview-table-card,
-.initial-preview-blocked-card,
+/* Onboarding step 8-3 dense work areas */
 .quick-register-compare-card {
   border: 1px solid #e1e6ef;
   border-radius: 14px;
@@ -13758,102 +13741,10 @@ button.issuance-list-item {
   box-shadow: none;
 }
 
-.initial-preview-summary-card {
-  display: grid;
-  gap: 4px;
-  padding: 12px;
-}
-
-.initial-preview-summary-card span,
 .quick-register-compare-card span {
   color: #687386;
   font-size: 12px;
   font-weight: 800;
-}
-
-.initial-preview-summary-card strong {
-  color: #162033;
-  font-size: 18px;
-  line-height: 1.1;
-}
-
-.initial-preview-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 14px;
-  min-height: 0;
-}
-
-.initial-preview-table-card,
-.initial-preview-blocked-card {
-  display: grid;
-  gap: 12px;
-  min-height: 0;
-  padding: 14px;
-}
-
-.initial-preview-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.initial-preview-card-head strong {
-  color: #162033;
-  font-size: 15px;
-}
-
-.initial-preview-table-wrap {
-  max-height: 340px;
-  overflow: auto;
-  border: 1px solid #e7ecf3;
-  border-radius: 12px;
-}
-
-.initial-preview-table {
-  width: 100%;
-  min-width: 720px;
-}
-
-.initial-preview-table th,
-.initial-preview-table td {
-  padding: 10px 12px;
-  font-size: 13px;
-  vertical-align: top;
-}
-
-.initial-preview-table tr.is-blocked td:first-child {
-  box-shadow: inset 3px 0 0 #e5484d;
-}
-
-.initial-preview-customer {
-  display: grid;
-  gap: 2px;
-}
-
-.initial-preview-customer span {
-  color: #697589;
-  font-size: 12px;
-}
-
-.initial-preview-blocked-body {
-  display: grid;
-  gap: 8px;
-  align-content: start;
-}
-
-.initial-preview-issue-list {
-  display: grid;
-  gap: 6px;
-}
-
-.initial-preview-issue-list p {
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: #fff6f6;
-  font-size: 13px;
 }
 
 .exception-triage-layout {
@@ -14013,13 +13904,23 @@ button.issuance-list-item {
   }
 
   .certificate-layout-grid,
-  .exception-triage-layout,
-  .initial-preview-grid {
+  .exception-triage-layout {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 860px) {
+  .initial-registration-work-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .initial-registration-action-stack > label,
+  .initial-registration-progress-card {
+    max-width: none;
+    width: 100%;
+  }
+
   .app-shell-topnav .content {
     padding: 14px 12px 18px;
   }
@@ -14059,10 +13960,6 @@ button.issuance-list-item {
   .home-onboarding-banner-meta {
     border-left: 0;
     border-top: 1px solid #e5eaf1;
-  }
-
-  .initial-preview-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .quick-register-compare-grid {
@@ -16346,23 +16243,12 @@ button.issuance-list-item {
   color: var(--wf-text);
 }
 
-.app-shell-topnav .initial-preview-summary {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-.app-shell-topnav .initial-preview-summary-card,
-.app-shell-topnav .initial-preview-table-card,
-.app-shell-topnav .initial-preview-blocked-card,
 .app-shell-topnav .quick-register-compare-card,
 .app-shell-topnav .exception-triage-layout .panel-initial-unmatched,
 .app-shell-topnav .exception-triage-layout .panel-initial-quick-register {
   border: 1px solid var(--wf-border);
   border-radius: 3px;
   box-shadow: none;
-}
-
-.app-shell-topnav .initial-preview-grid {
-  grid-template-columns: minmax(0, 1fr) 360px;
 }
 
 .app-shell-topnav .exception-triage-layout {
@@ -17426,8 +17312,6 @@ button.issuance-list-item {
   .app-shell-topnav .home-priority-grid,
   .app-shell-topnav .home-side-list,
   .app-shell-topnav .customer-console-page-header,
-  .app-shell-topnav .initial-preview-summary,
-  .app-shell-topnav .initial-preview-grid,
   .app-shell-topnav .exception-triage-layout,
   .app-shell-topnav .certificate-ops-toolbar,
   .app-shell-topnav .certificate-helper-alert,
@@ -22976,16 +22860,18 @@ button.issuance-list-item {
 
 .onboarding-main-copy-focal {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px 16px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
   align-items: start;
+  max-width: 780px;
   min-width: 0;
 }
 
 .onboarding-main-copy-focal > strong,
 .onboarding-main-copy-focal > p,
 .onboarding-main-copy-focal > .onboarding-inline-warning,
-.onboarding-main-copy-focal > label {
+.onboarding-main-copy-focal > label,
+.onboarding-main-copy-focal > .initial-registration-work-row {
   grid-column: 1 / -1;
 }
 
@@ -23006,19 +22892,47 @@ button.issuance-list-item {
 }
 
 .onboarding-primary-row-focal {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .onboarding-primary-row-focal button {
-  min-width: 180px;
+  min-width: 0;
+  width: 180px;
 }
 
 .onboarding-main-copy-focal > label {
   max-width: 460px;
 }
+
+.initial-registration-work-row {
+  display: grid;
+  grid-template-columns: minmax(0, 460px);
+  gap: 10px;
+  align-items: start;
+  width: min(100%, 616px);
+  margin-top: 2px;
+}
+
+.initial-registration-action-stack {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.initial-registration-action-stack > label {
+  max-width: 460px;
+}
+
+.initial-registration-action-stack .onboarding-primary-row-focal {
+  margin-top: 0;
+}
+
+.initial-registration-action-stack .onboarding-primary-row-focal button:only-child {
+  width: min(100%, 220px);
+}
+
 
 .onboarding-stage-list {
   display: grid;

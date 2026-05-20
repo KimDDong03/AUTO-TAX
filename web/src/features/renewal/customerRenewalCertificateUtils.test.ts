@@ -100,6 +100,7 @@ test("normalizeCustomerCertificateExpireDateKey accepts dotted dates with spaces
   assert.equal(normalizeCustomerCertificateExpireDateKey("2026. 12. 4."), "2026-12-04");
   assert.equal(isCustomerCertificateExpired("2027. 1. 12.", "2026-05-19"), false);
   assert.equal(isCustomerCertificateExpired("2026. 12. 4.", "2026-05-19"), false);
+  assert.equal(isCustomerCertificateExpired("2026. 5. 19.", "2026-05-19"), true);
 });
 
 test("findStoredCustomerCertificateForLocalCertificate prefers primary when multiple matches exist", () => {
