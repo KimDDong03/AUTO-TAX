@@ -273,6 +273,7 @@ test("commitCustomerOnboardingImport saves customers, links certificates, and re
         issuerName: "",
         serial: "SERIAL-101",
         userDN: "USER-DN-101",
+        expireDate: "2099-12-31",
         certificatePassword: "pw-1",
         isPrimary: true
       },
@@ -309,6 +310,7 @@ test("commitCustomerOnboardingImport saves customers, links certificates, and re
   assert.equal(linkedCertificates[0]?.certificateKind, "electronic_tax");
   assert.equal(linkedCertificates[0]?.serial, "SERIAL-101");
   assert.equal(linkedCertificates[0]?.userDN, "USER-DN-101");
+  assert.equal(linkedCertificates[0]?.expireDate, "2099-12-31");
   assert.equal(logs.length, 1);
   assert.equal(logs[0]?.scope, "customer-onboarding-import");
 });

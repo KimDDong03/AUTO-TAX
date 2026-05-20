@@ -71,6 +71,14 @@ test("buildCustomerIssueStatusChip hides internal registration wording", () => {
     buildCustomerIssueStatusChip(createCustomer({ popbillCertExpireDate: "2026-12-31" }), { canIssueNow: true }, now),
     null
   );
+  assert.equal(
+    buildCustomerIssueStatusChip(createCustomer({ popbillCertExpireDate: "2027. 1. 12." }), { canIssueNow: true }, now),
+    null
+  );
+  assert.equal(
+    buildCustomerIssueStatusChip(createCustomer({ popbillCertExpireDate: "2026. 12. 4." }), { canIssueNow: true }, now),
+    null
+  );
 });
 
 test("buildCustomerContractStatusChip distinguishes missing, due, overdue, and normal contracts", () => {

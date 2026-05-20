@@ -1,5 +1,8 @@
 import React from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { RevealIcon, StatusBadge, type StatusBadgeTone } from "../../components/ui";
 import { SettingsAccountSection } from "./SettingsAccountSection";
 import { SettingsDefaultsSection } from "./SettingsDefaultsSection";
@@ -60,7 +63,6 @@ function getAutosaveBadgeTone(state: SettingsSidebarModel["settingsAutosaveState
 }
 
 function SettingsReadinessSummary({ model }: SettingsTabProps) {
-  const shouldReduceMotion = useReducedMotion();
   const sidebar = model.sidebar;
   const onboarding = model.sections.onboarding;
   const parsedProgress = parseProgressText(onboarding.progressText);
@@ -78,7 +80,7 @@ function SettingsReadinessSummary({ model }: SettingsTabProps) {
     : sidebar.settingsAutosaveLabel;
 
   return (
-    <section className="settings-readiness-card">
+    <Card className="settings-readiness-card">
       <div className="settings-option1-status-title">
         <strong>설정 준비 상태</strong>
         <StatusBadge tone={getAutosaveBadgeTone(sidebar.settingsAutosaveState)}>
@@ -91,13 +93,7 @@ function SettingsReadinessSummary({ model }: SettingsTabProps) {
           <strong>
             {completed} / {total} 완료
           </strong>
-          <div className="settings-option1-progress-track" aria-hidden="true">
-            <motion.span
-              initial={shouldReduceMotion ? false : { width: 0 }}
-              animate={{ width: `${progressPercent}%` }}
-              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-            />
-          </div>
+          <Progress value={progressPercent} className="settings-option1-progress-track" aria-label={`설정 준비 ${progressPercent}%`} />
         </div>
         <div className="settings-option1-status-metrics">
           <div>
@@ -118,7 +114,7 @@ function SettingsReadinessSummary({ model }: SettingsTabProps) {
           </div>
         </div>
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -511,7 +507,7 @@ function SettingsTabContent({ model }: SettingsTabProps) {
         animate={shouldReduceMotion ? undefined : "visible"}
       >
         <motion.aside className="settings-sidebar-stack" variants={pageSectionVariants}>
-          <section className="panel settings-sidebar-panel">
+          <Card className="panel settings-sidebar-panel">
             <motion.div className="settings-step-list" variants={pageContainerVariants}>
               {sidebar.settingsSections.map((section) => (
                 <motion.button
@@ -530,9 +526,12 @@ function SettingsTabContent({ model }: SettingsTabProps) {
                   whileTap={getSubtleTapMotion(shouldReduceMotion)}
                 >
                   <span className="settings-option1-nav-label">{section.title}</span>
-                  <span className="settings-option1-nav-state">
+                  <Badge
+                    variant={section.done ? "secondary" : "outline"}
+                    className="settings-option1-nav-state"
+                  >
                     {section.done ? "완료" : "확인 필요"}
-                  </span>
+                  </Badge>
                 </motion.button>
               ))}
             </motion.div>
@@ -551,7 +550,7 @@ function SettingsTabContent({ model }: SettingsTabProps) {
                 </span>
               </div>
             </div>
-          </section>
+          </Card>
         </motion.aside>
 
         <motion.main className="settings-option1-main" variants={pageSectionVariants}>

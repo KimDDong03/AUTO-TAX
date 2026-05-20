@@ -8,6 +8,22 @@ import type {
 type ElectronicTaxOnboardingCertificateRow = CustomerOnboardingWorkbookInput["certificates"][number];
 
 function sanitizeElectronicTaxRegistrationMessage(value: string): string {
+  if (value.includes("공동인증서 비밀번호가 올바르지 않습니다") || value.includes("비밀번호가 올바르지")) {
+    return "사전조회 때 확인한 비밀번호로 등록했지만 등록 화면에서 인증서 확인에 실패했습니다. AT 헬퍼에서 공동인증서를 다시 읽고 재시도하세요.";
+  }
+
+  if (value.includes("같은 인증서명(CN)") || value.includes("ambiguous-cn-match")) {
+    return "같은 이름의 전자세금용 공동인증서가 여러 개라 자동으로 하나를 고르지 못했습니다.";
+  }
+
+  if (value.includes("Target.createTarget") || value.includes("Failed to open a new tab")) {
+    return "자동등록 브라우저 창을 열지 못했습니다. AT 헬퍼와 Chrome을 다시 실행한 뒤 재시도하세요.";
+  }
+
+  if (value.includes("Target page, context or browser has been closed")) {
+    return "자동등록 브라우저가 중간에 닫혔습니다. AT 헬퍼를 다시 실행한 뒤 재시도하세요.";
+  }
+
   return value
     .replace(/팝빌\s*전자세금용\s*공동인증서/g, "전자세금용 공동인증서")
     .replace(/팝빌\s*전자세금용\s*인증서/g, "전자세금용 인증서")

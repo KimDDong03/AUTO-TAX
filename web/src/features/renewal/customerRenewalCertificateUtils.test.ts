@@ -7,7 +7,9 @@ import {
   findRenewalCertificatesByIdentity,
   findCandidateCustomersForCertificate,
   findStoredCustomerCertificateForLocalCertificate,
-  formatCustomerRenewalStatus
+  formatCustomerRenewalStatus,
+  isCustomerCertificateExpired,
+  normalizeCustomerCertificateExpireDateKey
 } from "./customerRenewalCertificateUtils";
 
 function createCertificate(overrides: Partial<RenewalAgentCertificate> = {}): RenewalAgentCertificate {
@@ -91,6 +93,13 @@ test("deriveCustomerCertificateKind categorizes renewal certificates", () => {
     deriveCustomerCertificateKind(createCertificate({ usageToName: "사업자 범용 공동인증서" })),
     "general_business"
   );
+});
+
+test("normalizeCustomerCertificateExpireDateKey accepts dotted dates with spaces", () => {
+  assert.equal(normalizeCustomerCertificateExpireDateKey("2027. 1. 12."), "2027-01-12");
+  assert.equal(normalizeCustomerCertificateExpireDateKey("2026. 12. 4."), "2026-12-04");
+  assert.equal(isCustomerCertificateExpired("2027. 1. 12.", "2026-05-19"), false);
+  assert.equal(isCustomerCertificateExpired("2026. 12. 4.", "2026-05-19"), false);
 });
 
 test("findStoredCustomerCertificateForLocalCertificate prefers primary when multiple matches exist", () => {

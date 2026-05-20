@@ -59,9 +59,9 @@ function createModel(
         {
           id: "helper",
           step: 4,
-          title: "로컬 헬퍼",
+          title: "AT 헬퍼",
           done: false,
-          summary: "헬퍼 준비 필요"
+          summary: "AT 헬퍼 준비 필요"
         },
         {
           id: "account",
@@ -256,7 +256,7 @@ test("SettingsTab only renders the active detail section content", () => {
   });
   const helperText = collectText(helperTree);
 
-  assert.match(helperText, /로컬 헬퍼/);
+  assert.match(helperText, /AT 헬퍼/);
   assert.doesNotMatch(helperText, /도입 준비 본문/);
   assert.doesNotMatch(helperText, /자동으로 찾은 메일 서비스/);
   assert.doesNotMatch(helperText, /공동인증서 발급용 임시번호/);
@@ -270,7 +270,7 @@ test("SettingsTab renders onboarding as the first settings detail section", () =
   assert.match(text, /도입 준비 본문/);
   assert.match(text, /발행 설정/);
   assert.match(text, /메일 연결하기/);
-  assert.match(text, /로컬 헬퍼/);
+  assert.match(text, /AT 헬퍼/);
   assert.doesNotMatch(text, /메일 연결 설정/);
 });
 
@@ -285,7 +285,7 @@ test("SettingsTab keeps local helper details out of issue defaults", () => {
   assert.doesNotMatch(defaultsText, /운영 연락처/);
   assert.doesNotMatch(defaultsText, /운영 이메일/);
   assert.doesNotMatch(defaultsText, /상태 다시 확인/);
-  assert.doesNotMatch(defaultsText, /헬퍼 다운로드/);
+  assert.doesNotMatch(defaultsText, /AT 헬퍼 다운로드/);
 });
 
 test("SettingsTab mail detail hides customer-unnecessary transport settings", () => {

@@ -33,6 +33,10 @@ export type ElectronicTaxOnboardingUploadFlowResult = {
   workbook: CustomerOnboardingWorkbookInput | null;
   preview: CustomerOnboardingPreviewResponse | null;
   sessionState: ElectronicTaxOnboardingSessionState;
+  passwordFailureEntries: Array<{
+    key: string;
+    label: string;
+  }>;
   notice: string;
   error: string;
 };
@@ -66,6 +70,7 @@ function buildElectronicTaxOnboardingUploadClearedResult(
       certificateDone: false,
       targetBusinessNumbers: []
     },
+    passwordFailureEntries: [],
     notice: "",
     error: ""
   };
@@ -86,6 +91,7 @@ function buildElectronicTaxOnboardingUploadFailureResult(
       certificateDone: false,
       targetBusinessNumbers: []
     },
+    passwordFailureEntries: [],
     notice: "",
     error: error instanceof Error ? error.message : "엑셀 양식을 읽지 못했습니다."
   };
@@ -106,9 +112,9 @@ export async function runElectronicTaxOnboardingUploadFlow<TFile>(options: {
   }
 
   try {
-    options.onProgress?.("엑셀 양식을 읽는 중입니다...");
+    options.onProgress?.("양식 확인 중...");
     const parsed = await options.parseWorkbook(options.file);
-    options.onProgress?.("공동인증서와 고객 행을 맞춰 보는 중입니다...");
+    options.onProgress?.("인증서 확인 중...");
     const resolved = await options.resolveWorkbook(parsed.workbook);
     const workbookMessages = joinElectronicTaxOnboardingMessages([...parsed.warnings, ...resolved.errors]);
     const baseSessionState: ElectronicTaxOnboardingSessionState = {
@@ -125,12 +131,13 @@ export async function runElectronicTaxOnboardingUploadFlow<TFile>(options: {
         workbook: resolved.workbook,
         preview: null,
         sessionState: baseSessionState,
-        notice: `${parsed.fileName}에서 발전소 시트에 남긴 전자세금용 등록 대상 행을 찾지 못했습니다.`,
+        passwordFailureEntries: resolved.passwordFailureEntries,
+        notice: "등록 대상 행이 없습니다.",
         error: workbookMessages
       };
     }
 
-    options.onProgress?.(`고객 ${resolved.workbook.customers.length}건을 미리 검토하는 중입니다...`);
+    options.onProgress?.(`고객 ${resolved.workbook.customers.length}건 검토 중...`);
     const preview = await options.previewWorkbook(resolved.workbook);
     return {
       fileName: parsed.fileName,
@@ -140,13 +147,14 @@ export async function runElectronicTaxOnboardingUploadFlow<TFile>(options: {
         ...baseSessionState,
         previewReady: true
       },
-      notice: `${parsed.fileName} 업로드 확인을 마쳤습니다. ${buildElectronicTaxOnboardingPreviewNotice({
+      passwordFailureEntries: resolved.passwordFailureEntries,
+      notice: buildElectronicTaxOnboardingPreviewNotice({
         resolvedCertificateCount: resolved.resolvedCertificateCount,
         customerCount: resolved.workbook.customers.length,
         acceptedBeforeWindowCount: resolved.acceptedBeforeWindowCount,
         skippedCertificateCount: resolved.skippedCertificateCount,
         workbookWarnings: parsed.warnings
-      })}`,
+      }),
       error: workbookMessages
     };
   } catch (error) {

@@ -339,7 +339,7 @@ test("customer certificate password endpoint is retired and never returns plaint
       const response = await fetch(`${baseUrl}/api/customer-certificates/99/password`);
       assert.equal(response.status, 410);
       assert.deepEqual(await response.json(), {
-        error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 로컬 헬퍼에서 다시 입력하세요."
+        error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 AT 헬퍼에서 다시 입력하세요."
       });
       assert.equal(
         calls.logs.some((entry) => entry.message.includes("공동인증서 비밀번호 재표시 요청을 차단했습니다.")),

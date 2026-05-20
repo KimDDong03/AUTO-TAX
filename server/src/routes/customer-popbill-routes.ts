@@ -18,6 +18,7 @@ import {
 import {
   getCertificateExpireDate,
   getTaxCertURL,
+  isPopbillCertificateMissingError,
   isPopbillMemberMissingError,
   quitMember
 } from "../popbill-client.js";
@@ -419,7 +420,7 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
       certificateId
     });
     res.status(410).json({
-      error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 로컬 헬퍼에서 다시 입력하세요."
+      error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 AT 헬퍼에서 다시 입력하세요."
     });
   });
 
@@ -665,10 +666,25 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
       return;
     }
 
-    const expireDate = await getCertificateExpireDate(await getServerManagedSettings(requestStore), customer);
-    const updated = await requestStore.updateCustomerPopbillState(customerId, customer.popbillState, true, expireDate);
+    let expireDate: string | null = null;
+    let certRegistered = true;
+    try {
+      expireDate = await getCertificateExpireDate(await getServerManagedSettings(requestStore), customer);
+    } catch (error) {
+      if (!isPopbillCertificateMissingError(error)) {
+        throw error;
+      }
+      certRegistered = false;
+    }
+
+    const updated = await requestStore.updateCustomerPopbillState(
+      customerId,
+      customer.popbillState,
+      certRegistered,
+      expireDate
+    );
     await requestStore.createLog("info", "popbill", "인증서 만료일을 갱신했습니다.", { customerId, expireDate });
-    if (!customer.popbillCertRegistered && updated.popbillCertRegistered) {
+    if (certRegistered && !customer.popbillCertRegistered && updated.popbillCertRegistered) {
       const job = await renewalAutomation.queueBridgeProbe({
         customerId,
         customerName: updated.customerName,

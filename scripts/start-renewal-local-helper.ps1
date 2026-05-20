@@ -2,7 +2,8 @@
 param(
   [switch]$ValidateOnly,
   [switch]$Detached,
-  [switch]$Foreground
+  [switch]$Foreground,
+  [switch]$Restart
 )
 
 $ErrorActionPreference = "Stop"
@@ -58,6 +59,24 @@ function Test-LocalRenewalHelperRunning {
   }
 }
 
+function Wait-LocalRenewalHelperStop {
+  param(
+    [int]$Port,
+    [int]$Attempts = 30,
+    [int]$DelayMs = 500
+  )
+
+  for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
+    if (-not (Test-LocalRenewalHelperRunning -Port $Port)) {
+      return $true
+    }
+
+    Start-Sleep -Milliseconds $DelayMs
+  }
+
+  return $false
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "..")).Path
 $bundledNodeExe = Join-Path $repoRoot "runtime\\node.exe"
@@ -81,6 +100,20 @@ if (
 $alreadyRunning = Test-LocalRenewalHelperRunning -Port $helperPort
 
 if ($Detached -and -not $Foreground) {
+  if ($Restart -and $alreadyRunning) {
+    $stopScript = Join-Path $scriptDir "stop-renewal-local-helper.ps1"
+    if (-not (Test-Path $stopScript)) {
+      throw "Local helper stop script not found: $stopScript"
+    }
+
+    & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $stopScript | Out-Null
+    if (-not (Wait-LocalRenewalHelperStop -Port $helperPort)) {
+      throw "Could not stop the running helper before restart."
+    }
+
+    $alreadyRunning = $false
+  }
+
   if ($alreadyRunning) {
     Write-Output "status=already-running"
     Write-Output "port=$helperPort"

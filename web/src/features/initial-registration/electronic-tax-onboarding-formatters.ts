@@ -1,7 +1,10 @@
 import type { CustomerOnboardingCommitResponse } from "./customer-onboarding-workbook";
 
-export function buildElectronicTaxOnboardingTemplateNotice(certificateCount: number): string {
-  return `전자세금용 공동인증서 ${certificateCount}건 기준으로 초기 등록 양식을 내려받았습니다. 발전소 시트에서 등록할 대상만 남기고 발전소명과 필요한 인증서 비밀번호만 입력해 주세요. 업로드 전에는 고객별 전자세금용 인증서 확인 결과와 고객 생성/갱신 가능 여부만 검토합니다.`;
+export function buildElectronicTaxOnboardingTemplateNotice(options: {
+  certificateCount: number;
+  unregisteredCustomerCount?: number;
+}): string {
+  return `만료되지 않은 전자세금용 공동인증서 ${options.certificateCount}건으로 양식을 만들었습니다. 등록할 행만 남기고 발전소명을 입력해 주세요.`;
 }
 
 export function buildElectronicTaxOnboardingPreviewNotice(options: {
@@ -12,18 +15,18 @@ export function buildElectronicTaxOnboardingPreviewNotice(options: {
   workbookWarnings: string[];
 }): string {
   const noticeParts = [
-    `전자세금용 인증서 ${options.resolvedCertificateCount}건으로 고객 ${options.customerCount}건을 등록 대상으로 읽었습니다.`,
-    "미리보기에서 고객별 전자세금용 인증서 확인 여부, 신규/기존 고객 반영 가능 여부, 실패 사유만 먼저 확인해 주세요."
+    `등록 대상 ${options.customerCount}건을 확인했습니다.`,
+    `확인된 전자세금용 인증서 ${options.resolvedCertificateCount}건`
   ];
 
   if (options.acceptedBeforeWindowCount > 0) {
     noticeParts.push(
-      `갱신 가능 기간 전이지만 사업자 정보 확인에 성공한 전자세금용 인증서 ${options.acceptedBeforeWindowCount}건도 포함했습니다.`
+      `기간 전 확인 ${options.acceptedBeforeWindowCount}건 포함`
     );
   }
   if (options.skippedCertificateCount > 0) {
     noticeParts.push(
-      `자동으로 제외된 인증서는 입력 ${options.skippedCertificateCount}건이 아래 경고에 표시됩니다.`
+      `제외 ${options.skippedCertificateCount}건은 아래 메시지를 확인하세요.`
     );
   }
   if (options.workbookWarnings.length > 0) {
@@ -36,10 +39,10 @@ export function buildElectronicTaxOnboardingPreviewNotice(options: {
 export function buildElectronicTaxOnboardingCommitNotice(
   result: Pick<CustomerOnboardingCommitResponse, "createdCount" | "updatedCount" | "linkedCertificateCount" | "warnings">
 ): string {
-  const summary = `가져오기 완료 · 신규 ${result.createdCount}건 / 갱신 ${result.updatedCount}건 / 전자세금용 인증서 ${result.linkedCertificateCount}건`;
+  const summary = `고객 반영 완료 · 신규 ${result.createdCount}건 / 갱신 ${result.updatedCount}건 / 인증서 ${result.linkedCertificateCount}건`;
   const warningSummary =
-    result.warnings.length > 0 ? `\n경고 ${result.warnings.length}건이 아래 메시지에 남아 있습니다.` : "";
-  return `${summary}\n다음 단계에서 전자세금용 공동인증서 등록까지 이어서 진행해 주세요.${warningSummary}`;
+    result.warnings.length > 0 ? `\n확인 필요 ${result.warnings.length}건` : "";
+  return `${summary}${warningSummary}`;
 }
 
 function summarizeElectronicTaxRegistrationFailure(detail: string): string {
@@ -98,11 +101,11 @@ export function buildElectronicTaxRegistrationFollowupNotice(options: {
     warning.replace(/\s+/g, " ").trim()
   );
 
-  return `전자세금용 인증서 후속 등록을 마쳤습니다. ${summaryParts.join(" · ") || "처리 대상이 없습니다."}${
+  return `공동인증서 연결 완료 · ${summaryParts.join(" · ") || "처리 대상 없음"}${
     summarizedFailedDetails.length > 0 ? `\n\n실패 내역\n${summarizedFailedDetails.join("\n")}` : ""
   }${
     skippedBeforeJoinCount > 0
-      ? `\n\n가입 전 제외\n발행 연동 준비가 끝나지 않은 ${skippedBeforeJoinCount}건은 전자세금용 인증서 등록을 시도하지 않았습니다. 준비 완료 후 다시 실행해 주세요.`
+      ? `\n\n제외\n발행 준비 전 ${skippedBeforeJoinCount}건`
       : ""
   }${
     summarizedRefreshWarnings.length > 0 ? `\n\n상태 반영 경고\n${summarizedRefreshWarnings.join("\n")}` : ""

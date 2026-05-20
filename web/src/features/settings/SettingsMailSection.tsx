@@ -69,7 +69,7 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
           </div>
           <span className="field-hint">
             {model.mailPasswordConfigured
-              ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 연결 시 빈칸이면 서버에 저장된 값을 사용합니다."
+              ? "변경할 때만 다시 입력하세요."
               : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다. 메일 읽기 연결에 사용합니다."}
           </span>
         </label>

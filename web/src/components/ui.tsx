@@ -1,4 +1,7 @@
 import React from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import {
   AlertTriangle,
   Bell,
@@ -133,8 +136,20 @@ export function StatusBadge(props: {
   const className = ["status-badge", `status-badge-${tone}`, props.className]
     .filter(Boolean)
     .join(" ");
+  const variant =
+    tone === "danger"
+      ? "destructive"
+      : tone === "success" || tone === "info"
+        ? "secondary"
+        : tone === "warn"
+          ? "outline"
+          : "outline";
 
-  return <span className={className}>{props.children}</span>;
+  return (
+    <Badge variant={variant} className={className}>
+      {props.children}
+    </Badge>
+  );
 }
 
 export function EmptyState(props: {
@@ -150,11 +165,11 @@ export function EmptyState(props: {
     .join(" ");
 
   return (
-    <div className={className}>
+    <Card className={className}>
       <strong>{props.title}</strong>
       {props.body ? <p>{props.body}</p> : null}
       {props.actions ? <div className="empty-state-actions">{props.actions}</div> : null}
-    </div>
+    </Card>
   );
 }
 
@@ -171,13 +186,13 @@ export function SectionMessage(props: {
     .join(" ");
 
   return (
-    <div className={className}>
+    <Alert variant={tone === "danger" ? "destructive" : "default"} className={className}>
       <div className="section-message-copy">
-        {props.title ? <strong>{props.title}</strong> : null}
-        <p>{props.children}</p>
+        {props.title ? <AlertTitle>{props.title}</AlertTitle> : null}
+        <AlertDescription>{props.children}</AlertDescription>
       </div>
       {props.actions ? <div className="section-message-actions">{props.actions}</div> : null}
-    </div>
+    </Alert>
   );
 }
 
@@ -202,7 +217,7 @@ export function Panel(props: {
   className?: string;
 }) {
   return (
-    <section id={props.id} className={props.className ? `panel ${props.className}` : "panel"}>
+    <Card id={props.id} className={props.className ? `panel ${props.className}` : "panel"}>
       <header className="panel-header">
         <div>
           <h2>{props.title}</h2>
@@ -211,7 +226,7 @@ export function Panel(props: {
         {props.actions ? <div className="panel-actions">{props.actions}</div> : null}
       </header>
       {props.children}
-    </section>
+    </Card>
   );
 }
 

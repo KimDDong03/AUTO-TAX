@@ -11,6 +11,7 @@ export type PopbillCertificateRegistrationInput = {
   certificateKind: "electronic_tax";
   serial?: string | null;
   userDN?: string | null;
+  targetExpireDate?: string | null;
   certificatePassword: string;
 };
 
@@ -69,12 +70,13 @@ export type PopbillCertificateRegistrationResult = {
   certificateKind: "electronic_tax";
   serial: string | null;
   userDN: string | null;
+  targetExpireDate: string | null;
   localBridgeBaseUrl: string | null;
   message: string;
   timing: PopbillCertificateRegistrationTiming;
 };
 
-export type PopbillCertificateCandidateIdentifier = "serial" | "userDN" | "certificateIndex";
+export type PopbillCertificateCandidateIdentifier = "serial" | "userDN" | "targetExpireDate" | "certificateIndex";
 
 export type PopbillCertificateIframeCandidate = {
   selector: string;
@@ -143,6 +145,9 @@ const BROWSER_CHANNEL_CANDIDATES = (() => {
     return true;
   });
 })();
+
+const POPBILL_CERTIFICATE_FRAME_READY_TIMEOUT_MS = 60_000;
+const POPBILL_CERTIFICATE_LIST_READY_TIMEOUT_MS = 60_000;
 
 function resolveUserDataDir(): string {
   const configured = process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR?.trim();
@@ -270,6 +275,64 @@ async function openPopbillElectronicTaxCertificateSection(
   );
 }
 
+async function waitForPopbillCertificateSelectionFrame(
+  page: Page,
+  dialogMessages: string[],
+  timeoutMs = POPBILL_CERTIFICATE_FRAME_READY_TIMEOUT_MS
+): Promise<Frame> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    await throwIfExpiredTokenVisible(page, dialogMessages);
+    const childFrame = page.frames().find((frame) => frame.url().includes("/App/ML4Web/Child.html"));
+    if (childFrame) {
+      const passwordInputVisible = await childFrame
+        .locator("#input_cert_pw")
+        .isVisible({ timeout: 1_000 })
+        .catch(() => false);
+      if (passwordInputVisible) {
+        return childFrame;
+      }
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  await throwIfExpiredTokenVisible(page, dialogMessages);
+  throw new Error("인증서 선택 화면을 불러오지 못했습니다. AT 헬퍼와 Chrome을 다시 실행한 뒤 재시도하세요.");
+}
+
+async function waitForPopbillCertificateCandidate(options: {
+  page: Page;
+  frame: Frame;
+  dialogMessages: string[];
+  resolvedCertificate: {
+    certificateIndex: number;
+    certificateCn: string;
+    serial: string | null;
+    userDN: string | null;
+    targetExpireDate: string | null;
+  };
+  timeoutMs?: number;
+}): Promise<{
+  visibleMatchCount: number;
+  selectedSelector: string | null;
+  selectionReason: string | null;
+  candidates: PopbillCertificateIframeCandidate[];
+}> {
+  const timeoutMs = options.timeoutMs ?? POPBILL_CERTIFICATE_LIST_READY_TIMEOUT_MS;
+  const startedAt = Date.now();
+  let frameInspection = await inspectPopbillCertificateSelectionFrame(options.frame, options.resolvedCertificate);
+
+  while (frameInspection.visibleMatchCount === 0 && Date.now() - startedAt < timeoutMs) {
+    await options.frame.waitForTimeout(500);
+    await throwIfExpiredTokenVisible(options.page, options.dialogMessages);
+    frameInspection = await inspectPopbillCertificateSelectionFrame(options.frame, options.resolvedCertificate);
+  }
+
+  return frameInspection;
+}
+
 function normalizeCertificateFingerprint(value: string | number | null | undefined): string {
   return String(value ?? "").trim().toLowerCase();
 }
@@ -285,12 +348,50 @@ function isElectronicTaxUsageName(usageName: string): boolean {
   return usageName.replace(/\s+/g, "").includes("전자세금");
 }
 
+function normalizePopbillCertificateDateKey(value: string | number | null | undefined): string | null {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return null;
+  }
+
+  const candidates: Array<[string, string, string]> = [];
+  for (const match of text.matchAll(/((?:19|20)\d{2})\D+(\d{1,2})\D+(\d{1,2})/g)) {
+    candidates.push([match[1] ?? "", match[2] ?? "", match[3] ?? ""]);
+  }
+  for (const match of text.matchAll(/(\d{1,2})\D+(\d{1,2})\D+((?:19|20)\d{2})/g)) {
+    candidates.push([match[3] ?? "", match[1] ?? "", match[2] ?? ""]);
+  }
+  for (const match of text.matchAll(/((?:19|20)\d{2})(\d{2})(\d{2})/g)) {
+    candidates.push([match[1] ?? "", match[2] ?? "", match[3] ?? ""]);
+  }
+
+  for (const [yearText, monthText, dayText] of candidates) {
+    const year = Number(yearText);
+    const month = Number(monthText);
+    const day = Number(dayText);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+      continue;
+    }
+    if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) {
+      continue;
+    }
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+      continue;
+    }
+    return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  return null;
+}
+
 async function resolveTargetCertificate(input: PopbillCertificateRegistrationInput): Promise<{
   certificateIndex: number;
   certificateCn: string;
   certificateKind: "electronic_tax";
   serial: string | null;
   userDN: string | null;
+  targetExpireDate: string | null;
 }> {
   let { storageProbe } = await collectBridgeCertificateList({ preferCached: false });
 
@@ -435,7 +536,11 @@ async function resolveTargetCertificate(input: PopbillCertificateRegistrationInp
     certificateCn,
     certificateKind: "electronic_tax",
     serial: resolvedCertificate.serial?.trim() || null,
-    userDN: resolvedCertificate.userDN?.trim() || null
+    userDN: resolvedCertificate.userDN?.trim() || null,
+    targetExpireDate:
+      normalizePopbillCertificateDateKey(input.targetExpireDate) ??
+      normalizePopbillCertificateDateKey(resolvedCertificate.todate) ??
+      normalizePopbillCertificateDateKey(resolvedCertificate.detailValidateTo)
   };
 }
 
@@ -496,6 +601,17 @@ function hasPopbillFingerprintEvidence(evidenceValues: string[], targetValue: st
   return evidenceValues.some((value) => normalizePopbillEvidenceValue(value).includes(normalizedTargetValue));
 }
 
+function hasPopbillExpireDateEvidence(evidenceValues: string[], targetExpireDate: string | null | undefined): boolean {
+  const normalizedTargetDate = normalizePopbillCertificateDateKey(targetExpireDate);
+  if (!normalizedTargetDate) {
+    return false;
+  }
+
+  return evidenceValues
+    .filter((value) => !String(value).startsWith("active:text:"))
+    .some((value) => normalizePopbillCertificateDateKey(value) === normalizedTargetDate);
+}
+
 function hasExplicitPopbillCertificateIndexEvidence(
   evidenceValues: string[],
   targetIndex: string | number | null | undefined
@@ -546,6 +662,7 @@ export function matchPopbillCandidateIdentifiers(options: {
   targetIndex?: string | number | null;
   targetSerial?: string | null;
   targetUserDN?: string | null;
+  targetExpireDate?: string | null;
 }): PopbillCertificateCandidateIdentifier[] {
   const matchedIdentifiers: PopbillCertificateCandidateIdentifier[] = [];
 
@@ -555,6 +672,10 @@ export function matchPopbillCandidateIdentifiers(options: {
 
   if (hasPopbillFingerprintEvidence(options.evidenceValues, options.targetUserDN)) {
     matchedIdentifiers.push("userDN");
+  }
+
+  if (hasPopbillExpireDateEvidence(options.evidenceValues, options.targetExpireDate)) {
+    matchedIdentifiers.push("targetExpireDate");
   }
 
   if (hasExplicitPopbillCertificateIndexEvidence(options.evidenceValues, options.targetIndex)) {
@@ -574,7 +695,9 @@ function resolvePopbillIdentifierSelection(options: {
       ? "userDN"
       : options.identifier === "certificateIndex"
         ? "certificate index"
-        : options.identifier;
+        : options.identifier === "targetExpireDate"
+          ? "expire date"
+          : options.identifier;
   const metadataMatches = options.candidates.filter((candidate) => candidate.matchedIdentifiers.includes(options.identifier));
   const selectionMatches = options.selectionDetailProbes.filter((probe) =>
     probe.matchedIdentifiers.includes(options.identifier)
@@ -627,6 +750,7 @@ export function pickPopbillCertificateCandidate(options: {
   targetIndex?: string | number | null;
   targetSerial?: string | null;
   targetUserDN?: string | null;
+  targetExpireDate?: string | null;
 }): { selector: string | null; reason: string | null } {
   const selectionDetailProbes = options.selectionDetailProbes ?? [];
   const identifierSelections: Array<{
@@ -646,6 +770,10 @@ export function pickPopbillCertificateCandidate(options: {
     {
       identifier: "userDN",
       enabled: normalizeCertificateFingerprint(options.targetUserDN) !== ""
+    },
+    {
+      identifier: "targetExpireDate",
+      enabled: normalizePopbillCertificateDateKey(options.targetExpireDate) !== null
     },
     {
       identifier: "certificateIndex",
@@ -1367,6 +1495,7 @@ async function inspectPopbillCertificateSelectionFrame(
     certificateIndex: number;
     serial: string | null;
     userDN: string | null;
+    targetExpireDate: string | null;
   }
 ): Promise<{
   visibleMatchCount: number;
@@ -1380,7 +1509,8 @@ async function inspectPopbillCertificateSelectionFrame(
         certificateCn: String(rawTarget.certificateCn ?? ""),
         certificateIndex: String(rawTarget.certificateIndex ?? ""),
         serial: String(rawTarget.serial ?? ""),
-        userDN: String(rawTarget.userDN ?? "")
+        userDN: String(rawTarget.userDN ?? ""),
+        targetExpireDate: String(rawTarget.targetExpireDate ?? "")
       };
       const normalizedTargetCn = String(targetValue.certificateCn ?? "")
         .replace(/\s+/g, "")
@@ -1646,14 +1776,16 @@ async function inspectPopbillCertificateSelectionFrame(
       evidenceValues: [candidate.text, ...candidate.attributes, ...candidate.hiddenValues],
       targetIndex: target.certificateIndex,
       targetSerial: target.serial,
-      targetUserDN: target.userDN
+      targetUserDN: target.userDN,
+      targetExpireDate: target.targetExpireDate
     })
   }));
   const selected = pickPopbillCertificateCandidate({
     candidates: candidatesWithIdentifiers,
     targetIndex: target.certificateIndex,
     targetSerial: target.serial,
-    targetUserDN: target.userDN
+    targetUserDN: target.userDN,
+    targetExpireDate: target.targetExpireDate
   });
 
   return {
@@ -1671,6 +1803,7 @@ async function inspectPopbillCertificateSelectionDetails(
     certificateIndex: number;
     serial: string | null;
     userDN: string | null;
+    targetExpireDate: string | null;
   }
 ): Promise<PopbillCertificateSelectionDetailProbe[]> {
   const probes: PopbillCertificateSelectionDetailProbe[] = [];
@@ -1679,7 +1812,7 @@ async function inspectPopbillCertificateSelectionDetails(
       continue;
     }
 
-    await frame.locator(candidate.selector).click({ force: true });
+    await activatePopbillCertificateSelection(frame, candidate.selector);
     await frame.waitForTimeout(150);
     const probe = await frame.locator("body").evaluate(
       (body) => {
@@ -1843,7 +1976,8 @@ async function inspectPopbillCertificateSelectionDetails(
         evidenceValues: probe.evidence,
         targetIndex: target.certificateIndex,
         targetSerial: target.serial,
-        targetUserDN: target.userDN
+        targetUserDN: target.userDN,
+        targetExpireDate: target.targetExpireDate
       }),
       evidence: probe.evidence
     });
@@ -1885,7 +2019,8 @@ export async function registerPopbillCertificate(
             certificateCn: requestedCertificateCn,
             certificateKind: input.certificateKind,
             serial: input.serial?.trim() || null,
-            userDN: input.userDN?.trim() || null
+            userDN: input.userDN?.trim() || null,
+            targetExpireDate: normalizePopbillCertificateDateKey(input.targetExpireDate)
           }
         })
       : resolveTargetCertificate(input)
@@ -1963,6 +2098,7 @@ export async function registerPopbillCertificate(
         certificateKind: resolvedCertificate.certificateKind,
         serial: resolvedCertificate.serial,
         userDN: resolvedCertificate.userDN,
+        targetExpireDate: resolvedCertificate.targetExpireDate,
         localBridgeBaseUrl,
         message: "이미 팝빌 공동인증서가 등록되어 있습니다.",
         timing: buildTiming()
@@ -1978,33 +2114,23 @@ export async function registerPopbillCertificate(
 
     registrationStage = "frame-ready";
     const frameReadyStartedAt = Date.now();
-    const childFrame = page.frames().find((frame) => frame.url().includes("/App/ML4Web/Child.html"));
-    if (!childFrame) {
-      await throwIfExpiredTokenVisible(page, dialogMessages);
-      throw new Error("팝빌 인증서 선택 화면을 찾지 못했습니다.");
-    }
-
-    await childFrame.locator("#input_cert_pw").waitFor({ state: "visible", timeout: 20_000 });
+    const childFrame = await waitForPopbillCertificateSelectionFrame(page, dialogMessages);
     timing.frameReadyMs = Date.now() - frameReadyStartedAt;
     await throwIfExpiredTokenVisible(page, dialogMessages);
     registrationStage = "candidate-inspect";
     const candidateInspectStartedAt = Date.now();
-    let frameInspection = await inspectPopbillCertificateSelectionFrame(childFrame, {
-      certificateCn: resolvedCertificate.certificateCn,
-      certificateIndex: resolvedCertificate.certificateIndex,
-      serial: resolvedCertificate.serial,
-      userDN: resolvedCertificate.userDN
-    });
-    for (let attempt = 0; frameInspection.visibleMatchCount === 0 && attempt < 24; attempt += 1) {
-      await childFrame.waitForTimeout(250);
-      await throwIfExpiredTokenVisible(page, dialogMessages);
-      frameInspection = await inspectPopbillCertificateSelectionFrame(childFrame, {
+    const frameInspection = await waitForPopbillCertificateCandidate({
+      page,
+      frame: childFrame,
+      dialogMessages,
+      resolvedCertificate: {
         certificateCn: resolvedCertificate.certificateCn,
         certificateIndex: resolvedCertificate.certificateIndex,
         serial: resolvedCertificate.serial,
-        userDN: resolvedCertificate.userDN
-      });
-    }
+        userDN: resolvedCertificate.userDN,
+        targetExpireDate: resolvedCertificate.targetExpireDate
+      }
+    });
     timing.candidateInspectMs = Date.now() - candidateInspectStartedAt;
     if (frameInspection.visibleMatchCount === 0) {
       const artifact = await writePopbillDebugArtifact({
@@ -2031,14 +2157,16 @@ export async function registerPopbillCertificate(
         : await inspectPopbillCertificateSelectionDetails(childFrame, frameInspection.candidates, {
             certificateIndex: resolvedCertificate.certificateIndex,
             serial: resolvedCertificate.serial,
-            userDN: resolvedCertificate.userDN
+            userDN: resolvedCertificate.userDN,
+            targetExpireDate: resolvedCertificate.targetExpireDate
           });
     const selectedCandidate = pickPopbillCertificateCandidate({
       candidates: frameInspection.candidates,
       selectionDetailProbes,
       targetIndex: resolvedCertificate.certificateIndex,
       targetSerial: resolvedCertificate.serial,
-      targetUserDN: resolvedCertificate.userDN
+      targetUserDN: resolvedCertificate.userDN,
+      targetExpireDate: resolvedCertificate.targetExpireDate
     });
     if (!selectedCandidate.selector) {
       const debugEvidence = describePopbillCandidateEvidence(frameInspection.candidates);
@@ -2202,6 +2330,7 @@ export async function registerPopbillCertificate(
       certificateKind: resolvedCertificate.certificateKind,
       serial: resolvedCertificate.serial,
       userDN: resolvedCertificate.userDN,
+      targetExpireDate: resolvedCertificate.targetExpireDate,
       localBridgeBaseUrl,
       message: "팝빌 공동인증서 등록을 완료했습니다.",
       timing: buildTiming()

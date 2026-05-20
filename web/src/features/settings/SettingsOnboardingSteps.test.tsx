@@ -118,8 +118,7 @@ test("SettingsMailOnboardingStep keeps required-field hints and busy test button
 
   assert.ok(requiredField);
   assert.match(text, /필수 입력 사항입니다\./);
-  assert.match(text, /바꿀 때만 다시 입력하세요/);
-  assert.match(text, /이미 저장된 앱 비밀번호가 있습니다\./);
+  assert.match(text, /변경할 때만 다시 입력하세요/);
   assert.ok(testButton);
   assert.equal(testButton.props.disabled, true);
 });
@@ -183,7 +182,7 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on renewal issue p
   assert.doesNotMatch(hiddenText, /저장된 값 다시 불러오기는 필요할 때만 보기/);
 });
 
-test("SettingsHelperOnboardingStep keeps helper headline precedence and upgrade details", () => {
+test("SettingsHelperOnboardingStep keeps helper headline precedence and action state", () => {
   const readyTree = SettingsHelperOnboardingStep({
     helperReady: true,
     helperUpgradeRequired: true,
@@ -193,9 +192,6 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and upgrade 
     helperOnline: true,
     helperCheckedAt: "2026-04-15T00:00:00.000Z",
     helperCertificateCount: 3,
-    helperUpgradeMessage: "업데이트 권장",
-    helperLatestVersion: "2.0.0",
-    helperMinSupportedVersion: "1.5.0",
     busy: false,
     isReadingCertificates: false,
     onReadCertificates: noopAsync,
@@ -212,9 +208,6 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and upgrade 
     helperOnline: false,
     helperCheckedAt: null,
     helperCertificateCount: 0,
-    helperUpgradeMessage: null,
-    helperLatestVersion: null,
-    helperMinSupportedVersion: null,
     busy: true,
     isReadingCertificates: false,
     onReadCertificates: noopAsync,
@@ -236,13 +229,12 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and upgrade 
   );
 
   assert.match(collectText(readyTree), /공동인증서 확인 완료/);
-  assert.match(collectText(readyTree), /최신 버전: v\s*2\.0\.0/);
-  assert.match(collectText(readyTree), /최소 지원 버전: v\s*1\.5\.0/);
-  assert.match(collectText(readyTree), /상태 다시 확인/);
-  assert.match(collectText(readyTree), /헬퍼 다운로드/);
+  assert.doesNotMatch(collectText(readyTree), /버전 정보 보기/);
+  assert.match(collectText(readyTree), /상태 확인/);
+  assert.match(collectText(readyTree), /AT 헬퍼 다운로드/);
   assert.ok(versionMismatchButton);
   assert.equal(versionMismatchButton.props.disabled, true);
   assert.ok(offlineButton);
   assert.equal(offlineButton.props.disabled, true);
-  assert.match(String(offlineButton.props.title), /로컬 헬퍼를 실행/);
+  assert.match(String(offlineButton.props.title), /AT 헬퍼 실행 후 상태를 확인/);
 });

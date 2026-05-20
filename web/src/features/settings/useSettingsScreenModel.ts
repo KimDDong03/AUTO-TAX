@@ -81,12 +81,12 @@ export function useSettingsScreenModel(
     () =>
       props.customerRenewalAssistantUpgradeState === "upgrade-required"
         ? {
-            title: "헬퍼 재설치 필요",
+            title: "AT 헬퍼 재설치 필요",
             message: props.customerRenewalAssistantUpgradeMessage
           }
         : props.customerRenewalAssistantUpgradeState === "upgrade-available"
           ? {
-              title: "헬퍼 업데이트 권장",
+              title: "AT 헬퍼 업데이트 권장",
               message: props.customerRenewalAssistantUpgradeMessage
             }
           : null,

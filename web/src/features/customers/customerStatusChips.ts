@@ -3,6 +3,7 @@ import type {
   CustomerContractRenewalDueItem,
   CustomerContractSummary
 } from "../../types";
+import { normalizeCustomerCertificateExpireDateKey } from "../renewal/customerRenewalCertificateUtils";
 
 export type CustomerStatusChipTone = "success" | "warn" | "danger" | "default";
 
@@ -18,11 +19,10 @@ type CustomerIssueReadinessLike = {
 
 function getDaysUntilDate(value: string | null, now = new Date()): number | null {
   if (!value) return null;
-  const compact = value.replace(/\D/g, "");
-  const target =
-    compact.length === 8
-      ? new Date(Number(compact.slice(0, 4)), Number(compact.slice(4, 6)) - 1, Number(compact.slice(6, 8)))
-      : new Date(value);
+  const expireDateKey = normalizeCustomerCertificateExpireDateKey(value);
+  if (!expireDateKey) return null;
+  const [year, month, day] = expireDateKey.split("-").map(Number);
+  const target = new Date(year ?? 0, (month ?? 1) - 1, day ?? 1);
 
   if (Number.isNaN(target.getTime())) {
     return null;

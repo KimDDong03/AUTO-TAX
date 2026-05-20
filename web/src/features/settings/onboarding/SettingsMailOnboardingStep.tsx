@@ -147,7 +147,7 @@ export function SettingsMailOnboardingStep({
             {renderOnboardingRequiredHint("onboarding-mail-password-hint", {
               missing: onboarding.password.missing,
               defaultText: mailPasswordConfigured
-                ? "이미 저장된 앱 비밀번호가 있습니다. 바꿀 때만 다시 입력하세요. 테스트 시 빈칸이면 저장된 값을 사용합니다."
+                ? "변경할 때만 다시 입력하세요."
                 : "위 메일 주소로 로그인할 때 쓰는 앱 비밀번호입니다."
             })}
           </label>

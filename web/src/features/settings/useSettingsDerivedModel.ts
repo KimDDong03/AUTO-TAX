@@ -116,7 +116,7 @@ export function getSettingsSectionLabel(section: SettingsSectionId): string {
     case "popbill":
       return "발행 설정";
     case "helper":
-      return "로컬 헬퍼";
+      return "AT 헬퍼";
     case "account":
     default:
       return "계정 설정";
@@ -181,15 +181,15 @@ export function buildSettingsOnboardingModel({
     normalizeRenewalIssuePasswordInput(fields.renewalIssuePassword).length === 0 &&
     !configured.renewalIssuePasswordConfigured;
   const onboardingHelperStatusLine = helper.ready
-    ? helper.online && helper.certificateCount > 0
-      ? `인증서 ${helper.certificateCount}건 읽음`
-      : "이 PC에서 로컬 헬퍼 준비를 완료했습니다."
+    ? helper.online
+      ? "AT 헬퍼 연결됨"
+      : "준비 완료"
     : helper.upgradeState === "upgrade-required"
-      ? helper.actionBlockedReason
-      : helper.upgradeState === "upgrade-available" && helper.upgradeMessage
-        ? helper.upgradeMessage
+      ? "업데이트 필요"
+      : helper.upgradeState === "upgrade-available"
+        ? "업데이트 필요"
         : helper.online
-          ? "헬퍼 연결됨"
+          ? "연결됨"
           : "상태 미확인";
 
   return {
@@ -198,7 +198,7 @@ export function buildSettingsOnboardingModel({
     helperStatusLine: onboardingHelperStatusLine,
     firstSyncBlockedSteps: [
       !settingsHealth.mailReady ? "운영팀 메일 설정" : null,
-      !helper.ready ? "로컬 헬퍼 준비" : null,
+      !helper.ready ? "AT 헬퍼 준비" : null,
       !progress.customerRegistrationReady ? "고객 초기 등록" : null,
       !progress.certificateReady ? "인증서 연결 마무리" : null
     ].filter((value): value is string => Boolean(value)),

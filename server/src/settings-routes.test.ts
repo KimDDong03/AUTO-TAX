@@ -123,7 +123,7 @@ test("stored server-managed password reveal endpoints are blocked and never retu
     const certificateResponse = await fetch(`${baseUrl}/api/settings/renewal-certificate-password`);
     assert.equal(certificateResponse.status, 410);
     assert.deepEqual(await certificateResponse.json(), {
-      error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 로컬 헬퍼에서 다시 입력하세요."
+      error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 AT 헬퍼에서 다시 입력하세요."
     });
 
     assert.deepEqual(

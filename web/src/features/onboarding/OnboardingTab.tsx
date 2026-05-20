@@ -1,5 +1,7 @@
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 type OnboardingStepTone = "default" | "muted";
 
@@ -22,14 +24,14 @@ type OnboardingTabProps = {
 
 function getOnboardingStepStatusMeta(options: { done: boolean; isRecommended: boolean }) {
   if (options.done) {
-    return { label: "완료", chipClassName: "chip chip-success" };
+    return { label: "완료", variant: "secondary" as const };
   }
 
   if (options.isRecommended) {
-    return { label: "지금", chipClassName: "chip chip-warn" };
+    return { label: "지금", variant: "default" as const };
   }
 
-  return { label: "대기", chipClassName: "chip" };
+  return { label: "대기", variant: "outline" as const };
 }
 
 export function OnboardingTab(props: OnboardingTabProps) {
@@ -94,8 +96,10 @@ export function OnboardingTab(props: OnboardingTabProps) {
           <header className="onboarding-active-step-head">
             <div className="onboarding-active-step-copy">
               <div className="onboarding-active-step-meta">
-                <span className="onboarding-active-progress">{progressText}</span>
-                <span className={activeStepStatusMeta?.chipClassName ?? "chip"}>{activeStepStatusMeta?.label ?? "대기"}</span>
+                <Badge variant="outline" className="onboarding-active-progress">{progressText}</Badge>
+                <Badge variant={activeStepStatusMeta?.variant ?? "outline"}>
+                  {activeStepStatusMeta?.label ?? "대기"}
+                </Badge>
               </div>
               <div className="onboarding-active-step-title-row">
                 <span className="onboarding-active-step-order">0{activeStep.step}</span>
@@ -127,9 +131,10 @@ export function OnboardingTab(props: OnboardingTabProps) {
               isRecommended
             });
             return (
-              <button
+              <Button
                 key={step.id}
                 type="button"
+                variant={isActive ? "secondary" : "ghost"}
                 role="tab"
                 aria-selected={isActive}
                 className={[
@@ -147,8 +152,8 @@ export function OnboardingTab(props: OnboardingTabProps) {
                   <strong>{step.title}</strong>
                   <span className="onboarding-step-chip-summary">{step.summary}</span>
                 </span>
-                <span className={statusMeta.chipClassName}>{statusMeta.label}</span>
-              </button>
+                <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
+              </Button>
             );
           })}
         </div>

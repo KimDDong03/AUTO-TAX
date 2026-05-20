@@ -1234,9 +1234,9 @@ export function CustomersTab(props: CustomersTabProps) {
   const customerCertificateHelperMessage = !props.canUseCustomerRenewalAssistant
     ? "편집 권한이 있는 사용자만 공동인증서 작업을 실행할 수 있습니다."
     : customerCertificateHelperVersionMismatch
-      ? props.customerRenewalAssistantUpgradeMessage || "로컬 헬퍼를 업데이트한 뒤 다시 시도하세요."
+      ? props.customerRenewalAssistantUpgradeMessage || "AT 헬퍼를 업데이트한 뒤 다시 시도하세요."
       : !props.customerRenewalAssistantOnline
-        ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 로컬 헬퍼를 실행하세요."
+        ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 AT 헬퍼를 실행하세요."
         : "";
   const unlinkedCustomerCertificateItems = props.customerCertificateItems.filter(
     (item) =>
@@ -1416,7 +1416,7 @@ export function CustomersTab(props: CustomersTabProps) {
                 <span>{customerCertificateHelperMessage}</span>
                 {customerCertificateHelperVersionMismatch || !props.customerRenewalAssistantOnline ? (
                   <button type="button" className="btn-secondary" onClick={() => window.location.assign(props.renewalHelperDownloadUrl)}>
-                    헬퍼 다운로드
+                    AT 헬퍼 다운로드
                   </button>
                 ) : null}
               </div>
@@ -2472,7 +2472,7 @@ export function CustomersTab(props: CustomersTabProps) {
         <div className="customer-detail-section-head">
           <div>
             <h3>전자세금용 공동인증서 선택</h3>
-            <p>PC에 있는 인증서를 찾거나 NPKI 파일/폴더를 로컬 헬퍼로만 보냅니다.</p>
+            <p>PC에 있는 인증서를 찾거나 NPKI 파일/폴더를 AT 헬퍼로만 보냅니다.</p>
           </div>
         </div>
         <div className="customer-onestop-source-actions">

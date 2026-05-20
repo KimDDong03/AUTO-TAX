@@ -103,6 +103,45 @@ test("pickPopbillCertificateCandidate keeps the safe failure when duplicate CN c
   });
 });
 
+test("pickPopbillCertificateCandidate resolves duplicate CN rows with a unique selected expire date", () => {
+  const result = pickPopbillCertificateCandidate({
+    targetExpireDate: "2027-01-28T00:00:00.000Z",
+    candidates: [
+      createCandidate({ selector: "body > tr:nth-of-type(1)" }),
+      createCandidate({ selector: "body > tr:nth-of-type(2)" })
+    ],
+    selectionDetailProbes: [
+      createSelectionDetailProbe({
+        selector: "body > tr:nth-of-type(1)",
+        matchedIdentifiers: [],
+        evidence: ["[class*='selected']:text:[OID_1_2_410_200004_5_2_1_6_257] signGATE CA6 2026-01-22"]
+      }),
+      createSelectionDetailProbe({
+        selector: "body > tr:nth-of-type(2)",
+        matchedIdentifiers: ["targetExpireDate"],
+        evidence: ["[class*='selected']:text:[OID_1_2_410_200004_5_2_1_6_257] signGATE CA6 2027-01-28"]
+      })
+    ]
+  });
+
+  assert.deepEqual(result, {
+    selector: "body > tr:nth-of-type(2)",
+    reason: "iframe selection detail matched expire date"
+  });
+});
+
+test("matchPopbillCandidateIdentifiers ignores whole-dialog active text for expire date matching", () => {
+  const matchedIdentifiers = matchPopbillCandidateIdentifiers({
+    targetExpireDate: "2027-01-28",
+    evidenceValues: [
+      "[class*='selected']:text:[OID_1_2_410_200004_5_2_1_6_257] signGATE CA6 2026-01-22",
+      "active:text:다른 인증서 2026-01-22 대상 인증서 2027-01-28"
+    ]
+  });
+
+  assert.deepEqual(matchedIdentifiers, []);
+});
+
 test("pickPopbillCertificateCandidate can recover from duplicate CN rows when selection details expose a unique serial match", () => {
   const result = pickPopbillCertificateCandidate({
     targetSerial: "SERIAL-KEEP",

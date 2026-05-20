@@ -6,7 +6,10 @@ import {
   buildIssueCompleteMessageContent,
   getTaxCertURL,
   issueTaxInvoice,
+  isPopbillCertificateMissingError,
   joinMember,
+  normalizeCertificateExpireDate,
+  PopbillApiError,
   quitMember,
   sendIssueCompleteMessage
 } from "./popbill-client.js";
@@ -222,6 +225,41 @@ test("issue complete message can use a customer-specific template", () => {
   );
 
   assert.equal(content, "[Green Farm] Plant A 123,456원 / AUTO SOLAR");
+});
+
+test("normalizeCertificateExpireDate accepts compact Popbill date values", () => {
+  assert.equal(normalizeCertificateExpireDate("20261105000000"), "2026-11-05");
+  assert.equal(normalizeCertificateExpireDate("2026.11.5 09:00:00"), "2026-11-05");
+});
+
+test("normalizeCertificateExpireDate accepts Popbill slash date values before compact fallback", () => {
+  assert.equal(normalizeCertificateExpireDate("12/4/2026 9:00:00 AM"), "2026-12-04");
+  assert.equal(normalizeCertificateExpireDate("4/18/2027 9:00:00 AM"), "2027-04-18");
+  assert.equal(normalizeCertificateExpireDate("1/15/2027 9:00:00 AM"), "2027-01-15");
+});
+
+test("normalizeCertificateExpireDate recovers compact single-digit day plus hour values", () => {
+  assert.equal(normalizeCertificateExpireDate("202611590000"), "2026-11-05");
+  assert.equal(normalizeCertificateExpireDate("202711590000"), "2027-11-05");
+});
+
+test("isPopbillCertificateMissingError detects missing certificate status only", () => {
+  assert.equal(
+    isPopbillCertificateMissingError(
+      new PopbillApiError("cert-expire-date", "-99999999", "등록된 공동인증서가 없습니다.")
+    ),
+    true
+  );
+  assert.equal(
+    isPopbillCertificateMissingError(
+      new PopbillApiError("cert-expire-date", "-99003008", "연동회원으로 가입된 사업자 번호가 존재하지 않습니다.")
+    ),
+    false
+  );
+  assert.equal(
+    isPopbillCertificateMissingError(new PopbillApiError("join-member", "-99999999", "등록된 공동인증서가 없습니다.")),
+    false
+  );
 });
 
 test("joinMember requires explicit Popbill contact environment values", async () => {

@@ -78,7 +78,7 @@ export function evaluateLocalRenewalHelperUpgrade(
       latestVersion,
       minSupportedVersion,
       upgradeState: "upgrade-required",
-      upgradeMessage: `실행 중인 로컬 헬퍼 v${helperVersion}는 더 이상 지원되지 않습니다. 최신 v${latestVersion}을 다시 설치하세요.`
+      upgradeMessage: "업데이트 필요"
     };
   }
 
@@ -87,7 +87,7 @@ export function evaluateLocalRenewalHelperUpgrade(
       latestVersion,
       minSupportedVersion,
       upgradeState: "upgrade-available",
-      upgradeMessage: `새 로컬 헬퍼 v${latestVersion}이 있습니다. 현재 버전은 v${helperVersion}입니다.`
+      upgradeMessage: "업데이트 필요"
     };
   }
 

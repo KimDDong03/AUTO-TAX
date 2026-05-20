@@ -201,6 +201,32 @@ export function isPopbillMemberMissingError(error: unknown): boolean {
   );
 }
 
+export function isPopbillCertificateMissingError(error: unknown): boolean {
+  if (!(error instanceof PopbillApiError) || error.operation !== "cert-expire-date" || error.status !== 409) {
+    return false;
+  }
+
+  if (isPopbillMemberMissingError(error)) {
+    return false;
+  }
+
+  const normalizedRawMessage = error.rawMessage.replace(/\s+/g, "").toLowerCase();
+  const mentionsCertificate =
+    normalizedRawMessage.includes("공동인증서") ||
+    normalizedRawMessage.includes("인증서") ||
+    normalizedRawMessage.includes("certificate") ||
+    normalizedRawMessage.includes("cert");
+  const mentionsMissing =
+    normalizedRawMessage.includes("등록") ||
+    normalizedRawMessage.includes("없") ||
+    normalizedRawMessage.includes("존재") ||
+    normalizedRawMessage.includes("not") ||
+    normalizedRawMessage.includes("missing") ||
+    normalizedRawMessage.includes("no");
+
+  return mentionsCertificate && mentionsMissing;
+}
+
 function isPopbillContactUserIdMismatchError(error: unknown): boolean {
   return (
     error instanceof PopbillApiError &&
@@ -319,17 +345,68 @@ function parsePointValue(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeCertificateExpireDate(value: string): string {
+function buildNormalizedCertificateDate(year: string, month: string, day: string): string | null {
+  const numericYear = Number(year);
+  const numericMonth = Number(month);
+  const numericDay = Number(day);
+  if (
+    !Number.isInteger(numericYear) ||
+    !Number.isInteger(numericMonth) ||
+    !Number.isInteger(numericDay) ||
+    numericMonth < 1 ||
+    numericMonth > 12 ||
+    numericDay < 1 ||
+    numericDay > 31
+  ) {
+    return null;
+  }
+
+  const parsed = new Date(Date.UTC(numericYear, numericMonth - 1, numericDay));
+  if (
+    parsed.getUTCFullYear() !== numericYear ||
+    parsed.getUTCMonth() + 1 !== numericMonth ||
+    parsed.getUTCDate() !== numericDay
+  ) {
+    return null;
+  }
+
+  return `${year.padStart(4, "0")}-${String(numericMonth).padStart(2, "0")}-${String(numericDay).padStart(2, "0")}`;
+}
+
+export function normalizeCertificateExpireDate(value: string): string {
   const trimmed = value.trim();
   const match = trimmed.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
   if (match) {
     const [, year, month, day] = match;
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    const normalized = buildNormalizedCertificateDate(year, month, day);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  const slashDateMatch = trimmed.match(/(\d{1,2})\D+(\d{1,2})\D+(20\d{2})/);
+  if (slashDateMatch) {
+    const [, month, day, year] = slashDateMatch;
+    const normalized = buildNormalizedCertificateDate(year, month, day);
+    if (normalized) {
+      return normalized;
+    }
   }
 
   const compact = trimmed.replace(/\D/g, "");
   if (compact.length >= 8) {
-    return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+    const standard = buildNormalizedCertificateDate(compact.slice(0, 4), compact.slice(4, 6), compact.slice(6, 8));
+    if (standard) {
+      return standard;
+    }
+  }
+
+  const compactStandardDay = Number(compact.slice(6, 8));
+  if (compact.length >= 7 && compactStandardDay > 31) {
+    const singleDigitDay = buildNormalizedCertificateDate(compact.slice(0, 4), compact.slice(4, 6), compact.slice(6, 7));
+    if (singleDigitDay) {
+      return singleDigitDay;
+    }
   }
 
   const parsed = new Date(trimmed);

@@ -16,6 +16,10 @@ export type CustomerOnboardingResolutionResult = {
   resolvedCertificateCount: number;
   skippedCertificateCount: number;
   acceptedBeforeWindowCount: number;
+  passwordFailureEntries: Array<{
+    key: string;
+    label: string;
+  }>;
   errors: string[];
 };
 
@@ -50,6 +54,7 @@ type ResolveElectronicTaxOnboardingTemplateWorkbookArgs = {
   templateWorkbook: CustomerOnboardingTemplateWorkbookInput;
   loadAvailableCertificates: () => Promise<RenewalAgentCertificate[]>;
   resolveSharedPassword: () => Promise<string>;
+  certificatePasswordOverrides?: Record<string, string>;
   requestPreflight: (payload: OnboardingPreflightPayload) => Promise<OnboardingPreflightResponse>;
   requestPreflightBatch?: (
     payloads: OnboardingPreflightPayload[],
@@ -118,8 +123,32 @@ function normalizeRenewalCertificateExpireDate(value: string | null | undefined)
     return null;
   }
 
-  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match ? match[1] ?? null : null;
+  const compactMatch = text.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (compactMatch) {
+    return `${compactMatch[1]}-${compactMatch[2]}-${compactMatch[3]}`;
+  }
+
+  const separatedMatch = text.match(/^(\d{4})[-./\s]+(\d{1,2})[-./\s]+(\d{1,2})/);
+  if (separatedMatch) {
+    const month = separatedMatch[2]?.padStart(2, "0") ?? "01";
+    const day = separatedMatch[3]?.padStart(2, "0") ?? "01";
+    return `${separatedMatch[1]}-${month}-${day}`;
+  }
+
+  const timestamp = new Date(text).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  const parsedDate = new Date(timestamp);
+  const year = parsedDate.getFullYear();
+  const month = `${parsedDate.getMonth() + 1}`.padStart(2, "0");
+  const day = `${parsedDate.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getRenewalAgentCertificateExpireDate(certificate: RenewalAgentCertificate): string | null {
+  return normalizeRenewalCertificateExpireDate(certificate.todate || certificate.detailValidateTo || null);
 }
 
 function getTodayDateKey(): string {
@@ -276,6 +305,18 @@ function getCustomerOnboardingTemplateCertificateLabel(row: {
   return row.certificateName.trim() || (row.certificateIndex.trim() ? `인증서 #${row.certificateIndex.trim()}` : "인증서");
 }
 
+function getCustomerOnboardingTemplateCertificateOverrideKey(row: {
+  certificateIndex: string;
+  certificateName: string;
+}) {
+  const normalizedIndex = row.certificateIndex.trim();
+  if (normalizedIndex) {
+    return `index:${normalizedIndex}`;
+  }
+
+  return `name:${normalizeRenewalCertificateKey(row.certificateName)}`;
+}
+
 function findMatchingRenewalCertificateFromList(
   certificates: RenewalAgentCertificate[],
   selection: {
@@ -344,6 +385,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
   const sharedPassword = await args.resolveSharedPassword();
   const availableCertificates = await args.loadAvailableCertificates();
   const errors: string[] = [];
+  const passwordFailureEntries: Array<{ key: string; label: string }> = [];
   let acceptedBeforeWindowCount = 0;
   const customersByBusinessNumber = new Map<
     string,
@@ -462,6 +504,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     certificateIndex: string;
     certificateName: string;
     certificateLabel: string;
+    certificateOverrideKey: string;
     matchedCertificate: RenewalAgentCertificate;
     effectivePassword: string;
     plantRows: CustomerOnboardingTemplateWorkbookInput["plants"];
@@ -470,6 +513,10 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
 
   for (const plantGroup of plantCertificateGroups) {
     const certificateLabel = getCustomerOnboardingTemplateCertificateLabel({
+      certificateIndex: plantGroup.certificateIndex,
+      certificateName: plantGroup.certificateName
+    });
+    const certificateOverrideKey = getCustomerOnboardingTemplateCertificateOverrideKey({
       certificateIndex: plantGroup.certificateIndex,
       certificateName: plantGroup.certificateName
     });
@@ -486,7 +533,8 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       continue;
     }
 
-    if (isCustomerCertificateExpired(matchedCertificate.todate || matchedCertificate.detailValidateTo || null)) {
+    const matchedCertificateExpireDate = getRenewalAgentCertificateExpireDate(matchedCertificate);
+    if (isCustomerCertificateExpired(matchedCertificateExpireDate)) {
       errors.push(
         `발전소 시트 (${certificateLabel}): 만료된 전자세금용 공동인증서는 고객 등록과 발행 연동 준비에 사용할 수 없습니다. 갱신 후 다시 불러와 주세요.`
       );
@@ -503,7 +551,10 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       continue;
     }
 
-    const enteredPlantPassword = explicitPlantPasswords[0] ?? "";
+    const enteredPlantPassword =
+      args.certificatePasswordOverrides?.[certificateOverrideKey]?.trim() ||
+      explicitPlantPasswords[0] ||
+      "";
     const effectivePassword = enteredPlantPassword || sharedPassword;
     if (!effectivePassword) {
       errors.push(
@@ -518,6 +569,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       certificateIndex: plantGroup.certificateIndex,
       certificateName: plantGroup.certificateName,
       certificateLabel,
+      certificateOverrideKey,
       matchedCertificate,
       effectivePassword,
       plantRows: plantGroup.plantRows,
@@ -638,7 +690,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     electronicTaxSelections,
     args.requestPreflightBatch ? Number.MAX_SAFE_INTEGER : onboardingPreflightConcurrency,
     async (selection) => {
-      const { matchedCertificate, certificateLabel } = selection;
+      const { matchedCertificate, certificateLabel, certificateOverrideKey } = selection;
       if (matchedCertificate.supportsPreflight === false) {
         return {
           ok: false as const,
@@ -648,9 +700,15 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       const response = await requestSelectionPreflight(selection, !args.requestPreflightBatch);
       const preflightProbe = response.result.bridge.preflightProbe;
       const decision = classifyOnboardingPreflightImportDecision(preflightProbe, {
-        certificateExpireDate: matchedCertificate.todate || matchedCertificate.detailValidateTo || null
+        certificateExpireDate: getRenewalAgentCertificateExpireDate(matchedCertificate)
       });
       if (!decision.canImport) {
+        if (decision.failureMessage.includes("비밀번호")) {
+          passwordFailureEntries.push({
+            key: certificateOverrideKey,
+            label: certificateLabel
+          });
+        }
         return {
           ok: false as const,
           message: `발전소 시트 (${certificateLabel}): ${decision.failureMessage}`
@@ -726,6 +784,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       issuerName: result.matchedCertificate.issuerToName.trim(),
       serial: result.matchedCertificate.serial?.trim() || "",
       userDN: result.matchedCertificate.userDN?.trim() || "",
+      expireDate: getRenewalAgentCertificateExpireDate(result.matchedCertificate),
       certificatePassword: result.selection.certificatePassword,
       isPrimary: entry.certificateRows.length === 0
     });
@@ -777,6 +836,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     resolvedCertificateCount,
     skippedCertificateCount,
     acceptedBeforeWindowCount,
+    passwordFailureEntries,
     errors
   };
 }

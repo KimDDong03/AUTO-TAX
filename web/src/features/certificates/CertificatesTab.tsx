@@ -133,12 +133,12 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
   const helperUpgradeNotice =
     props.customerRenewalAssistantUpgradeState === "upgrade-required"
       ? {
-          title: "헬퍼 재설치 필요",
+          title: "AT 헬퍼 재설치 필요",
           message: props.customerRenewalAssistantUpgradeMessage
         }
       : props.customerRenewalAssistantUpgradeState === "upgrade-available"
         ? {
-            title: "헬퍼 업데이트 권장",
+            title: "AT 헬퍼 업데이트 권장",
             message: props.customerRenewalAssistantUpgradeMessage
           }
         : null;
@@ -381,11 +381,11 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
     "expiring_30"
   ];
   const certificateStatusLead = helperUpgradeRequired
-    ? "로컬 헬퍼 재설치 필요"
+    ? "AT 헬퍼 재설치 필요"
     : helperVersionMismatch
-      ? "로컬 헬퍼 업데이트 필요"
+      ? "AT 헬퍼 업데이트 필요"
     : !props.customerRenewalAssistantOnline
-      ? "로컬 헬퍼 필요"
+      ? "AT 헬퍼 필요"
       : actionNeededCustomerCount > 0
         ? `조치 필요 고객 ${actionNeededCustomerCount}명`
         : props.customerRenewalLoadedCertificateCount === 0
@@ -394,11 +394,11 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
             ? "고객 연결 후 계속 관리"
             : "지금 막힘 없음";
   const certificateStatusBody = helperUpgradeRequired
-    ? props.customerRenewalAssistantUpgradeMessage || "새 로컬 헬퍼를 다시 설치한 뒤 상태를 다시 확인하세요."
+    ? props.customerRenewalAssistantUpgradeMessage || "새 AT 헬퍼를 다시 설치한 뒤 상태를 다시 확인하세요."
     : helperVersionMismatch
-      ? props.customerRenewalAssistantUpgradeMessage || "새 로컬 헬퍼를 설치한 뒤 상태를 다시 확인하세요."
+      ? props.customerRenewalAssistantUpgradeMessage || "새 AT 헬퍼를 설치한 뒤 상태를 다시 확인하세요."
     : !props.customerRenewalAssistantOnline
-      ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 헬퍼를 실행하세요."
+      ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 AT 헬퍼를 실행하세요."
       : actionNeededCustomerCount > 0
         ? "기본 보기는 조치 필요 고객 우선입니다."
         : props.customerRenewalLoadedCertificateCount === 0
@@ -692,8 +692,8 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
   const unlinkedTableEmptyState = (() => {
     if (!props.customerRenewalAssistantOnline) {
       return {
-        title: "먼저 로컬 헬퍼 연결을 확인하세요.",
-        body: "헬퍼가 켜져 있어야 미연결 공동인증서 목록도 읽어 올 수 있습니다.",
+        title: "먼저 AT 헬퍼 연결을 확인하세요.",
+        body: "AT 헬퍼가 켜져 있어야 미연결 공동인증서 목록도 읽어 올 수 있습니다.",
         tone: "info" as const
       };
     }
@@ -886,7 +886,7 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
           <strong>{helperUpgradeNotice?.title ?? certificateStatusLead}</strong>
           <span>{helperUpgradeNotice?.message ?? certificateStatusBody}</span>
           <button className="btn-secondary" type="button" onClick={() => window.location.assign(props.renewalHelperDownloadUrl)}>
-            헬퍼 다운로드
+            AT 헬퍼 다운로드
           </button>
         </section>
       ) : null}

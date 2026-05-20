@@ -35,7 +35,7 @@ export function SettingsHelperStatusCard({
               window.location.assign(helperStatus.renewalHelperDownloadUrl)
             }
           >
-            헬퍼 다운로드
+            AT 헬퍼 다운로드
           </button>
           {showRefreshAction ? (
             <button
@@ -46,7 +46,7 @@ export function SettingsHelperStatusCard({
                 void helperStatus.onRefreshCustomerRenewalAssistant()
               }
             >
-              {isRefreshingHelper ? "확인 중..." : "상태 다시 확인"}
+              {isRefreshingHelper ? "확인 중..." : "상태 확인"}
             </button>
           ) : null}
           <button type="button" onClick={helperStatus.openCertificates}>
@@ -57,7 +57,7 @@ export function SettingsHelperStatusCard({
       <span>상태: {helperStatus.helperMessage}</span>
       {isReadingCertificates ? (
         <span className="settings-helper-progress">
-          공동인증서를 읽는 중입니다. 잠시만 기다려 주세요.
+          공동인증서 읽는 중...
         </span>
       ) : null}
       {helperStatus.upgradeNotice ? (
@@ -73,7 +73,7 @@ export function SettingsHelperStatusCard({
         </div>
       ) : null}
       <span>마지막 확인: {helperStatus.formatDateTime(helperStatus.checkedAt)}</span>
-      <span>읽은 공동인증서: {certificateCountText}</span>
+      <span>전자세금용 공동인증서: {certificateCountText}</span>
     </div>
   );
 }

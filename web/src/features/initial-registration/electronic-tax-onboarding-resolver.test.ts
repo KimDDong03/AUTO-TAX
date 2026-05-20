@@ -107,6 +107,7 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook groups plant rows and prese
     issuerName: "테스트 기관",
     serial: "SERIAL-001",
     userDN: "USER-DN-001",
+    expireDate: "2099-12-31",
     certificatePassword: "shared-secret",
     isPrimary: true
   });

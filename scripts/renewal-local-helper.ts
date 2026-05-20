@@ -8,6 +8,7 @@ import { collectBridgeCertificateList, collectBridgeProbeResult, prepareRenewPay
 import {
   getPopbillChooserDebugReadiness,
   getPopbillDebugArtifactSupport,
+  PopbillCertificateRegistrationError,
   registerPopbillCertificate
 } from "./popbill-cert-registration.ts";
 import { openSignGateRenewPaymentWindow } from "./signgate-fee-payment.ts";
@@ -198,6 +199,7 @@ const popbillCertificateRegistrationSchema = z.object({
   certificateKind: z.literal("electronic_tax").default("electronic_tax"),
   serial: z.string().trim().nullable().optional(),
   userDN: z.string().trim().nullable().optional(),
+  targetExpireDate: z.string().trim().nullable().optional(),
   certificatePassword: z.string().trim().min(1)
 });
 
@@ -702,6 +704,16 @@ export function createRenewalLocalHelperApp() {
       const result = await registerPopbillCertificate(payload);
       res.json({ ok: true, version, result });
     } catch (error) {
+      if (error instanceof PopbillCertificateRegistrationError) {
+        res.json({
+          ok: false,
+          version,
+          error: sanitizeSensitiveText(error.message),
+          stage: error.stage,
+          timing: error.timing
+        });
+        return;
+      }
       next(error);
     }
   });

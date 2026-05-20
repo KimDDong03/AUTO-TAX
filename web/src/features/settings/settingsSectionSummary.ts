@@ -58,7 +58,7 @@ export function buildSettingsSectionSummary({
     {
       id: "helper",
       step: 4,
-      title: "로컬 헬퍼",
+      title: "AT 헬퍼",
       done: helperReady,
       summary: helperReady
         ? customerRenewalAssistantOnline && helperCertificateCount > 0
@@ -69,8 +69,8 @@ export function buildSettingsSectionSummary({
           : customerRenewalAssistantOnline
             ? customerRenewalAssistantUpgradeState === "upgrade-available"
               ? "업데이트 권장"
-              : "헬퍼 연결됨 · 읽기 확인"
-            : "헬퍼 준비 필요"
+              : "AT 헬퍼 연결됨 · 읽기 확인"
+            : "AT 헬퍼 준비 필요"
     },
     {
       id: "account",

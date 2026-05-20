@@ -177,13 +177,15 @@ npm run renewal-helper:uninstall
 Packaging output:
 
 - `dist/renewal-local-helper/`
+- `dist/renewal-local-helper.exe`
 - `dist/renewal-local-helper.zip`
+- `web/public/downloads/renewal-local-helper.exe`
 - `web/public/downloads/renewal-local-helper.zip`
 
 Download path defaults:
 
-- Vercel/public: `/downloads/renewal-local-helper.zip`
-- local/self-hosted server: `/downloads/renewal-local-helper.zip`
+- Vercel/public: `/downloads/renewal-local-helper.exe`
+- local/self-hosted server: `/downloads/renewal-local-helper.exe`
 
 Override locations with:
 

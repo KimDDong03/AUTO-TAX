@@ -74,7 +74,8 @@
   --color-control-selected-mark: #ffffff;
   --size-checkbox: 16px;
   --radius-checkbox: 4px;
-  font-family: "Pretendard Variable", "Pretendard", "Segoe UI Variable Text", "Segoe UI", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  --app-font-family: "Pretendard Variable", "Pretendard", sans-serif;
+  font-family: var(--app-font-family);
   line-height: 1.5;
   font-weight: 400;
   color: var(--text);
@@ -33626,6 +33627,15 @@ button.issuance-list-item {
   word-break: keep-all !important;
 }
 
+.app-shell-topnav .content-settings .onboarding-inline-status > div {
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: start !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-inline-status .glyph {
+  grid-row: auto !important;
+}
+
 .app-shell-topnav .content-settings .button-row.onboarding-primary-row {
   gap: var(--settings-gap-sm) !important;
   align-items: center !important;
@@ -33660,6 +33670,17 @@ button.issuance-list-item {
   gap: var(--settings-gap-md) !important;
   min-height: var(--settings-stage-row-height) !important;
   padding: var(--settings-card-pad-block) var(--settings-card-pad-inline) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-stage-item:has(.onboarding-stage-action) {
+  grid-template-columns: var(--settings-step-order-size) minmax(0, 1fr) auto !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-stage-action {
+  grid-column: 3 !important;
+  align-self: center !important;
+  justify-self: end !important;
+  white-space: nowrap !important;
 }
 
 .app-shell-topnav .content-settings .onboarding-stage-number {
@@ -34722,4 +34743,765 @@ button.issuance-list-item {
     overflow-y: auto !important;
     scrollbar-gutter: stable;
   }
+}
+/* shadcn refresh: remove repetitive left-accent patterns and let role-specific components carry state. */
+.initial-status-notice,
+.onboarding-stage-item,
+.app-shell-topnav .content-settings .onboarding-stage-item,
+.settings-step-card,
+.app-shell-topnav .settings-sidebar-panel .settings-step-card,
+.app-shell-topnav .settings-step-card,
+.context-empty-state,
+.issuance-empty-state {
+  border-left-width: 1px !important;
+  box-shadow: none !important;
+}
+
+.initial-status-notice {
+  grid-template-columns: auto 1fr;
+  align-items: flex-start;
+  gap: 10px;
+  border-color: #dbe3ee !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+}
+
+.initial-status-notice-info,
+.initial-status-notice-progress,
+.initial-status-notice-success,
+.initial-status-notice-warn,
+.initial-status-notice-danger {
+  background: #ffffff !important;
+}
+
+.initial-status-notice .glyph {
+  border: 1px solid #dbe3ee !important;
+  background: #f8fafc !important;
+  color: #2563eb !important;
+}
+
+.initial-status-notice-success .glyph {
+  color: #15803d !important;
+}
+
+.initial-status-notice-warn .glyph {
+  color: #b45309 !important;
+}
+
+.initial-status-notice-danger .glyph {
+  color: #b91c1c !important;
+}
+
+.settings-readiness-card,
+.settings-sidebar-panel,
+.panel {
+  border-radius: 8px !important;
+  border-color: #dbe3ee !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.settings-option1-progress-track {
+  height: 6px !important;
+  border: 0 !important;
+  background: #e8eef7 !important;
+}
+
+.settings-step-card,
+.app-shell-topnav .settings-sidebar-panel .settings-step-card,
+.app-shell-topnav .settings-step-card {
+  min-height: 38px;
+  justify-content: space-between;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #334155 !important;
+}
+
+.settings-step-card:hover,
+.app-shell-topnav .settings-sidebar-panel .settings-step-card:hover,
+.app-shell-topnav .settings-step-card:hover {
+  border-color: #dbe3ee !important;
+  background: #f8fafc !important;
+}
+
+.settings-step-card.active,
+.app-shell-topnav .settings-sidebar-panel .settings-step-card.active,
+.app-shell-topnav .settings-step-card.active {
+  border-color: #bfdbfe !important;
+  background: #eff6ff !important;
+  color: #0f172a !important;
+}
+
+.settings-option1-nav-state {
+  height: 22px !important;
+  border-radius: 999px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+}
+
+.onboarding-stage-list,
+.app-shell-topnav .content-settings .onboarding-stage-list,
+.onboarding-modal .onboarding-stage-list,
+.app-shell-topnav .onboarding-modal .onboarding-stage-list {
+  gap: 8px !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.onboarding-stage-item,
+.app-shell-topnav .content-settings .onboarding-stage-item,
+.onboarding-modal .onboarding-stage-item,
+.app-shell-topnav .onboarding-modal .onboarding-stage-item {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+}
+
+.onboarding-stage-item.is-current,
+.app-shell-topnav .content-settings .onboarding-stage-item.is-current,
+.onboarding-modal .onboarding-stage-item.is-current,
+.app-shell-topnav .onboarding-modal .onboarding-stage-item.is-current,
+.onboarding-stage-item.is-selected {
+  border-color: #bfdbfe !important;
+  background: #f8fbff !important;
+}
+
+.onboarding-stage-item.is-complete,
+.app-shell-topnav .content-settings .onboarding-stage-item.is-complete,
+.onboarding-modal .onboarding-stage-item.is-complete,
+.app-shell-topnav .onboarding-modal .onboarding-stage-item.is-complete {
+  border-color: #bbf7d0 !important;
+  background: #fbfffc !important;
+}
+
+.onboarding-stage-number,
+.app-shell-topnav .content-settings .onboarding-stage-number,
+.onboarding-modal .onboarding-stage-number {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 6px !important;
+  border: 1px solid #dbe3ee !important;
+  background: #ffffff !important;
+  color: #334155 !important;
+  font-size: 12px !important;
+}
+
+.onboarding-stage-item.is-current .onboarding-stage-number,
+.onboarding-stage-item.is-selected .onboarding-stage-number {
+  border-color: #2563eb !important;
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.onboarding-stage-item.is-complete .onboarding-stage-number {
+  border-color: #16a34a !important;
+  background: #16a34a !important;
+  color: #ffffff !important;
+}
+
+.initial-step-badge {
+  height: 22px !important;
+  border-radius: 999px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+}
+
+.onboarding-stage-action {
+  height: 30px !important;
+  border-radius: 6px !important;
+}
+
+.context-empty-state,
+.issuance-empty-state,
+.customer-table-empty,
+.app-shell-topnav .context-empty-state,
+.app-shell-topnav .issuance-empty-state,
+.app-shell-topnav .content-customers .customer-table-empty {
+  border: 1px dashed #cbd5e1 !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+}
+
+.settings-step-card.active,
+.app-shell-topnav .settings-sidebar-panel .settings-step-card.active,
+.app-shell-topnav .settings-step-card.active,
+.onboarding-stage-item.is-current,
+.app-shell-topnav .content-settings .onboarding-stage-item.is-current,
+.onboarding-modal .onboarding-stage-item.is-current,
+.app-shell-topnav .onboarding-modal .onboarding-stage-item.is-current,
+.onboarding-stage-item.is-selected {
+  border-color: #cbd5e1 !important;
+  background: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+/* Product typography refinement: Pretendard-only, calmer weight scale. */
+:root {
+  --app-font-family: "Pretendard Variable", "Pretendard", sans-serif;
+  --app-type-xs: 11px;
+  --app-type-sm: 12px;
+  --app-type-md: 13px;
+  --app-type-lg: 15px;
+  --app-type-xl: 20px;
+  --app-type-metric: 21px;
+  --app-weight-body: 400;
+  --app-weight-muted: 450;
+  --app-weight-label: 560;
+  --app-weight-strong: 650;
+  --app-weight-title: 680;
+  font-family: var(--app-font-family);
+  font-weight: var(--app-weight-body);
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--app-font-family) !important;
+  font-weight: var(--app-weight-body);
+  letter-spacing: 0 !important;
+}
+
+strong,
+b {
+  font-weight: var(--app-weight-strong);
+}
+
+.app-shell-topnav {
+  --console-current-font-xs: var(--app-type-xs);
+  --console-current-font-sm: var(--app-type-sm);
+  --console-current-font-md: var(--app-type-md);
+  --console-current-font-lg: var(--app-type-lg);
+  --console-current-weight-label: var(--app-weight-label);
+  --console-current-weight-strong: var(--app-weight-strong);
+  --app-type-page-title: var(--app-type-xl);
+  --app-type-metric: var(--app-type-metric);
+  font-family: var(--app-font-family) !important;
+  font-weight: var(--app-weight-body);
+}
+
+.app-shell-topnav :is(
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p,
+  span,
+  strong,
+  small,
+  label,
+  input,
+  select,
+  textarea,
+  button,
+  summary,
+  th,
+  td,
+  dt,
+  dd,
+  a
+) {
+  font-family: var(--app-font-family) !important;
+  letter-spacing: 0 !important;
+}
+
+.app-shell-topnav :is(
+  strong,
+  b,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .font-bold,
+  .font-extrabold,
+  .font-black,
+  .font-semibold
+) {
+  font-weight: var(--app-weight-strong) !important;
+}
+
+.app-shell-topnav :is(
+  button,
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .btn-danger,
+  .chip,
+  .status,
+  .status-badge,
+  .badge,
+  .initial-step-badge,
+  .topnav-button,
+  .topnav-workspace-select,
+  .settings-option1-nav-state,
+  .onboarding-active-progress,
+  .onboarding-active-step-meta .chip,
+  .onboarding-step-chip .chip,
+  .customer-console-primary-cta,
+  .customer-console-field-filter-trigger,
+  .issuance-filter-chip
+) {
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-shell-topnav :is(
+  .topnav-profile-copy strong,
+  .action-bar-copy strong,
+  .lovable-home-hero h2,
+  .settings-page-header .home-page-header-copy h2,
+  .issuance-panel-head h2,
+  .issuance-detail-hero-copy h2,
+  .customer-console-hero-copy h2,
+  .customer-detail-panel-copy strong,
+  .customer-detail-section-head h3,
+  .settings-option1-status-title strong,
+  .settings-option1-card-head strong,
+  .settings-detail .panel-header h2,
+  .onboarding-active-step-copy strong,
+  .onboarding-main-copy strong,
+  .onboarding-main-copy-focal > strong,
+  .certificate-hero-copy h2,
+  .certificate-main-panel h2
+) {
+  font-size: var(--app-type-lg) !important;
+  font-weight: var(--app-weight-title) !important;
+  line-height: 1.32 !important;
+}
+
+.app-shell-topnav :is(
+  .lovable-home-hero h2,
+  .settings-page-header .home-page-header-copy h2
+) {
+  font-size: var(--app-type-xl) !important;
+}
+
+.app-shell-topnav :is(
+  .lovable-metric-card strong,
+  .home-metric-cell strong,
+  .home-issued-trend-summary strong,
+  .customer-summary-card strong,
+  .certificate-summary-card strong,
+  .stat-card strong
+) {
+  font-size: var(--app-type-metric) !important;
+  font-weight: var(--app-weight-title) !important;
+  line-height: 1.15 !important;
+}
+
+.app-shell-topnav :is(
+  .settings-option1-status-metrics strong,
+  .onboarding-inline-status strong,
+  .info-grid strong,
+  .settings-defaults-status strong
+) {
+  font-weight: var(--app-weight-strong) !important;
+}
+
+.app-shell-topnav :is(
+  .topnav-profile-copy span,
+  .field-hint,
+  .settings-option1-card-subtitle,
+  .onboarding-active-step-summary,
+  .onboarding-step-chip-summary,
+  .onboarding-stage-copy p,
+  .customer-summary-meta,
+  .customer-detail-panel-copy span,
+  .issuance-detail-table,
+  .customer-detail-table,
+  .home-review-primary span,
+  .home-review-secondary span
+) {
+  font-weight: var(--app-weight-muted) !important;
+}
+
+.app-shell-topnav :is(
+  th,
+  .responsive-table th,
+  .customer-report-table thead th,
+  .customer-console-table th,
+  .issuance-table th
+) {
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-shell-topnav .topnav-notification-badge,
+.app-shell-topnav .topnav-profile-avatar {
+  font-weight: var(--app-weight-strong) !important;
+}
+
+.app-shell-topnav .home-header-chip,
+.app-shell-topnav .settings-page-header .home-header-chip,
+.app-shell-topnav .settings-option1-status-metrics span,
+.app-shell-topnav .onboarding-inline-status span,
+.app-shell-topnav .settings-step-copy strong,
+.app-shell-topnav .settings-field-group-head strong,
+.app-shell-topnav .status-badge,
+.app-shell-topnav .chip,
+.app-shell-topnav .status {
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-shell-topnav .settings-option1-status-title strong {
+  font-size: var(--app-type-xl) !important;
+  font-weight: var(--app-weight-title) !important;
+}
+
+.app-shell-topnav .settings-option1-status-metrics strong,
+.app-shell-topnav .onboarding-inline-status strong {
+  font-size: var(--app-type-lg) !important;
+  font-weight: var(--app-weight-strong) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-step-chip-copy strong,
+.app-shell-topnav .content-settings .onboarding-stage-copy strong,
+.app-shell-topnav .content-settings .onboarding-active-step-copy strong,
+.app-shell-topnav .content-settings .onboarding-main-copy-focal > strong {
+  font-weight: var(--app-weight-strong) !important;
+}
+
+/* Final weight reset: prevent container-level bold from leaking into dense UI text. */
+.app-shell-topnav :is(
+  div,
+  p,
+  span,
+  strong,
+  b,
+  label,
+  th,
+  td,
+  summary,
+  button,
+  text,
+  tspan
+) {
+  font-weight: var(--app-weight-body) !important;
+}
+
+.app-shell-topnav :is(
+  button,
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .btn-danger,
+  .topnav-button,
+  .topnav-workspace-select,
+  .topnav-profile-copy strong,
+  .topnav-profile-avatar,
+  .chip,
+  .status,
+  .status-badge,
+  .badge,
+  .home-header-chip,
+  .settings-page-header .home-header-chip,
+  .settings-option1-nav-label,
+  .settings-option1-nav-state,
+  .settings-step-copy strong,
+  .settings-field-group-head strong,
+  .customer-console-field-filter-trigger,
+  .customer-console-page-search-text,
+  .customer-console-page-search-month-label,
+  .customer-summary-grid button,
+  .issuance-filter-chip,
+  .issuance-filter-count,
+  .initial-step-badge,
+  .onboarding-step-chip-order,
+  .onboarding-stage-number,
+  .onboarding-active-step-order
+) {
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-shell-topnav :is(
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .action-bar-copy strong,
+  .lovable-overview-head h3,
+  .lovable-panel-head h3,
+  .lovable-issued-trend-head h3,
+  .home-issued-trend-head h3,
+  .issuance-panel-head h2,
+  .issuance-detail-hero-copy h2,
+  .customer-console-hero-copy h2,
+  .customer-detail-panel-copy strong,
+  .customer-detail-section-head h3,
+  .settings-option1-status-title strong,
+  .settings-option1-card-head strong,
+  .settings-detail .panel-header h2,
+  .onboarding-active-step-copy strong,
+  .onboarding-main-copy strong,
+  .onboarding-main-copy-focal > strong,
+  .certificate-hero-copy h2,
+  .certificate-main-panel h2,
+  .empty-state strong,
+  .context-empty-state strong,
+  .issuance-empty-state strong
+) {
+  font-weight: var(--app-weight-title) !important;
+}
+
+.app-shell-topnav :is(
+  .lovable-metric-card strong,
+  .home-metric-cell strong,
+  .home-issued-trend-summary strong,
+  .customer-summary-card strong,
+  .customer-summary-card-row,
+  .certificate-summary-card strong,
+  .stat-card strong,
+  .settings-option1-status-metrics strong,
+  .onboarding-inline-status strong,
+  .info-grid strong,
+  .settings-defaults-status strong,
+  .issuance-table-amount-cell,
+  .home-review-amount-cell strong
+) {
+  font-weight: var(--app-weight-strong) !important;
+}
+
+.app-shell-topnav :is(
+  .field-hint,
+  .topnav-profile-copy span,
+  .customer-summary-meta,
+  .onboarding-stage-copy p,
+  .onboarding-step-chip-summary,
+  .onboarding-active-step-summary,
+  .settings-option1-card-subtitle,
+  .home-review-primary span,
+  .home-review-secondary span,
+  .lovable-issued-trend-total,
+  .recharts-text,
+  .recharts-text tspan
+) {
+  font-weight: var(--app-weight-muted) !important;
+}
+
+/* Page-specific typography cleanup: keep lists and chips readable without heavy bold. */
+.app-shell-topnav .topnav-profile-copy :is(strong, span, small) {
+  font-weight: var(--app-weight-muted) !important;
+}
+
+.app-shell-topnav .content-customers :is(
+  .customer-summary-grid button,
+  .customer-summary-grid button span,
+  .customer-summary-grid button strong,
+  .customer-console-table-title,
+  .customer-console-table th,
+  .customer-console-table td,
+  .customer-console-table strong,
+  .customer-console-primary-cell strong,
+  .customer-console-cell-stack strong
+) {
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-shell-topnav .content-issuance :is(
+  .issuance-filter-chip,
+  .issuance-filter-chip span,
+  .issuance-filter-chip strong,
+  .issuance-filter-count,
+  .issuance-table th,
+  .issuance-table td,
+  .issuance-table td strong,
+  .issuance-table-subject,
+  .issuance-table-date-cell,
+  .issuance-list-item-head strong,
+  .issuance-detail-facts dt,
+  .issuance-detail-facts dd
+) {
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-shell-topnav .content-home :is(
+  .home-header-chip,
+  .home-header-chip span,
+  .home-review-primary span,
+  .home-review-secondary span,
+  .lovable-metric-card span,
+  .lovable-issued-trend-head span
+) {
+  font-weight: var(--app-weight-label) !important;
+}
+
+/* Strict visual QA pass: no page text should jump to legacy 700/800 weights. */
+.app-shell-topnav .topnav-profile-summary .topnav-profile-copy :is(strong, span) {
+  font-weight: var(--app-weight-muted) !important;
+}
+
+.app-shell-topnav .content-customers :is(
+  h3,
+  dt,
+  dd,
+  strong,
+  .customer-console-table-title strong,
+  .customer-detail-context-grid dt,
+  .customer-detail-context-grid dd,
+  .customer-detail-hero-item span,
+  .customer-detail-hero-item strong,
+  .customer-report-summary-card span,
+  .customer-report-summary-card strong
+) {
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-shell-topnav .content-customers :is(
+  .customer-detail-section-head h3,
+  .customer-detail-panel-copy strong
+) {
+  font-weight: var(--app-weight-strong) !important;
+}
+
+.app-shell-topnav .content-issuance,
+.app-shell-topnav .content-issuance * {
+  font-family: var(--app-font-family) !important;
+}
+
+.app-shell-topnav .content-issuance :is(
+  strong,
+  span,
+  h2,
+  h3,
+  dt,
+  dd,
+  .issuance-table-customer-cell strong,
+  .issuance-table-subject,
+  .issuance-filter-count,
+  .issuance-panel-head h2
+) {
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-shell-topnav .content-issuance :is(
+  .issuance-detail-hero-copy h2,
+  .issuance-detail-card-head h3
+) {
+  font-weight: var(--app-weight-strong) !important;
+}
+
+.app-shell-topnav .topnav-profile-copy span {
+  font-weight: var(--app-weight-muted) !important;
+}
+
+.app-shell-topnav .settings-option1-progress-copy strong {
+  font-weight: var(--app-weight-title) !important;
+}
+
+.app-shell-topnav .settings-inline-copy strong {
+  font-weight: var(--app-weight-strong) !important;
+}
+
+/* Absolute final layer for legacy selectors that set weight on anonymous children. */
+.app-shell-topnav * {
+  font-family: var(--app-font-family) !important;
+  font-weight: var(--app-weight-body) !important;
+  letter-spacing: 0 !important;
+}
+
+.app-shell-topnav :is(
+  button,
+  th,
+  summary,
+  .topnav-button,
+  .topnav-workspace-select,
+  .topnav-profile-copy strong,
+  .topnav-profile-avatar,
+  .chip,
+  .status,
+  .status-badge,
+  .badge,
+  .home-header-chip,
+  .settings-page-header .home-header-chip,
+  .settings-option1-nav-label,
+  .settings-option1-nav-state,
+  .settings-step-copy strong,
+  .settings-field-group-head strong,
+  .customer-console-field-filter-trigger,
+  .customer-console-page-search-text,
+  .customer-console-page-search-month-label,
+  .customer-summary-grid button,
+  .issuance-filter-chip,
+  .issuance-filter-count,
+  .initial-step-badge,
+  .onboarding-step-chip-order,
+  .onboarding-stage-number,
+  .onboarding-active-step-order
+) {
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-shell-topnav :is(
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .action-bar-copy strong,
+  .lovable-overview-head h3,
+  .lovable-panel-head h3,
+  .lovable-issued-trend-head h3,
+  .home-issued-trend-head h3,
+  .issuance-panel-head h2,
+  .issuance-detail-hero-copy h2,
+  .customer-console-hero-copy h2,
+  .customer-detail-panel-copy strong,
+  .customer-detail-section-head h3,
+  .settings-option1-status-title strong,
+  .settings-option1-card-head strong,
+  .settings-detail .panel-header h2,
+  .onboarding-active-step-copy strong,
+  .onboarding-main-copy strong,
+  .onboarding-main-copy-focal > strong,
+  .certificate-hero-copy h2,
+  .certificate-main-panel h2,
+  .empty-state strong,
+  .context-empty-state strong,
+  .issuance-empty-state strong
+) {
+  font-weight: var(--app-weight-title) !important;
+}
+
+.app-shell-topnav :is(
+  .lovable-metric-card strong,
+  .home-metric-cell strong,
+  .home-issued-trend-summary strong,
+  .customer-summary-card strong,
+  .customer-summary-card-row,
+  .certificate-summary-card strong,
+  .stat-card strong,
+  .settings-option1-status-metrics strong,
+  .onboarding-inline-status strong,
+  .info-grid strong,
+  .settings-defaults-status strong,
+  .issuance-table-amount-cell,
+  .home-review-amount-cell strong
+) {
+  font-weight: var(--app-weight-strong) !important;
+}
+
+.app-shell-topnav :is(
+  .field-hint,
+  .topnav-profile-copy span,
+  .customer-summary-meta,
+  .onboarding-stage-copy p,
+  .onboarding-step-chip-summary,
+  .onboarding-active-step-summary,
+  .settings-option1-card-subtitle,
+  .home-review-primary span,
+  .home-review-secondary span,
+  .lovable-issued-trend-total,
+  .recharts-text,
+  .recharts-text tspan
+) {
+  font-weight: var(--app-weight-muted) !important;
 }

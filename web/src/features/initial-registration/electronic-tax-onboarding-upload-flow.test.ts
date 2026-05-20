@@ -39,6 +39,7 @@ test("runElectronicTaxOnboardingUploadFlow clears preview state when the file is
       certificateDone: false,
       targetBusinessNumbers: []
     },
+    passwordFailureEntries: [],
     notice: "",
     error: ""
   });
@@ -65,6 +66,7 @@ test("runElectronicTaxOnboardingUploadFlow keeps fail-closed notice when no elec
       resolvedCertificateCount: 0,
       skippedCertificateCount: 1,
       acceptedBeforeWindowCount: 0,
+      passwordFailureEntries: [],
       errors: ["발전소 시트 2행: 전자세금용 인증서를 찾지 못했습니다."]
     }),
     previewWorkbook: async () => {
@@ -81,7 +83,7 @@ test("runElectronicTaxOnboardingUploadFlow keeps fail-closed notice when no elec
     certificateDone: false,
     targetBusinessNumbers: []
   });
-  assert.equal(result.notice, "AUTO-TAX.xlsx에서 발전소 시트에 남긴 전자세금용 등록 대상 행을 찾지 못했습니다.");
+  assert.equal(result.notice, "등록 대상 행이 없습니다.");
   assert.equal(result.error, "구형 공동인증서 시트는 무시됩니다.\n발전소 시트 2행: 전자세금용 인증서를 찾지 못했습니다.");
 });
 
@@ -139,6 +141,7 @@ test("runElectronicTaxOnboardingUploadFlow returns preview-ready state after pre
       resolvedCertificateCount: 1,
       skippedCertificateCount: 0,
       acceptedBeforeWindowCount: 0,
+      passwordFailureEntries: [],
       errors: []
     }),
     previewWorkbook: async () => ({
@@ -163,8 +166,8 @@ test("runElectronicTaxOnboardingUploadFlow returns preview-ready state after pre
     certificateDone: false,
     targetBusinessNumbers: ["1234567890"]
   });
-  assert.match(result.notice, /AUTO-TAX\.xlsx 업로드 확인을 마쳤습니다\./);
-  assert.match(result.notice, /전자세금용 인증서 1건으로 고객 1건을 등록 대상으로 읽었습니다\./);
+  assert.match(result.notice, /등록 대상 1건을 확인했습니다\./);
+  assert.match(result.notice, /확인된 전자세금용 인증서 1건/);
   assert.equal(result.error, "인증서 비밀번호 공란은 공통 비밀번호를 사용합니다.");
 });
 
@@ -194,6 +197,7 @@ test("runElectronicTaxOnboardingUploadFlow preserves template download state on 
       certificateDone: false,
       targetBusinessNumbers: []
     },
+    passwordFailureEntries: [],
     notice: "",
     error: "발전소 시트를 찾지 못했습니다."
   });

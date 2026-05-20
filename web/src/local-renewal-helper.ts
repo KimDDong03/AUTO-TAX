@@ -114,21 +114,30 @@ type LocalRenewalPaymentOpenResponse = {
   };
 };
 
-type LocalPopbillCertificateRegistrationResponse = {
-  ok: true;
-  version: string;
-  result: {
-    outcome: "registered" | "already-registered";
-    browserChannel: string;
-    certificateIndex: number;
-    certificateCn: string;
-    certificateKind: "electronic_tax";
-    serial: string | null;
-    userDN: string | null;
-    localBridgeBaseUrl: string | null;
-    message: string;
-  };
-};
+type LocalPopbillCertificateRegistrationResponse =
+  | {
+      ok: true;
+      version: string;
+      result: {
+        outcome: "registered" | "already-registered";
+        browserChannel: string;
+        certificateIndex: number;
+        certificateCn: string;
+        certificateKind: "electronic_tax";
+        serial: string | null;
+        userDN: string | null;
+        targetExpireDate: string | null;
+        localBridgeBaseUrl: string | null;
+        message: string;
+      };
+    }
+  | {
+      ok: false;
+      version: string;
+      error: string;
+      stage?: string;
+      timing?: unknown;
+    };
 
 export type LocalRenewalHelperStatus = {
   online: boolean;
@@ -140,6 +149,7 @@ export type LocalRenewalHelperReleaseMetadata = {
   latestVersion: string;
   minSupportedVersion: string;
   downloadUrl: string;
+  zipDownloadUrl?: string;
   releasedAt: string;
 };
 
@@ -158,7 +168,7 @@ let cachedOfflineLocalRenewalHelperStatus:
   | null = null;
 
 function buildHelperUnavailableMessage(): string {
-  return "로컬 헬퍼가 실행 중이지 않습니다. 고객 PC에서 로컬 헬퍼를 먼저 실행하세요.";
+  return "AT 헬퍼가 실행 중이지 않습니다. 고객 PC에서 AT 헬퍼를 먼저 실행하세요.";
 }
 
 async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit): Promise<T> {
@@ -185,10 +195,10 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
   }
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({ error: "로컬 헬퍼 요청에 실패했습니다." }))) as {
+    const payload = (await response.json().catch(() => ({ error: "AT 헬퍼 요청에 실패했습니다." }))) as {
       error?: string;
     };
-    throw new Error(payload.error ?? `로컬 헬퍼 HTTP ${response.status}`);
+    throw new Error(payload.error ?? `AT 헬퍼 HTTP ${response.status}`);
   }
 
   return (await response.json()) as T;
@@ -245,7 +255,7 @@ export async function getLocalRenewalHelperStatus(
       return {
         online: true,
         version: payload.version,
-        message: payload.status.notes[0] ?? "로컬 헬퍼가 준비되었습니다."
+        message: payload.status.notes[0] ?? "AT 헬퍼가 준비되었습니다."
       };
     } catch (error) {
       const status = {
@@ -295,6 +305,7 @@ export async function getLocalRenewalHelperReleaseMetadata(): Promise<LocalRenew
       latestVersion: payload.latestVersion,
       minSupportedVersion: payload.minSupportedVersion,
       downloadUrl: payload.downloadUrl,
+      zipDownloadUrl: typeof payload.zipDownloadUrl === "string" ? payload.zipDownloadUrl : undefined,
       releasedAt: payload.releasedAt
     };
   } catch {
@@ -412,10 +423,16 @@ export async function requestLocalPopbillCertificateRegistration(payload: {
   certificateKind: "electronic_tax";
   serial?: string | null;
   userDN?: string | null;
+  targetExpireDate?: string | null;
   certificatePassword: string;
 }) {
-  return await localRenewalHelperRequest<LocalPopbillCertificateRegistrationResponse>("/api/popbill/certificate-registration", {
+  const response = await localRenewalHelperRequest<LocalPopbillCertificateRegistrationResponse>("/api/popbill/certificate-registration", {
     method: "POST",
     body: JSON.stringify(payload)
   });
+  if (!response.ok) {
+    throw new Error(response.error || "공동인증서 자동 등록에 실패했습니다.");
+  }
+
+  return response;
 }

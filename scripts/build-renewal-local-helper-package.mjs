@@ -15,15 +15,27 @@ const scriptsDir = path.join(outputRoot, "scripts");
 const helperReleaseSourcePath = path.join(repoRoot, "scripts", "renewal-local-helper-release.json");
 const outputMetadataPath = path.join(repoRoot, "dist", "renewal-local-helper.json");
 const outputZipPath = path.join(repoRoot, "dist", "renewal-local-helper.zip");
+const outputExePath = path.join(repoRoot, "dist", "renewal-local-helper.exe");
 const staticDownloadDir = path.join(repoRoot, "web", "public", "downloads");
 const staticDownloadMetadataPath = path.join(staticDownloadDir, "renewal-local-helper.json");
-const staticDownloadZipPath = path.join(staticDownloadDir, "renewal-local-helper.zip");
+const staticDownloadZipPath = path.join(staticDownloadDir, "AT helper.zip");
+const staticDownloadExePath = path.join(staticDownloadDir, "AT helper.exe");
+const legacyStaticDownloadZipPath = path.join(staticDownloadDir, "renewal-local-helper.zip");
+const legacyStaticDownloadExePath = path.join(staticDownloadDir, "renewal-local-helper.exe");
 const runtimeVersionPath = path.join(appDir, "renewal-local-helper-release.json");
-const ZIP_BASENAME = "renewal-local-helper";
+const installerStagingDir = path.join(repoRoot, "dist", "renewal-local-helper-installer");
+const installerIconSourcePath = path.join(repoRoot, "scripts", "assets", "helper-installer-icon.png");
+const ZIP_BASENAME = "AT helper";
+const EXE_BASENAME = "AT helper";
 
 function resolveVersionedZipFileName(version) {
   const safeVersion = typeof version === "string" && version.trim() ? version.trim() : "0.0.0";
   return `${ZIP_BASENAME}-${safeVersion}.zip`;
+}
+
+function resolveVersionedExeFileName(version) {
+  const safeVersion = typeof version === "string" && version.trim() ? version.trim() : "0.0.0";
+  return `${EXE_BASENAME}-${safeVersion}.exe`;
 }
 
 function readJsonFile(filePath) {
@@ -66,7 +78,8 @@ function buildHelperReleaseMetadata() {
   return {
     latestVersion: config.latestVersion,
     minSupportedVersion: config.minSupportedVersion,
-    downloadUrl: `/downloads/${resolveVersionedZipFileName(config.latestVersion)}`,
+    downloadUrl: `/downloads/${encodeURIComponent(resolveVersionedExeFileName(config.latestVersion))}`,
+    zipDownloadUrl: `/downloads/${encodeURIComponent(resolveVersionedZipFileName(config.latestVersion))}`,
     releasedAt: config.releasedAt
   };
 }
@@ -95,12 +108,13 @@ function writeWindowsCmdScript(filePath, lines) {
 
 function writePackageReadme() {
   const content = [
-    "AUTO-TAX Renewal Local Helper",
+    "AT helper",
     "",
     "1. Copy this folder to the customer PC.",
     "2. Run scripts\\renewal-helper-install.cmd.",
-    "3. After install, use AUTO-TAX Helper Start / Stop / Status shortcuts as needed.",
-    "4. Disable Autostart only removes logon autostart. Start / Stop / Status shortcuts stay available.",
+    "3. The installer starts the latest AT helper automatically after install.",
+    "4. Use AUTO-TAX Helper Start / Stop / Status shortcuts as needed.",
+    "5. Disable Autostart only removes logon autostart. Start / Stop / Status shortcuts stay available.",
     "",
     "Manual commands:",
     "  scripts\\renewal-helper-start.cmd",
@@ -132,10 +146,156 @@ function writeZipArchive(archivePath = outputZipPath) {
   }
 }
 
-function syncStaticDownloadAsset(versionedZipPath, versionedStaticZipPath) {
+function writePngBackedIconFile(iconPath) {
+  if (!fs.existsSync(installerIconSourcePath)) {
+    throw new Error(`Could not find helper installer icon: ${installerIconSourcePath}`);
+  }
+
+  const pngBytes = fs.readFileSync(installerIconSourcePath);
+  const header = Buffer.alloc(22);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(1, 4);
+  header.writeUInt8(0, 6);
+  header.writeUInt8(0, 7);
+  header.writeUInt8(0, 8);
+  header.writeUInt8(0, 9);
+  header.writeUInt16LE(1, 10);
+  header.writeUInt16LE(32, 12);
+  header.writeUInt32LE(pngBytes.length, 14);
+  header.writeUInt32LE(header.length, 18);
+  fs.writeFileSync(iconPath, Buffer.concat([header, pngBytes]));
+}
+
+function writeInstallerSourceFile(sourcePath) {
+  const source = String.raw`
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+
+namespace AutoTaxRenewalHelperInstaller
+{
+  public static class Program
+  {
+    public static int Main()
+    {
+      string payloadDir = Path.Combine(Path.GetTempPath(), "auto-tax-renewal-local-helper-" + Guid.NewGuid().ToString("N"));
+      string zipPath = Path.Combine(payloadDir, "renewal-local-helper.zip");
+
+      try
+      {
+        Directory.CreateDirectory(payloadDir);
+        using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("renewal-local-helper.zip"))
+        {
+          if (resource == null)
+          {
+            throw new InvalidOperationException("Installer payload is missing.");
+          }
+
+          using (FileStream output = File.Create(zipPath))
+          {
+            resource.CopyTo(output);
+          }
+        }
+
+        RunPowerShell("-NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '" + zipPath.Replace("'", "''") + "' -DestinationPath '" + payloadDir.Replace("'", "''") + "' -Force\"");
+        string installScript = Path.Combine(payloadDir, "scripts", "install-renewal-local-helper-autostart.ps1");
+        RunPowerShell("-NoProfile -ExecutionPolicy Bypass -File \"" + installScript + "\" -StartNow");
+
+        Console.WriteLine();
+        Console.WriteLine("AUTO-TAX renewal helper install completed.");
+        Console.WriteLine("Press any key to close.");
+        Console.ReadKey(true);
+        return 0;
+      }
+      catch (Exception error)
+      {
+        Console.WriteLine();
+        Console.Error.WriteLine("AUTO-TAX renewal helper install failed.");
+        Console.Error.WriteLine(error.Message);
+        Console.WriteLine("Press any key to close.");
+        Console.ReadKey(true);
+        return 1;
+      }
+    }
+
+    private static void RunPowerShell(string arguments)
+    {
+      ProcessStartInfo startInfo = new ProcessStartInfo("powershell.exe", arguments);
+      startInfo.UseShellExecute = false;
+      Process process = Process.Start(startInfo);
+      process.WaitForExit();
+
+      if (process.ExitCode != 0)
+      {
+        throw new InvalidOperationException("PowerShell command failed with exit code " + process.ExitCode + ".");
+      }
+    }
+  }
+}
+`;
+  fs.writeFileSync(sourcePath, source.trimStart(), "utf8");
+}
+
+function writeInstallerCompileScript(scriptPath, sourcePath, iconPath, zipPath, exePath) {
+  const script = `
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName Microsoft.CSharp
+$provider = New-Object Microsoft.CSharp.CSharpCodeProvider
+$parameters = New-Object System.CodeDom.Compiler.CompilerParameters
+$parameters.GenerateExecutable = $true
+$parameters.OutputAssembly = ${JSON.stringify(exePath)}
+$parameters.MainClass = "AutoTaxRenewalHelperInstaller.Program"
+$parameters.CompilerOptions = "/target:exe /win32icon:${iconPath.replace(/\\/g, "\\\\")} /resource:${zipPath.replace(/\\/g, "\\\\")},renewal-local-helper.zip"
+[void]$parameters.ReferencedAssemblies.Add("System.dll")
+$result = $provider.CompileAssemblyFromFile($parameters, ${JSON.stringify(sourcePath)})
+if ($result.Errors.HasErrors) {
+  $messages = @()
+  foreach ($errorItem in $result.Errors) {
+    $messages += $errorItem.ToString()
+  }
+  throw ($messages -join [Environment]::NewLine)
+}
+`;
+  fs.writeFileSync(scriptPath, script.trimStart(), "utf8");
+}
+
+function writeInstallerExe(versionedZipPath, exePath) {
+  resetDir(installerStagingDir);
+  copyRecursive(versionedZipPath, path.join(installerStagingDir, "renewal-local-helper.zip"));
+  const stagedZipPath = path.join(installerStagingDir, "renewal-local-helper.zip");
+  const iconPath = path.join(installerStagingDir, "helper-installer.ico");
+  const sourcePath = path.join(installerStagingDir, "AutoTaxRenewalHelperInstaller.cs");
+  const compileScriptPath = path.join(installerStagingDir, "compile-installer.ps1");
+  writePngBackedIconFile(iconPath);
+  writeInstallerSourceFile(sourcePath);
+  writeInstallerCompileScript(compileScriptPath, sourcePath, iconPath, stagedZipPath, exePath);
+
+  if (fs.existsSync(exePath)) {
+    fs.rmSync(exePath, { force: true });
+  }
+
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", compileScriptPath], {
+    cwd: installerStagingDir,
+    encoding: "utf8"
+  });
+
+  if (result.status !== 0 || !fs.existsSync(exePath)) {
+    throw new Error(
+      `Failed to create renewal helper installer exe: ${result.stderr?.trim() || result.stdout?.trim() || "PowerShell compile failed"}`
+    );
+  }
+}
+
+function syncStaticDownloadAsset(versionedZipPath, versionedStaticZipPath, versionedExePath, versionedStaticExePath) {
   fs.mkdirSync(staticDownloadDir, { recursive: true });
   copyRecursive(versionedZipPath, versionedStaticZipPath);
   copyRecursive(versionedZipPath, staticDownloadZipPath);
+  copyRecursive(versionedZipPath, legacyStaticDownloadZipPath);
+  copyRecursive(versionedExePath, versionedStaticExePath);
+  copyRecursive(versionedExePath, staticDownloadExePath);
+  copyRecursive(versionedExePath, legacyStaticDownloadExePath);
   copyRecursive(outputMetadataPath, staticDownloadMetadataPath);
 }
 
@@ -148,6 +308,8 @@ async function buildBundle() {
     format: "cjs",
     target: "node22",
     sourcemap: false,
+    minify: true,
+    legalComments: "none",
     define: {
       "process.env.AUTO_TAX_RENEWAL_AGENT_DISABLE_AUTO_START": "\"1\""
     },
@@ -283,6 +445,8 @@ async function main() {
   const metadata = buildHelperReleaseMetadata();
   const versionedZipPath = path.join(repoRoot, "dist", resolveVersionedZipFileName(metadata.latestVersion));
   const versionedStaticZipPath = path.join(staticDownloadDir, resolveVersionedZipFileName(metadata.latestVersion));
+  const versionedExePath = path.join(repoRoot, "dist", resolveVersionedExeFileName(metadata.latestVersion));
+  const versionedStaticExePath = path.join(staticDownloadDir, resolveVersionedExeFileName(metadata.latestVersion));
 
   resetDir(outputRoot);
   fs.mkdirSync(appNodeModulesDir, { recursive: true });
@@ -300,15 +464,24 @@ async function main() {
     fs.rmSync(outputZipPath, { force: true });
   }
   fs.copyFileSync(versionedZipPath, outputZipPath);
-  syncStaticDownloadAsset(versionedZipPath, versionedStaticZipPath);
+  writeInstallerExe(versionedZipPath, versionedExePath);
+  if (fs.existsSync(outputExePath)) {
+    fs.rmSync(outputExePath, { force: true });
+  }
+  fs.copyFileSync(versionedExePath, outputExePath);
+  syncStaticDownloadAsset(versionedZipPath, versionedStaticZipPath, versionedExePath, versionedStaticExePath);
 
   console.log(`output=${outputRoot}`);
   console.log(`metadata=${outputMetadataPath}`);
   console.log(`zip=${versionedZipPath}`);
   console.log(`legacyZip=${outputZipPath}`);
+  console.log(`exe=${versionedExePath}`);
+  console.log(`legacyExe=${outputExePath}`);
   console.log(`publicMetadata=${staticDownloadMetadataPath}`);
   console.log(`publicZip=${versionedStaticZipPath}`);
   console.log(`publicLegacyZip=${staticDownloadZipPath}`);
+  console.log(`publicExe=${versionedStaticExePath}`);
+  console.log(`publicLegacyExe=${staticDownloadExePath}`);
 }
 
 await main();

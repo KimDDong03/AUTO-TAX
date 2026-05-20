@@ -13,6 +13,6 @@ test("buildElectronicTaxRegistrationFollowupNotice reports customers skipped bef
 
   assert.match(notice, /자동 등록 1건/);
   assert.match(notice, /가입 전 제외 2건/);
-  assert.match(notice, /발행 연동 준비가 끝나지 않은 2건은 전자세금용 인증서 등록을 시도하지 않았습니다/);
+  assert.match(notice, /발행 준비 전 2건/);
   assert.doesNotMatch(notice, /팝빌|Popbill|POPBILL/);
 });

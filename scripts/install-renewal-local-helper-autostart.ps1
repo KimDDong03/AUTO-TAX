@@ -95,13 +95,25 @@ function Wait-LocalRenewalHelperStop {
 function Wait-LocalRenewalHelperStart {
   param(
     [int]$Port,
+    [string]$ExpectedVersion = "",
     [int]$Attempts = 60,
     [int]$DelayMs = 500
   )
 
   for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
     if (Test-LocalRenewalHelperRunning -Port $Port) {
-      return $true
+      if ([string]::IsNullOrWhiteSpace($ExpectedVersion)) {
+        return $true
+      }
+
+      try {
+        $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -Method Get -TimeoutSec 2
+        if ($response.ok -eq $true -and [string]$response.version -eq $ExpectedVersion) {
+          return $true
+        }
+      } catch {
+        # Running check passed but health did not settle yet.
+      }
     }
 
     if (($attempt % 5) -eq 0) {
@@ -112,6 +124,35 @@ function Wait-LocalRenewalHelperStart {
   }
 
   return $false
+}
+
+function Get-PackagedLocalRenewalHelperVersion {
+  param(
+    [string]$InstallRoot
+  )
+
+  $versionFiles = @(
+    (Join-Path $InstallRoot "app\\renewal-local-helper-release.json"),
+    (Join-Path $InstallRoot "scripts\\renewal-local-helper-release.json")
+  )
+
+  foreach ($versionFile in $versionFiles) {
+    if (-not (Test-Path $versionFile)) {
+      continue
+    }
+
+    try {
+      $versionJson = Get-Content -LiteralPath $versionFile -Raw | ConvertFrom-Json
+      $version = if ($versionJson.version) { [string]$versionJson.version } else { [string]$versionJson.latestVersion }
+      if (-not [string]::IsNullOrWhiteSpace($version)) {
+        return $version.Trim()
+      }
+    } catch {
+      # Ignore malformed version metadata and keep looking.
+    }
+  }
+
+  return ""
 }
 
 function Get-LocalRenewalHelperProcessIds {
@@ -406,10 +447,14 @@ if ($PSCmdlet.ShouldProcess($taskName, "Register renewal local helper scheduled 
     -Force | Out-Null
 }
 
-if ($StartNow -and -not $restartRequired -and $PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Start helper immediately after install")) {
-  & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $launcherScript -Detached | Out-Null
-  $started = [bool](Wait-LocalRenewalHelperStart -Port $helperPort)
+if ($StartNow -and $PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Start helper immediately after install")) {
+  $expectedVersion = Get-PackagedLocalRenewalHelperVersion -InstallRoot $installRoot
+  & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $launcherScript -Detached -Restart | Out-Null
+  $started = [bool](Wait-LocalRenewalHelperStart -Port $helperPort -ExpectedVersion $expectedVersion)
   Write-Output "startResult=$(if ($started) { 'running' } else { 'timeout' })"
+  if (-not [string]::IsNullOrWhiteSpace($expectedVersion)) {
+    Write-Output "expectedVersion=$expectedVersion"
+  }
 }
 
 if (-not $SkipDesktopShortcuts) {

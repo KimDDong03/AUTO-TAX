@@ -9,10 +9,11 @@ type AppShellDeps = {
   requirePlatformAdmin: (res: Response) => unknown;
   webDist: string;
   renewalHelperZipPath?: string | null;
+  renewalHelperExePath?: string | null;
 };
 
 export function registerAppShell(deps: AppShellDeps): void {
-  const { app, store, requirePlatformAdmin, webDist, renewalHelperZipPath } = deps;
+  const { app, store, requirePlatformAdmin, webDist, renewalHelperZipPath, renewalHelperExePath } = deps;
   const renewalHelperMetadataPath = renewalHelperZipPath
     ? path.join(path.dirname(renewalHelperZipPath), "renewal-local-helper.json")
     : null;
@@ -27,13 +28,22 @@ export function registerAppShell(deps: AppShellDeps): void {
     res.json(await store.listLogs());
   });
 
-  app.get("/downloads/renewal-local-helper.zip", (_req, res, next) => {
+  app.get(/^\/downloads\/(?:renewal-local-helper|AT(?:%20| )helper)(?:-[^/]+)?\.zip$/, (_req, res, next) => {
     if (!renewalHelperZipPath || !fs.existsSync(renewalHelperZipPath)) {
       next();
       return;
     }
 
-    res.download(renewalHelperZipPath, "renewal-local-helper.zip");
+    res.download(renewalHelperZipPath, "AT helper.zip");
+  });
+
+  app.get(/^\/downloads\/(?:renewal-local-helper|AT(?:%20| )helper)(?:-[^/]+)?\.exe$/, (_req, res, next) => {
+    if (!renewalHelperExePath || !fs.existsSync(renewalHelperExePath)) {
+      next();
+      return;
+    }
+
+    res.download(renewalHelperExePath, "AT helper.exe");
   });
 
   app.get("/downloads/renewal-local-helper.json", (_req, res, next) => {

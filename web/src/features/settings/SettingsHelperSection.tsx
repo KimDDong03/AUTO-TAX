@@ -1,6 +1,5 @@
 import React from "react";
 import { SetupPanel } from "../../components/ui";
-import { SettingsHelperInstallGuide } from "./SettingsHelperInstallGuide";
 import { SettingsHelperStatusCard } from "./SettingsHelperStatusCard";
 import type { SettingsHelperSectionModel } from "./settingsSectionModels";
 
@@ -15,9 +14,9 @@ export function SettingsHelperSection({
     <SetupPanel
       step={4}
       className="panel-settings-helper"
-      title="로컬 헬퍼"
+      title="AT 헬퍼"
       done={model.done}
-      note="헬퍼 연결 / 인증서 읽기 요약"
+      note="AT 헬퍼 연결 / 인증서 읽기 요약"
       actions={
         <div className="button-row">
           <button
@@ -39,14 +38,13 @@ export function SettingsHelperSection({
       <div className="settings-field-stack">
         <section className="settings-field-group">
           <div className="settings-field-group-head">
-            <strong>로컬 헬퍼</strong>
+            <strong>AT 헬퍼</strong>
             <span>현재 연결 상태</span>
           </div>
           <SettingsHelperStatusCard
             helperStatus={model.helperStatus}
             showRefreshAction={false}
           />
-          <SettingsHelperInstallGuide />
         </section>
       </div>
     </SetupPanel>

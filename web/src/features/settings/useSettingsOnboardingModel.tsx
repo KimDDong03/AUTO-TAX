@@ -244,9 +244,6 @@ export function useSettingsOnboardingModel({
           helperOnline={helper.online}
           helperCheckedAt={helper.checkedAt}
           helperCertificateCount={helper.certificateCount}
-          helperUpgradeMessage={helper.upgradeMessage}
-          helperLatestVersion={helper.latestVersion}
-          helperMinSupportedVersion={helper.minSupportedVersion}
           busy={busy}
           isReadingCertificates={isReadingCertificates}
           onReadCertificates={runReadCertificates}

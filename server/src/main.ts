@@ -1127,7 +1127,10 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     webDist,
     renewalHelperZipPath: envString("AUTO_TAX_RENEWAL_HELPER_ZIP_PATH")
       ? resolvePathFromRoot(rootDir, envString("AUTO_TAX_RENEWAL_HELPER_ZIP_PATH") as string)
-      : path.join(rootDir, "dist", "renewal-local-helper.zip")
+      : path.join(rootDir, "dist", "AT helper.zip"),
+    renewalHelperExePath: envString("AUTO_TAX_RENEWAL_HELPER_EXE_PATH")
+      ? resolvePathFromRoot(rootDir, envString("AUTO_TAX_RENEWAL_HELPER_EXE_PATH") as string)
+      : path.join(rootDir, "dist", "AT helper.exe")
   });
 
   return app;

@@ -34,6 +34,7 @@ export type CustomerOnboardingCertificateRow = {
   issuerName: string;
   serial?: string;
   userDN?: string;
+  expireDate?: string | null;
   certificatePassword: string;
   isPrimary: boolean;
 };
@@ -88,6 +89,7 @@ export type CustomerOnboardingPreparedCertificateSnapshot = {
   issuerName: string;
   serial?: string;
   userDN?: string;
+  expireDate?: string | null;
   certificatePassword: string;
   isPrimary: boolean;
 };
@@ -148,6 +150,32 @@ type PreparedWorkbook = {
 
 function normalizeText(value: string | null | undefined): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeCertificateExpireDate(value: string | null | undefined): string | null {
+  const raw = normalizeText(value);
+  if (!raw) {
+    return null;
+  }
+
+  const compact = raw.replace(/\D/g, "");
+  if (compact.length < 8) {
+    return null;
+  }
+
+  const year = compact.slice(0, 4);
+  const month = compact.slice(4, 6);
+  const day = compact.slice(6, 8);
+  const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+  if (
+    parsed.getFullYear() !== Number(year) ||
+    parsed.getMonth() + 1 !== Number(month) ||
+    parsed.getDate() !== Number(day)
+  ) {
+    return null;
+  }
+
+  return `${year}-${month}-${day}`;
 }
 
 function kindUsageFallback(kind: CustomerCertificateKind): string {
@@ -255,6 +283,7 @@ function buildPreparedEntrySnapshot(entry: PreparedCustomerEntry): CustomerOnboa
       issuerName: certificate.issuerName,
       serial: certificate.serial,
       userDN: certificate.userDN,
+      expireDate: normalizeCertificateExpireDate(certificate.expireDate),
       certificatePassword: certificate.certificatePassword,
       isPrimary: certificate.isPrimary
     })),
@@ -316,6 +345,7 @@ async function prepareCustomerOnboardingWorkbook(
     issuerName: normalizeText(row.issuerName),
     serial: normalizeText(row.serial),
     userDN: normalizeText(row.userDN),
+    expireDate: normalizeCertificateExpireDate(row.expireDate),
     certificatePassword: normalizeText(row.certificatePassword),
     normalizedBusinessNumber: digitsOnly(row.businessNumber)
   }));
@@ -594,7 +624,7 @@ export async function commitCustomerOnboardingPreparedEntry(
       serial: certificate.serial || null,
       userDN: certificate.userDN || null,
       oid: null,
-      expireDate: null,
+      expireDate: normalizeCertificateExpireDate(certificate.expireDate),
       certDirPath: null,
       isPrimary: index === 0,
       linkSource: "manual"

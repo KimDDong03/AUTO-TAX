@@ -126,6 +126,7 @@ const customerOnboardingCertificateRowSchema = z.object({
   issuerName: z.string().default(""),
   serial: z.string().default(""),
   userDN: z.string().default(""),
+  expireDate: z.string().nullable().optional().default(null),
   certificatePassword: z.string().default(""),
   isPrimary: z.boolean().default(false)
 });
@@ -261,7 +262,7 @@ export function registerSettingsRoutes(deps: RouteDeps) {
     const requestStore = getRequestStore(res, store);
     await requestStore.createLog("warn", "settings", "공동인증서 공통 비밀번호 재표시 요청을 차단했습니다.");
     res.status(410).json({
-      error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 로컬 헬퍼에서 다시 입력하세요."
+      error: "공동인증서 비밀번호는 서버에 저장하지 않습니다. 현재 브라우저 탭이나 AT 헬퍼에서 다시 입력하세요."
     });
   });
 

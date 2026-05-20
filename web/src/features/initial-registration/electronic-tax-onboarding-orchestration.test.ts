@@ -152,3 +152,61 @@ test("processElectronicTaxOnboardingCertificateRegistrations aggregates follow-u
     refreshWarnings: ["기등록 고객: 상태 재확인 실패"]
   });
 });
+
+test("processElectronicTaxOnboardingCertificateRegistrations hides raw browser debug details", async () => {
+  const customer = createCustomer({ id: 5, customerName: "이주경" });
+
+  const result = await processElectronicTaxOnboardingCertificateRegistrations({
+    pendingCustomers: [customer],
+    getOnboardingCertificateRow: () => ({
+      rowIndex: 5,
+      businessNumber: "123-45-67895",
+      certificateKind: "electronic_tax",
+      certificateIndex: "5",
+      certificateName: "이주경 발전소",
+      certificateUsageName: "전자세금용",
+      issuerName: "issuer",
+      serial: "SERIAL-5",
+      userDN: "USER-DN-5",
+      certificatePassword: "pw",
+      isPrimary: true
+    }),
+    registerCustomer: async () => {
+      throw new Error("같은 인증서명(CN)의 전자세금용 공동인증서가 2건 보여 자동 등록을 중단했습니다. selector=body > div:nth-of-type(8)");
+    },
+    reloadAll: async () => undefined
+  });
+
+  assert.deepEqual(result.failedDetails, [
+    "이주경: 같은 이름의 전자세금용 공동인증서가 여러 개라 자동으로 하나를 고르지 못했습니다."
+  ]);
+});
+
+test("processElectronicTaxOnboardingCertificateRegistrations does not blame the password after preflight", async () => {
+  const customer = createCustomer({ id: 6, customerName: "천행규" });
+
+  const result = await processElectronicTaxOnboardingCertificateRegistrations({
+    pendingCustomers: [customer],
+    getOnboardingCertificateRow: () => ({
+      rowIndex: 6,
+      businessNumber: "123-45-67896",
+      certificateKind: "electronic_tax",
+      certificateIndex: "6",
+      certificateName: "천행규 발전소",
+      certificateUsageName: "전자세금용",
+      issuerName: "issuer",
+      serial: "SERIAL-6",
+      userDN: "USER-DN-6",
+      certificatePassword: "pw",
+      isPrimary: true
+    }),
+    registerCustomer: async () => {
+      throw new Error("공동인증서 비밀번호가 올바르지 않습니다.");
+    },
+    reloadAll: async () => undefined
+  });
+
+  assert.deepEqual(result.failedDetails, [
+    "천행규: 사전조회 때 확인한 비밀번호로 등록했지만 등록 화면에서 인증서 확인에 실패했습니다. AT 헬퍼에서 공동인증서를 다시 읽고 재시도하세요."
+  ]);
+});

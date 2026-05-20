@@ -176,7 +176,7 @@ export function buildCustomerRenewalAssistant(
       options.helperMessage ??
       options.status?.message ??
       options.current?.helperMessage ??
-      "공동인증서를 읽어 헬퍼 연결을 확인하세요.",
+      "공동인증서를 읽어 AT 헬퍼 연결을 확인하세요.",
     helperCheckedAt: new Date().toISOString(),
     latestVersion: metadata?.latestVersion ?? null,
     minSupportedVersion: metadata?.minSupportedVersion ?? null,
@@ -196,12 +196,12 @@ export function buildIdleCustomerRenewalAssistant(
   return current
     ? {
         ...current,
-        helperMessage: current.helperMessage || "공동인증서를 읽어 헬퍼 연결을 확인하세요."
+        helperMessage: current.helperMessage || "공동인증서를 읽어 AT 헬퍼 연결을 확인하세요."
       }
     : {
         agentOnline: false,
         helperVersion: null,
-        helperMessage: "공동인증서를 읽어 헬퍼 연결을 확인하세요.",
+        helperMessage: "공동인증서를 읽어 AT 헬퍼 연결을 확인하세요.",
         helperCheckedAt: null,
         latestVersion: null,
         minSupportedVersion: null,
@@ -253,7 +253,7 @@ export function useRenewalAssistantState({
     setCustomerRenewalAssistant((prev) =>
       buildCustomerRenewalAssistant({
         current: prev,
-        helperMessage: "로컬 헬퍼 연결을 확인하는 중입니다...",
+        helperMessage: "AT 헬퍼 연결을 확인하는 중입니다...",
         defaultRenewalHelperDownloadUrl
       })
     );
@@ -277,7 +277,7 @@ export function useRenewalAssistantState({
     (actionLabel: string) => {
       if (!customerRenewalAssistant?.agentOnline) {
         throw new Error(
-          `${actionLabel} 전에 로컬 헬퍼를 먼저 실행하세요. 헬퍼를 실행한 뒤 상태를 다시 확인하세요.`
+          `${actionLabel} 전에 AT 헬퍼를 먼저 실행하세요. AT 헬퍼를 실행한 뒤 상태를 다시 확인하세요.`
         );
       }
 
@@ -290,9 +290,9 @@ export function useRenewalAssistantState({
 
       const helperVersionLabel = customerRenewalAssistant.helperVersion ? `v${customerRenewalAssistant.helperVersion}` : "현재 버전";
       throw new Error(
-        `${actionLabel} 전에 로컬 헬퍼를 다시 설치하세요. ${
+        `${actionLabel} 전에 AT 헬퍼를 다시 설치하세요. ${
           customerRenewalAssistant.upgradeMessage ?? `${helperVersionLabel}은(는) 지원되지 않습니다.`
-        } 압축을 다시 받아 scripts\\renewal-helper-install.cmd 를 실행한 뒤 상태를 다시 확인하세요.`
+        } 설치 파일을 다시 실행한 뒤 상태를 확인하세요.`
       );
     },
     [customerRenewalAssistant]
@@ -440,7 +440,7 @@ export function useRenewalAssistantState({
           prev
             ? {
                 ...prev,
-                helperMessage: "로컬 헬퍼 연결을 확인하는 중입니다..."
+                helperMessage: "AT 헬퍼 연결을 확인하는 중입니다..."
               }
             : prev
         );
@@ -494,8 +494,8 @@ export function useRenewalAssistantState({
   const helperUpgradeAvailable = customerRenewalAssistant?.upgradeState === "upgrade-available";
   const helperVersionMismatch = helperUpgradeRequired || helperUpgradeAvailable;
   const helperActionBlockedReason = customerRenewalAssistant?.upgradeMessage
-    ? `${customerRenewalAssistant.upgradeMessage} 압축을 다시 받아 scripts\\renewal-helper-install.cmd 를 실행한 뒤 상태를 다시 확인하세요.`
-    : "지원되지 않는 로컬 헬퍼 버전입니다. 새 버전을 다시 설치한 뒤 상태를 다시 확인하세요.";
+    ? `${customerRenewalAssistant.upgradeMessage} 설치 파일을 다시 실행한 뒤 상태를 확인하세요.`
+    : "지원되지 않는 AT 헬퍼 버전입니다. 새 버전을 설치한 뒤 상태를 확인하세요.";
   const helperReady =
     Boolean(customerRenewalAssistant?.agentOnline) &&
     customerRenewalAssistantAllCertificates.some(

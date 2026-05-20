@@ -71,7 +71,7 @@ test("getLocalRenewalHelperStatus does not force the wrong private network targe
         status: {
           processDetected: true,
           bridgeSummary: "ok",
-          notes: ["로컬 헬퍼가 준비되었습니다."]
+          notes: ["AT 헬퍼가 준비되었습니다."]
         }
       }),
       {
