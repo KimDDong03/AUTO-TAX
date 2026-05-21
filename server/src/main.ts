@@ -954,6 +954,15 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     normalizeEmail,
     createWorkspaceLoginEmail,
     upsertAuthUserLoginIndex,
+    createLoggingStoreForOrganizationId: async ({ organizationId, actorUserId }) => {
+      const loggingStore = new SupabaseStore({
+        organizationId,
+        actorUserId: actorUserId ?? undefined,
+        bootstrapOrganization: false
+      });
+      await loggingStore.initialize();
+      return loggingStore;
+    },
     createEmptyBootstrapWorkspace,
     createEmptySettings,
     toClientSettings,

@@ -1293,6 +1293,10 @@ test("single manual issue route records audit-ready manual issue context", async
       issueMode: "review",
       executionPath: "single",
       clickedAt,
+      requestIp: "::ffff:127.0.0.1",
+      requestUserAgent: "node",
+      requestMethod: "POST",
+      requestPath: "/api/drafts/501/issue",
       eventType: "manual-issue-clicked"
     });
     assert.deepEqual(asRecord(logs[1]?.context), {
@@ -1301,6 +1305,10 @@ test("single manual issue route records audit-ready manual issue context", async
       issueMode: "review",
       executionPath: "single",
       clickedAt,
+      requestIp: "::ffff:127.0.0.1",
+      requestUserAgent: "node",
+      requestMethod: "POST",
+      requestPath: "/api/drafts/501/issue",
       issuedAt,
       eventType: "manual-issue-succeeded",
       issuanceSnapshot: expectedSnapshot
@@ -1445,7 +1453,7 @@ test("bulk manual issue route records per-draft manual issue evidence", async ()
       ]
     });
 
-    const draftLogs = logs.filter((entry) => asRecord(entry.context).eventType);
+    const draftLogs = logs.filter((entry) => String(asRecord(entry.context).eventType ?? "").startsWith("manual-issue-"));
     assert.equal(draftLogs.length, 4);
 
     const findDraftEvent = (draftId: number, eventType: string) =>
@@ -1460,6 +1468,10 @@ test("bulk manual issue route records per-draft manual issue evidence", async ()
       issueMode: "review",
       executionPath: "bulk-manual",
       clickedAt: clickedAtByDraftId.get(601),
+      requestIp: "::ffff:127.0.0.1",
+      requestUserAgent: "node",
+      requestMethod: "POST",
+      requestPath: "/api/drafts/issue-all",
       eventType: "manual-issue-clicked"
     });
     assert.deepEqual(asRecord(findDraftEvent(601, "manual-issue-succeeded")?.context), {
@@ -1468,6 +1480,10 @@ test("bulk manual issue route records per-draft manual issue evidence", async ()
       issueMode: "review",
       executionPath: "bulk-manual",
       clickedAt: clickedAtByDraftId.get(601),
+      requestIp: "::ffff:127.0.0.1",
+      requestUserAgent: "node",
+      requestMethod: "POST",
+      requestPath: "/api/drafts/issue-all",
       issuedAt,
       eventType: "manual-issue-succeeded",
       issuanceSnapshot: expectedSnapshot
@@ -1478,6 +1494,10 @@ test("bulk manual issue route records per-draft manual issue evidence", async ()
       issueMode: "review",
       executionPath: "bulk-manual",
       clickedAt: clickedAtByDraftId.get(602),
+      requestIp: "::ffff:127.0.0.1",
+      requestUserAgent: "node",
+      requestMethod: "POST",
+      requestPath: "/api/drafts/issue-all",
       eventType: "manual-issue-clicked"
     });
     assert.deepEqual(asRecord(findDraftEvent(602, "manual-issue-failed")?.context), {
@@ -1486,6 +1506,10 @@ test("bulk manual issue route records per-draft manual issue evidence", async ()
       issueMode: "review",
       executionPath: "bulk-manual",
       clickedAt: clickedAtByDraftId.get(602),
+      requestIp: "::ffff:127.0.0.1",
+      requestUserAgent: "node",
+      requestMethod: "POST",
+      requestPath: "/api/drafts/issue-all",
       eventType: "manual-issue-failed",
       errorCategory: "manual-issue",
       error: "고객 정보를 찾지 못했습니다."

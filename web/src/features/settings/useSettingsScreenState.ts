@@ -24,7 +24,7 @@ export type MailProvider =
   | "icloud"
   | "yahoo"
   | "custom";
-export type SettingsSectionId = "onboarding" | "gmail" | "popbill" | "helper" | "account";
+export type SettingsSectionId = "onboarding" | "gmail" | "popbill" | "helper" | "activity" | "account";
 export type SettingsAutosaveState = "idle" | "pending" | "saving" | "saved" | "error";
 export {
   createEmptyPasswordChangeForm,

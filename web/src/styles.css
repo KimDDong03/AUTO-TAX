@@ -10676,6 +10676,10 @@ body {
   background: linear-gradient(180deg, #fff8ea 0%, #ffffff 100%);
 }
 
+.issuance-summary-card.tone-success {
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+
 .issuance-summary-card-head {
   display: flex;
   align-items: center;
@@ -10691,6 +10695,10 @@ body {
 
 .issuance-summary-card-icon {
   color: #3b6fd8;
+}
+
+.issuance-summary-card.tone-success .issuance-summary-card-icon {
+  color: #16a34a;
 }
 
 .issuance-summary-card strong {
@@ -18710,10 +18718,25 @@ button.issuance-list-item {
   background: rgba(0, 0, 0, 0.22);
 }
 
+.app-shell-topnav .customer-certificate-password-backdrop {
+  align-items: center;
+  padding: 24px;
+}
+
 .app-shell-topnav .customer-certificate-selector-modal {
   box-sizing: border-box;
   width: min(900px, calc(100vw - 48px));
   max-height: calc(100vh - 120px);
+  overflow: hidden;
+  border: 1px solid var(--wf-border);
+  border-radius: 4px;
+  background: var(--wf-surface);
+  box-shadow: 0 22px 64px rgba(15, 23, 42, 0.18);
+}
+
+.app-shell-topnav .customer-certificate-password-modal {
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 48px));
   overflow: hidden;
   border: 1px solid var(--wf-border);
   border-radius: 4px;
@@ -18726,6 +18749,14 @@ button.issuance-list-item {
   gap: 10px;
   min-width: 0;
   padding: 14px;
+  background: var(--wf-surface);
+}
+
+.app-shell-topnav .customer-certificate-password-dialog {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
   background: var(--wf-surface);
 }
 
@@ -18771,6 +18802,75 @@ button.issuance-list-item {
   color: var(--wf-text);
   font: inherit;
   font-size: 12px;
+}
+
+.app-shell-topnav .customer-certificate-password-summary {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--wf-border);
+  border-radius: 3px;
+  background: var(--wf-surface-soft);
+}
+
+.app-shell-topnav .customer-certificate-password-summary div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.app-shell-topnav .customer-certificate-password-summary dt,
+.app-shell-topnav .customer-certificate-password-summary dd {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.app-shell-topnav .customer-certificate-password-summary dt {
+  color: var(--wf-muted);
+  font-weight: 800;
+}
+
+.app-shell-topnav .customer-certificate-password-summary dd {
+  overflow: hidden;
+  color: var(--wf-text);
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell-topnav .customer-certificate-password-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--wf-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-shell-topnav .customer-certificate-password-field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--wf-border);
+  border-radius: 3px;
+  background: var(--wf-surface);
+  color: var(--wf-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.app-shell-topnav .customer-certificate-password-note {
+  margin: -4px 0 0;
+  color: var(--wf-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .app-shell-topnav .customer-certificate-candidate-table {
@@ -26279,9 +26379,9 @@ button.issuance-list-item {
 .app-shell-topnav .issuance-mail-preview img {
   justify-self: center !important;
   width: auto !important;
-  max-width: calc(100% - 32px) !important;
-  max-height: 270px !important;
-  margin: 16px !important;
+  max-width: calc(100% - 20px) !important;
+  max-height: 300px !important;
+  margin: 12px 10px 16px !important;
   object-fit: contain !important;
 }
 
@@ -27372,7 +27472,7 @@ button.issuance-list-item {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
   color: #111827 !important;
   font-size: 12px !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
   line-height: 30px !important;
   opacity: 1 !important;
   cursor: pointer !important;
@@ -27842,7 +27942,7 @@ button.issuance-list-item {
 .app-shell-topnav .content-customers .customer-info-contract-summary > .customer-contract-period-action-row,
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-grid .customer-contract-period-action-row {
   display: grid !important;
-  grid-template-columns: 100px minmax(0, 1fr) auto !important;
+  grid-template-columns: 100px minmax(0, 1fr) !important;
   align-items: center !important;
   gap: 10px !important;
   min-height: 24px !important;
@@ -27903,6 +28003,10 @@ button.issuance-list-item {
   border-bottom: 0 !important;
 }
 
+.app-shell-topnav .content-customers .customer-detail-overview .customer-certificate-management-row + .customer-certificate-management-row {
+  padding-top: 11px !important;
+}
+
 .app-shell-topnav .content-customers .customer-detail-overview .customer-certificate-management-main {
   min-width: 0 !important;
 }
@@ -27912,6 +28016,7 @@ button.issuance-list-item {
   align-items: center !important;
   gap: 8px !important;
   min-width: 0 !important;
+  width: 100% !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-certificate-management-title strong {
@@ -27938,7 +28043,7 @@ button.issuance-list-item {
   flex-wrap: wrap !important;
   justify-content: flex-end !important;
   gap: 6px !important;
-  margin-left: 12px !important;
+  margin-left: auto !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-certificate-management-actions button {
@@ -31077,7 +31182,7 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .customer-console-shell {
-  grid-template-columns: minmax(390px, 430px) minmax(0, 1fr) !important;
+  grid-template-columns: minmax(390px, 400px) minmax(0, 1fr) !important;
 }
 
 .app-shell-topnav .customer-console-table {
@@ -31095,7 +31200,7 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .customer-console-table .customer-console-col-owner {
-  width: 64px !important;
+  width: 72px !important;
 }
 
 .app-shell-topnav .customer-console-table .customer-console-col-status {
@@ -31286,7 +31391,7 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card .customer-detail-basic-facts {
-  margin: 0 !important;
+  margin: 8px 0 0 !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card .customer-detail-read-row {
@@ -31348,7 +31453,7 @@ button.issuance-list-item {
   display: grid !important;
   grid-column: 1 !important;
   grid-row: 2 !important;
-  grid-template-rows: 176px 168px minmax(92px, 1fr) !important;
+  grid-template-rows: 176px 192px minmax(92px, 1fr) !important;
   gap: 12px !important;
   min-width: 0 !important;
   min-height: 0 !important;
@@ -31368,11 +31473,16 @@ button.issuance-list-item {
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card {
   grid-column: 1 / -1 !important;
   grid-row: 1 !important;
+  align-content: space-between !important;
+  padding: 20px !important;
   min-height: 156px !important;
   height: 156px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card {
+  display: grid !important;
+  align-content: space-between !important;
+  padding: 22px 20px 18px !important;
   align-self: stretch !important;
   min-height: 176px !important;
   height: 176px !important;
@@ -31398,6 +31508,13 @@ button.issuance-list-item {
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-contract-field-label,
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-info-contract-grid label {
   line-height: 24px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-contract-field-label,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-contract-period-label {
+  color: #64748b !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card .customer-info-contract-summary dd {
@@ -31506,8 +31623,10 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card {
+  display: grid !important;
+  align-content: space-between !important;
   overflow: visible !important;
-  padding: 7px 20px 14px !important;
+  padding: 17px 20px 23px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-detail-section-head {
@@ -31517,6 +31636,14 @@ button.issuance-list-item {
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-certificate-management-row {
   min-height: 42px !important;
   padding: 4px 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-certificate-management-row:not(:last-child) {
+  padding-bottom: 10px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-certificate-management-row + .customer-certificate-management-row {
+  padding-top: 11px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card .customer-certificate-management-main small {
@@ -33992,13 +34119,16 @@ button.issuance-list-item {
    then scroll inside each pane instead of growing the whole page. */
 @media (min-width: 901px) {
   .app-shell-topnav .content-customers {
-    height: calc(100vh - 90px) !important;
-    height: calc(100dvh - 90px) !important;
+    height: calc(100vh - 68px) !important;
+    height: calc(100dvh - 68px) !important;
     min-height: 0 !important;
     overflow: hidden !important;
   }
 
   .app-shell-topnav .content-customers > .customers-screen.customer-console-screen {
+    display: grid !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+    align-items: stretch !important;
     height: 100% !important;
     min-height: 0 !important;
     overflow: hidden !important;
@@ -34663,6 +34793,349 @@ b {
   font-weight: var(--app-weight-muted) !important;
 }
 
+/* App confirmation dialog visual pass. */
+.app-dialog-backdrop {
+  background: rgba(15, 23, 42, 0.38) !important;
+  backdrop-filter: blur(2px) !important;
+}
+
+.app-dialog {
+  width: min(460px, calc(100vw - 48px)) !important;
+  overflow: hidden !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 4px !important;
+  background: #ffffff !important;
+  box-shadow: 0 22px 64px rgba(15, 23, 42, 0.18) !important;
+}
+
+.app-dialog-head {
+  min-height: 54px !important;
+  padding: 14px 16px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  background: #ffffff !important;
+}
+
+.app-dialog-head h2 {
+  color: #111827 !important;
+  font-size: 14px !important;
+  font-weight: var(--app-weight-strong) !important;
+  line-height: 1.35 !important;
+}
+
+.app-dialog-kicker {
+  min-width: auto !important;
+  height: 24px !important;
+  padding: 0 9px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 999px !important;
+  background: #f8fafc !important;
+  color: #64748b !important;
+  font-size: 11px !important;
+  font-weight: var(--app-weight-label) !important;
+  line-height: 22px !important;
+}
+
+.app-dialog-danger .app-dialog-kicker {
+  border-color: #fed7aa !important;
+  background: #fff7ed !important;
+  color: #c2410c !important;
+}
+
+.app-dialog-progress .app-dialog-kicker {
+  border-color: #bfdbfe !important;
+  background: #eff6ff !important;
+  color: #2563eb !important;
+}
+
+.app-dialog-progress-spinner {
+  width: 16px !important;
+  height: 16px !important;
+  border: 2px solid #bfdbfe !important;
+  border-top-color: #2563eb !important;
+  border-radius: 999px !important;
+  animation: app-dialog-progress-spin 800ms linear infinite !important;
+}
+
+@keyframes app-dialog-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-dialog-message {
+  padding: 16px !important;
+  color: #334155 !important;
+  font-size: 12px !important;
+  font-weight: var(--app-weight-body) !important;
+  line-height: 1.65 !important;
+}
+
+.app-dialog-message-leads {
+  gap: 7px !important;
+}
+
+.app-dialog-message-leads p {
+  color: #334155 !important;
+  font-size: 12px !important;
+  font-weight: var(--app-weight-body) !important;
+  line-height: 1.65 !important;
+}
+
+.app-dialog-message-leads p:first-child {
+  color: #111827 !important;
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-dialog-detail-list {
+  border-color: #e2e8f0 !important;
+  border-radius: 4px !important;
+}
+
+.app-dialog-detail-row {
+  border-top-color: #e2e8f0 !important;
+}
+
+.app-dialog-detail-row dt {
+  border-right-color: #e2e8f0 !important;
+  background: #f8fafc !important;
+  color: #64748b !important;
+  font-size: 12px !important;
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-dialog-detail-row dd {
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-dialog-actions {
+  gap: 8px !important;
+  padding: 12px 16px !important;
+  border-top: 1px solid #e2e8f0 !important;
+  background: #f8fafc !important;
+}
+
+.app-dialog-actions button {
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 14px !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 4px !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: var(--app-weight-label) !important;
+}
+
+.app-dialog-actions button:not(.btn-secondary) {
+  border-color: #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-dialog-danger .app-dialog-actions button:not(.btn-secondary) {
+  border-color: #fecaca !important;
+  background: #fff7f7 !important;
+  color: #dc2626 !important;
+}
+
+.app-dialog-actions .btn-secondary:not(:disabled):hover,
+.app-dialog-actions .btn-secondary:not(:disabled):focus-visible {
+  border-color: #94a3b8 !important;
+  background: #f1f5f9 !important;
+  color: #111827 !important;
+}
+
+.app-dialog-actions button:not(.btn-secondary):not(:disabled):hover,
+.app-dialog-actions button:not(.btn-secondary):not(:disabled):focus-visible {
+  border-color: #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.app-dialog-danger .app-dialog-actions button:not(.btn-secondary):not(:disabled):hover,
+.app-dialog-danger .app-dialog-actions button:not(.btn-secondary):not(:disabled):focus-visible {
+  border-color: #fca5a5 !important;
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+}
+
+/* Final top navigation sizing pass: keep logo, tabs, search, and account controls predictable. */
+.app-shell-topnav .topnav-shell {
+  box-sizing: border-box !important;
+  display: grid !important;
+  grid-template-columns: 142px minmax(360px, 1fr) minmax(360px, 430px) !important;
+  align-items: center !important;
+  gap: clamp(18px, 2vw, 30px) !important;
+  min-height: 68px !important;
+  padding: 0 clamp(28px, 3vw, 44px) !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .topnav-brand {
+  justify-self: start !important;
+  width: 142px !important;
+  min-width: 142px !important;
+}
+
+.app-shell-topnav .topnav-brand-logo {
+  width: 130px !important;
+  max-width: 130px !important;
+}
+
+.app-shell-topnav .topnav-list {
+  justify-self: start !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  justify-content: flex-start !important;
+  gap: 4px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none !important;
+}
+
+.app-shell-topnav .topnav-list::-webkit-scrollbar {
+  display: none !important;
+}
+
+.app-shell-topnav .topnav-button {
+  flex: 0 0 auto !important;
+  min-height: 40px !important;
+  padding: 0 15px !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .topnav-context {
+  justify-self: end !important;
+  display: grid !important;
+  grid-template-columns: minmax(220px, 320px) 36px minmax(138px, max-content) !important;
+  align-items: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .topnav-search {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+.app-shell-topnav .topnav-notification-wrap {
+  justify-self: center !important;
+  width: 36px !important;
+  min-width: 36px !important;
+}
+
+.app-shell-topnav .topnav-profile {
+  justify-self: end !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .topnav-profile-summary {
+  display: grid !important;
+  grid-template-columns: 40px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .topnav-profile-copy {
+  min-width: 0 !important;
+  max-width: 132px !important;
+}
+
+.app-shell-topnav .topnav-profile-copy :is(strong, span) {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+@media (max-width: 1180px) {
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: 126px minmax(312px, 1fr) minmax(282px, 320px) !important;
+    gap: 14px !important;
+    padding: 0 26px !important;
+  }
+
+  .app-shell-topnav .topnav-brand {
+    width: 126px !important;
+    min-width: 126px !important;
+  }
+
+  .app-shell-topnav .topnav-brand-logo {
+    width: 118px !important;
+    max-width: 118px !important;
+  }
+
+  .app-shell-topnav .topnav-button {
+    padding: 0 12px !important;
+  }
+
+  .app-shell-topnav .topnav-context {
+    grid-template-columns: minmax(190px, 238px) 36px 40px !important;
+    gap: 10px !important;
+  }
+
+  .app-shell-topnav .topnav-profile-summary {
+    grid-template-columns: 40px !important;
+    gap: 0 !important;
+  }
+
+  .app-shell-topnav .topnav-profile-copy {
+    display: none !important;
+  }
+}
+
+@media (max-width: 980px) {
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: 126px minmax(250px, 1fr) 88px !important;
+    padding: 0 20px !important;
+  }
+
+  .app-shell-topnav .topnav-context {
+    grid-template-columns: 36px 40px !important;
+    width: auto !important;
+  }
+
+  .app-shell-topnav .topnav-search {
+    display: none !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell-topnav .topnav-shell {
+    grid-template-columns: 1fr auto !important;
+    grid-template-areas:
+      "brand context"
+      "nav nav" !important;
+    row-gap: 8px !important;
+    min-height: 96px !important;
+    padding: 10px 16px !important;
+  }
+
+  .app-shell-topnav .topnav-brand {
+    grid-area: brand !important;
+  }
+
+  .app-shell-topnav .topnav-list {
+    grid-area: nav !important;
+  }
+
+  .app-shell-topnav .topnav-context {
+    grid-area: context !important;
+  }
+
+  .app-shell-topnav .topnav-button {
+    min-height: 36px !important;
+    padding: 0 12px !important;
+  }
+}
+
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table-wrap {
   display: block !important;
   width: 100% !important;
@@ -34780,144 +35253,87 @@ b {
   }
 }
 
-.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
+/* Customer detail layout model. Keep all breakpoints for this panel together:
+   middle is the default, wide and narrow only override the grid structure. */
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
+  --customer-detail-gap: 12px;
+  --customer-detail-basic-height: 156px;
+  --customer-detail-contract-height: 176px;
+  --customer-detail-certificate-height: 192px;
+  --customer-detail-memo-min-height: 120px;
+  --customer-detail-wide-memo-min-height: 92px;
+  --customer-report-section-min-height: 560px;
+  --customer-report-row-height: 38px;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-overview {
+  align-content: start !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-main-stack {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto auto auto !important;
+  gap: var(--customer-detail-gap) !important;
+  align-content: start !important;
+  height: auto !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-basic-card {
+  grid-column: 1 / -1 !important;
+  grid-row: auto !important;
+  min-height: var(--customer-detail-basic-height) !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-side-stack {
+  display: grid !important;
+  grid-column: 1 / -1 !important;
+  grid-row: auto !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-rows: auto auto !important;
+  gap: var(--customer-detail-gap) !important;
+  align-items: stretch !important;
+  width: 100% !important;
+  height: auto !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-card {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: var(--customer-detail-contract-height) !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-certificate-card {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: var(--customer-detail-certificate-height) !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-memo-card {
+  grid-column: 1 / -1 !important;
+  grid-row: 2 !important;
+  width: 100% !important;
+  min-height: var(--customer-detail-memo-min-height) !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-section {
+  grid-column: 1 / -1 !important;
+  grid-row: auto !important;
   align-self: start !important;
+  width: 100% !important;
   height: auto !important;
   min-height: 0 !important;
   max-height: none !important;
+  margin-top: 0 !important;
   overflow: visible !important;
   grid-template-rows: auto auto !important;
-}
-
-.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table-wrap {
-  align-self: start !important;
-  height: auto !important;
-  min-height: 0 !important;
-  overflow: visible !important;
-}
-
-.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table {
-  height: auto !important;
-  min-height: 0 !important;
-  grid-template-rows: 32px repeat(12, 38px) !important;
-}
-
-@container customer-detail-pane (max-width: 1120px) {
-  .app-shell-topnav .content-customers .customer-detail-main-stack {
-    grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-rows: auto !important;
-    align-content: start !important;
-    height: auto !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card {
-    grid-column: 1 / -1 !important;
-    grid-row: auto !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-side-stack {
-    grid-column: 1 / -1 !important;
-    grid-row: auto !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    grid-template-rows: auto auto !important;
-    align-items: stretch !important;
-    width: 100% !important;
-    height: auto !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card,
-  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card {
-    height: auto !important;
-    min-height: 168px !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-memo-card {
-    grid-column: 1 / -1 !important;
-    min-height: 120px !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
-    grid-column: 1 / -1 !important;
-    grid-row: auto !important;
-    width: 100% !important;
-  }
-}
-
-@container customer-detail-pane (max-width: 620px) {
-  .app-shell-topnav .content-customers .customer-detail-side-stack {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-memo-card {
-    grid-column: auto !important;
-  }
-}
-
-@media (min-width: 901px) and (max-width: 1500px) {
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-main-stack {
-    grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-rows: auto !important;
-    align-content: start !important;
-    height: auto !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-basic-card {
-    grid-column: 1 / -1 !important;
-    grid-row: auto !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-side-stack {
-    display: grid !important;
-    grid-column: 1 / -1 !important;
-    grid-row: auto !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    grid-template-rows: auto auto !important;
-    gap: 12px !important;
-    width: 100% !important;
-    height: auto !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-card {
-    grid-column: 1 !important;
-    grid-row: 1 !important;
-    width: 100% !important;
-    height: auto !important;
-    min-height: 168px !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-certificate-card {
-    grid-column: 2 !important;
-    grid-row: 1 !important;
-    width: 100% !important;
-    height: auto !important;
-    min-height: 168px !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-memo-card {
-    grid-column: 1 / -1 !important;
-    grid-row: 2 !important;
-    width: 100% !important;
-    min-height: 120px !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-section {
-    grid-column: 1 / -1 !important;
-    grid-row: auto !important;
-    width: 100% !important;
-  }
-}
-
-@media (max-width: 1100px) {
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-side-stack {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
-
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-card,
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-certificate-card,
-  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-memo-card {
-    grid-column: 1 / -1 !important;
-    grid-row: auto !important;
-  }
 }
 
 .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-head {
@@ -34926,7 +35342,7 @@ b {
   flex-wrap: nowrap !important;
   align-items: center !important;
   justify-content: space-between !important;
-  gap: 12px !important;
+  gap: var(--customer-detail-gap) !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-titlebar {
@@ -34955,6 +35371,231 @@ b {
 
 .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-inline-totals > div {
   flex: 0 0 auto !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-section .customer-report-table-wrap {
+  align-self: start !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-section .customer-report-table {
+  height: auto !important;
+  min-height: 0 !important;
+  grid-template-rows: 32px repeat(12, var(--customer-report-row-height)) !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-table th,
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-table td,
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-table input,
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-read-value {
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-grid input[type="number"] {
+  height: 24px !important;
+  min-height: 24px !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  line-height: 24px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-grid input[type="number"]::placeholder {
+  color: #94a3b8 !important;
+  opacity: 1 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-certificate-management-row:last-child {
+  box-sizing: border-box !important;
+  height: 63px !important;
+  min-height: 63px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-certificate-management-row:last-child .customer-certificate-management-title {
+  display: grid !important;
+  grid-template-columns: auto auto minmax(100px, 1fr) !important;
+  align-items: center !important;
+  height: 26px !important;
+  min-height: 26px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-certificate-management-row:last-child .customer-certificate-management-actions {
+  justify-self: end !important;
+  width: 100px !important;
+  min-width: 100px !important;
+  margin-left: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body.is-readonly .customer-certificate-management-row:last-child .customer-certificate-management-title::after {
+  content: "" !important;
+  display: block !important;
+  width: 100px !important;
+  min-width: 100px !important;
+  height: 26px !important;
+  min-height: 26px !important;
+}
+
+@media (min-width: 901px) {
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-overview,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-main-stack {
+    height: 100% !important;
+    min-height: 100% !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-overview {
+    grid-template-rows: minmax(0, 1fr) !important;
+    align-items: stretch !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-main-stack {
+    grid-template-rows: auto auto minmax(var(--customer-report-section-min-height), 1fr) !important;
+    align-self: stretch !important;
+    align-content: stretch !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-section {
+    align-self: stretch !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    min-height: var(--customer-report-section-min-height) !important;
+    overflow: hidden !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-section .customer-report-table-wrap {
+    align-self: stretch !important;
+    height: 100% !important;
+    overflow: auto !important;
+  }
+}
+
+@container customer-detail-pane (min-width: 840px) {
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-overview {
+    align-content: stretch !important;
+    height: 100% !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-main-stack {
+    grid-template-columns: minmax(330px, 0.82fr) minmax(460px, 1.18fr) !important;
+    grid-template-rows: var(--customer-detail-basic-height) minmax(0, 1fr) !important;
+    align-content: stretch !important;
+    height: 100% !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-basic-card {
+    grid-row: 1 !important;
+    height: var(--customer-detail-basic-height) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-side-stack {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: var(--customer-detail-contract-height) var(--customer-detail-certificate-height) minmax(var(--customer-detail-wide-memo-min-height), 1fr) !important;
+    width: auto !important;
+    height: 100% !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-card,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-certificate-card,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-memo-card {
+    grid-column: 1 !important;
+    width: auto !important;
+    height: 100% !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-card {
+    grid-row: 1 !important;
+    min-height: 0 !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-certificate-card {
+    grid-row: 2 !important;
+    min-height: 0 !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-memo-card {
+    grid-row: 3 !important;
+    min-height: var(--customer-detail-wide-memo-min-height) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-section {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    width: auto !important;
+  }
+}
+
+@container customer-detail-pane (max-width: 620px) {
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-side-stack {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-card,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-certificate-card,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-memo-card {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-head {
+    flex-wrap: wrap !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-inline-totals {
+    flex-basis: 100% !important;
+    justify-content: flex-start !important;
+    margin-left: 0 !important;
+  }
+}
+
+@media (min-width: 901px) {
+  .app-shell-topnav .content-customers .customer-detail-panel.is-detail {
+    align-self: start !important;
+    display: grid !important;
+    grid-template-rows: auto !important;
+    height: auto !important;
+    max-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-overview,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-main-stack {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+}
+
+@container customer-detail-pane (min-width: 840px) {
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-overview {
+    align-content: start !important;
+    height: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-main-stack {
+    grid-template-rows: var(--customer-detail-basic-height) auto !important;
+    align-content: start !important;
+    height: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-side-stack {
+    grid-template-rows: var(--customer-detail-contract-height) var(--customer-detail-certificate-height) minmax(var(--customer-detail-wide-memo-min-height), auto) !important;
+    height: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-card,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-certificate-card,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-memo-card {
+    height: auto !important;
+  }
 }
 
 /* Search fields: focused state should show the real caret and hide placeholder text. */
@@ -35059,6 +35700,74 @@ input[type="search"]:is(:focus, :focus-visible)::placeholder {
   min-height: 0 !important;
   overflow-x: hidden !important;
   overflow-y: auto !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-list-table tr,
+.app-shell-topnav .issuance-list-table tr {
+  grid-template-columns: 26px minmax(0, 1fr) 86px !important;
+}
+
+.app-shell-topnav .content-issuance .issuance-table-amount-cell,
+.app-shell-topnav .issuance-table-amount-cell {
+  justify-self: stretch !important;
+  width: 86px !important;
+  min-width: 86px !important;
+  text-align: right !important;
+}
+
+.app-shell-topnav .settings-activity-card {
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .settings-activity-list {
+  display: grid !important;
+  gap: 10px !important;
+}
+
+.app-shell-topnav .settings-activity-item {
+  display: grid !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  padding: 12px !important;
+  border: 1px solid var(--console-current-border, var(--lovable-border)) !important;
+  border-radius: 4px !important;
+  background: var(--console-current-surface, #ffffff) !important;
+}
+
+.app-shell-topnav .settings-activity-item-head {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .settings-activity-item-head > div {
+  display: grid !important;
+  gap: 3px !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .settings-activity-item strong {
+  overflow: hidden !important;
+  color: var(--console-current-text, #111827) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .settings-activity-item span,
+.app-shell-topnav .settings-activity-item p {
+  color: var(--console-current-text-muted, #475569) !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .settings-activity-item p {
+  max-height: 72px !important;
+  margin: 0 !important;
+  overflow: auto !important;
+  word-break: break-word !important;
 }
 
 /* Page-specific typography cleanup: keep lists and chips readable without heavy bold. */

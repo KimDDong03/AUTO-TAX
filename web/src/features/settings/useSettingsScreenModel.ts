@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type React from "react";
-import type { Customer } from "../../types";
+import type { Customer, LogEntry } from "../../types";
 import type { SettingsFeatureOrchestration } from "./createSettingsActionAdapters";
 import type { SettingsTabModel } from "./SettingsTab";
 import type { SettingsCertificateReadProgress, SettingsSectionSummary } from "./settingsSectionModels";
@@ -14,6 +14,7 @@ export type SettingsScreenProps = {
   settingsState: SettingsScreenState;
   activeSettingsSection: SettingsSectionId;
   setActiveSettingsSection: React.Dispatch<React.SetStateAction<SettingsSectionId>>;
+  logs: LogEntry[];
   customers: Customer[];
   onSaveCustomerIssueCompleteSmsTemplate: (customerId: number, issueCompleteSmsTemplate: string) => Promise<void>;
   onSendWithdrawalPhoneVerification: () => Promise<{
@@ -280,6 +281,10 @@ export function useSettingsScreenModel(
             props.customerRenewalLoadedCertificateCount > 0,
           helperStatus
         },
+        activity: {
+          logs: props.logs,
+          formatDateTime: props.formatDateTime
+        },
         account: {
           onboarding: {
             complete: props.onboardingComplete,
@@ -332,6 +337,7 @@ export function useSettingsScreenModel(
       props.customerRenewalAssistantOnline,
       props.customerRenewalLoadedCertificateCount,
       props.formatDateTime,
+      props.logs,
       props.onboardingComplete,
       props.onboardingContent,
       props.onboardingPendingStepCount,

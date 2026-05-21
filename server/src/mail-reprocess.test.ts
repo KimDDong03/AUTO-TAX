@@ -330,6 +330,110 @@ test("mail reprocess can use a manually selected customer when names or addresse
   ]);
 });
 
+test("mail reprocess converts an existing manual missing-mail draft into a mail-based draft", async () => {
+  const logs: Array<{ level: string; scope: string; message: string; context?: unknown }> = [];
+  const updates: Array<Parameters<AppStore["updateInboxMatchResult"]>[0]> = [];
+  const customer = buildCustomer();
+  const parsedMail = buildParsedMail();
+  const manualDraft = {
+    id: 88,
+    customerId: customer.id,
+    customerName: customer.customerName,
+    sourceMessageId: 0,
+    issueMode: "review",
+    status: "review",
+    scheduledFor: null,
+    issueRequestedAt: null,
+    issuedAt: null,
+    issueError: "",
+    billingMonth: parsedMail.billingMonth,
+    writeDate: "2026-03-31",
+    itemName: "수동 품목",
+    plantName: "수동 발전소",
+    supplyCost: 1,
+    taxTotal: 1,
+    totalAmount: 2,
+    kepcoCorpNum: "",
+    kepcoBranchId: "",
+    kepcoCorpName: "",
+    kepcoCeoName: "",
+    kepcoAddr: "",
+    kepcoBizType: "",
+    kepcoBizClass: "",
+    popbillMgtKey: "C7-202603-0",
+    popbillEnvironment: null,
+    popbillResultJson: "{}",
+    createdAt: "2026-04-16T00:00:00.000Z",
+    updatedAt: "2026-04-16T00:00:00.000Z"
+  } satisfies InvoiceDraft;
+  const refreshedDraft = {
+    ...manualDraft,
+    sourceMessageId: 10,
+    writeDate: null,
+    itemName: parsedMail.itemName,
+    plantName: parsedMail.plantName,
+    supplyCost: parsedMail.supplyCost,
+    taxTotal: parsedMail.taxTotal,
+    totalAmount: parsedMail.totalAmount
+  } satisfies InvoiceDraft;
+  let refreshInput: Parameters<AppStore["refreshDraftFromParsedMail"]> | null = null;
+
+  const store = {
+    getInboxMessage: async () => buildInboxMessage(),
+    listCompletedBillingMonths: async () => [],
+    findCustomerByMatchAddress: async () => customer,
+    findDraftByCustomerAndBillingMonth: async () => manualDraft,
+    refreshDraftFromParsedMail: async (...input: Parameters<AppStore["refreshDraftFromParsedMail"]>) => {
+      refreshInput = input;
+      return refreshedDraft;
+    },
+    updateInboxMatchResult: async (input: Parameters<AppStore["updateInboxMatchResult"]>[0]) => {
+      updates.push(input);
+      return {} as never;
+    },
+    createLog: async (level: string, scope: string, message: string, context?: unknown) => {
+      logs.push({ level, scope, message, context });
+    }
+  } as unknown as AppStore;
+
+  const result = await reprocessInboxMessage(store, 10, {
+    parseKepcoMail: () => parsedMail
+  });
+
+  assert.equal(result.status, "parsed");
+  assert.equal(result.draft, refreshedDraft);
+  assert.deepEqual(refreshInput, [manualDraft.id, parsedMail, { sourceMessageId: 10 }]);
+  assert.deepEqual(updates, [
+    {
+      messageId: 10,
+      parseStatus: "parsed",
+      parseError: "",
+      parsedMail,
+      customerId: customer.id,
+      draftId: refreshedDraft.id
+    }
+  ]);
+  assert.deepEqual(logs, [
+    {
+      level: "info",
+      scope: "mail-reprocess",
+      message: "수동 발행 초안을 메일 기반 초안으로 전환했습니다.",
+      context: {
+        messageId: 10,
+        customerId: customer.id,
+        draftId: refreshedDraft.id,
+        issueMode: "review",
+        previousDraftSource: "manual-missing-mail",
+        billingMonth: "2026-03",
+        pipeline: "mail-reprocess",
+        draftSource: "mail-reprocess",
+        eventType: "draft-refreshed-from-mail",
+        status: "parsed"
+      }
+    }
+  ]);
+});
+
 test("mail reprocess fails a manual customer match when parsed address belongs to another customer", async () => {
   const logs: Array<{ level: string; scope: string; message: string; context?: unknown }> = [];
   const updates: Array<Parameters<AppStore["updateInboxMatchResult"]>[0]> = [];

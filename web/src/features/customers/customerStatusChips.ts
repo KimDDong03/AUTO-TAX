@@ -73,7 +73,7 @@ export function buildCustomerIssueStatusChip(
     return { label: "인증서 만료", tone: "danger" };
   }
 
-  if (days !== null && days >= 0 && days <= 30) {
+  if (days !== null && days >= 0 && days < 60) {
     return { label: "인증서 임박", tone: "warn", detail: `만료 ${days}일 전` };
   }
 

@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { z } from "zod";
 import type { AppSettings, Customer } from "../domain.js";
 import type { AppStore } from "../store-contract.js";
@@ -19,7 +19,8 @@ import {
 import {
   confirmSignupEmailVerification,
   consumeSignupEmailVerification,
-  createSignupEmailVerification
+  createSignupEmailVerification,
+  sendPublicSignupCompletionEmail
 } from "../signup-email-verifications.js";
 import { createSmsProvider } from "../sms-provider.js";
 import type {
@@ -222,6 +223,10 @@ type RouteDeps = {
   runPlatformMaintenance: () => Promise<Record<string, unknown>>;
   dispatchRecurringJobs: () => Promise<Record<string, unknown>>;
   runDueJobs: (args: { limit?: number; claimedBy: string }) => Promise<Record<string, unknown>>;
+  createLoggingStoreForOrganizationId?: (options: {
+    organizationId: string;
+    actorUserId?: string | null;
+  }) => Promise<AppStore | null>;
 };
 
 class PublicLoginTimeoutError extends Error {
@@ -237,6 +242,15 @@ function parsePositiveInteger(value: string | undefined): number | undefined {
 
 function getPublicLoginTimeoutMs(): number {
   return parsePositiveInteger(process.env.AUTO_TAX_PUBLIC_LOGIN_TIMEOUT_MS) ?? DEFAULT_PUBLIC_LOGIN_TIMEOUT_MS;
+}
+
+function buildRequestAuditMetadata(req: Request) {
+  return {
+    requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+    requestUserAgent: req.header("user-agent") ?? "",
+    requestMethod: req.method,
+    requestPath: req.path
+  };
 }
 
 async function withPublicLoginTimeout<T>(operation: Promise<T>): Promise<T> {
@@ -290,7 +304,8 @@ export function registerCoreRoutes(deps: RouteDeps) {
     toClientCustomer,
     runPlatformMaintenance,
     dispatchRecurringJobs,
-    runDueJobs
+    runDueJobs,
+    createLoggingStoreForOrganizationId
   } = deps;
 
   app.get("/api/health", (_req, res) => {
@@ -330,8 +345,9 @@ export function registerCoreRoutes(deps: RouteDeps) {
       throw new HttpError(401, "로그인 정보가 올바르지 않습니다.");
     }
 
+    let resolvedSession: AuthenticatedAppSession;
     try {
-      await resolveAuthenticatedAppSession(signInResult.session.access_token, null);
+      resolvedSession = await resolveAuthenticatedAppSession(signInResult.session.access_token, null);
     } catch (sessionError) {
       const message = sessionError instanceof Error ? sessionError.message : "";
       if (message !== "접속 가능한 작업공간이 없습니다.") {
@@ -347,6 +363,25 @@ export function registerCoreRoutes(deps: RouteDeps) {
       }
 
       throw new HttpError(403, "접속 가능한 작업공간이 없습니다.");
+    }
+
+    if (resolvedSession.activeOrganizationId && createLoggingStoreForOrganizationId) {
+      void createLoggingStoreForOrganizationId({
+        organizationId: resolvedSession.activeOrganizationId,
+        actorUserId: resolvedSession.userId
+      })
+        .then((loggingStore) =>
+          loggingStore?.createLog("info", "auth", "로그인했습니다.", {
+            eventType: "login-succeeded",
+            userId: resolvedSession.userId,
+            email: resolvedSession.email,
+            activeOrganizationId: resolvedSession.activeOrganizationId,
+            activeOrganizationName: resolvedSession.activeOrganizationName,
+            activeOrganizationRole: resolvedSession.activeOrganizationRole,
+            ...buildRequestAuditMetadata(req)
+          })
+        )
+        .catch(() => undefined);
     }
 
     res.json({
@@ -523,6 +558,17 @@ export function registerCoreRoutes(deps: RouteDeps) {
         requestUserAgent: req.header("user-agent") ?? ""
       });
 
+      try {
+        await sendPublicSignupCompletionEmail({
+          to: payload.kepcoEmail,
+          name: payload.name,
+          organizationName: payload.organizationName,
+          loginId
+        });
+      } catch (emailError) {
+        console.warn("[signup] 회원가입 완료 안내 메일 발송에 실패했습니다.", emailError);
+      }
+
       res.status(201).json({ request });
     } catch (error) {
       await adminClient.auth.admin.deleteUser(createdUserResult.user.id).catch(() => undefined);
@@ -579,6 +625,12 @@ export function registerCoreRoutes(deps: RouteDeps) {
       settings: toClientSettings(workspaceDashboard.settings),
       auth: authContext
     });
+  });
+
+  app.get("/api/logs", async (_req, res) => {
+    requireAuthContext(res);
+    const requestStore = getRequestStore(res, store);
+    res.json(await requestStore.listLogs());
   });
 
   app.post("/api/internal/jobs/dispatch", async (req, res) => {

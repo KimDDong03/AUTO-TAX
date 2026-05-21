@@ -129,6 +129,14 @@ type CustomerStatusBadge = {
   detail?: string;
 };
 
+type CustomerCertificatePasswordDialog = {
+  action: "prepare" | "payment";
+  certificateIndex: string;
+  certificateName: string;
+  certificateKindLabel: string;
+  expireLabel: string;
+};
+
 type CustomerOnestopStepId = "source" | "password" | "confirm" | "result";
 type CustomerRenewalAssistantUpgradeState = "unknown" | "up-to-date" | "upgrade-available" | "upgrade-required";
 
@@ -216,8 +224,8 @@ type CustomersTabProps = {
   onOpenCustomerCertRegistration: (customerId: number) => Promise<void>;
   onLinkCustomerCertificate: (certificateIndex: string, customerId: number) => Promise<void>;
   onUnlinkCustomerCertificate: (certificateId: number) => Promise<void>;
-  onPrepareCustomerCertificateRenewal: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
-  onOpenCustomerCertificatePayment: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
+  onPrepareCustomerCertificateRenewal: (certificateIndex: string, options?: { showAlert?: boolean; certificatePassword?: string }) => Promise<void>;
+  onOpenCustomerCertificatePayment: (certificateIndex: string, options?: { showAlert?: boolean; certificatePassword?: string }) => Promise<void>;
   onRefreshCustomerCertificateStatus: (customerId: number) => Promise<void>;
   onResetPopbillLink: (customer: Customer) => Promise<void>;
   onDeleteCustomers: (customers: Customer[]) => Promise<number[]>;
@@ -565,6 +573,8 @@ export function CustomersTab(props: CustomersTabProps) {
   const [customerCertificateSearchQuery, setCustomerCertificateSearchQuery] = useState("");
   const [customerCertificateSelectedKey, setCustomerCertificateSelectedKey] = useState<string | null>(null);
   const [customerCertificateActionNotice, setCustomerCertificateActionNotice] = useState("");
+  const [customerCertificatePasswordDialog, setCustomerCertificatePasswordDialog] = useState<CustomerCertificatePasswordDialog | null>(null);
+  const [customerCertificatePasswordInput, setCustomerCertificatePasswordInput] = useState("");
 
   useEffect(() => {
     if (props.creatingCustomer) {
@@ -612,6 +622,8 @@ export function CustomersTab(props: CustomersTabProps) {
       setCustomerCertificateSearchQuery("");
       setCustomerCertificateSelectedKey(null);
       setCustomerCertificateActionNotice("");
+      setCustomerCertificatePasswordDialog(null);
+      setCustomerCertificatePasswordInput("");
     }
   }, [selectedCustomer?.id]);
 
@@ -724,6 +736,11 @@ export function CustomersTab(props: CustomersTabProps) {
         setCustomerCertificateSelectedKey(null);
         return;
       }
+      if (customerCertificatePasswordDialog) {
+        setCustomerCertificatePasswordDialog(null);
+        setCustomerCertificatePasswordInput("");
+        return;
+      }
       setCustomerDetailPanelOpen(false);
       if (props.creatingCustomer) {
         props.setCustomerDetailTab("info");
@@ -735,6 +752,7 @@ export function CustomersTab(props: CustomersTabProps) {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [
     customerCertificateSelectorOpen,
+    customerCertificatePasswordDialog,
     customerDetailPanelOpen,
     customerHistoryDetailOpen,
     props.creatingCustomer,
@@ -759,7 +777,7 @@ export function CustomersTab(props: CustomersTabProps) {
     },
     "certificate-expiration": {
       empty: "인증서 만료 예정 고객이 없습니다.",
-      body: "만료됐거나 30일 안에 만료되는 인증서가 없습니다."
+      body: "만료됐거나 60일 미만으로 남은 인증서가 없습니다."
     },
     "contract-expiration": {
       empty: "계약 만료 예정 고객이 없습니다.",
@@ -1030,7 +1048,7 @@ export function CustomersTab(props: CustomersTabProps) {
     if (!customer.popbillCertRegistered) {
       return { label: "등록", kind: "register-certificate" };
     }
-    if (days !== null && days <= 30) {
+    if (days !== null && days < 60) {
       return { label: "점검", kind: "check-certificate" };
     }
 
@@ -1117,7 +1135,7 @@ export function CustomersTab(props: CustomersTabProps) {
         detail: props.formatCertificateExpireDate(customer.popbillCertExpireDate)
       };
     }
-    if (days !== null && days <= 30) {
+    if (days !== null && days < 60) {
       return {
         label: days === 0 ? "D-Day" : `D-${days}`,
         tone: "warn",
@@ -1279,6 +1297,30 @@ export function CustomersTab(props: CustomersTabProps) {
       : !props.customerRenewalAssistantOnline
         ? props.customerRenewalAssistantHelperMessage || "고객 PC에서 AT 헬퍼를 실행하세요."
         : "";
+  const selectedCustomerElectronicTaxCertificateActionVisible =
+    Boolean(selectedCustomerElectronicTaxCertificate) &&
+    (selectedCustomerElectronicTaxCertificate?.canOpenPayment ||
+      selectedCustomerCertificateStatus?.tone === "warn" ||
+      selectedCustomerCertificateStatus?.tone === "danger" ||
+      selectedCustomerElectronicTaxCertificate?.statusTone === "warn" ||
+      selectedCustomerElectronicTaxCertificate?.statusTone === "danger");
+  const selectedCustomerElectronicTaxCertificateActionBusyKey = selectedCustomerElectronicTaxCertificate?.canOpenPayment
+    ? `customer-certificate-payment-${selectedCustomerElectronicTaxCertificate.certificateIndex}`
+    : `customer-certificate-prepare-${selectedCustomerElectronicTaxCertificate?.certificateIndex ?? ""}`;
+  const selectedCustomerElectronicTaxCertificateActionDisabled =
+    props.busyKey !== null ||
+    !selectedCustomerElectronicTaxCertificate ||
+    !props.canUseCustomerRenewalAssistant ||
+    customerCertificateHelperVersionMismatch;
+  const selectedCustomerElectronicTaxCertificateActionTitle = !props.canUseCustomerRenewalAssistant
+    ? customerCertificateHelperMessage
+    : customerCertificateHelperVersionMismatch
+      ? customerCertificateHelperMessage
+      : !props.customerRenewalAssistantOnline
+        ? "클릭하면 AT 헬퍼 연결 확인과 공동인증서 읽기를 먼저 시도합니다."
+        : selectedCustomerElectronicTaxCertificate?.certificateIndex.startsWith("stored:")
+          ? "클릭하면 이 PC의 공동인증서를 다시 읽고 갱신을 진행합니다."
+          : undefined;
   const unlinkedCustomerCertificateItems = props.customerCertificateItems.filter(
     (item) =>
       item.linkedCustomerId === null &&
@@ -1345,33 +1387,111 @@ export function CustomersTab(props: CustomersTabProps) {
     );
   };
 
-  const prepareSelectedCustomerGeneralCertificateRenewal = () => {
-    if (!selectedCustomerGeneralCertificate) {
+  const openCustomerCertificatePasswordDialog = (
+    action: CustomerCertificatePasswordDialog["action"],
+    certificate: CustomerCertificateCandidateView | null,
+    certificateKindLabel: string,
+    fallbackExpireLabel: string
+  ) => {
+    if (!certificate) {
       return;
     }
 
+    setCustomerCertificatePasswordInput("");
+    setCustomerCertificatePasswordDialog({
+      action,
+      certificateIndex: certificate.certificateIndex,
+      certificateName: certificate.certificateCn || `${certificateKindLabel} 공동인증서`,
+      certificateKindLabel,
+      expireLabel: certificate.certificateExpireDate
+        ? formatCustomerCertificateExpireDateLabel(certificate.certificateExpireDate)
+        : fallbackExpireLabel
+    });
+  };
+
+  const closeCustomerCertificatePasswordDialog = () => {
+    setCustomerCertificatePasswordDialog(null);
+    setCustomerCertificatePasswordInput("");
+  };
+
+  const runCustomerCertificatePasswordAction = (
+    dialog: CustomerCertificatePasswordDialog,
+    certificatePassword: string
+  ) => {
+    const certificateIsStored = dialog.certificateIndex.startsWith("stored:");
+
     void props.runAction(
-      `customer-certificate-prepare-${selectedCustomerGeneralCertificate.certificateIndex}`,
+      `customer-certificate-${dialog.action}-${dialog.certificateIndex}`,
       async () => {
-        await props.onPrepareCustomerCertificateRenewal(selectedCustomerGeneralCertificate.certificateIndex, { showAlert: false });
-        setCustomerCertificateActionNotice("갱신 준비가 완료됐습니다. 결제 열기를 이어서 실행하세요.");
+        if (!props.customerRenewalAssistantOnline || certificateIsStored) {
+          setCustomerCertificateActionNotice("AT 헬퍼 연결과 공동인증서 저장소를 확인하는 중입니다.");
+          await props.onRefreshCustomerRenewalAssistant().catch(() => undefined);
+          await props.onLoadCustomerRenewalCertificates().catch(() => undefined);
+        }
+
+        if (dialog.action === "payment") {
+          await props.onOpenCustomerCertificatePayment(dialog.certificateIndex, {
+            showAlert: false,
+            certificatePassword
+          });
+          setCustomerCertificateActionNotice(`${dialog.certificateKindLabel} 인증서 결제 창을 열었습니다. 결제를 마치고 고객 탭으로 돌아오세요.`);
+          return;
+        }
+
+        await props.onPrepareCustomerCertificateRenewal(dialog.certificateIndex, {
+          showAlert: false,
+          certificatePassword
+        });
+        setCustomerCertificateActionNotice(`${dialog.certificateKindLabel} 인증서 갱신 준비가 완료됐습니다. 결제를 이어서 실행하세요.`);
       },
       { reload: false }
+    );
+
+    setCustomerCertificatePasswordDialog(null);
+    setCustomerCertificatePasswordInput("");
+  };
+
+  const submitCustomerCertificatePasswordDialog = () => {
+    if (!customerCertificatePasswordDialog || customerCertificatePasswordInput.trim() === "") {
+      return;
+    }
+
+    runCustomerCertificatePasswordAction(customerCertificatePasswordDialog, customerCertificatePasswordInput);
+  };
+
+  const prepareSelectedCustomerGeneralCertificateRenewal = () => {
+    openCustomerCertificatePasswordDialog(
+      "prepare",
+      selectedCustomerGeneralCertificate,
+      "범용",
+      selectedCustomerGeneralCertificateStatus.detail || "만료일 미확인"
+    );
+  };
+
+  const prepareSelectedCustomerElectronicTaxCertificateRenewal = () => {
+    openCustomerCertificatePasswordDialog(
+      "prepare",
+      selectedCustomerElectronicTaxCertificate,
+      "전자세금용",
+      selectedCustomerElectronicTaxCertificateFallback
     );
   };
 
   const openSelectedCustomerGeneralCertificatePayment = () => {
-    if (!selectedCustomerGeneralCertificate) {
-      return;
-    }
+    openCustomerCertificatePasswordDialog(
+      "payment",
+      selectedCustomerGeneralCertificate,
+      "범용",
+      selectedCustomerGeneralCertificateStatus.detail || "만료일 미확인"
+    );
+  };
 
-    void props.runAction(
-      `customer-certificate-payment-${selectedCustomerGeneralCertificate.certificateIndex}`,
-      async () => {
-        await props.onOpenCustomerCertificatePayment(selectedCustomerGeneralCertificate.certificateIndex, { showAlert: false });
-        setCustomerCertificateActionNotice("결제 창을 열었습니다. 결제를 마치고 고객 탭으로 돌아오세요.");
-      },
-      { reload: false }
+  const openSelectedCustomerElectronicTaxCertificatePayment = () => {
+    openCustomerCertificatePasswordDialog(
+      "payment",
+      selectedCustomerElectronicTaxCertificate,
+      "전자세금용",
+      selectedCustomerElectronicTaxCertificateFallback
     );
   };
 
@@ -1511,6 +1631,85 @@ export function CustomersTab(props: CustomersTabProps) {
               </button>
             </div>
           </div>
+        </section>
+      </div>
+    );
+  };
+
+  const renderCustomerCertificatePasswordDialog = () => {
+    if (!customerCertificatePasswordDialog || !selectedCustomer) {
+      return null;
+    }
+
+    const dialog = customerCertificatePasswordDialog;
+    const dialogTitle = dialog.action === "payment" ? "결제 열기" : "갱신 준비";
+    const submitLabel = dialog.action === "payment" ? "결제 열기" : "갱신 준비";
+
+    return (
+      <div
+        className="customer-certificate-selector-backdrop customer-certificate-password-backdrop"
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) {
+            closeCustomerCertificatePasswordDialog();
+          }
+        }}
+      >
+        <section
+          className="customer-certificate-password-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="customer-certificate-password-title"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <form
+            className="customer-certificate-password-dialog"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitCustomerCertificatePasswordDialog();
+            }}
+          >
+            <div className="customer-certificate-selector-head">
+              <div>
+                <strong id="customer-certificate-password-title">{dialogTitle}</strong>
+                <span>
+                  {selectedCustomer.corpName || selectedCustomer.customerName} 고객의 {dialog.certificateKindLabel} 공동인증서 비밀번호를 입력하세요.
+                </span>
+              </div>
+              <button type="button" className="btn-ghost" onClick={closeCustomerCertificatePasswordDialog}>
+                닫기
+              </button>
+            </div>
+            <dl className="customer-certificate-password-summary">
+              <div>
+                <dt>인증서</dt>
+                <dd>{dialog.certificateName}</dd>
+              </div>
+              <div>
+                <dt>만료일</dt>
+                <dd>{dialog.expireLabel}</dd>
+              </div>
+            </dl>
+            <label className="customer-certificate-password-field">
+              공동인증서 비밀번호
+              <input
+                type="password"
+                autoComplete="off"
+                value={customerCertificatePasswordInput}
+                autoFocus
+                onChange={(event) => setCustomerCertificatePasswordInput(event.target.value)}
+              />
+            </label>
+            <p className="customer-certificate-password-note">비밀번호는 저장하지 않고 이번 {dialogTitle} 요청에만 사용합니다.</p>
+            <div className="customer-certificate-selector-actions">
+              <button type="button" className="btn-secondary" onClick={closeCustomerCertificatePasswordDialog}>
+                취소
+              </button>
+              <button type="submit" disabled={props.busyKey !== null || customerCertificatePasswordInput.trim() === ""}>
+                {props.busyKey === `customer-certificate-${dialog.action}-${dialog.certificateIndex}` ? "진행 중" : submitLabel}
+              </button>
+            </div>
+          </form>
         </section>
       </div>
     );
@@ -1990,6 +2189,9 @@ export function CustomersTab(props: CustomersTabProps) {
                         {props.busyKey === `contract-renewal-${selectedCustomer.id}` ? "갱신 중" : "계약 갱신"}
                       </button>
                     ) : null}
+                    <button type="button" className="btn-ghost customer-history-detail-button" onClick={openCustomerHistoryDetail}>
+                      상세정보보기
+                    </button>
                     <span className={customerReportDetail.error ? "customer-auto-save-status tone-danger" : customerReportDetail.saving ? "customer-auto-save-status" : "customer-auto-save-status tone-success"}>
                       {customerReportDetail.error || customerReportSaveStatus}
                     </span>
@@ -2027,9 +2229,6 @@ export function CustomersTab(props: CustomersTabProps) {
                           aria-readonly="true"
                         />
                       </span>
-                      <button type="button" className="btn-ghost customer-history-detail-button" onClick={openCustomerHistoryDetail}>
-                        상세정보보기
-                      </button>
                     </div>
                   </div>
                 ) : (
@@ -2041,9 +2240,6 @@ export function CustomersTab(props: CustomersTabProps) {
                     <div className="customer-contract-period-action-row">
                       <dt>계약기간</dt>
                       <dd>{contractPeriodSummaryLabel}</dd>
-                      <button type="button" className="btn-ghost customer-history-detail-button" onClick={openCustomerHistoryDetail}>
-                        상세정보보기
-                      </button>
                     </div>
                   </dl>
                 )}
@@ -2066,6 +2262,29 @@ export function CustomersTab(props: CustomersTabProps) {
                       <div className="customer-certificate-management-title">
                         <strong>전자세금용</strong>
                         <span className={getToneBadgeClass(selectedCustomerCertificateStatus.tone)}>{selectedCustomerCertificateStatus.label}</span>
+                        {selectedCustomerElectronicTaxCertificateActionVisible ? (
+                          <div className="customer-certificate-management-actions">
+                            <button
+                              type="button"
+                              className="btn-ghost"
+                              disabled={selectedCustomerElectronicTaxCertificateActionDisabled}
+                              title={selectedCustomerElectronicTaxCertificateActionTitle}
+                              onClick={
+                                selectedCustomerElectronicTaxCertificate?.canOpenPayment
+                                  ? openSelectedCustomerElectronicTaxCertificatePayment
+                                  : prepareSelectedCustomerElectronicTaxCertificateRenewal
+                              }
+                            >
+                              {props.busyKey === selectedCustomerElectronicTaxCertificateActionBusyKey
+                                ? selectedCustomerElectronicTaxCertificate?.canOpenPayment
+                                  ? "여는 중"
+                                  : "갱신 중"
+                                : selectedCustomerElectronicTaxCertificate?.canOpenPayment
+                                  ? "결제"
+                                  : "갱신"}
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                       {renderCustomerCertificateExpireMeta(selectedCustomerElectronicTaxCertificate, selectedCustomerElectronicTaxCertificateFallback)}
                     </div>
@@ -2081,6 +2300,34 @@ export function CustomersTab(props: CustomersTabProps) {
                         >
                           {selectedCustomerGeneralCertificate?.statusText ?? selectedCustomerGeneralCertificateStatus.label}
                         </span>
+                        {customerDetailEditing ? (
+                          <div className="customer-certificate-management-actions">
+                            <button type="button" className="btn-ghost" disabled={props.busyKey !== null} onClick={openCustomerCertificateSelector}>
+                              {selectedCustomerGeneralCertificate ? "범용 인증서 교체" : "범용 인증서 등록"}
+                            </button>
+                            {selectedCustomerGeneralCertificate ? (
+                              selectedCustomerGeneralCertificate.canOpenPayment ? (
+                                <button
+                                  type="button"
+                                  disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
+                                  title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
+                                  onClick={openSelectedCustomerGeneralCertificatePayment}
+                                >
+                                  결제 열기
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
+                                  title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
+                                  onClick={prepareSelectedCustomerGeneralCertificateRenewal}
+                                >
+                                  갱신 준비
+                                </button>
+                              )
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                       {renderCustomerCertificateMeta(
                         selectedCustomerGeneralCertificate,
@@ -2090,34 +2337,6 @@ export function CustomersTab(props: CustomersTabProps) {
                         <small>결제 예정 {selectedCustomerGeneralCertificate.paymentAmount}</small>
                       ) : null}
                     </div>
-                    {customerDetailEditing ? (
-                      <div className="customer-certificate-management-actions">
-                        <button type="button" className="btn-ghost" disabled={props.busyKey !== null} onClick={openCustomerCertificateSelector}>
-                          {selectedCustomerGeneralCertificate ? "범용 인증서 교체" : "범용 인증서 등록"}
-                        </button>
-                        {selectedCustomerGeneralCertificate ? (
-                          selectedCustomerGeneralCertificate.canOpenPayment ? (
-                            <button
-                              type="button"
-                              disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
-                              title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
-                              onClick={openSelectedCustomerGeneralCertificatePayment}
-                            >
-                              결제 열기
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={props.busyKey !== null || customerCertificateHelperUnavailable}
-                              title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
-                              onClick={prepareSelectedCustomerGeneralCertificateRenewal}
-                            >
-                              갱신 준비
-                            </button>
-                          )
-                        ) : null}
-                      </div>
-                    ) : null}
                   </div>
                 </div>
                 {customerDetailEditing && customerCertificateActionNotice ? (
@@ -2896,7 +3115,7 @@ export function CustomersTab(props: CustomersTabProps) {
                       />
                     </th>
                     <th>상호명</th>
-                    <th>대표자명</th>
+                    <th className="customer-console-col-owner">대표자명</th>
                     <th className="customer-console-col-status">상태</th>
                   </tr>
                 </thead>
@@ -2928,6 +3147,7 @@ export function CustomersTab(props: CustomersTabProps) {
         </motion.section>
       </div>
       {renderCustomerCertificateSelector()}
+      {renderCustomerCertificatePasswordDialog()}
     </motion.div>
   );
 }

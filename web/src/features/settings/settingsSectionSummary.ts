@@ -73,8 +73,15 @@ export function buildSettingsSectionSummary({
             : "AT 헬퍼 준비 필요"
     },
     {
-      id: "account",
+      id: "activity",
       step: 5,
+      title: "업무 내역",
+      done: true,
+      summary: "로그 확인"
+    },
+    {
+      id: "account",
+      step: 6,
       title: "계정 설정",
       done: true,
       summary: canManageOrganizationMembers ? "사용자 / 비밀번호" : "비밀번호 변경"

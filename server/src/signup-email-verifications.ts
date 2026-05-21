@@ -208,6 +208,33 @@ export async function createSignupEmailVerification(
   };
 }
 
+export async function sendPublicSignupCompletionEmail(input: {
+  to: string;
+  name: string;
+  organizationName: string;
+  loginId: string;
+}): Promise<EmailSendResult> {
+  const emailProvider = createSignupEmailProvider();
+  const normalizedEmail = normalizeSignupEmail(input.to);
+  const name = input.name.trim() || "고객";
+  const organizationName = input.organizationName.trim() || "신청 고객사";
+  const loginId = input.loginId.trim();
+
+  return emailProvider.send({
+    to: normalizedEmail,
+    subject: "[AUTO-TAX] 회원가입 신청이 완료되었습니다",
+    text: [
+      `${name}님, AUTO-TAX 회원가입 신청이 완료되었습니다.`,
+      "",
+      `고객사: ${organizationName}`,
+      `로그인 ID: ${loginId}`,
+      "",
+      "운영자 승인 후 로그인할 수 있습니다.",
+      "승인이 완료되면 안내에 따라 AUTO-TAX 서비스를 이용해 주세요."
+    ].join("\n")
+  });
+}
+
 export async function confirmSignupEmailVerification(
   adminClient: AdminClient,
   input: {

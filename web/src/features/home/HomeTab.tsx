@@ -397,7 +397,7 @@ export function HomeTab(props: HomeTabProps) {
     {
       label: "인증서 만료 예정",
       value: certificateAttentionValue,
-      description: "30일 이내 만료",
+      description: "60일 미만 만료",
       actionKey: "certificates"
     },
     {

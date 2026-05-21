@@ -16,7 +16,7 @@ npm install
 npm run dev
 ```
 
-- Web: `http://localhost:5173`
+- Web: `http://127.0.0.1:5174`
 - API: `http://localhost:4300`
 
 ## Core Commands

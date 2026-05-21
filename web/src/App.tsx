@@ -1551,7 +1551,7 @@ function getCustomerIssueReadiness(customer: Customer): {
     };
   }
 
-  if (days !== null && days <= 30) {
+  if (days !== null && days < 60) {
     return {
       canIssueNow: true,
       label: "발행 가능",
@@ -1612,7 +1612,7 @@ function getCustomerIssueChecklist(customer: Customer): Array<{
     ];
   }
 
-  if (days !== null && days <= 30) {
+  if (days !== null && days < 60) {
     return [
       {
         key: "expiring-certificate",
@@ -1641,7 +1641,7 @@ function compareCustomersForList(left: Customer, right: Customer): number {
       ? 0
       : leftDays !== null && leftDays < 0
         ? 1
-        : leftDays !== null && leftDays <= 30
+        : leftDays !== null && leftDays < 60
           ? 2
           : !leftReadiness.canIssueNow
             ? 3
@@ -1651,7 +1651,7 @@ function compareCustomersForList(left: Customer, right: Customer): number {
       ? 0
       : rightDays !== null && rightDays < 0
         ? 1
-        : rightDays !== null && rightDays <= 30
+        : rightDays !== null && rightDays < 60
           ? 2
           : !rightReadiness.canIssueNow
             ? 3
@@ -1682,7 +1682,7 @@ function buildCurrentCustomerListFilterContext(
     const days = getDaysUntilDate(customer.popbillCertExpireDate);
     if (days !== null && days < 0) {
       expiredCertCustomers.push(customer);
-    } else if (days !== null && days >= 0 && days <= 30) {
+    } else if (days !== null && days >= 0 && days < 60) {
       expiringSoonCustomers.push(customer);
     }
   }
@@ -1735,7 +1735,7 @@ function getCustomerCertificateSummary(customer: Customer): string {
     return "인증서 만료";
   }
 
-  if (days !== null && days <= 30) {
+  if (days !== null && days < 60) {
     return `인증서 ${days}일 남음`;
   }
 
@@ -2086,6 +2086,7 @@ export function App() {
   );
   const [data, setData] = useState<BootstrapPayload | null>(null);
   const [opsConsole, setOpsConsole] = useState<OpsConsoleData | null>(null);
+  const [workspaceLogs, setWorkspaceLogs] = useState<LogEntry[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     const hashTab = getTabFromHash(hash);
@@ -2508,11 +2509,13 @@ export function App() {
     ensureActiveLoad(loadToken);
     const [
       nextOpsConsole,
+      nextWorkspaceLogs,
       nextCompletedBillingMonths,
       nextCustomerContractRenewalsDue,
       nextCustomerContractSummaries
     ] = await Promise.all([
       payload.auth.isPlatformAdmin ? loadOpsConsole() : Promise.resolve(null),
+      payload.auth.activeOrganizationId ? api<LogEntry[]>("/api/logs") : Promise.resolve([]),
       payload.auth.activeOrganizationId
         ? api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
         : Promise.resolve([]),
@@ -2544,6 +2547,7 @@ export function App() {
     }
     customerCertificatePasswordCacheRef.current = {};
     setOpsConsole(nextOpsConsole);
+    setWorkspaceLogs(nextWorkspaceLogs);
     setCompletedBillingMonths(nextCompletedBillingMonths);
     setCustomerContractRenewalsDue(nextCustomerContractRenewalsDue);
     setCustomerContractSummaries(nextCustomerContractSummaries);
@@ -2675,6 +2679,26 @@ export function App() {
       cancelLabel: options?.cancelLabel ?? "취소",
       tone: options?.tone ?? "default"
     });
+
+  const showAppProgress = (
+    message: string,
+    options?: {
+      title?: string;
+      tone?: AppDialogTone;
+    }
+  ) => {
+    setAppDialog({
+      kind: "progress",
+      title: options?.title ?? "처리 중",
+      message,
+      confirmLabel: "",
+      tone: options?.tone ?? "default"
+    });
+  };
+
+  const closeAppProgress = () => {
+    setAppDialog((prev) => (prev?.kind === "progress" ? null : prev));
+  };
 
   const runAction = useCallback(
     async (
@@ -3072,6 +3096,7 @@ export function App() {
       invalidateActiveLoads();
       setData(null);
       setOpsConsole(null);
+      setWorkspaceLogs([]);
       setCustomerContractRenewalsDue([]);
       setAppDialog(null);
       appDialogResolverRef.current = null;
@@ -3096,6 +3121,7 @@ export function App() {
           setAuthSession(null);
           setData(null);
           setOpsConsole(null);
+          setWorkspaceLogs([]);
           setCustomerContractRenewalsDue([]);
           setActiveOrganizationId(null);
           setAuthNotice("접속 가능한 작업공간이 없어 다시 로그인해야 합니다.");
@@ -3413,6 +3439,13 @@ export function App() {
     document.body.style.overflow = "hidden";
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (appDialog.kind === "progress") {
+        if (event.key === "Escape" || (event.key === "Enter" && !event.shiftKey)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
       if (event.key === "Escape") {
         event.preventDefault();
         closeAppDialog(appDialog.kind === "alert" ? true : false);
@@ -3578,6 +3611,7 @@ export function App() {
     setAuthNotice("");
     setData(null);
     setOpsConsole(null);
+    setWorkspaceLogs([]);
     setOwnerPasswordResetTarget(null);
     setOwnerPasswordResetForm(createEmptyPasswordResetForm());
     setOpsWorkspaceMailSettingsTarget(null);
@@ -4908,7 +4942,10 @@ export function App() {
         customerRenewalAssistant?.certificates ?? []
       );
       if (!certificate) {
-        const refreshedCertificates = await syncCustomerRenewalCertificates({ showAlert: false });
+        const refreshedCertificates = await syncCustomerRenewalCertificates({
+          showAlert: false,
+          skipReadinessCheck: true
+        });
         certificate = findLocalCertificateForStoredCustomerCertificate(linkedCertificate, refreshedCertificates);
       }
 
@@ -5282,7 +5319,9 @@ export function App() {
     customerId: number,
     options?: { showAlert?: boolean; certificatePassword?: string; certificateOverride?: RenewalAgentCertificate | null }
   ) => {
-    ensureLocalRenewalHelperActionAllowed("갱신 준비");
+    if (customerRenewalAssistant?.agentOnline || customerRenewalAssistant?.upgradeState === "upgrade-required" || customerRenewalAssistant?.upgradeState === "upgrade-available") {
+      ensureLocalRenewalHelperActionAllowed("갱신 준비");
+    }
     const customer = getCustomerById(customerId);
     const certificate = options?.certificateOverride ?? getCustomerRenewalCertificateForCustomer(customerId).certificate;
     if (!customer || !certificate) {
@@ -5365,7 +5404,9 @@ export function App() {
       showAlert?: boolean;
     }
   ) => {
-    ensureLocalRenewalHelperActionAllowed("결제 창 열기");
+    if (customerRenewalAssistant?.agentOnline || customerRenewalAssistant?.upgradeState === "upgrade-required" || customerRenewalAssistant?.upgradeState === "upgrade-available") {
+      ensureLocalRenewalHelperActionAllowed("결제 창 열기");
+    }
     const customer = getCustomerById(customerId);
     const certificate = options?.certificateOverride ?? getCustomerRenewalCertificateForCustomer(customerId).certificate;
     if (!customer || !certificate) {
@@ -5475,24 +5516,26 @@ export function App() {
 
   const prepareLinkedCustomerCertificateRenewal = async (
     certificateIndex: string,
-    options?: { showAlert?: boolean }
+    options?: { showAlert?: boolean; certificatePassword?: string }
   ) => {
     const { certificate, linkedCertificate } = await resolveLinkedCustomerCertificateForAction(certificateIndex);
 
     await prepareCustomerRenewal(linkedCertificate.customerId, {
       showAlert: options?.showAlert,
+      certificatePassword: options?.certificatePassword,
       certificateOverride: certificate
     });
   };
 
   const openLinkedCustomerCertificatePayment = async (
     certificateIndex: string,
-    options?: { showAlert?: boolean }
+    options?: { showAlert?: boolean; certificatePassword?: string }
   ) => {
     const { certificate, linkedCertificate } = await resolveLinkedCustomerCertificateForAction(certificateIndex);
 
     await openCustomerRenewalPayment(linkedCertificate.customerId, {
       showAlert: options?.showAlert,
+      certificatePassword: options?.certificatePassword,
       certificateOverride: certificate
     });
   };
@@ -5583,15 +5626,24 @@ export function App() {
       const deletedIds: number[] = [];
       const failedDetails: string[] = [];
 
-      for (const customer of uniqueCustomers) {
-        try {
-          await api(`/api/customers/${customer.id}`, {
-            method: "DELETE"
-          });
-          deletedIds.push(customer.id);
-        } catch (error) {
-          failedDetails.push(`${customer.customerName}: ${getDisplayErrorMessage(error, "삭제 실패")}`);
+      showAppProgress(`선택한 고객 ${uniqueCustomers.length}명을 삭제하는 중입니다.\n잠시만 기다려 주세요.`, {
+        title: "고객 삭제 중",
+        tone: "warn"
+      });
+
+      try {
+        for (const customer of uniqueCustomers) {
+          try {
+            await api(`/api/customers/${customer.id}`, {
+              method: "DELETE"
+            });
+            deletedIds.push(customer.id);
+          } catch (error) {
+            failedDetails.push(`${customer.customerName}: ${getDisplayErrorMessage(error, "삭제 실패")}`);
+          }
         }
+      } finally {
+        closeAppProgress();
       }
 
       setCustomerForm((prev) =>
@@ -5602,9 +5654,11 @@ export function App() {
       const successCount = deletedIds.length;
       const detailText = failedCount > 0 ? `\n실패 내역\n${failedDetails.slice(0, 8).join("\n")}` : "";
       await showAppAlert(
-        `고객 일괄 삭제를 마쳤습니다.\n대상: ${uniqueCustomers.length}명\n삭제 완료: ${successCount}명\n삭제 실패: ${failedCount}명${detailText}`,
+        failedCount > 0
+          ? `고객 일괄 삭제를 마쳤습니다.\n대상: ${uniqueCustomers.length}명\n삭제 완료: ${successCount}명\n삭제 실패: ${failedCount}명${detailText}`
+          : `성공적으로 삭제되었습니다.\n삭제 완료: ${successCount}명\n확인을 누르면 고객 목록을 새로 불러옵니다.`,
         {
-          title: "고객 일괄 삭제 완료",
+          title: failedCount > 0 ? "고객 일괄 삭제 완료" : "고객 삭제 완료",
           tone: failedCount > 0 ? "warn" : "success"
         }
       );
@@ -5623,11 +5677,24 @@ export function App() {
     );
     if (!confirmed) return [];
 
-    await api(`/api/customers/${customer.id}`, {
-      method: "DELETE"
+    showAppProgress(`${customer.customerName} 고객을 삭제하는 중입니다.\n잠시만 기다려 주세요.`, {
+      title: "고객 삭제 중",
+      tone: "warn"
     });
 
+    try {
+      await api(`/api/customers/${customer.id}`, {
+        method: "DELETE"
+      });
+    } finally {
+      closeAppProgress();
+    }
+
     setCustomerForm((prev) => (prev.id === customer.id ? createCustomerFormDefaults() : prev));
+    await showAppAlert("성공적으로 삭제되었습니다.\n확인을 누르면 고객 목록을 새로 불러옵니다.", {
+      title: "고객 삭제 완료",
+      tone: "success"
+    });
     return [customer.id];
   };
 
@@ -5811,7 +5878,7 @@ export function App() {
     });
 
     await showAppAlert(
-      `인증서 일괄 점검 완료\n점검 대상: ${result.checked}건\n갱신 성공: ${result.updated}건\n조회 실패: ${result.failed}건\n만료: ${result.expired}건\n30일 이내 만료 예정: ${result.expiringSoon}건`,
+      `인증서 일괄 점검 완료\n점검 대상: ${result.checked}건\n갱신 성공: ${result.updated}건\n조회 실패: ${result.failed}건\n만료: ${result.expired}건\n60일 미만 만료 예정: ${result.expiringSoon}건`,
       {
         title: "인증서 일괄 점검 완료",
         tone: "success"
@@ -6080,7 +6147,7 @@ export function App() {
     const days = getDaysUntilDate(customer.popbillCertExpireDate);
     if (days !== null && days < 0) {
       expiredCertCustomers.push(customer);
-    } else if (days !== null && days >= 0 && days <= 30) {
+    } else if (days !== null && days >= 0 && days < 60) {
       expiringSoonCustomers.push(customer);
     }
     if (readiness.canIssueNow) {
@@ -6979,7 +7046,7 @@ export function App() {
           {
             key: "certificate-expiration",
             title: `인증서 만료 예정 ${certAttentionCount}건`,
-            description: "만료 또는 30일 이내 만료 고객을 확인하세요.",
+            description: "만료 또는 60일 미만 만료 고객을 확인하세요.",
             count: certAttentionCount,
             tone: "warn" as const,
             actionLabel: "고객 필터로 이동",
@@ -7424,7 +7491,7 @@ export function App() {
         void runAction("issue-all", issueAllReviewDrafts);
       },
       chips: [
-        { label: "발행 대기", value: `${issuancePendingDraftCount}건`, tone: issuancePendingDraftCount > 0 ? "warn" : "success" },
+        { label: "발행 대기", value: `${issuancePendingDraftCount}건`, tone: "success" },
         { label: "발행 완료", value: `${issuanceIssuedDraftCount}건`, tone: issuanceIssuedDraftCount > 0 ? "success" : "default" }
       ]
     },
@@ -7981,6 +8048,7 @@ export function App() {
             popbillModeLabel={workspacePopbillModeLabel}
             settingsState={settingsScreenState}
             activeSettingsSection={activeSettingsSection}
+            logs={workspaceLogs}
             customers={data.customers}
             onSaveCustomerIssueCompleteSmsTemplate={saveCustomerIssueCompleteSmsTemplate}
             onSendWithdrawalPhoneVerification={sendWithdrawalPhoneVerification}

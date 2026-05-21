@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildMailContentFingerprint,
   buildMailSyncMonthRange,
   buildMailSyncSearchQuery,
+  extractContractNumberFromSubject,
   isMessageInReceivedMonthRange,
   resolveMailboxList,
   resolveMailSyncReceivedMonth
 } from "./mail-sync.js";
+import type { ParsedMail } from "./domain.js";
 
 test("mail sync resolves Seoul current month and validates explicit receivedMonth", () => {
   assert.equal(
@@ -94,4 +97,37 @@ test("mail sync expands wildcard mailbox setting to selectable mailboxes", async
     "INBOX",
     "프로모션"
   ]);
+});
+
+test("mail sync fingerprints parsed mail by contract number from subject", () => {
+  const parsedMail: ParsedMail = {
+    originalFrom: "kepco@example.com",
+    plantName: "김동건태양광",
+    plantAddress: "경상북도 의성군 종하길 397-5",
+    billingMonth: "2026-05",
+    supplyCost: 121867,
+    taxTotal: 12186,
+    totalAmount: 134053,
+    itemName: "2026년5월전력",
+    kepcoCorpNum: "1234567890",
+    kepcoBranchId: "0194",
+    kepcoCorpName: "한국전력공사",
+    kepcoCeoName: "대표",
+    kepcoAddr: "주소",
+    kepcoBizType: "업태",
+    kepcoBizClass: "종목",
+    rawText: "raw"
+  };
+
+  const subject = "신재생에너지 요금안내, 계약번호 : 5001046220";
+  assert.equal(extractContractNumberFromSubject(subject), "5001046220");
+  assert.equal(
+    buildMailContentFingerprint(subject, parsedMail),
+    "contract|2026-05|5001046220|121867|12186|134053"
+  );
+
+  assert.equal(
+    buildMailContentFingerprint("신재생에너지 요금안내", parsedMail),
+    "parsed|2026-05|김동건태양광|경상북도 의성군 종하길 397-5|2026년5월전력|121867|12186|134053|0194"
+  );
 });

@@ -22,8 +22,8 @@ type CertificatesScreenProps = {
   certificatesModel: ReturnType<typeof useCertificatesScreenModel>;
   onLinkCustomerCertificate: (certificateIndex: string, customerId: number) => Promise<void>;
   onUnlinkCustomerCertificate: (certificateId: number) => Promise<void>;
-  onPrepareCustomerCertificateRenewal: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
-  onOpenCustomerCertificatePayment: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
+  onPrepareCustomerCertificateRenewal: (certificateIndex: string, options?: { showAlert?: boolean; certificatePassword?: string }) => Promise<void>;
+  onOpenCustomerCertificatePayment: (certificateIndex: string, options?: { showAlert?: boolean; certificatePassword?: string }) => Promise<void>;
   runRefreshCustomerRenewalAssistant: () => Promise<void>;
   runLoadCustomerRenewalCertificates: () => Promise<void>;
   runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;

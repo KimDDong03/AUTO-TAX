@@ -117,6 +117,8 @@ export function getSettingsSectionLabel(section: SettingsSectionId): string {
       return "발행 설정";
     case "helper":
       return "AT 헬퍼";
+    case "activity":
+      return "업무 내역";
     case "account":
     default:
       return "계정 설정";

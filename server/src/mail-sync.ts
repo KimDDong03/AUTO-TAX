@@ -1,5 +1,6 @@
 import { ImapFlow, type SearchObject } from "imapflow";
 import { simpleParser } from "mailparser";
+import type { ParsedMail } from "./domain.js";
 import { parseKepcoMail } from "./parser.js";
 import { buildPilotLogContext } from "./pilot-issuance.js";
 import type { AppStore } from "./store-contract.js";
@@ -29,6 +30,45 @@ const RELEVANT_SUBJECT = "신재생에너지 요금안내";
 
 function isRelevantSubject(subject: string): boolean {
   return subject.includes(RELEVANT_SUBJECT);
+}
+
+function normalizeFingerprintText(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+export function buildParsedMailFingerprint(parsedMail: ParsedMail): string {
+  return [
+    "parsed",
+    parsedMail.billingMonth,
+    normalizeFingerprintText(parsedMail.plantName),
+    normalizeFingerprintText(parsedMail.plantAddress),
+    normalizeFingerprintText(parsedMail.itemName),
+    parsedMail.supplyCost,
+    parsedMail.taxTotal,
+    parsedMail.totalAmount,
+    normalizeFingerprintText(parsedMail.kepcoBranchId)
+  ].join("|");
+}
+
+export function extractContractNumberFromSubject(subject: string): string | null {
+  const match = subject.match(/계약번호\s*[:：]\s*([0-9]+)/);
+  return match?.[1] ?? null;
+}
+
+export function buildMailContentFingerprint(subject: string, parsedMail: ParsedMail): string {
+  const contractNumber = extractContractNumberFromSubject(subject);
+  if (!contractNumber) {
+    return buildParsedMailFingerprint(parsedMail);
+  }
+
+  return [
+    "contract",
+    parsedMail.billingMonth,
+    contractNumber,
+    parsedMail.supplyCost,
+    parsedMail.taxTotal,
+    parsedMail.totalAmount
+  ].join("|");
 }
 
 function buildMailboxSyncKey(imapHost: string, imapUser: string, imapMailbox: string): string {
@@ -228,6 +268,11 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
   const currentReceivedMonth = getSeoulYearMonth(now);
   const useCheckpoint = mode === "scheduled" && receivedMonth === currentReceivedMonth && !options.receivedMonth;
   const completedBillingMonthSet = new Set((await store.listCompletedBillingMonths()).map((item) => item.billingMonth));
+  const existingParsedMailFingerprints = new Set(
+    (await store.listInbox())
+      .filter((message) => Boolean(message.parsedData))
+      .map((message) => buildMailContentFingerprint(message.subject, message.parsedData as ParsedMail))
+  );
   const monthRange = buildMailSyncMonthRange(receivedMonth);
   const mailSyncWindow = {
     since: monthRange.since.toISOString(),
@@ -369,6 +414,19 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
               billingMonth: parsedMail.billingMonth
             });
             result.imported += 1;
+            existingParsedMailFingerprints.add(buildMailContentFingerprint(subject, parsedMail));
+            continue;
+          }
+
+          const parsedMailFingerprint = buildMailContentFingerprint(subject, parsedMail);
+          if (existingParsedMailFingerprints.has(parsedMailFingerprint)) {
+            await store.createLog("info", "mail-sync", "같은 내용의 메일을 중복으로 판단해 건너뛰었습니다.", {
+              subject,
+              billingMonth: parsedMail.billingMonth,
+              plantName: parsedMail.plantName,
+              plantAddress: parsedMail.plantAddress,
+              totalAmount: parsedMail.totalAmount
+            });
             continue;
           }
 
@@ -403,6 +461,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
               )
             );
             result.unmatched += 1;
+            existingParsedMailFingerprints.add(parsedMailFingerprint);
             continue;
           }
 
@@ -429,6 +488,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
               existingDraftId: existingDraft.id,
               existingDraftStatus: existingDraft.status
             });
+            existingParsedMailFingerprints.add(parsedMailFingerprint);
             continue;
           }
 
@@ -489,6 +549,7 @@ export async function syncMailbox(store: AppStore, options: MailSyncOptions = {}
 
           result.createdDrafts += 1;
           result.imported += 1;
+          existingParsedMailFingerprints.add(parsedMailFingerprint);
         }
 
         syncStage = "checkpoint";

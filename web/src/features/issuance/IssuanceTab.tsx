@@ -421,7 +421,7 @@ function getIssuanceStatusIcon(status: IssuanceStatus): LucideIcon {
   switch (status) {
     case "review":
     case "scheduled":
-      return AlertTriangle;
+      return CheckCircle2;
     case "issuing":
       return LoaderCircle;
     case "issued":
@@ -440,6 +440,8 @@ function getIssuanceStatusIcon(status: IssuanceStatus): LucideIcon {
 function getIssuanceStatusTone(status: IssuanceStatus): ConsoleTone {
   switch (status) {
     case "issued":
+    case "review":
+    case "scheduled":
       return "success";
     case "issuing":
       return "info";
@@ -447,8 +449,6 @@ function getIssuanceStatusTone(status: IssuanceStatus): ConsoleTone {
       return "danger";
     case "missing-mail":
       return "info";
-    case "review":
-    case "scheduled":
     case "unmatched":
       return "warning";
     default:
@@ -1325,7 +1325,9 @@ export function IssuanceTab(props: IssuanceTabProps) {
                   tone={
                     filter.id === "issued"
                       ? "success"
-                      : filter.id === "pending" || filter.id === "unmatched"
+                      : filter.id === "pending"
+                        ? "success"
+                      : filter.id === "unmatched"
                         ? "warning"
                         : "default"
                   }
@@ -1361,10 +1363,10 @@ export function IssuanceTab(props: IssuanceTabProps) {
         </motion.div>
 
         <motion.section className="issuance-summary-grid" variants={pageContainerVariants}>
-          <motion.article className="issuance-summary-card" variants={pageCardVariants}>
+          <motion.article className="issuance-summary-card tone-success" variants={pageCardVariants}>
             <div className="issuance-summary-card-head">
               <span>발행 대기</span>
-              <Icon name="issue" className="issuance-summary-card-icon" />
+              <CheckCircle2 className="issuance-summary-card-icon" aria-hidden="true" />
             </div>
             <strong>{pendingManualCount}건</strong>
             <p>수동 검토 후 바로 발행 가능한 초안과 실패 건입니다.</p>

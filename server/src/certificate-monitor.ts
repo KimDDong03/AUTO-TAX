@@ -125,7 +125,7 @@ export async function refreshAllCertificateStatuses(
   });
   const expiringSoonCustomers = latestCustomers.filter((customer) => {
     const daysUntil = getDaysUntilDate(customer.popbillCertExpireDate);
-    return daysUntil !== null && daysUntil >= 0 && daysUntil <= 30;
+    return daysUntil !== null && daysUntil >= 0 && daysUntil < 60;
   });
 
   const nextMetadata: Parameters<AppStore["updateCertificateCheckMetadata"]>[0] = {

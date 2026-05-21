@@ -1,5 +1,5 @@
 import type React from "react";
-import type { Customer } from "../../types";
+import type { Customer, LogEntry } from "../../types";
 import type {
   SettingsFeatureActionAdapters,
   SettingsFeatureRevealAdapters
@@ -193,10 +193,16 @@ export type SettingsAccountSectionModel = {
   formatDateTime: (value: string | null) => string;
 };
 
+export type SettingsActivitySectionModel = {
+  logs: LogEntry[];
+  formatDateTime: (value: string | null) => string;
+};
+
 export type SettingsTabSectionsModel = {
   onboarding: SettingsOnboardingSectionModel;
   mail: SettingsMailSectionModel;
   defaults: SettingsDefaultsSectionModel;
   helper: SettingsHelperSectionModel;
+  activity: SettingsActivitySectionModel;
   account: SettingsAccountSectionModel;
 };

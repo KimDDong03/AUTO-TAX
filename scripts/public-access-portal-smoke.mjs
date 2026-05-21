@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 
-const baseUrl = process.env.AUTO_TAX_PUBLIC_BASE_URL?.trim() || "http://127.0.0.1:4173";
+const baseUrl = process.env.AUTO_TAX_PUBLIC_BASE_URL?.trim() || "http://127.0.0.1:5174";
 const screenshotDir = process.env.AUTO_TAX_PUBLIC_SCREENSHOT_DIR?.trim()
   ? path.resolve(process.env.AUTO_TAX_PUBLIC_SCREENSHOT_DIR.trim())
   : path.resolve("tmp/public-access-portal-shots");

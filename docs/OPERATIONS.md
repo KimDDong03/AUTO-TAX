@@ -59,7 +59,8 @@ npm install
 npm run dev
 ```
 
-- Local CORS allows browser origins on `localhost`, `127.0.0.1`, and `[::1]` even when Vite moves off port `5173`.
+- Vite uses `127.0.0.1:5174` with strict port binding. If that port is already in use, stop the conflicting process before opening the app in a browser.
+- Local CORS allows browser origins on `localhost`, `127.0.0.1`, and `[::1]` for development and preview checks.
 - Use `AUTO_TAX_ALLOWED_ORIGINS` only when you need extra non-loopback origins.
 
 Validate:

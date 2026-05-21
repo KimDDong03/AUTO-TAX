@@ -33,10 +33,10 @@ type RenderedCrop = {
 };
 
 const MAIL_PREVIEW_VIEWPORT = {
-  width: 980,
+  width: 1180,
   height: 1400
 };
-const MAX_PREVIEW_WIDTH = 1200;
+const MAX_PREVIEW_WIDTH = 1440;
 const MAX_PREVIEW_HEIGHT = 900;
 const MIN_PREVIEW_WIDTH = 360;
 const MIN_PREVIEW_HEIGHT = 160;
@@ -198,13 +198,14 @@ async function preparePageForScreenshot(page: Page): Promise<{ width: number; he
 }
 
 function clampCrop(rawCrop: RenderedCrop, pageSize: { width: number; height: number }): RenderedCrop {
-  const padding = 28;
+  const paddingX = rawCrop.cropKind === "body-fallback" ? 28 : 160;
+  const paddingY = 32;
   const pageWidth = Math.max(pageSize.width, MAIL_PREVIEW_VIEWPORT.width);
   const pageHeight = Math.max(pageSize.height, MAIL_PREVIEW_VIEWPORT.height);
-  const x = Math.max(0, Math.floor(rawCrop.x - padding));
-  const y = Math.max(0, Math.floor(rawCrop.y - padding));
-  const right = Math.min(pageWidth, Math.ceil(rawCrop.x + rawCrop.width + padding));
-  const bottom = Math.min(pageHeight, Math.ceil(rawCrop.y + rawCrop.height + padding));
+  const x = Math.max(0, Math.floor(rawCrop.x - paddingX));
+  const y = Math.max(0, Math.floor(rawCrop.y - paddingY));
+  const right = Math.min(pageWidth, Math.ceil(rawCrop.x + rawCrop.width + paddingX));
+  const bottom = Math.min(pageHeight, Math.ceil(rawCrop.y + rawCrop.height + paddingY));
   const width = Math.min(Math.max(right - x, MIN_PREVIEW_WIDTH), MAX_PREVIEW_WIDTH);
   const height = Math.min(Math.max(bottom - y, MIN_PREVIEW_HEIGHT), MAX_PREVIEW_HEIGHT);
 

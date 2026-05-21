@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { issueDraftNow } from "../automation.js";
 import type { AppSettings, Customer, DraftStatus, InvoiceDraft, ParsedMail } from "../domain.js";
 import type { ApiErrorBody } from "../http-errors.js";
@@ -215,14 +215,26 @@ type DraftValueSnapshot = {
 
 function buildManualIssueAuditContext(
   draft: Pick<InvoiceDraft, "id" | "customerId" | "issueMode" | "issueRequestedAt">,
-  executionPath: ManualIssueExecutionPath
+  executionPath: ManualIssueExecutionPath,
+  req: Request,
+  authContext: ReturnType<RequireWorkspaceEditor>
 ) {
   return {
     draftId: draft.id,
     customerId: draft.customerId,
     issueMode: draft.issueMode,
     executionPath,
-    clickedAt: draft.issueRequestedAt ?? undefined
+    clickedAt: draft.issueRequestedAt ?? undefined,
+    actorUserId: authContext.userId,
+    actorEmail: authContext.email,
+    actorDisplayName: authContext.activeDisplayName,
+    activeOrganizationId: authContext.activeOrganizationId,
+    activeOrganizationName: authContext.activeOrganizationName,
+    activeOrganizationRole: authContext.activeOrganizationRole,
+    requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+    requestUserAgent: req.header("user-agent") ?? "",
+    requestMethod: req.method,
+    requestPath: req.path
   };
 }
 
@@ -388,7 +400,7 @@ export function registerDraftRoutes(deps: RouteDeps) {
   });
 
   app.post("/api/drafts/:id/issue", async (req, res) => {
-    requireWorkspaceEditor(res);
+    const authContext = requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const draftId = Number(req.params.id);
     const draft = await requestStore.getDraft(draftId);
@@ -403,7 +415,7 @@ export function registerDraftRoutes(deps: RouteDeps) {
       return;
     }
 
-    const manualIssueContext = buildManualIssueAuditContext(claimedDraft, "single");
+    const manualIssueContext = buildManualIssueAuditContext(claimedDraft, "single", req, authContext);
     await requestStore.createLog(
       "info",
       "drafts",
@@ -464,8 +476,8 @@ export function registerDraftRoutes(deps: RouteDeps) {
     }
   });
 
-  app.post("/api/drafts/issue-all", async (_req, res) => {
-    requireWorkspaceEditor(res);
+  app.post("/api/drafts/issue-all", async (req, res) => {
+    const authContext = requireWorkspaceEditor(res);
     const requestStore = getRequestStore(res, store);
     const drafts = (await requestStore.listDrafts()).filter((draft) => draft.status === "review" || draft.status === "failed");
     const results: Array<{ draftId: number; customerId: number; status: "issued" | "failed"; error?: string }> = [];
@@ -477,7 +489,7 @@ export function registerDraftRoutes(deps: RouteDeps) {
         continue;
       }
 
-      const manualIssueContext = buildManualIssueAuditContext(claimedDraft, "bulk-manual");
+      const manualIssueContext = buildManualIssueAuditContext(claimedDraft, "bulk-manual", req, authContext);
       await requestStore.createLog(
         "info",
         "drafts",
@@ -536,6 +548,16 @@ export function registerDraftRoutes(deps: RouteDeps) {
     }
 
     await requestStore.createLog("info", "drafts", "검수 후 직접 발행 대기/실패 건 전체 발행을 실행했습니다.", {
+      eventType: "manual-bulk-issue-summary",
+      actorUserId: authContext.userId,
+      actorEmail: authContext.email,
+      actorDisplayName: authContext.activeDisplayName,
+      activeOrganizationId: authContext.activeOrganizationId,
+      activeOrganizationName: authContext.activeOrganizationName,
+      requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+      requestUserAgent: req.header("user-agent") ?? "",
+      requestMethod: req.method,
+      requestPath: req.path,
       total: drafts.length,
       issued: results.filter((item) => item.status === "issued").length,
       failed: results.filter((item) => item.status === "failed").length

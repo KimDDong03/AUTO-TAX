@@ -2963,32 +2963,56 @@ export class SupabaseStore implements AppStore {
     return this.buildDraftPayload(row as Row);
   }
 
-  async refreshDraftFromParsedMail(draftId: number, parsedMail: ParsedMail): Promise<InvoiceDraft> {
+  async refreshDraftFromParsedMail(
+    draftId: number,
+    parsedMail: ParsedMail,
+    options: { sourceMessageId?: number | null } = {}
+  ): Promise<InvoiceDraft> {
     const draftRow = await this.getDraftRowByLegacyId(draftId);
     if (!draftRow) {
       throw new Error("초안을 찾지 못했습니다.");
+    }
+
+    const sourceMessageRow =
+      options.sourceMessageId !== undefined && options.sourceMessageId !== null
+        ? await this.getInboxRowByLegacyId(options.sourceMessageId)
+        : null;
+    if (options.sourceMessageId !== undefined && options.sourceMessageId !== null && !sourceMessageRow) {
+      throw new Error("원본 메일을 찾지 못했습니다.");
+    }
+
+    const payload: Record<string, unknown> = {
+      billing_month: parsedMail.billingMonth,
+      item_name: parsedMail.itemName,
+      plant_name: parsedMail.plantName,
+      supply_cost: parsedMail.supplyCost,
+      tax_total: parsedMail.taxTotal,
+      total_amount: parsedMail.totalAmount,
+      kepco_corp_num: parsedMail.kepcoCorpNum,
+      kepco_branch_id: parsedMail.kepcoBranchId,
+      kepco_corp_name: parsedMail.kepcoCorpName,
+      kepco_ceo_name: parsedMail.kepcoCeoName,
+      kepco_addr: parsedMail.kepcoAddr,
+      kepco_biz_type: parsedMail.kepcoBizType,
+      kepco_biz_class: parsedMail.kepcoBizClass,
+      updated_at: nowIso()
+    };
+
+    if (options.sourceMessageId !== undefined) {
+      payload.source_message_id = sourceMessageRow ? asString(sourceMessageRow.id) : null;
+      payload.write_date = null;
+      payload.popbill_mgt_key = buildDraftMgtKey(
+        await this.lookupLegacyId("managed_customers", asString(draftRow.managed_customer_id)),
+        parsedMail.billingMonth,
+        options.sourceMessageId ?? 0
+      );
     }
 
     await assertNoError(
       "초안 갱신 실패",
       this.client
         .from("invoice_drafts")
-        .update({
-          billing_month: parsedMail.billingMonth,
-          item_name: parsedMail.itemName,
-          plant_name: parsedMail.plantName,
-          supply_cost: parsedMail.supplyCost,
-          tax_total: parsedMail.taxTotal,
-          total_amount: parsedMail.totalAmount,
-          kepco_corp_num: parsedMail.kepcoCorpNum,
-          kepco_branch_id: parsedMail.kepcoBranchId,
-          kepco_corp_name: parsedMail.kepcoCorpName,
-          kepco_ceo_name: parsedMail.kepcoCeoName,
-          kepco_addr: parsedMail.kepcoAddr,
-          kepco_biz_type: parsedMail.kepcoBizType,
-          kepco_biz_class: parsedMail.kepcoBizClass,
-          updated_at: nowIso()
-        })
+        .update(payload)
         .eq("id", asString(draftRow.id))
     );
 

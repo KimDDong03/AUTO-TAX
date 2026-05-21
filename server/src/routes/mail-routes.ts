@@ -4,6 +4,7 @@ import type { AppStore } from "../store-contract.js";
 import type { Customer, InboxMessage, InvoiceDraft, MailParseStatus, ParsedMail } from "../domain.js";
 import type { RequestStoreGetter, RequireWorkspaceEditor } from "../route-types.js";
 import type { MailSyncOptions, MailSyncResult } from "../mail-sync.js";
+import { buildMailContentFingerprint } from "../mail-sync.js";
 
 const mailSyncSchema = z.object({
   receivedMonth: z.string().trim().regex(/^\d{4}-\d{2}$/).optional(),
@@ -53,12 +54,34 @@ export function toClientInboxMessage(message: InboxMessage): ClientInboxMessage 
   };
 }
 
+function filterDuplicateInboxMessages(messages: InboxMessage[]): InboxMessage[] {
+  const seenFingerprints = new Set<string>();
+  const filtered: InboxMessage[] = [];
+
+  for (const message of messages) {
+    if (!message.parsedData) {
+      filtered.push(message);
+      continue;
+    }
+
+    const fingerprint = buildMailContentFingerprint(message.subject, message.parsedData);
+    if (seenFingerprints.has(fingerprint)) {
+      continue;
+    }
+
+    seenFingerprints.add(fingerprint);
+    filtered.push(message);
+  }
+
+  return filtered;
+}
+
 export function registerMailRoutes(deps: RouteDeps) {
   const { app, store, getRequestStore, requireWorkspaceEditor, reprocessInboxMessage, syncMailbox } = deps;
 
   app.get("/api/inbox", async (_req, res) => {
     const requestStore = getRequestStore(res, store);
-    res.json((await requestStore.listInbox()).map(toClientInboxMessage));
+    res.json(filterDuplicateInboxMessages(await requestStore.listInbox()).map(toClientInboxMessage));
   });
 
   app.post("/api/inbox/:id/reprocess", async (req, res) => {

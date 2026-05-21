@@ -223,7 +223,7 @@ export function Panel(props: {
 export type AppDialogTone = "default" | "success" | "warn" | "danger";
 
 export type AppDialogState = {
-  kind: "alert" | "confirm";
+  kind: "alert" | "confirm" | "progress";
   title: string;
   message: string;
   confirmLabel: string;
@@ -306,8 +306,11 @@ export function AppDialog(props: {
   onCancel: () => void;
 }) {
   const toneClassName = props.dialog.tone === "default" ? "" : ` app-dialog-${props.dialog.tone}`;
+  const progressClassName = props.dialog.kind === "progress" ? " app-dialog-progress" : "";
   const kicker =
-    props.dialog.kind === "confirm"
+    props.dialog.kind === "progress"
+      ? "진행중"
+      : props.dialog.kind === "confirm"
       ? "확인 필요"
       : props.dialog.tone === "danger"
         ? "오류"
@@ -320,27 +323,30 @@ export function AppDialog(props: {
   return (
     <div className="app-dialog-backdrop" role="presentation">
       <section
-        className={`app-dialog${toneClassName}`}
+        className={`app-dialog${toneClassName}${progressClassName}`}
         role={props.dialog.kind === "confirm" ? "alertdialog" : "dialog"}
         aria-modal="true"
         aria-labelledby="app-dialog-title"
         aria-describedby="app-dialog-message"
       >
         <header className="app-dialog-head">
+          {props.dialog.kind === "progress" ? <span className="app-dialog-progress-spinner" aria-hidden="true" /> : null}
           <span className="app-dialog-kicker">{kicker}</span>
           <h2 id="app-dialog-title">{props.dialog.title}</h2>
         </header>
         <AppDialogMessage message={props.dialog.message} />
-        <div className="app-dialog-actions">
-          {props.dialog.kind === "confirm" ? (
-            <button type="button" className="btn-secondary" onClick={props.onCancel}>
-              {props.dialog.cancelLabel ?? "취소"}
+        {props.dialog.kind === "progress" ? null : (
+          <div className="app-dialog-actions">
+            {props.dialog.kind === "confirm" ? (
+              <button type="button" className="btn-secondary" onClick={props.onCancel}>
+                {props.dialog.cancelLabel ?? "취소"}
+              </button>
+            ) : null}
+            <button type="button" onClick={props.onConfirm}>
+              {props.dialog.confirmLabel}
             </button>
-          ) : null}
-          <button type="button" onClick={props.onConfirm}>
-            {props.dialog.confirmLabel}
-          </button>
-        </div>
+          </div>
+        )}
       </section>
     </div>
   );

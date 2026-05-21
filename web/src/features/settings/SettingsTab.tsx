@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   FileCog,
   Mail,
+  ScrollText,
   UserCog
 } from "lucide-react";
 import {
@@ -134,8 +135,10 @@ function getSettingsStepIcon(sectionId: SettingsSidebarModel["settingsSections"]
       ? ClipboardCheck
       : sectionId === "popbill"
         ? FileCog
-        : sectionId === "gmail"
+      : sectionId === "gmail"
           ? Mail
+          : sectionId === "activity"
+            ? ScrollText
         : UserCog;
 
   return <IconComponent className="size-3.5" aria-hidden="true" />;
@@ -510,10 +513,58 @@ function SettingsTabDetail({ model }: SettingsTabProps) {
       return <SettingsDefaultsSection model={model.sections.defaults} />;
     case "helper":
       return <SettingsHelperSection model={model.sections.helper} />;
+    case "activity":
+      return <SettingsActivityDetail model={model} />;
     case "account":
     default:
       return <SettingsAccountSection model={model.sections.account} />;
   }
+}
+
+function getSettingsLogLevelLabel(level: "info" | "warn" | "error") {
+  if (level === "error") return "실패";
+  if (level === "warn") return "주의";
+  return "기록";
+}
+
+function getSettingsLogChipClassName(level: "info" | "warn" | "error") {
+  if (level === "error") return "chip chip-danger";
+  if (level === "warn") return "chip chip-warn";
+  return "chip chip-success";
+}
+
+function SettingsActivityDetail({ model }: SettingsTabProps) {
+  const activity = model.sections.activity;
+  const logs = activity.logs.slice(0, 30);
+
+  return (
+    <WorkPanel className="settings-option1-card settings-activity-card">
+      <WorkPanelHeader
+        title="업무 내역"
+        description="로그인, 발행, 수정, 자동 처리 기록을 최신순으로 확인합니다."
+      />
+      <WorkPanelBody className="settings-activity-list">
+        {logs.length > 0 ? (
+          logs.map((log) => (
+            <article key={log.id} className="settings-activity-item">
+              <div className="settings-activity-item-head">
+                <div>
+                  <strong>{log.message}</strong>
+                  <span>{activity.formatDateTime(log.createdAt)} · {log.scope}</span>
+                </div>
+                <span className={getSettingsLogChipClassName(log.level)}>
+                  {getSettingsLogLevelLabel(log.level)}
+                </span>
+              </div>
+              <p>{log.contextJson || "-"}</p>
+            </article>
+          ))
+        ) : (
+          <div className="empty">표시할 업무 내역이 없습니다.</div>
+        )}
+      </WorkPanelBody>
+    </WorkPanel>
+  );
 }
 
 function SettingsTabContent({ model }: SettingsTabProps) {

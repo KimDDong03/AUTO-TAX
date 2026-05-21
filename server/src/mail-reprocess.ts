@@ -206,6 +206,42 @@ export async function reprocessInboxMessage(
     if (existingDraft) {
       draftIdForLog = existingDraft.id;
       issueModeForLog = existingDraft.issueMode;
+      if (existingDraft.sourceMessageId === 0 && !["issuing", "issued"].includes(existingDraft.status)) {
+        const refreshedDraft = await store.refreshDraftFromParsedMail(existingDraft.id, parsedMail, {
+          sourceMessageId: messageId
+        });
+        await store.updateInboxMatchResult({
+          messageId,
+          parseStatus: "parsed",
+          parseError: "",
+          parsedMail,
+          customerId: customer.id,
+          draftId: refreshedDraft.id
+        });
+        await store.createLog(
+          "info",
+          "mail-reprocess",
+          "수동 발행 초안을 메일 기반 초안으로 전환했습니다.",
+          buildPilotLogContext(
+            {
+              messageId,
+              customerId: customer.id,
+              draftId: refreshedDraft.id,
+              issueMode: refreshedDraft.issueMode,
+              previousDraftSource: "manual-missing-mail",
+              billingMonth: parsedMail.billingMonth
+            },
+            {
+              pipeline: "mail-reprocess",
+              draftSource: "mail-reprocess",
+              eventType: "draft-refreshed-from-mail",
+              status: "parsed"
+            }
+          )
+        );
+        return { status: "parsed", draft: refreshedDraft };
+      }
+
       await store.updateInboxMatchResult({
         messageId,
         parseStatus: "duplicate",

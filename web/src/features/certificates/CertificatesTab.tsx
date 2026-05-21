@@ -51,8 +51,8 @@ export type CertificatesTabModel = {
   runLoadCustomerRenewalCertificates: () => Promise<void>;
   onLinkCustomerCertificate: (certificateIndex: string, customerId: number) => Promise<void>;
   onUnlinkCustomerCertificate: (certificateId: number) => Promise<void>;
-  onPrepareCustomerCertificateRenewal: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
-  onOpenCustomerCertificatePayment: (certificateIndex: string, options?: { showAlert?: boolean }) => Promise<void>;
+  onPrepareCustomerCertificateRenewal: (certificateIndex: string, options?: { showAlert?: boolean; certificatePassword?: string }) => Promise<void>;
+  onOpenCustomerCertificatePayment: (certificateIndex: string, options?: { showAlert?: boolean; certificatePassword?: string }) => Promise<void>;
   runAction: (key: string, action: () => Promise<void>, options?: { reload?: boolean }) => Promise<void>;
   formatCertificateExpireDate: (value: string | null) => string;
 };
@@ -70,13 +70,13 @@ function getCertificateKindLabel(kind: CustomerCertificateKind): string {
   }
 }
 
-function isDateWithinDays(value: string | null, days: number) {
+function isDateLessThanDays(value: string | null, days: number) {
   if (!value) return false;
   const targetTime = new Date(value).getTime();
   if (!Number.isFinite(targetTime)) return false;
   const now = Date.now();
   const diff = targetTime - now;
-  return diff >= 0 && diff <= days * 24 * 60 * 60 * 1000;
+  return diff >= 0 && diff < days * 24 * 60 * 60 * 1000;
 }
 
 function getCertificateExpireTime(value: string | null) {
@@ -121,7 +121,7 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
   const [focusedUnlinkedCertificateKey, setFocusedUnlinkedCertificateKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [customerFilter, setCustomerFilter] = useState<
-    "action_needed" | "all" | "prepare_needed" | "payment_ready" | "expiring_30" | "missing_general" | "missing_electronic"
+    "action_needed" | "all" | "prepare_needed" | "payment_ready" | "expiring_60" | "missing_general" | "missing_electronic"
   >("action_needed");
   const [queueNotice, setQueueNotice] = useState("");
   const [batchPrepareState, setBatchPrepareState] = useState<{
@@ -222,7 +222,7 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
         const hasGeneral = generalCertificates.length > 0;
         const hasPaymentReady = allCertificates.some((certificate) => certificate.canOpenPayment);
         const hasPrepareNeeded = allCertificates.some((certificate) => !certificate.canOpenPayment);
-        const hasExpiringSoon = allCertificates.some((certificate) => isDateWithinDays(certificate.certificateExpireDate, 30));
+        const hasExpiringSoon = allCertificates.some((certificate) => isDateLessThanDays(certificate.certificateExpireDate, 60));
         const nearestExpireTime = allCertificates.reduce(
           (soonest, certificate) => Math.min(soonest, getCertificateExpireTime(certificate.certificateExpireDate)),
           Number.MAX_SAFE_INTEGER
@@ -291,7 +291,7 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
         return row.hasPrepareNeeded;
       case "payment_ready":
         return row.hasPaymentReady;
-      case "expiring_30":
+      case "expiring_60":
         return row.hasExpiringSoon;
       case "missing_general":
         return !row.hasGeneral;
@@ -369,8 +369,8 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
       summary: "결제 창만 열면 됨",
       count: paymentReadyCustomerCount
     },
-    expiring_30: {
-      label: "30일 내 만료",
+    expiring_60: {
+      label: "60일 미만 만료",
       summary: "만료 전 점검 필요",
       count: expiringCustomerCount
     },
@@ -390,7 +390,7 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
     "all",
     "prepare_needed",
     "payment_ready",
-    "expiring_30"
+    "expiring_60"
   ];
   const certificateStatusLead = helperUpgradeRequired
     ? "AT 헬퍼 재설치 필요"
@@ -625,7 +625,7 @@ export function CertificatesTab({ model: props }: CertificatesTabProps) {
     if (row.hasExpiringSoon) {
       return {
         headline: "만료 전 점검 필요",
-        body: "30일 안에 만료됩니다. 일괄 준비 목록에 담아 두세요.",
+        body: "60일 미만으로 남았습니다. 일괄 준비 목록에 담아 두세요.",
         actionLabel: null,
         actionKind: "select-row" as const
       };
