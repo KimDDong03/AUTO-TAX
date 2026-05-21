@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useR
 import type { Session } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ApiError, api, setActiveOrganizationId } from "./api";
+import { ApiError, api, setActiveOrganizationId, setApiAccessToken } from "./api";
 import { AppDialog, type AppDialogState, type AppDialogTone, CheckboxControl, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
 import { getOrganizationRoleLabel } from "./organizationRole";
 import { useCertificatesScreenModel } from "./features/certificates/useCertificatesScreenModel";
@@ -3494,6 +3494,7 @@ export function App() {
         access_token: result.session.access_token,
         refresh_token: result.session.refresh_token
       });
+      setApiAccessToken(result.session.access_token);
       if (sessionError) throw sessionError;
       const { session, error: sessionReadError } = await getSessionSafely();
       if (sessionReadError) throw sessionReadError;
@@ -3615,6 +3616,7 @@ export function App() {
   const signOut = async () => {
     invalidateActiveLoads();
     authSessionRef.current = null;
+    setApiAccessToken(null);
     setBusyKey(null);
     setError("");
     setAuthNotice("");

@@ -2,6 +2,7 @@ import { getSessionSafely, refreshSessionSafely } from "./supabase";
 import { resolveApiUrl } from "./api-url";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "auto-tax.active-organization-id";
+let fallbackAccessToken: string | null = null;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -41,6 +42,10 @@ export function setActiveOrganizationId(organizationId: string | null) {
   window.localStorage.removeItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
 }
 
+export function setApiAccessToken(accessToken: string | null) {
+  fallbackAccessToken = accessToken;
+}
+
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const buildHeaders = (accessToken?: string) => {
@@ -78,11 +83,12 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
     );
 
   const { session } = await getSessionSafely();
-  let response = await fetchWithSession(session?.access_token);
+  let response = await fetchWithSession(session?.access_token ?? fallbackAccessToken ?? undefined);
 
   if (response.status === 401 && session?.refresh_token) {
     const refreshed = await refreshSessionSafely();
     if (refreshed.session?.access_token) {
+      setApiAccessToken(refreshed.session.access_token);
       response = await fetchWithSession(refreshed.session.access_token);
     }
   }

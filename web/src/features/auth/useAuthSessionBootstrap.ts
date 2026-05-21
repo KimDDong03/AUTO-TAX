@@ -1,5 +1,6 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { setApiAccessToken } from "../../api";
 import { getSessionSafely, supabase } from "../../supabase";
 import { clearSupabaseAuthHash, getSupabaseAuthHashError, isSupabaseRecoveryHash } from "./auth-hash";
 
@@ -53,6 +54,7 @@ export function useAuthSessionBootstrap({
       .then(({ session, invalidRefreshToken }) => {
         if (!mounted) return;
         authSessionRef.current = session;
+        setApiAccessToken(session?.access_token ?? null);
         setAuthSession(session);
         if (invalidRefreshToken) {
           setAuthNotice("로그인 확인 정보가 오래되어 다시 로그인해 주세요.");
@@ -71,6 +73,7 @@ export function useAuthSessionBootstrap({
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
       authSessionRef.current = nextSession;
+      setApiAccessToken(nextSession?.access_token ?? null);
       setAuthSession(nextSession);
 
       if (event === "PASSWORD_RECOVERY") {
