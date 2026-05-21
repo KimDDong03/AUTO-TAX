@@ -8277,7 +8277,7 @@ export function App() {
                   className="panel-ops-consultation"
                   id="ops-consultation-requests"
                   title="상담 신청"
-                  subtitle="공개 화면에서 접수된 이름/전화번호만 확인하고 상태를 관리합니다."
+                  subtitle="공개 화면에서 접수된 문의 내용과 연락 상태를 관리합니다."
                 >
                   <div className="ops-list">
                     {opsConsultationRequests.length > 0 ? (
@@ -8294,7 +8294,14 @@ export function App() {
                           </div>
                           <div className="ops-card-meta">
                             <span>접수 {formatDateTime(request.createdAt)}</span>
+                            <span>{request.category}</span>
+                            {request.email ? <span>{request.email}</span> : null}
+                            {request.region ? <span>{request.region}</span> : null}
                             {request.note ? <span>{request.note}</span> : null}
+                          </div>
+                          <div className="ops-consultation-detail">
+                            <strong>상담 내용</strong>
+                            <p>{request.message.trim() || "작성된 상담 내용이 없습니다."}</p>
                           </div>
                           <div className="ops-card-actions">
                             <button

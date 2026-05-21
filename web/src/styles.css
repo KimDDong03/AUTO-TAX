@@ -2066,6 +2066,8 @@ textarea {
 }
 
 .ops-consultation-detail {
+  display: grid;
+  gap: 0.38rem;
   padding: 0.65rem 0.72rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2073,9 +2075,15 @@ textarea {
   color: var(--text);
 }
 
+.ops-consultation-detail strong {
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+}
+
 .ops-consultation-detail p {
   margin: 0;
   white-space: pre-wrap;
+  line-height: 1.55;
 }
 
 .ops-log-diagnostic {

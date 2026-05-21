@@ -576,7 +576,8 @@ function ContactInquiryModal({ onClose }: { onClose: () => void }) {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     const consent = formData.get("consent");
 
     if (!consent) {
@@ -610,7 +611,7 @@ function ContactInquiryModal({ onClose }: { onClose: () => void }) {
       });
       setSendStatus("sent");
       setSendMessage("문의가 접수되었습니다. 영업일 기준 24시간 이내에 연락드리겠습니다.");
-      event.currentTarget.reset();
+      form.reset();
     } catch (error) {
       setSendStatus("error");
       setSendMessage(error instanceof ApiError ? error.message : "문의 접수에 실패했습니다. 잠시 후 다시 시도해 주세요.");
