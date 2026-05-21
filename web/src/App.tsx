@@ -2408,11 +2408,11 @@ export function App() {
     }
   };
 
-  const loadOpsConsole = async (): Promise<OpsConsoleData> => {
+  const loadOpsConsole = async (options?: { includeWorkspaceLogs?: boolean }): Promise<OpsConsoleData> => {
     const [partnerPoints, renewalAutomation, logs, workspaces, signupRequests, consultationRequests] = await Promise.all([
       api<PartnerPointsPayload>("/api/popbill/partner-points"),
       api<RenewalAutomationPayload>("/api/automation/renewal-agent/snapshot"),
-      api<LogEntry[]>("/api/logs"),
+      options?.includeWorkspaceLogs ? api<LogEntry[]>("/api/logs") : Promise.resolve([]),
       api<OpsWorkspaceSummary[]>("/api/ops/workspaces"),
       api<PublicSignupRequest[]>("/api/ops/signup-requests"),
       api<PublicConsultationRequest[]>("/api/ops/consultation-requests")
@@ -2514,7 +2514,9 @@ export function App() {
       nextCustomerContractRenewalsDue,
       nextCustomerContractSummaries
     ] = await Promise.all([
-      payload.auth.isPlatformAdmin ? loadOpsConsole() : Promise.resolve(null),
+      payload.auth.isPlatformAdmin
+        ? loadOpsConsole({ includeWorkspaceLogs: Boolean(payload.auth.activeOrganizationId) })
+        : Promise.resolve(null),
       payload.auth.activeOrganizationId ? api<LogEntry[]>("/api/logs") : Promise.resolve([]),
       payload.auth.activeOrganizationId
         ? api<{ months: CompletedBillingMonth[] }>("/api/completed-billing-months").then((response) => response.months)
