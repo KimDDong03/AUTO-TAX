@@ -93,18 +93,21 @@ function envString(name: string): string | undefined {
   return value ? value : undefined;
 }
 
-function parseOpsAdminEmails(): Set<string> {
-  const raw = envString("AUTO_TAX_OPS_EMAILS");
+export function parseOpsAdminEmailsFromRaw(raw: string | undefined): Set<string> {
   if (!raw) {
     return new Set();
   }
 
   return new Set(
     raw
-      .split(",")
-      .map((item) => item.trim().toLowerCase())
+      .split(/[,\s;]+/)
+      .map((item) => item.trim().replace(/^['"]|['"]$/g, "").toLowerCase())
       .filter(Boolean)
   );
+}
+
+function parseOpsAdminEmails(): Set<string> {
+  return parseOpsAdminEmailsFromRaw(envString("AUTO_TAX_OPS_EMAILS"));
 }
 
 async function listOrganizationMemberships(

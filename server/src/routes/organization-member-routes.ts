@@ -7,6 +7,7 @@ import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../password-policy.js
 import { quitMember } from "../popbill-client.js";
 import { createSmsProvider } from "../sms-provider.js";
 import type { AppStore } from "../store-contract.js";
+import { parseOpsAdminEmailsFromRaw } from "../supabase.js";
 import type { RequireOrganizationOwner, RequestStoreGetter, ServerManagedSettingsGetter } from "../route-types.js";
 import { findPublicSignupRequestByUserId } from "../signup-requests.js";
 import {
@@ -131,17 +132,7 @@ async function getWithdrawalRepresentativePhone(
 }
 
 function parseOpsAdminEmails(): Set<string> {
-  const raw = process.env.AUTO_TAX_OPS_EMAILS?.trim();
-  if (!raw) {
-    return new Set();
-  }
-
-  return new Set(
-    raw
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean)
-  );
+  return parseOpsAdminEmailsFromRaw(process.env.AUTO_TAX_OPS_EMAILS?.trim());
 }
 
 async function hasOtherOrganizationMembership(
