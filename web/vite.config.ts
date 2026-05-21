@@ -29,9 +29,6 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        entryFileNames: "assets/[name].js",
-        chunkFileNames: "assets/[name].js",
-        assetFileNames: "assets/[name][extname]",
         manualChunks(id) {
           if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
             return "react";
