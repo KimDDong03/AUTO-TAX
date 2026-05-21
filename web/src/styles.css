@@ -1536,6 +1536,38 @@ textarea {
   gap: 0.75rem;
 }
 
+.ops-consultation-status-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ops-consultation-status-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-subtle);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.ops-consultation-status-filters button.is-active {
+  border-color: #111827;
+  background: #111827;
+  color: #fff;
+}
+
+.ops-consultation-status-filters strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .onboarding-screen {
   display: grid;
   gap: 0.9rem;

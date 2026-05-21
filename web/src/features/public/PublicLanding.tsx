@@ -591,7 +591,6 @@ function ContactInquiryModal({ onClose }: { onClose: () => void }) {
     const email = String(formData.get("email") ?? "");
     const name = String(formData.get("name") ?? "");
     const phone = String(formData.get("phone") ?? "");
-    const region = String(formData.get("region") ?? "대한민국");
 
     setSendStatus("sending");
     setSendMessage("");
@@ -605,7 +604,6 @@ function ContactInquiryModal({ onClose }: { onClose: () => void }) {
           email,
           name,
           phone,
-          region,
           consent: true
         })
       });
@@ -671,18 +669,6 @@ function ContactInquiryModal({ onClose }: { onClose: () => void }) {
           <label>
             <span>담당자 연락처</span>
             <input name="phone" type="tel" required placeholder="010-1234-5678" autoComplete="tel" />
-          </label>
-
-          <label>
-            <span>지역</span>
-            <select name="region" defaultValue="대한민국">
-              <option>대한민국</option>
-              <option>수도권</option>
-              <option>충청권</option>
-              <option>전라권</option>
-              <option>경상권</option>
-              <option>강원·제주권</option>
-            </select>
           </label>
 
           <label className="landing-consent-box">

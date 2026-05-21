@@ -228,7 +228,6 @@ test("public contact inquiry route stores full inquiry details for ops review", 
         email: "demo@example.com",
         name: "홍길동",
         phone: "010-1234-5678",
-        region: "수도권",
         consent: true
       })
     });
@@ -237,7 +236,7 @@ test("public contact inquiry route stores full inquiry details for ops review", 
     assert.equal(rows[0]?.category, "서비스 문의");
     assert.equal(rows[0]?.message, "데모를 보고 싶습니다.");
     assert.equal(rows[0]?.email, "demo@example.com");
-    assert.equal(rows[0]?.region, "수도권");
+    assert.equal(rows[0]?.region, "");
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());

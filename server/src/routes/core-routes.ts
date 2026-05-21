@@ -153,7 +153,7 @@ const publicContactInquirySchema = z.object({
     .min(7)
     .max(32)
     .regex(/^[0-9+\-()\s.]+$/, "전화번호 형식이 올바르지 않습니다."),
-  region: z.string().trim().min(1).max(40),
+  region: z.string().trim().max(40).optional(),
   consent: z.boolean().refine((value) => value, "개인정보 수집·이용에 동의해야 합니다.")
 });
 

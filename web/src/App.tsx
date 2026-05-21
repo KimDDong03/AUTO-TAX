@@ -195,6 +195,7 @@ type OpsSectionId =
   | "agent-status"
   | "logs"
   | "account-security";
+type ConsultationStatusFilter = "all" | PublicConsultationRequestStatus;
 type TopnavTaskNotification = {
   key: string;
   title: string;
@@ -1300,6 +1301,17 @@ function getConsultationStatusChipClass(status: PublicConsultationRequestStatus)
   }
 }
 
+const CONSULTATION_STATUS_FILTERS: Array<{
+  value: ConsultationStatusFilter;
+  label: string;
+}> = [
+  { value: "all", label: "전체" },
+  { value: "new", label: "신규" },
+  { value: "contacted", label: "연락 완료" },
+  { value: "workspace_opened", label: "개통 완료" },
+  { value: "closed", label: "종료" }
+];
+
 function getSignupStatusLabel(status: PublicSignupRequestStatus): string {
   switch (status) {
     case "pending":
@@ -2096,6 +2108,8 @@ export function App() {
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     return getOpsSectionFromHash(hash) ?? OPS_DEFAULT_SECTION;
   });
+  const [consultationStatusFilter, setConsultationStatusFilter] =
+    useState<ConsultationStatusFilter>("all");
   const [requestedOnboardingStepId, setRequestedOnboardingStepId] = useState<string | null>(null);
   const [requestedIssuanceFilter, setRequestedIssuanceFilter] = useState<"unmatched" | null>(null);
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
@@ -6334,6 +6348,24 @@ export function App() {
   const opsWorkspaces = opsConsole?.workspaces ?? [];
   const opsSignupRequests = opsConsole?.signupRequests ?? [];
   const opsConsultationRequests = opsConsole?.consultationRequests ?? [];
+  const opsConsultationStatusCounts = opsConsultationRequests.reduce<Record<ConsultationStatusFilter, number>>(
+    (counts, request) => {
+      counts.all += 1;
+      counts[request.status] += 1;
+      return counts;
+    },
+    {
+      all: 0,
+      new: 0,
+      contacted: 0,
+      workspace_opened: 0,
+      closed: 0
+    }
+  );
+  const filteredOpsConsultationRequests =
+    consultationStatusFilter === "all"
+      ? opsConsultationRequests
+      : opsConsultationRequests.filter((request) => request.status === consultationStatusFilter);
   const pendingSignupRequestCount = opsSignupRequests.filter((request) => request.status === "pending").length;
   const customerRenewalCandidates: CustomerRenewalCandidateView[] = data.customers
     .filter((customer) => customer.popbillState === "joined" && customer.popbillCertRegistered)
@@ -8279,9 +8311,22 @@ export function App() {
                   title="상담 신청"
                   subtitle="공개 화면에서 접수된 문의 내용과 연락 상태를 관리합니다."
                 >
+                  <div className="ops-consultation-status-filters" aria-label="상담 신청 상태 필터">
+                    {CONSULTATION_STATUS_FILTERS.map((filter) => (
+                      <button
+                        key={filter.value}
+                        type="button"
+                        className={consultationStatusFilter === filter.value ? "is-active" : ""}
+                        onClick={() => setConsultationStatusFilter(filter.value)}
+                      >
+                        <span>{filter.label}</span>
+                        <strong>{opsConsultationStatusCounts[filter.value]}건</strong>
+                      </button>
+                    ))}
+                  </div>
                   <div className="ops-list">
-                    {opsConsultationRequests.length > 0 ? (
-                      opsConsultationRequests.slice(0, 12).map((request) => (
+                    {filteredOpsConsultationRequests.length > 0 ? (
+                      filteredOpsConsultationRequests.slice(0, 12).map((request) => (
                         <article key={request.id} className="ops-card">
                           <div className="ops-card-head">
                             <div>
@@ -8350,7 +8395,11 @@ export function App() {
                         </article>
                       ))
                     ) : (
-                      <div className="empty">접수된 상담 신청이 없습니다.</div>
+                      <div className="empty">
+                        {consultationStatusFilter === "all"
+                          ? "접수된 상담 신청이 없습니다."
+                          : `${getConsultationStatusLabel(consultationStatusFilter)} 상태의 상담 신청이 없습니다.`}
+                      </div>
                     )}
                   </div>
                   </Panel>
