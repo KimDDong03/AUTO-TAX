@@ -9,17 +9,13 @@ import {
   UserCog
 } from "lucide-react";
 import {
-  MetricCard,
-  TaskProgressStrip,
   TaskStepper,
   WorkPanel,
   WorkPanelBody,
   WorkPanelHeader,
   type ConsoleStatus,
-  type ConsoleTone,
   type TaskStepItem
 } from "@/components/console";
-import { StatusBadge } from "@/components/console";
 import { RevealIcon } from "../../components/ui";
 import { SettingsAccountSection } from "./SettingsAccountSection";
 import { SettingsDefaultsSection } from "./SettingsDefaultsSection";
@@ -54,76 +50,6 @@ export type SettingsTabModel = {
 type SettingsTabProps = {
   model: SettingsTabModel;
 };
-
-function parseProgressText(progressText: string) {
-  const match = progressText.match(/(\d+)\s*\/\s*(\d+)/);
-  if (!match) return null;
-
-  const completed = Number(match[1]);
-  const total = Number(match[2]);
-  if (!Number.isFinite(completed) || !Number.isFinite(total) || total <= 0) {
-    return null;
-  }
-
-  return {
-    completed: Math.min(Math.max(completed, 0), total),
-    total
-  };
-}
-
-function getAutosaveBadgeTone(state: SettingsSidebarModel["settingsAutosaveState"]): ConsoleTone {
-  return state === "error"
-    ? "danger"
-    : state === "saving" || state === "pending"
-      ? "warning"
-      : "success";
-}
-
-function SettingsReadinessSummary({ model }: SettingsTabProps) {
-  const sidebar = model.sidebar;
-  const onboarding = model.sections.onboarding;
-  const parsedProgress = parseProgressText(onboarding.progressText);
-  const fallbackTotal = sidebar.settingsSections.length;
-  const completed =
-    parsedProgress?.completed ??
-    sidebar.settingsSections.filter((section) => section.done).length;
-  const total = parsedProgress?.total ?? fallbackTotal;
-  const incomplete = Math.max(total - completed, 0);
-  const reviewCount = sidebar.settingsSections.filter((section) => !section.done).length;
-  const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
-  const helperCheckedAt = model.sections.helper.helperStatus.checkedAt;
-  const lastUpdate = helperCheckedAt
-    ? model.sections.helper.helperStatus.formatDateTime(helperCheckedAt)
-    : sidebar.settingsAutosaveLabel;
-
-  return (
-    <WorkPanel className="settings-readiness-card">
-      <WorkPanelHeader
-        title="설정 준비 상태"
-        actions={
-          <StatusBadge tone={getAutosaveBadgeTone(sidebar.settingsAutosaveState)}>
-            {sidebar.settingsAutosaveLabel}
-          </StatusBadge>
-        }
-      />
-      <WorkPanelBody className="settings-readiness-body">
-        <TaskProgressStrip
-          className="settings-option1-progress-copy"
-          title="전체 진행률"
-          description={`${completed} / ${total} 완료`}
-          value={progressPercent}
-          aria-label={`설정 준비 ${progressPercent}%`}
-        />
-        <div className="settings-readiness-metrics">
-          <MetricCard label="필수 완료" value={completed} tone="success" />
-          <MetricCard label="확인 필요" value={reviewCount} tone={reviewCount > 0 ? "warning" : "default"} />
-          <MetricCard label="미완료" value={incomplete} tone={incomplete > 0 ? "warning" : "default"} />
-          <MetricCard label="마지막 업데이트" value={lastUpdate} />
-        </div>
-      </WorkPanelBody>
-    </WorkPanel>
-  );
-}
 
 function getSettingsStepStatus(section: SettingsSidebarModel["settingsSections"][number]): ConsoleStatus {
   return section.done ? "complete" : "needsAttention";
@@ -533,15 +459,94 @@ function getSettingsLogChipClassName(level: "info" | "warn" | "error") {
   return "chip chip-success";
 }
 
+function parseSettingsLogContext(contextJson: string): Record<string, unknown> {
+  if (!contextJson) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(contextJson) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function getSettingsLogCategory(log: { scope: string; message: string }): string | null {
+  if (log.scope === "auth") return "로그인";
+  if (log.scope === "drafts" && !log.message.includes("미리보기")) return "세금계산서 발행";
+  if (log.scope === "customers") return "고객 관리";
+  if (log.scope === "customer-certificates") return "공동인증서";
+  if (log.scope === "organization-members") return "계정 관리";
+  if (log.scope === "organization-withdrawal") return "계정 관리";
+  if (log.scope === "settings") return "설정";
+  if (log.scope === "popbill" && (log.message.includes("고객 삭제") || log.message.includes("인증서 만료일"))) return "발행 연동";
+  return null;
+}
+
+function getCustomerVisibleSettingsLogMessage(message: string): string {
+  if (message === "초안을 생성했습니다.") return "발행 초안이 생성되었습니다.";
+  if (message === "수동 발행 초안을 생성했습니다.") return "수동 발행 초안이 생성되었습니다.";
+  if (message === "수동 발행 버튼 실행이 기록되었습니다.") return "발행 버튼을 눌렀습니다.";
+  if (message === "일괄 수동 발행 버튼 실행이 기록되었습니다.") return "일괄 발행 버튼을 눌렀습니다.";
+  if (message === "수동 발행을 완료했습니다.") return "세금계산서 발행이 완료되었습니다.";
+  if (message === "수동 발행에 실패했습니다.") return "세금계산서 발행에 실패했습니다.";
+  if (message === "검수 후 직접 발행 대기/실패 건 전체 발행을 실행했습니다.") return "선택 가능한 발행 건 전체 발행을 실행했습니다.";
+  if (message === "발행 완료 건을 취소하고 직접 발행 대기로 되돌렸습니다.") return "발행 완료 건을 취소했습니다.";
+  if (message === "발행 전 초안의 고객 매칭을 해제했습니다.") return "발행 전 초안의 고객 매칭을 해제했습니다.";
+  if (message === "고객과 관련 로컬 데이터를 삭제했습니다.") return "고객을 삭제했습니다.";
+  if (message === "시스템 설정을 저장했습니다.") return "설정을 저장했습니다.";
+  if (message === "메일 연결 검증 상태를 갱신했습니다.") return "메일 연결을 확인했습니다.";
+  if (message === "고객 삭제에 앞서 발행 연동 계정을 먼저 해지 처리했습니다.") return "고객 삭제 전 발행 연동 해지를 처리했습니다.";
+  if (message === "고객 삭제 전에 발행 연동 계정 해지를 시도했지만 이미 존재하지 않아 로컬 삭제만 진행했습니다.") {
+    return "발행 연동 해지 확인 후 고객을 삭제했습니다.";
+  }
+  return message;
+}
+
+function buildSettingsLogDetail(log: { scope: string; contextJson: string }): string {
+  const context = parseSettingsLogContext(log.contextJson);
+  const parts: string[] = [];
+  const actor = typeof context.actorDisplayName === "string" ? context.actorDisplayName.trim() : "";
+  const billingMonth = typeof context.billingMonth === "string" ? context.billingMonth.trim() : "";
+  const issued = typeof context.issued === "number" ? context.issued : null;
+  const failed = typeof context.failed === "number" ? context.failed : null;
+
+  if (actor) {
+    parts.push(`작업자 ${actor}`);
+  }
+
+  if (billingMonth) {
+    parts.push(`정산월 ${billingMonth}`);
+  }
+
+  if (issued !== null || failed !== null) {
+    parts.push(`성공 ${issued ?? 0}건 · 실패 ${failed ?? 0}건`);
+  }
+
+  return parts.join(" · ");
+}
+
+function getCustomerVisibleSettingsLogs(logs: SettingsTabModel["sections"]["activity"]["logs"]) {
+  return logs
+    .map((log) => ({
+      ...log,
+      category: getSettingsLogCategory(log),
+      displayMessage: getCustomerVisibleSettingsLogMessage(log.message),
+      detail: buildSettingsLogDetail(log)
+    }))
+    .filter((log): log is typeof log & { category: string; displayMessage: string } => log.category !== null);
+}
+
 function SettingsActivityDetail({ model }: SettingsTabProps) {
   const activity = model.sections.activity;
-  const logs = activity.logs.slice(0, 30);
+  const logs = getCustomerVisibleSettingsLogs(activity.logs).slice(0, 30);
 
   return (
     <WorkPanel className="settings-option1-card settings-activity-card">
       <WorkPanelHeader
         title="업무 내역"
-        description="로그인, 발행, 수정, 자동 처리 기록을 최신순으로 확인합니다."
+        description="로그인, 발행, 고객 관리처럼 확인이 필요한 업무 기록만 최신순으로 표시합니다."
       />
       <WorkPanelBody className="settings-activity-list">
         {logs.length > 0 ? (
@@ -549,14 +554,14 @@ function SettingsActivityDetail({ model }: SettingsTabProps) {
             <article key={log.id} className="settings-activity-item">
               <div className="settings-activity-item-head">
                 <div>
-                  <strong>{log.message}</strong>
-                  <span>{activity.formatDateTime(log.createdAt)} · {log.scope}</span>
+                  <strong>{log.displayMessage}</strong>
+                  <span>{activity.formatDateTime(log.createdAt)} · {log.category}</span>
                 </div>
                 <span className={getSettingsLogChipClassName(log.level)}>
                   {getSettingsLogLevelLabel(log.level)}
                 </span>
               </div>
-              <p>{log.contextJson || "-"}</p>
+              {log.detail ? <p>{log.detail}</p> : null}
             </article>
           ))
         ) : (
@@ -580,15 +585,6 @@ function SettingsTabContent({ model }: SettingsTabProps) {
 
   return (
     <>
-      <motion.section
-        className="settings-readiness-shell"
-        variants={pageSectionVariants}
-        initial={shouldReduceMotion ? false : "hidden"}
-        animate={shouldReduceMotion ? undefined : "visible"}
-      >
-        <SettingsReadinessSummary model={model} />
-      </motion.section>
-
       <motion.div
         className="settings-layout settings-option1-layout"
         variants={pageContainerVariants}

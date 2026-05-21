@@ -7095,17 +7095,25 @@ export function App() {
   const topnavTaskNotificationCount = topnavTaskNotifications.reduce((total, item) => total + item.count, 0);
   const topnavTaskNotificationBadge =
     topnavTaskNotificationCount > 99 ? "99+" : topnavTaskNotificationCount > 0 ? String(topnavTaskNotificationCount) : "";
-  const onboardingFirstSyncCompleted =
-    onboardingFirstSyncReady ||
-    (onboardingFirstSyncResult?.organizationId === activeOrganizationId && onboardingFirstSyncResult.status === "success");
   const activeOnboardingFirstSyncResult =
     onboardingFirstSyncResult?.organizationId === activeOrganizationId ? onboardingFirstSyncResult : null;
+  const onboardingFirstSyncCompleted =
+    onboardingFirstSyncReady ||
+    activeOnboardingFirstSyncResult?.status === "success" ||
+    workspaceLogs.some(
+      (log) =>
+        log.level === "info" &&
+        log.scope === "mail-sync" &&
+        log.message.includes("메일 동기화를 완료")
+    );
   const onboardingFirstSyncStatusMessage =
     busyKey === "sync"
       ? "메일을 가져오고 초안을 갱신하는 중입니다."
       : activeOnboardingFirstSyncResult?.message ??
         (onboardingFirstSyncReady
           ? `첫 메일 동기화가 완료됐습니다. 현재 초안 ${reviewDrafts.length}건, 미매칭 메일 ${exceptionMessages.length}건입니다.`
+          : onboardingFirstSyncCompleted
+            ? "첫 메일 동기화가 완료됐습니다."
           : "");
   const onboardingFirstSyncContent = (
     <div className="onboarding-step-body">
@@ -7142,15 +7150,25 @@ export function App() {
         </div>
 
         {onboardingFirstSyncStatusMessage ? (
-          <div className={`context-empty-state tone-${activeOnboardingFirstSyncResult?.status === "danger" ? "danger" : busyKey === "sync" ? "info" : "success"}`}>
-            <strong>
-              {activeOnboardingFirstSyncResult?.status === "danger"
-                ? "동기화 실패"
-                : busyKey === "sync"
-                  ? "동기화 진행 중"
-                  : "동기화 완료"}
-            </strong>
-            <p>{onboardingFirstSyncStatusMessage}</p>
+          <div
+            className={`context-empty-state onboarding-sync-result-card tone-${
+              activeOnboardingFirstSyncResult?.status === "danger" ? "danger" : busyKey === "sync" ? "info" : "success"
+            }`}
+          >
+            <Icon
+              name={activeOnboardingFirstSyncResult?.status === "danger" ? "warning" : busyKey === "sync" ? "sync" : "complete"}
+              className="onboarding-sync-result-icon"
+            />
+            <div className="onboarding-sync-result-copy">
+              <strong>
+                {activeOnboardingFirstSyncResult?.status === "danger"
+                  ? "동기화 실패"
+                  : busyKey === "sync"
+                    ? "동기화 진행 중"
+                    : "동기화 완료"}
+              </strong>
+              <p>{onboardingFirstSyncStatusMessage}</p>
+            </div>
           </div>
         ) : null}
 
@@ -7272,15 +7290,18 @@ export function App() {
       id: "first-sync",
       step: 3,
       title: "첫 메일 동기화",
-      summary: !onboardingCertificateReady
-        ? "이전 단계 완료 후 실행"
-        : onboardingFirstSyncCompleted
-          ? "첫 메일 동기화 완료"
+      summary: onboardingFirstSyncCompleted
+        ? "첫 메일 동기화 완료"
+        : !onboardingCertificateReady
+          ? "이전 단계 완료 후 실행"
           : activeOnboardingFirstSyncResult?.status === "danger"
             ? "동기화 실패"
           : "첫 동기화 필요",
       primaryActionLabel: onboardingFirstSyncCompleted ? "첫 메일 동기화 완료" : "첫 메일 동기화 실행",
-      blockedReason: canRunOnboardingFirstSync ? undefined : `먼저 ${onboardingFirstSyncBlockedSteps.join(" → ")} 단계를 끝내세요.`,
+      blockedReason:
+        onboardingFirstSyncCompleted || canRunOnboardingFirstSync
+          ? undefined
+          : `먼저 ${onboardingFirstSyncBlockedSteps.join(" → ")} 단계를 끝내세요.`,
       done: onboardingFirstSyncCompleted,
       content: onboardingFirstSyncContent
     }
@@ -7360,7 +7381,7 @@ export function App() {
           summary: firstPendingOnboardingStep.summary
         }
       : null,
-    onboardingFirstSyncReady,
+    onboardingFirstSyncReady: onboardingFirstSyncCompleted,
     reviewDraftCount: homeReviewDrafts.length,
     unmatchedMessageCount: exceptionMessages.length,
     unmatchedMessageTotalCount: data.inbox.length,

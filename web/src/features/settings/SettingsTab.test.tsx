@@ -357,3 +357,58 @@ test("SettingsTab account summary hides internal role labels", () => {
   assert.doesNotMatch(text, /owner/);
   assert.doesNotMatch(text, /member/);
 });
+
+test("SettingsTab activity shows only customer-facing work logs", () => {
+  const model = createModel("activity");
+  model.sections.activity.logs = [
+    {
+      id: 1,
+      level: "info",
+      scope: "mail-sync",
+      message: "메일 동기화를 완료했습니다.",
+      contextJson: JSON.stringify({ mailbox: "INBOX", createdDraftCount: 2 }),
+      createdAt: "2026-05-21T00:00:00.000Z"
+    },
+    {
+      id: 2,
+      level: "info",
+      scope: "drafts",
+      message: "수동 발행을 완료했습니다.",
+      contextJson: JSON.stringify({
+        actorDisplayName: "김동건",
+        billingMonth: "2026-05"
+      }),
+      createdAt: "2026-05-21T00:01:00.000Z"
+    },
+    {
+      id: 3,
+      level: "warn",
+      scope: "api",
+      message: "API 인증/세션 확인에 실패했습니다.",
+      contextJson: JSON.stringify({ path: "/api/internal" }),
+      createdAt: "2026-05-21T00:02:00.000Z"
+    },
+    {
+      id: 4,
+      level: "info",
+      scope: "customers",
+      message: "고객 정보를 수정했습니다.",
+      contextJson: JSON.stringify({ customerId: 12 }),
+      createdAt: "2026-05-21T00:03:00.000Z"
+    }
+  ];
+
+  const text = collectText(SettingsTab({ model }));
+
+  assert.match(text, /세금계산서 발행이 완료되었습니다./);
+  assert.match(text, /고객 정보를 수정했습니다./);
+  assert.match(text, /세금계산서 발행/);
+  assert.match(text, /고객 관리/);
+  assert.match(text, /작업자 김동건/);
+  assert.doesNotMatch(text, /수동 발행을 완료했습니다./);
+  assert.doesNotMatch(text, /메일 동기화를 완료했습니다./);
+  assert.doesNotMatch(text, /API 인증/);
+  assert.doesNotMatch(text, /mail-sync/);
+  assert.doesNotMatch(text, /drafts/);
+  assert.doesNotMatch(text, /customerId/);
+});

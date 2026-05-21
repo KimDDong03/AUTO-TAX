@@ -87,6 +87,7 @@ type IssuanceListEntry =
       sortTime: number;
       kind: "draft";
       draft: InvoiceDraft;
+      customer: Customer | null;
     }
   | {
       key: string;
@@ -277,6 +278,10 @@ function formatKepcoMailSubject(draft: InvoiceDraft): string {
   const month = draft.billingMonth.match(/^\d{4}-(\d{2})$/)?.[1];
   const monthLabel = month ? `${Number(month)}월분` : "정산";
   return `[한전] ${monthLabel} 정산내역서 - ${draft.customerName}`;
+}
+
+function formatDraftListCompanyName(draft: InvoiceDraft, customer: Customer | null): string {
+  return customer?.corpName || draft.plantName || draft.kepcoCorpName || draft.customerName || "-";
 }
 
 function formatWon(value: number, formatMoney: (value: number) => string): string {
@@ -493,6 +498,7 @@ function getIssuanceEntrySearchText(entry: IssuanceListEntry): string {
     const draft = entry.draft;
     return [
       draft.customerName,
+      entry.customer?.corpName,
       draft.kepcoCorpNum,
       draft.plantName,
       draft.itemName,
@@ -716,15 +722,20 @@ export function IssuanceTab(props: IssuanceTabProps) {
       }),
     [props.drafts]
   );
+  const customerById = useMemo(
+    () => new Map(props.customers.map((customer) => [customer.id, customer])),
+    [props.customers]
+  );
   const draftEntries = useMemo<IssuanceListEntry[]>(
     () =>
       sortedDrafts.map((draft) => ({
         key: `draft-${draft.id}`,
         sortTime: resolveDraftSortTime(draft),
         kind: "draft",
-        draft
+        draft,
+        customer: customerById.get(draft.customerId) ?? null
       })),
-    [sortedDrafts]
+    [customerById, sortedDrafts]
   );
   const unmatchedEntries = useMemo<IssuanceListEntry[]>(
     () =>
@@ -1472,7 +1483,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                       <th>고객명</th>
                       <th>사업자번호</th>
                       <th>공급가액</th>
-                      <th>메일 제목</th>
+                      <th>상호</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1500,6 +1511,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
 
                       if (entry.kind === "draft") {
                         const draft = entry.draft;
+                        const companyName = formatDraftListCompanyName(draft, entry.customer);
                         return (
                           <tr
                             key={entry.key}
@@ -1527,7 +1539,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                             <td className="issuance-table-business-cell">{draft.kepcoCorpNum || "-"}</td>
                             <td className="issuance-table-amount-cell">{formatWon(draft.totalAmount, props.formatMoney)}</td>
                             <td className="issuance-table-subject-cell">
-                              <span className="issuance-table-subject">{formatKepcoMailSubject(draft)}</span>
+                              <span className="issuance-table-subject">{companyName}</span>
                               {draft.issueError ? <span className="cell-error">{props.simplifyIssueError(draft.issueError)}</span> : null}
                             </td>
                           </tr>
@@ -1564,7 +1576,7 @@ export function IssuanceTab(props: IssuanceTabProps) {
                             <td className="issuance-table-business-cell">{customer.businessNumber || "-"}</td>
                             <td className="issuance-table-amount-cell">-</td>
                             <td className="issuance-table-subject-cell">
-                              <span className="issuance-table-subject">{entry.billingMonth} 메일 대기</span>
+                              <span className="issuance-table-subject">{customer.corpName || customer.customerName || "-"}</span>
                             </td>
                           </tr>
                         );

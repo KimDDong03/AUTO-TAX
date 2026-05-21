@@ -4408,17 +4408,18 @@ textarea {
 
 .context-empty-state {
   display: grid;
-  gap: 0.3rem;
-  min-height: 112px;
+  gap: 0.38rem;
+  min-height: 116px;
   align-content: center;
-  padding: 1rem 1.05rem;
-  border: 1px dashed rgba(32, 55, 94, 0.12);
-  border-radius: 22px;
-  background: rgba(248, 250, 252, 0.72);
+  padding: 1rem 1.1rem;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .context-empty-state strong {
   font-size: 0.94rem;
+  color: var(--text);
 }
 
 .context-empty-state p {
@@ -4432,18 +4433,23 @@ textarea {
 }
 
 .context-empty-state.tone-success {
-  border-color: rgba(21, 115, 87, 0.14);
-  background: rgba(242, 252, 247, 0.92);
+  border-color: rgba(22, 163, 74, 0.2);
+  background: linear-gradient(90deg, rgba(22, 163, 74, 0.07), rgba(255, 255, 255, 0.96));
 }
 
 .context-empty-state.tone-warn {
-  border-color: rgba(173, 111, 0, 0.18);
-  background: rgba(255, 249, 238, 0.96);
+  border-color: rgba(245, 158, 11, 0.24);
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.08), rgba(255, 255, 255, 0.96));
 }
 
 .context-empty-state.tone-info {
-  border-color: rgba(49, 130, 246, 0.14);
-  background: rgba(247, 250, 255, 0.94);
+  border-color: rgba(37, 99, 235, 0.2);
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.07), rgba(255, 255, 255, 0.96));
+}
+
+.context-empty-state.tone-danger {
+  border-color: rgba(220, 38, 38, 0.2);
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.07), rgba(255, 255, 255, 0.96));
 }
 
 .customer-form-stack {
@@ -21910,10 +21916,11 @@ button.issuance-list-item {
 .app-shell-topnav .empty-state,
 .app-shell-topnav .issuance-empty-state,
 .app-shell-topnav .work-priority-empty {
-  min-height: 150px;
-  padding: 24px;
-  border-style: dashed;
-  background: rgba(248, 250, 252, 0.75);
+  min-height: 132px;
+  padding: 20px;
+  border-style: solid;
+  border-radius: var(--console-radius-panel);
+  background: #ffffff;
   color: var(--console-muted);
 }
 
@@ -32988,6 +32995,78 @@ button.issuance-list-item {
   gap: var(--settings-gap-lg) !important;
 }
 
+.app-shell-topnav .content-settings .onboarding-sync-result-card {
+  display: grid !important;
+  grid-template-columns: var(--settings-control-compact-height) minmax(0, 1fr) !important;
+  align-items: center !important;
+  align-content: center !important;
+  gap: var(--settings-gap-sm) !important;
+  min-height: 104px !important;
+  padding: var(--settings-card-pad-block) var(--settings-card-pad-inline) !important;
+  border-style: solid !important;
+  border-radius: var(--settings-radius-control) !important;
+  background: var(--console-surface) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-card.tone-success {
+  border-color: rgba(22, 163, 74, 0.22) !important;
+  background: linear-gradient(90deg, rgba(22, 163, 74, 0.08), rgba(255, 255, 255, 0.96)) !important;
+  color: var(--console-text) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-card.tone-info {
+  border-color: rgba(37, 99, 235, 0.22) !important;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(255, 255, 255, 0.96)) !important;
+  color: var(--console-text) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-card.tone-danger {
+  border-color: rgba(220, 38, 38, 0.22) !important;
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.08), rgba(255, 255, 255, 0.96)) !important;
+  color: var(--console-text) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-icon {
+  width: var(--settings-control-compact-height) !important;
+  height: var(--settings-control-compact-height) !important;
+  border: 1px solid currentColor !important;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, 0.74) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-card.tone-success .onboarding-sync-result-icon {
+  color: var(--console-success) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-card.tone-info .onboarding-sync-result-icon {
+  color: var(--console-primary-strong) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-card.tone-danger .onboarding-sync-result-icon {
+  color: var(--console-danger) !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-copy {
+  display: grid !important;
+  gap: var(--settings-gap-xs) !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-copy strong {
+  margin: 0 !important;
+  color: var(--console-text) !important;
+  font-size: 0.92rem !important;
+  line-height: 1.3 !important;
+  letter-spacing: 0 !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-sync-result-copy p {
+  margin: 0 !important;
+  color: var(--console-muted) !important;
+  font-size: 0.82rem !important;
+  line-height: 1.5 !important;
+}
+
 .app-shell-topnav .content-settings .onboarding-main-copy,
 .app-shell-topnav .content-settings .onboarding-task-copy,
 .app-shell-topnav .content-settings .onboarding-main-copy-focal {
@@ -33347,57 +33426,6 @@ button.issuance-list-item {
   grid-row: 1 !important;
 }
 
-.app-shell-topnav .content-settings .settings-readiness-shell {
-  display: grid !important;
-  position: relative !important;
-  z-index: 1 !important;
-  min-width: 0 !important;
-  height: auto !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  margin-bottom: var(--settings-gap-lg) !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  transform: none !important;
-  overflow: visible !important;
-}
-
-.app-shell-topnav .content-settings .settings-readiness-card {
-  display: grid !important;
-  gap: 14px !important;
-  min-width: 0 !important;
-  min-height: 132px !important;
-  width: 100% !important;
-  padding: 16px !important;
-  border: 1px solid var(--lovable-border, var(--console-border)) !important;
-  border-radius: 4px !important;
-  background: var(--lovable-surface, var(--console-surface)) !important;
-  box-shadow: none !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  transform: none !important;
-  overflow: visible !important;
-}
-
-.app-shell-topnav .content-settings .settings-readiness-body {
-  display: grid !important;
-  grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr) !important;
-  gap: 12px !important;
-  padding-top: 0 !important;
-}
-
-.app-shell-topnav .content-settings .settings-readiness-metrics {
-  display: grid !important;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-  gap: 8px !important;
-}
-
-.app-shell-topnav .content-settings .settings-readiness-metrics [data-slot="metric-card"] {
-  min-height: 58px !important;
-  padding: 10px 12px !important;
-  border-radius: 0 !important;
-}
-
 .app-shell-topnav .content-settings .settings-option1-progress-copy {
   border-radius: 0 !important;
 }
@@ -33511,11 +33539,6 @@ button.issuance-list-item {
     opacity: 1 !important;
     visibility: visible !important;
     transform: none !important;
-  }
-
-  .app-shell-topnav .content-settings .settings-readiness-shell {
-    grid-column: auto !important;
-    grid-row: auto !important;
   }
 
   .app-shell-topnav .content-settings .settings-option1-main {
@@ -34305,7 +34328,6 @@ button.issuance-list-item {
   color: #b91c1c !important;
 }
 
-.settings-readiness-card,
 .settings-sidebar-panel,
 .panel {
   border-radius: 8px !important;
@@ -34432,10 +34454,75 @@ button.issuance-list-item {
 .customer-table-empty,
 .app-shell-topnav .context-empty-state,
 .app-shell-topnav .issuance-empty-state,
+.app-shell-topnav .customer-detail-panel .customer-detail-empty-state,
 .app-shell-topnav .content-customers .customer-table-empty {
-  border: 1px dashed #cbd5e1 !important;
-  border-radius: 6px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 8px !important;
   background: #ffffff !important;
+}
+
+.empty-state,
+.app-shell-topnav .empty-state {
+  border-style: solid !important;
+  border-color: #dbe3ee !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+}
+
+.context-empty-state strong,
+.empty-state strong,
+.issuance-empty-state strong,
+.app-shell-topnav .context-empty-state strong,
+.app-shell-topnav .empty-state strong,
+.app-shell-topnav .issuance-empty-state strong,
+.app-shell-topnav .customer-detail-panel .customer-detail-empty-state strong {
+  color: var(--console-text, var(--text)) !important;
+}
+
+.context-empty-state p,
+.empty-state p,
+.issuance-empty-state p,
+.app-shell-topnav .context-empty-state p,
+.app-shell-topnav .empty-state p,
+.app-shell-topnav .issuance-empty-state p,
+.app-shell-topnav .customer-detail-panel .customer-detail-empty-state p {
+  color: var(--console-muted, var(--text-subtle)) !important;
+}
+
+.context-empty-state.tone-success,
+.empty-state-success,
+.app-shell-topnav .context-empty-state.tone-success,
+.app-shell-topnav .empty-state-success {
+  border-color: rgba(22, 163, 74, 0.22) !important;
+  background: linear-gradient(90deg, rgba(22, 163, 74, 0.07), rgba(255, 255, 255, 0.96)) !important;
+  color: var(--console-text, var(--text)) !important;
+}
+
+.context-empty-state.tone-info,
+.empty-state-info,
+.app-shell-topnav .context-empty-state.tone-info,
+.app-shell-topnav .empty-state-info {
+  border-color: rgba(37, 99, 235, 0.22) !important;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.07), rgba(255, 255, 255, 0.96)) !important;
+  color: var(--console-text, var(--text)) !important;
+}
+
+.context-empty-state.tone-warn,
+.empty-state-warn,
+.app-shell-topnav .context-empty-state.tone-warn,
+.app-shell-topnav .empty-state-warn {
+  border-color: rgba(245, 158, 11, 0.26) !important;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.08), rgba(255, 255, 255, 0.96)) !important;
+  color: var(--console-text, var(--text)) !important;
+}
+
+.context-empty-state.tone-danger,
+.empty-state-danger,
+.app-shell-topnav .context-empty-state.tone-danger,
+.app-shell-topnav .empty-state-danger {
+  border-color: rgba(220, 38, 38, 0.22) !important;
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.07), rgba(255, 255, 255, 0.96)) !important;
+  color: var(--console-text, var(--text)) !important;
 }
 
 .settings-step-card.active,
