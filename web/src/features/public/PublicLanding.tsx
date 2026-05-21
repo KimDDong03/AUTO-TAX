@@ -664,7 +664,7 @@ function ContactInquiryModal({ onClose }: { onClose: () => void }) {
 
           <label>
             <span>이름 / 회사명</span>
-            <input name="name" placeholder="이름 또는 회사명" />
+            <input name="name" required placeholder="이름 또는 회사명" autoComplete="organization" />
           </label>
 
           <label>
