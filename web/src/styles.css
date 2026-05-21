@@ -19393,7 +19393,7 @@ button.issuance-list-item {
   font-size: 11px;
 }
 
-@media (max-width: 1400px) {
+@media (max-width: 1100px) {
   .app-shell-topnav .customer-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -27631,7 +27631,7 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card {
-  padding: 14px 20px !important;
+  padding: 14px 20px 24px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card {
@@ -31304,7 +31304,7 @@ button.issuance-list-item {
 
 .app-shell-topnav .content-customers .customer-detail-overview {
   --customer-detail-head-gap: 2px;
-  grid-template-columns: minmax(480px, 1.05fr) minmax(520px, 0.95fr) !important;
+  grid-template-columns: minmax(0, 1fr) !important;
   align-items: stretch !important;
   gap: 12px !important;
   height: 100% !important;
@@ -31312,7 +31312,8 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-main-stack {
-  grid-template-rows: 156px 176px 168px minmax(92px, 1fr) !important;
+  grid-template-columns: minmax(330px, 0.82fr) minmax(0, 1.18fr) !important;
+  grid-template-rows: 156px minmax(0, 1fr) !important;
   gap: 12px !important;
   align-content: stretch !important;
   height: 100% !important;
@@ -31330,14 +31331,45 @@ button.issuance-list-item {
   display: contents !important;
 }
 
+.app-shell-topnav .content-customers .customer-detail-paired-row {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  min-height: 0 !important;
+  height: 100% !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-paired-row > .customer-detail-section {
+  min-width: 0 !important;
+  height: 100% !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-side-stack {
+  display: grid !important;
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+  grid-template-rows: 176px 168px minmax(92px, 1fr) !important;
+  gap: 12px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+}
+
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card,
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-summary-card {
   display: grid !important;
   align-content: start !important;
   align-self: stretch !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card {
+  grid-column: 1 / -1 !important;
+  grid-row: 1 !important;
   min-height: 156px !important;
   height: 156px !important;
-  overflow: hidden !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card {
@@ -31435,14 +31467,16 @@ button.issuance-list-item {
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
   box-sizing: border-box !important;
   display: grid !important;
-  grid-template-rows: 42px minmax(0, 1fr) !important;
-  align-content: stretch !important;
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  align-content: start !important;
   align-self: stretch !important;
   min-height: 0 !important;
   max-height: none !important;
   height: 100% !important;
   overflow: hidden !important;
-  padding: 0 16px 8px !important;
+  padding: 14px 20px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table-wrap {
@@ -31457,7 +31491,11 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table tr {
-  height: auto !important;
+  height: calc((100% - 32px) / 12) !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table thead tr {
+  height: 32px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card,
@@ -31524,11 +31562,19 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-head {
-  display: flex !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, auto) minmax(420px, 1fr) !important;
   align-items: center !important;
-  min-height: 42px !important;
+  min-height: 46px !important;
   margin-bottom: 4px !important;
+  gap: 16px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-titlebar {
+  display: inline-flex !important;
+  align-items: center !important;
   gap: 10px !important;
+  min-width: 0 !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-head h3 {
@@ -31553,6 +31599,44 @@ button.issuance-list-item {
   font-weight: 600 !important;
   line-height: 28px !important;
   white-space: nowrap !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-inline-totals {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: center !important;
+  justify-self: end !important;
+  width: min(230px, 100%) !important;
+  min-width: 0 !important;
+  gap: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-inline-totals > div {
+  min-width: 0 !important;
+  padding: 0 8px !important;
+  border-left: 1px solid #e5e7eb !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-inline-totals span,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-inline-totals strong {
+  display: block !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-inline-totals span {
+  color: #64748b !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 14px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-inline-totals strong {
+  color: #111827 !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  line-height: 16px !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table th,
@@ -31623,13 +31707,11 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table th:nth-child(5) {
-  width: 88px !important;
   padding-right: 0 !important;
   text-align: center !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table td:nth-child(5) {
-  width: 88px !important;
   padding-right: 0 !important;
   text-align: right !important;
 }
@@ -33634,6 +33716,42 @@ button.issuance-list-item {
   min-width: 0 !important;
 }
 
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  min-height: 32px !important;
+  margin-bottom: 18px !important;
+  border-bottom: 0 !important;
+  gap: 12px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-titlebar {
+  display: inline-flex !important;
+  align-items: center !important;
+  flex: 0 0 auto !important;
+  justify-self: start !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-inline-totals {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  flex: 1 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  gap: 24px !important;
+  margin-left: auto !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-inline-totals > div {
+  flex: 0 0 auto !important;
+  padding: 0 !important;
+  border-left: 0 !important;
+}
+
 @media (min-width: 901px) and (max-width: 1100px) {
   .app-shell-topnav .content-customers {
     overflow: auto !important;
@@ -33733,15 +33851,15 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table .customer-report-supply-column {
-  width: 86px !important;
+  width: auto !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table .customer-report-vat-column {
-  width: 72px !important;
+  width: auto !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table .customer-report-total-column {
-  width: 88px !important;
+  width: auto !important;
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-report-table thead th,
@@ -33755,7 +33873,20 @@ button.issuance-list-item {
   text-align: center !important;
 }
 
-@container customer-detail-pane (max-width: 1040px) {
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table {
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table th:nth-child(3),
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table td:nth-child(3),
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table th:nth-child(4),
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table td:nth-child(4),
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table th:nth-child(5),
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-table td:nth-child(5) {
+  width: auto !important;
+}
+
+@container customer-detail-pane (max-width: 760px) {
   .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body {
     height: auto !important;
     max-height: none !important;
@@ -33773,10 +33904,23 @@ button.issuance-list-item {
 
   .app-shell-topnav .content-customers .customer-detail-main-stack,
   .app-shell-topnav .content-customers .customer-detail-report-stack {
+    grid-template-columns: minmax(0, 1fr) !important;
     grid-template-rows: none !important;
     height: auto !important;
     max-width: 100% !important;
     min-width: 0 !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-side-stack {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    grid-template-rows: none !important;
+    height: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-paired-row {
+    grid-template-columns: minmax(0, 1fr) !important;
+    height: auto !important;
   }
 
   .app-shell-topnav .content-customers .customer-detail-overview :is(
@@ -33799,8 +33943,21 @@ button.issuance-list-item {
   }
 
   .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
+    grid-column: auto !important;
+    grid-row: auto !important;
     grid-template-rows: auto auto !important;
     order: 6 !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-head {
+    flex-wrap: wrap !important;
+    align-items: center !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-inline-totals {
+    flex: 1 1 100% !important;
+    justify-content: flex-start !important;
+    margin-left: 0 !important;
   }
 
   .app-shell-topnav .content-customers .customer-detail-overview .customer-report-summary-totals {
@@ -34504,6 +34661,300 @@ b {
   .recharts-text tspan
 ) {
   font-weight: var(--app-weight-muted) !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table-wrap {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  table-layout: fixed !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-month-column {
+  width: 11% !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-day-column {
+  width: 11% !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-supply-column,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-vat-column,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-total-column {
+  width: 26% !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table colgroup {
+  display: none !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table {
+  display: grid !important;
+  grid-template-columns: minmax(44px, 0.7fr) minmax(44px, 0.7fr) repeat(3, minmax(0, 1.2fr)) !important;
+  grid-template-rows: 32px repeat(12, minmax(24px, 1fr)) !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table thead,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table tbody,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table tr {
+  display: contents !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table th,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table td {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table td:nth-child(3),
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table td:nth-child(4),
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table td:nth-child(5) {
+  justify-content: flex-end !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table td.is-empty,
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table td:has(.customer-report-read-value.is-empty) {
+  justify-content: center !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  align-content: stretch !important;
+  row-gap: 12px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-history-head {
+  min-height: 32px !important;
+  margin-bottom: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table-wrap {
+  display: grid !important;
+  align-self: stretch !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table {
+  align-self: stretch !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  grid-template-rows: minmax(28px, 0.8fr) repeat(12, minmax(22px, 1fr)) !important;
+}
+
+@media (max-width: 1100px) and (min-width: 901px) {
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
+    height: 100% !important;
+    overflow: hidden !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table-wrap,
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table {
+    height: 100% !important;
+  }
+}
+
+@container customer-detail-pane (max-width: 760px) {
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
+    height: auto !important;
+    overflow: visible !important;
+    grid-template-rows: auto auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table-wrap,
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table {
+    height: auto !important;
+  }
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
+  align-self: start !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+  grid-template-rows: auto auto !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table-wrap {
+  align-self: start !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section .customer-report-table {
+  height: auto !important;
+  min-height: 0 !important;
+  grid-template-rows: 32px repeat(12, 38px) !important;
+}
+
+@container customer-detail-pane (max-width: 1120px) {
+  .app-shell-topnav .content-customers .customer-detail-main-stack {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto !important;
+    align-content: start !important;
+    height: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-basic-card {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-side-stack {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-rows: auto auto !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-contract-card,
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-certificate-card {
+    height: auto !important;
+    min-height: 168px !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-memo-card {
+    grid-column: 1 / -1 !important;
+    min-height: 120px !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-report-history-section {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+    width: 100% !important;
+  }
+}
+
+@container customer-detail-pane (max-width: 620px) {
+  .app-shell-topnav .content-customers .customer-detail-side-stack {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-overview .customer-info-memo-card {
+    grid-column: auto !important;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1500px) {
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-main-stack {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto !important;
+    align-content: start !important;
+    height: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-basic-card {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-side-stack {
+    display: grid !important;
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-rows: auto auto !important;
+    gap: 12px !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-card {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 168px !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-certificate-card {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 168px !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-memo-card {
+    grid-column: 1 / -1 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    min-height: 120px !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-section {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-detail-side-stack {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-contract-card,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-certificate-card,
+  .app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-info-memo-card {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-head {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-titlebar {
+  display: inline-flex !important;
+  flex: 0 1 auto !important;
+  align-items: center !important;
+  min-width: 0 !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-history-head h3 {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  white-space: nowrap !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-inline-totals {
+  display: inline-flex !important;
+  flex: 1 1 auto !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  width: auto !important;
+  min-width: 0 !important;
+  gap: 24px !important;
+  margin-left: auto !important;
+}
+
+.app-shell-topnav .content-customers .customer-detail-panel-body.customer-detail-option3-body .customer-report-inline-totals > div {
+  flex: 0 0 auto !important;
 }
 
 /* Search fields: focused state should show the real caret and hide placeholder text. */

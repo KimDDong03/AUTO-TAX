@@ -1975,7 +1975,7 @@ export function CustomersTab(props: CustomersTabProps) {
               </dl>
             </section>
 
-            <div className="customer-detail-overview-side">
+            <div className="customer-detail-side-stack">
               <section className="customer-detail-section customer-info-card customer-info-contract-card">
                 <div className="customer-detail-section-head customer-report-auto-save-head">
                   <h3>계약/발행</h3>
@@ -2156,55 +2156,37 @@ export function CustomersTab(props: CustomersTabProps) {
                 )}
               </section>
             </div>
-          </div>
-
-          <div className="customer-detail-report-stack">
-            <section className="customer-detail-section customer-info-card customer-report-summary-card">
-              <div className="customer-detail-section-head">
-                <h3>신고 합계</h3>
-              </div>
-              <div className="customer-report-totals customer-report-summary-totals" aria-label="신고 이력 합계">
-                <div>
-                  <span>1분기합계</span>
-                  <strong>{props.formatMoney(selectedReportTotals.firstHalf)}원</strong>
-                </div>
-                <div>
-                  <span>2분기합계</span>
-                  <strong>{props.formatMoney(selectedReportTotals.secondHalf)}원</strong>
-                </div>
-                <div>
-                  <span>공급가액</span>
-                  <strong>{props.formatMoney(selectedReportTotals.supply)}원</strong>
-                </div>
-                <div>
-                  <span>부가세</span>
-                  <strong>{props.formatMoney(selectedReportTotals.vat)}원</strong>
-                </div>
-                <div>
-                  <span>총계</span>
-                  <strong>{props.formatMoney(selectedReportTotals.annual)}원</strong>
-                </div>
-              </div>
-            </section>
 
             <section className="customer-detail-section customer-report-history-section">
               <div className="customer-detail-section-head customer-report-history-head">
-                <h3>신고 이력</h3>
-                <select
-                  className="customer-report-year-select"
-                  aria-label="신고 연도"
-                  value={customerReportYear}
-                  onChange={(event) => setCustomerReportYear(Number(event.target.value))}
-                >
-                  {reportYearOptions.map((year) => (
-                    <option key={year} value={year}>
-                      {year}년
-                    </option>
-                  ))}
-                </select>
-                {customerReportDetail.loading ? (
-                  <span className="customer-report-history-status">신고 상세를 불러오는 중입니다.</span>
-                ) : null}
+                <div className="customer-report-history-titlebar">
+                  <h3>신고 이력</h3>
+                  <select
+                    className="customer-report-year-select"
+                    aria-label="신고 연도"
+                    value={customerReportYear}
+                    onChange={(event) => setCustomerReportYear(Number(event.target.value))}
+                  >
+                    {reportYearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}년
+                      </option>
+                    ))}
+                  </select>
+                  {customerReportDetail.loading ? (
+                    <span className="customer-report-history-status">신고 상세를 불러오는 중입니다.</span>
+                  ) : null}
+                </div>
+                <div className="customer-report-inline-totals" aria-label="신고 이력 합계">
+                  <div>
+                    <span>1분기합계</span>
+                    <strong>{props.formatMoney(selectedReportTotals.firstHalf)}원</strong>
+                  </div>
+                  <div>
+                    <span>2분기합계</span>
+                    <strong>{props.formatMoney(selectedReportTotals.secondHalf)}원</strong>
+                  </div>
+                </div>
               </div>
               {customerReportDetail.error ? <p className="customer-detail-card-note tone-danger">{customerReportDetail.error}</p> : null}
               <div className="customer-report-table-wrap">
