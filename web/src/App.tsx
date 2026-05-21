@@ -151,7 +151,7 @@ import {
   isSupabaseRecoveryHash
 } from "./features/auth/auth-hash";
 import { useAuthSessionBootstrap } from "./features/auth/useAuthSessionBootstrap";
-import { resetPasswordForEmailSafely, setSessionSafely, signOutSafely, updateUserSafely } from "./supabase";
+import { getSessionSafely, resetPasswordForEmailSafely, setSessionSafely, signOutSafely, updateUserSafely } from "./supabase";
 import { USER_FACING_AUTH_TIMEOUT_MESSAGE } from "./supabase-timeout";
 import { assertSafeSpreadsheetFile, assertSafeSpreadsheetWorkbook } from "./spreadsheet-security";
 import type {
@@ -3495,6 +3495,13 @@ export function App() {
         refresh_token: result.session.refresh_token
       });
       if (sessionError) throw sessionError;
+      const { session, error: sessionReadError } = await getSessionSafely();
+      if (sessionReadError) throw sessionReadError;
+      if (!session) {
+        throw new Error("로그인 세션을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      }
+      authSessionRef.current = session;
+      setAuthSession(session);
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : "로그인에 실패했습니다.");
     } finally {
