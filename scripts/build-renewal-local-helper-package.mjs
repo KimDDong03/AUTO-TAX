@@ -12,6 +12,7 @@ const appDir = path.join(outputRoot, "app");
 const appNodeModulesDir = path.join(appDir, "node_modules");
 const runtimeDir = path.join(outputRoot, "runtime");
 const scriptsDir = path.join(outputRoot, "scripts");
+const trayExePath = path.join(appDir, "ATHelperTray.exe");
 const helperReleaseSourcePath = path.join(repoRoot, "scripts", "renewal-local-helper-release.json");
 const outputMetadataPath = path.join(repoRoot, "dist", "renewal-local-helper.json");
 const outputZipPath = path.join(repoRoot, "dist", "renewal-local-helper.zip");
@@ -24,6 +25,7 @@ const legacyStaticDownloadZipPath = path.join(staticDownloadDir, "renewal-local-
 const legacyStaticDownloadExePath = path.join(staticDownloadDir, "renewal-local-helper.exe");
 const runtimeVersionPath = path.join(appDir, "renewal-local-helper-release.json");
 const installerStagingDir = path.join(repoRoot, "dist", "renewal-local-helper-installer");
+const trayStagingDir = path.join(repoRoot, "dist", "renewal-local-helper-tray");
 const installerIconSourcePath = path.join(repoRoot, "scripts", "assets", "helper-installer-icon.png");
 const ZIP_BASENAME = "AT helper";
 const EXE_BASENAME = "AT helper";
@@ -171,14 +173,160 @@ function writeInstallerSourceFile(sourcePath) {
   const source = String.raw`
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Reflection;
+using System.Windows.Forms;
 
 namespace AutoTaxRenewalHelperInstaller
 {
   public static class Program
   {
+    [STAThread]
     public static int Main()
+    {
+      Application.EnableVisualStyles();
+      Application.SetCompatibleTextRenderingDefault(false);
+
+      using (InstallerForm form = new InstallerForm())
+      {
+        Application.Run(form);
+        return form.ExitCode;
+      }
+    }
+  }
+
+  public sealed class InstallerForm : Form
+  {
+    private readonly TextBox installPathTextBox;
+    private readonly Button installButton;
+    private readonly Button closeButton;
+    private readonly TextBox logTextBox;
+    private readonly string defaultInstallRoot;
+
+    public int ExitCode { get; private set; }
+
+    public InstallerForm()
+    {
+      defaultInstallRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "AUTO-TAX",
+        "renewal-local-helper");
+
+      Text = "AT helper 설치";
+      StartPosition = FormStartPosition.CenterScreen;
+      FormBorderStyle = FormBorderStyle.FixedDialog;
+      MaximizeBox = false;
+      MinimizeBox = true;
+      ClientSize = new Size(620, 430);
+
+      Label titleLabel = new Label();
+      titleLabel.Text = "AT helper 설치";
+      titleLabel.Font = new Font(Font.FontFamily, 16, FontStyle.Bold);
+      titleLabel.SetBounds(24, 22, 560, 30);
+
+      Label descriptionLabel = new Label();
+      descriptionLabel.Text = "공동인증서 연결에 필요한 helper를 설치하고 Windows 로그인 시 자동으로 시작되도록 설정합니다.";
+      descriptionLabel.SetBounds(24, 62, 560, 36);
+
+      Label pathLabel = new Label();
+      pathLabel.Text = "설치 위치";
+      pathLabel.SetBounds(24, 116, 560, 20);
+
+      installPathTextBox = new TextBox();
+      installPathTextBox.Text = defaultInstallRoot;
+      installPathTextBox.SetBounds(24, 140, 460, 24);
+
+      Button browseButton = new Button();
+      browseButton.Text = "찾아보기...";
+      browseButton.SetBounds(494, 138, 100, 28);
+      browseButton.Click += BrowseButton_Click;
+
+      logTextBox = new TextBox();
+      logTextBox.Multiline = true;
+      logTextBox.ReadOnly = true;
+      logTextBox.ScrollBars = ScrollBars.Vertical;
+      logTextBox.SetBounds(24, 186, 570, 172);
+
+      installButton = new Button();
+      installButton.Text = "설치";
+      installButton.SetBounds(388, 376, 100, 32);
+      installButton.Click += InstallButton_Click;
+
+      closeButton = new Button();
+      closeButton.Text = "닫기";
+      closeButton.SetBounds(494, 376, 100, 32);
+      closeButton.Click += delegate { Close(); };
+
+      Controls.Add(titleLabel);
+      Controls.Add(descriptionLabel);
+      Controls.Add(pathLabel);
+      Controls.Add(installPathTextBox);
+      Controls.Add(browseButton);
+      Controls.Add(logTextBox);
+      Controls.Add(installButton);
+      Controls.Add(closeButton);
+
+      AcceptButton = installButton;
+      CancelButton = closeButton;
+      ExitCode = 1;
+    }
+
+    private void BrowseButton_Click(object sender, EventArgs eventArgs)
+    {
+      using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+      {
+        dialog.Description = "AT helper를 설치할 위치를 선택하세요.";
+        dialog.SelectedPath = installPathTextBox.Text.Trim().Length > 0 ? installPathTextBox.Text.Trim() : defaultInstallRoot;
+        dialog.ShowNewFolderButton = true;
+
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+          installPathTextBox.Text = dialog.SelectedPath;
+        }
+      }
+    }
+
+    private void InstallButton_Click(object sender, EventArgs eventArgs)
+    {
+      string installRoot = installPathTextBox.Text.Trim();
+      if (installRoot.Length == 0)
+      {
+        MessageBox.Show(this, "설치 위치를 선택하세요.", "AT helper 설치", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        return;
+      }
+
+      installButton.Enabled = false;
+      closeButton.Enabled = false;
+      logTextBox.Clear();
+      AppendLog("설치를 시작합니다.");
+      AppendLog("설치 위치: " + installRoot);
+
+      try
+      {
+        RunInstall(installRoot);
+        AppendLog("");
+        AppendLog("설치가 완료되었습니다.");
+        AppendLog("AT helper가 자동시작으로 등록되었고 지금 실행 중입니다.");
+        ExitCode = 0;
+        MessageBox.Show(this, "AT helper 설치가 완료되었습니다.", "AT helper 설치", MessageBoxButtons.OK, MessageBoxIcon.Information);
+      }
+      catch (Exception error)
+      {
+        AppendLog("");
+        AppendLog("설치에 실패했습니다.");
+        AppendLog(error.Message);
+        ExitCode = 1;
+        MessageBox.Show(this, error.Message, "AT helper 설치 실패", MessageBoxButtons.OK, MessageBoxIcon.Error);
+      }
+      finally
+      {
+        installButton.Enabled = ExitCode != 0;
+        closeButton.Enabled = true;
+      }
+    }
+
+    private void RunInstall(string installRoot)
     {
       string payloadDir = Path.Combine(Path.GetTempPath(), "auto-tax-renewal-local-helper-" + Guid.NewGuid().ToString("N"));
       string zipPath = Path.Combine(payloadDir, "renewal-local-helper.zip");
@@ -201,36 +349,93 @@ namespace AutoTaxRenewalHelperInstaller
 
         RunPowerShell("-NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '" + zipPath.Replace("'", "''") + "' -DestinationPath '" + payloadDir.Replace("'", "''") + "' -Force\"");
         string installScript = Path.Combine(payloadDir, "scripts", "install-renewal-local-helper-autostart.ps1");
-        RunPowerShell("-NoProfile -ExecutionPolicy Bypass -File \"" + installScript + "\" -StartNow");
-
-        Console.WriteLine();
-        Console.WriteLine("AUTO-TAX renewal helper install completed.");
-        Console.WriteLine("Press any key to close.");
-        Console.ReadKey(true);
-        return 0;
+        RunPowerShell(
+          "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " +
+          QuoteCommandLineArgument(installScript) +
+          " -StartNow -SkipTrayOnStart -InstallRoot " +
+          QuoteCommandLineArgument(installRoot));
+        StartTray(installRoot);
       }
-      catch (Exception error)
+      finally
       {
-        Console.WriteLine();
-        Console.Error.WriteLine("AUTO-TAX renewal helper install failed.");
-        Console.Error.WriteLine(error.Message);
-        Console.WriteLine("Press any key to close.");
-        Console.ReadKey(true);
-        return 1;
+        try
+        {
+          if (Directory.Exists(payloadDir))
+          {
+            Directory.Delete(payloadDir, true);
+          }
+        }
+        catch
+        {
+          // Temporary installer files are safe to leave behind if Windows still has a handle open.
+        }
       }
     }
 
-    private static void RunPowerShell(string arguments)
+    private void RunPowerShell(string arguments)
     {
       ProcessStartInfo startInfo = new ProcessStartInfo("powershell.exe", arguments);
       startInfo.UseShellExecute = false;
+      startInfo.RedirectStandardOutput = true;
+      startInfo.RedirectStandardError = true;
+      startInfo.CreateNoWindow = true;
       Process process = Process.Start(startInfo);
+      string output = process.StandardOutput.ReadToEnd();
+      string error = process.StandardError.ReadToEnd();
       process.WaitForExit();
+
+      AppendPowerShellOutput(output);
+      AppendPowerShellOutput(error);
 
       if (process.ExitCode != 0)
       {
         throw new InvalidOperationException("PowerShell command failed with exit code " + process.ExitCode + ".");
       }
+    }
+
+    private void StartTray(string installRoot)
+    {
+      string trayExe = Path.Combine(installRoot, "app", "ATHelperTray.exe");
+      if (!File.Exists(trayExe))
+      {
+        return;
+      }
+
+      ProcessStartInfo startInfo = new ProcessStartInfo(trayExe, "--port 35119");
+      startInfo.WorkingDirectory = installRoot;
+      startInfo.UseShellExecute = true;
+      startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+      Process.Start(startInfo);
+    }
+
+    private static string QuoteCommandLineArgument(string value)
+    {
+      return "\"" + value.Replace("\"", "\\\"") + "\"";
+    }
+
+    private void AppendPowerShellOutput(string value)
+    {
+      if (String.IsNullOrWhiteSpace(value))
+      {
+        return;
+      }
+
+      string[] lines = value.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+      foreach (string line in lines)
+      {
+        if (line.Trim().Length > 0)
+        {
+          AppendLog(line);
+        }
+      }
+    }
+
+    private void AppendLog(string message)
+    {
+      logTextBox.AppendText(message + Environment.NewLine);
+      logTextBox.SelectionStart = logTextBox.TextLength;
+      logTextBox.ScrollToCaret();
+      Application.DoEvents();
     }
   }
 }
@@ -247,8 +452,10 @@ $parameters = New-Object System.CodeDom.Compiler.CompilerParameters
 $parameters.GenerateExecutable = $true
 $parameters.OutputAssembly = ${JSON.stringify(exePath)}
 $parameters.MainClass = "AutoTaxRenewalHelperInstaller.Program"
-$parameters.CompilerOptions = "/target:exe /win32icon:${iconPath.replace(/\\/g, "\\\\")} /resource:${zipPath.replace(/\\/g, "\\\\")},renewal-local-helper.zip"
+$parameters.CompilerOptions = "/target:winexe /win32icon:${iconPath.replace(/\\/g, "\\\\")} /resource:${zipPath.replace(/\\/g, "\\\\")},renewal-local-helper.zip"
 [void]$parameters.ReferencedAssemblies.Add("System.dll")
+[void]$parameters.ReferencedAssemblies.Add("System.Drawing.dll")
+[void]$parameters.ReferencedAssemblies.Add("System.Windows.Forms.dll")
 $result = $provider.CompileAssemblyFromFile($parameters, ${JSON.stringify(sourcePath)})
 if ($result.Errors.HasErrors) {
   $messages = @()
@@ -284,6 +491,260 @@ function writeInstallerExe(versionedZipPath, exePath) {
   if (result.status !== 0 || !fs.existsSync(exePath)) {
     throw new Error(
       `Failed to create renewal helper installer exe: ${result.stderr?.trim() || result.stdout?.trim() || "PowerShell compile failed"}`
+    );
+  }
+}
+
+function writeTraySourceFile(sourcePath) {
+  const source = String.raw`
+using System;
+using System.Drawing;
+using System.IO;
+using System.Net;
+using System.Reflection;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows.Forms;
+
+namespace AutoTaxRenewalHelperTray
+{
+  public static class Program
+  {
+    [STAThread]
+    public static int Main(string[] args)
+    {
+      int port = ResolvePort(args);
+      bool createdNew;
+      using (Mutex mutex = new Mutex(true, "AUTO_TAX_RENEWAL_HELPER_TRAY_" + port, out createdNew))
+      {
+        if (!createdNew)
+        {
+          return 0;
+        }
+
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+        using (TrayApplicationContext context = new TrayApplicationContext(port))
+        {
+          Application.Run(context);
+        }
+      }
+
+      return 0;
+    }
+
+    private static int ResolvePort(string[] args)
+    {
+      for (int index = 0; index < args.Length - 1; index += 1)
+      {
+        int parsed;
+        if (String.Equals(args[index], "--port", StringComparison.OrdinalIgnoreCase) &&
+            Int32.TryParse(args[index + 1], out parsed) &&
+            parsed > 0)
+        {
+          return parsed;
+        }
+      }
+
+      string envValue = Environment.GetEnvironmentVariable("AUTO_TAX_RENEWAL_HELPER_PORT");
+      int envPort;
+      if (Int32.TryParse(envValue, out envPort) && envPort > 0)
+      {
+        return envPort;
+      }
+
+      return 35119;
+    }
+  }
+
+  public sealed class TrayApplicationContext : ApplicationContext
+  {
+    private readonly int port;
+    private readonly NotifyIcon notifyIcon;
+    private readonly ToolStripMenuItem statusMenuItem;
+    private readonly ToolStripMenuItem versionMenuItem;
+    private readonly System.Windows.Forms.Timer refreshTimer;
+    private string currentStatus = "확인 중";
+    private string currentVersion = "-";
+
+    public TrayApplicationContext(int port)
+    {
+      this.port = port;
+
+      statusMenuItem = new ToolStripMenuItem("상태: 확인 중");
+      statusMenuItem.Enabled = false;
+
+      versionMenuItem = new ToolStripMenuItem("버전: -");
+      versionMenuItem.Enabled = false;
+
+      ToolStripMenuItem exitMenuItem = new ToolStripMenuItem("종료");
+      exitMenuItem.Click += ExitMenuItem_Click;
+
+      ContextMenuStrip menu = new ContextMenuStrip();
+      menu.Opening += delegate { RefreshStatus(); };
+      menu.Items.Add(statusMenuItem);
+      menu.Items.Add(versionMenuItem);
+      menu.Items.Add(new ToolStripSeparator());
+      menu.Items.Add(exitMenuItem);
+
+      notifyIcon = new NotifyIcon();
+      notifyIcon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
+      notifyIcon.Text = "AT helper - 확인 중";
+      notifyIcon.ContextMenuStrip = menu;
+      notifyIcon.Visible = true;
+      notifyIcon.DoubleClick += delegate { ShowCurrentStatus(); };
+
+      refreshTimer = new System.Windows.Forms.Timer();
+      refreshTimer.Interval = 5000;
+      refreshTimer.Tick += delegate { RefreshStatus(); };
+      refreshTimer.Start();
+
+      RefreshStatus();
+    }
+
+    private void RefreshStatus()
+    {
+      try
+      {
+        string body = SendRequest("GET", "/health");
+        string version = ExtractJsonString(body, "version");
+        currentStatus = "실행 중";
+        currentVersion = String.IsNullOrWhiteSpace(version) ? "-" : version;
+      }
+      catch
+      {
+        currentStatus = "연결 안 됨";
+        currentVersion = "-";
+      }
+
+      statusMenuItem.Text = "상태: " + currentStatus;
+      versionMenuItem.Text = "버전: " + currentVersion;
+      notifyIcon.Text = TruncateNotifyText("AT helper - " + currentStatus + (currentVersion == "-" ? "" : " (" + currentVersion + ")"));
+    }
+
+    private void ExitMenuItem_Click(object sender, EventArgs eventArgs)
+    {
+      try
+      {
+        SendRequest("POST", "/api/shutdown");
+      }
+      catch
+      {
+        // If the helper is already gone, closing the tray icon is still the requested action.
+      }
+
+      notifyIcon.Visible = false;
+      Application.Exit();
+    }
+
+    private void ShowCurrentStatus()
+    {
+      RefreshStatus();
+      MessageBox.Show(
+        "상태: " + currentStatus + Environment.NewLine + "버전: " + currentVersion,
+        "AT helper",
+        MessageBoxButtons.OK,
+        MessageBoxIcon.Information);
+    }
+
+    private string SendRequest(string method, string path)
+    {
+      HttpWebRequest request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port + path);
+      request.Method = method;
+      request.Timeout = 3000;
+
+      if (method == "POST")
+      {
+        byte[] body = Encoding.UTF8.GetBytes("{}");
+        request.ContentType = "application/json";
+        request.ContentLength = body.Length;
+        using (Stream stream = request.GetRequestStream())
+        {
+          stream.Write(body, 0, body.Length);
+        }
+      }
+
+      using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+      using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+      {
+        return reader.ReadToEnd();
+      }
+    }
+
+    private static string ExtractJsonString(string json, string key)
+    {
+      Match match = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*\"([^\"]*)\"");
+      return match.Success ? match.Groups[1].Value : "";
+    }
+
+    private static string TruncateNotifyText(string value)
+    {
+      return value.Length <= 63 ? value : value.Substring(0, 63);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+      if (disposing)
+      {
+        refreshTimer.Dispose();
+        notifyIcon.Dispose();
+      }
+
+      base.Dispose(disposing);
+    }
+  }
+}
+`;
+  fs.writeFileSync(sourcePath, source.trimStart(), "utf8");
+}
+
+function writeTrayCompileScript(scriptPath, sourcePath, iconPath, exePath) {
+  const script = `
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName Microsoft.CSharp
+$provider = New-Object Microsoft.CSharp.CSharpCodeProvider
+$parameters = New-Object System.CodeDom.Compiler.CompilerParameters
+$parameters.GenerateExecutable = $true
+$parameters.OutputAssembly = ${JSON.stringify(exePath)}
+$parameters.MainClass = "AutoTaxRenewalHelperTray.Program"
+$parameters.CompilerOptions = "/target:winexe /win32icon:${iconPath.replace(/\\/g, "\\\\")}"
+[void]$parameters.ReferencedAssemblies.Add("System.dll")
+[void]$parameters.ReferencedAssemblies.Add("System.Drawing.dll")
+[void]$parameters.ReferencedAssemblies.Add("System.Windows.Forms.dll")
+$result = $provider.CompileAssemblyFromFile($parameters, ${JSON.stringify(sourcePath)})
+if ($result.Errors.HasErrors) {
+  $messages = @()
+  foreach ($errorItem in $result.Errors) {
+    $messages += $errorItem.ToString()
+  }
+  throw ($messages -join [Environment]::NewLine)
+}
+`;
+  fs.writeFileSync(scriptPath, script.trimStart(), "utf8");
+}
+
+function writeTrayExe() {
+  resetDir(trayStagingDir);
+  const iconPath = path.join(trayStagingDir, "helper-tray.ico");
+  const sourcePath = path.join(trayStagingDir, "ATHelperTray.cs");
+  const compileScriptPath = path.join(trayStagingDir, "compile-tray.ps1");
+  writePngBackedIconFile(iconPath);
+  writeTraySourceFile(sourcePath);
+  writeTrayCompileScript(compileScriptPath, sourcePath, iconPath, trayExePath);
+
+  if (fs.existsSync(trayExePath)) {
+    fs.rmSync(trayExePath, { force: true });
+  }
+
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", compileScriptPath], {
+    cwd: trayStagingDir,
+    encoding: "utf8"
+  });
+
+  if (result.status !== 0 || !fs.existsSync(trayExePath)) {
+    throw new Error(
+      `Failed to create renewal helper tray exe: ${result.stderr?.trim() || result.stdout?.trim() || "PowerShell compile failed"}`
     );
   }
 }
@@ -372,10 +833,17 @@ function copyScripts() {
     "renewal-helper-start.cmd": [
       "@echo off",
       "setlocal",
-      "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0start-renewal-local-helper.ps1\" -Detached",
+      "echo Starting AUTO-TAX helper...",
+      "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%~dp0start-renewal-local-helper.ps1\" -Detached",
       "if errorlevel 1 goto :fail",
       "echo.",
-      "echo AUTO-TAX renewal helper started.",
+      "echo AUTO-TAX helper start command completed.",
+      "echo.",
+      "echo Current helper status:",
+      "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0status-renewal-local-helper.ps1\"",
+      "if errorlevel 1 goto :fail",
+      "echo.",
+      "echo Check status=running above to confirm the helper is ON.",
       "pause",
       "exit /b 0",
       "",
@@ -458,6 +926,7 @@ async function main() {
   copyPlaywrightRuntime();
   copyScripts();
   writeReleaseMetadataAssets();
+  writeTrayExe();
   writePackageReadme();
   writeZipArchive(versionedZipPath);
   if (fs.existsSync(outputZipPath)) {

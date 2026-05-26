@@ -3,7 +3,8 @@ param(
   [switch]$ValidateOnly,
   [switch]$Detached,
   [switch]$Foreground,
-  [switch]$Restart
+  [switch]$Restart,
+  [switch]$SkipTray
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,6 +78,26 @@ function Wait-LocalRenewalHelperStop {
   return $false
 }
 
+function Start-HelperTray {
+  param(
+    [string]$RepoRoot,
+    [int]$Port
+  )
+
+  $trayExe = Join-Path $RepoRoot "app\\ATHelperTray.exe"
+  if (-not (Test-Path $trayExe)) {
+    return
+  }
+
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $trayExe
+  $startInfo.Arguments = "--port $Port"
+  $startInfo.WorkingDirectory = $RepoRoot
+  $startInfo.UseShellExecute = $true
+  $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+  [System.Diagnostics.Process]::Start($startInfo) | Out-Null
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "..")).Path
 $bundledNodeExe = Join-Path $repoRoot "runtime\\node.exe"
@@ -115,6 +136,9 @@ if ($Detached -and -not $Foreground) {
   }
 
   if ($alreadyRunning) {
+    if (-not $SkipTray) {
+      Start-HelperTray -RepoRoot $repoRoot -Port $helperPort
+    }
     Write-Output "status=already-running"
     Write-Output "port=$helperPort"
     exit 0
@@ -128,8 +152,23 @@ if ($Detached -and -not $Foreground) {
     "-Foreground"
   )
 
-  Start-Process -FilePath $powershellExe -ArgumentList $argumentList -WorkingDirectory $repoRoot -WindowStyle Hidden | Out-Null
+  $helperStartInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $helperStartInfo.FileName = $powershellExe
+  $helperStartInfo.Arguments = ($argumentList | ForEach-Object {
+    if ($_ -match '[\s"]') {
+      '"' + ($_ -replace '"', '\"') + '"'
+    } else {
+      $_
+    }
+  }) -join " "
+  $helperStartInfo.WorkingDirectory = $repoRoot
+  $helperStartInfo.UseShellExecute = $true
+  $helperStartInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+  [System.Diagnostics.Process]::Start($helperStartInfo) | Out-Null
   Start-Sleep -Milliseconds 1200
+  if (-not $SkipTray) {
+    Start-HelperTray -RepoRoot $repoRoot -Port $helperPort
+  }
 
   $status = if (Test-LocalRenewalHelperRunning -Port $helperPort) { "started" } else { "starting" }
   Write-Output "status=$status"

@@ -1,7 +1,9 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
   [switch]$StartNow,
-  [switch]$SkipDesktopShortcuts
+  [switch]$SkipDesktopShortcuts,
+  [switch]$SkipTrayOnStart,
+  [string]$InstallRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -124,6 +126,39 @@ function Wait-LocalRenewalHelperStart {
   }
 
   return $false
+}
+
+function Start-LocalRenewalHelperDetached {
+  param(
+    [string]$PowerShellExe,
+    [string]$LauncherScript,
+    [int]$Port,
+    [string]$ExpectedVersion = "",
+    [switch]$SkipTray
+  )
+
+  $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", $LauncherScript, "-Detached", "-Restart")
+  if ($SkipTray) {
+    $arguments += "-SkipTray"
+  }
+
+  & $PowerShellExe @arguments | Out-Null
+  $started = [bool](Wait-LocalRenewalHelperStart -Port $Port -ExpectedVersion $ExpectedVersion -Attempts 20 -DelayMs 500)
+  if ($started) {
+    return $true
+  }
+
+  try {
+    $retryArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $LauncherScript, "-Detached", "-Restart")
+    if ($SkipTray) {
+      $retryArguments += "-SkipTray"
+    }
+    & $PowerShellExe @retryArguments | Out-Null
+  } catch {
+    Write-Warning "visible-start-retry-failed=$($_.Exception.Message)"
+  }
+
+  return [bool](Wait-LocalRenewalHelperStart -Port $Port -ExpectedVersion $ExpectedVersion -Attempts 20 -DelayMs 500)
 }
 
 function Get-PackagedLocalRenewalHelperVersion {
@@ -373,7 +408,14 @@ $packageAppMarker = Join-Path $sourceRoot "app\\renewal-local-helper.cjs"
 $legacyPackageAppMarker = Join-Path $sourceRoot "app\\renewal-local-helper.mjs"
 $defaultInstallRoot = Join-Path $env:LOCALAPPDATA "AUTO-TAX\\renewal-local-helper"
 $isPackagedInstall = (Test-Path $packageAppMarker) -or (Test-Path $legacyPackageAppMarker)
-$installRoot = if ($isPackagedInstall) { $defaultInstallRoot } else { $sourceRoot }
+$requestedInstallRoot = if ([string]::IsNullOrWhiteSpace($InstallRoot)) { "" } else { $InstallRoot.Trim().Trim("'`"") }
+$installRoot = if (-not [string]::IsNullOrWhiteSpace($requestedInstallRoot)) {
+  [System.IO.Path]::GetFullPath($requestedInstallRoot)
+} elseif ($isPackagedInstall) {
+  $defaultInstallRoot
+} else {
+  $sourceRoot
+}
 $taskName = "AUTO-TAX Renewal Local Helper"
 $powershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
 $helperPort = Get-HelperPort
@@ -414,6 +456,7 @@ if ($isPackagedInstall -and ($sourceRoot -ne $installRoot)) {
 }
 
 $launcherScript = Join-Path $installRoot "scripts\\start-renewal-local-helper.ps1"
+$startCmdScript = Join-Path $installRoot "scripts\\renewal-helper-start.cmd"
 $stopScript = Join-Path $installRoot "scripts\\stop-renewal-local-helper.ps1"
 $statusScript = Join-Path $installRoot "scripts\\status-renewal-local-helper.ps1"
 $uninstallScript = Join-Path $installRoot "scripts\\uninstall-renewal-local-helper-autostart.ps1"
@@ -433,6 +476,7 @@ $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interact
 $settings = New-ScheduledTaskSettingsSet `
   -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries `
+  -Hidden `
   -MultipleInstances IgnoreNew `
   -StartWhenAvailable
 
@@ -449,11 +493,18 @@ if ($PSCmdlet.ShouldProcess($taskName, "Register renewal local helper scheduled 
 
 if ($StartNow -and $PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Start helper immediately after install")) {
   $expectedVersion = Get-PackagedLocalRenewalHelperVersion -InstallRoot $installRoot
-  & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $launcherScript -Detached -Restart | Out-Null
-  $started = [bool](Wait-LocalRenewalHelperStart -Port $helperPort -ExpectedVersion $expectedVersion)
+  $started = Start-LocalRenewalHelperDetached `
+    -PowerShellExe $powershellExe `
+    -LauncherScript $launcherScript `
+    -Port $helperPort `
+    -ExpectedVersion $expectedVersion `
+    -SkipTray:$SkipTrayOnStart
   Write-Output "startResult=$(if ($started) { 'running' } else { 'timeout' })"
   if (-not [string]::IsNullOrWhiteSpace($expectedVersion)) {
     Write-Output "expectedVersion=$expectedVersion"
+  }
+  if (-not $started) {
+    throw "AUTO-TAX helper was installed, but did not start within the expected time."
   }
 }
 
@@ -461,8 +512,8 @@ if (-not $SkipDesktopShortcuts) {
   $shortcutTargets = @(
     @{
       Name = "AUTO-TAX Helper Start.lnk"
-      Target = $powershellExe
-      Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$launcherScript`" -Detached"
+      Target = if (Test-Path $startCmdScript) { "$env:ComSpec" } else { $powershellExe }
+      Arguments = if (Test-Path $startCmdScript) { "/c `"$startCmdScript`"" } else { "-NoProfile -ExecutionPolicy Bypass -File `"$launcherScript`" -Detached" }
       Description = "AUTO-TAX local certificate helper start"
     },
     @{
@@ -501,6 +552,7 @@ if (-not $SkipDesktopShortcuts) {
     $shellShortcut.WorkingDirectory = $installRoot
     $shellShortcut.Description = $shortcut.Description
     $shellShortcut.IconLocation = "$powershellExe,0"
+    $shellShortcut.WindowStyle = 1
     $shellShortcut.Save()
   }
 }

@@ -119,6 +119,17 @@ function CommandLineContains {
   return $CommandLine.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
 }
 
+function Stop-HelperTray {
+  $trayProcesses = @(Get-Process -Name "ATHelperTray" -ErrorAction SilentlyContinue)
+  foreach ($trayProcess in $trayProcesses) {
+    try {
+      Stop-Process -Id $trayProcess.Id -Force -ErrorAction SilentlyContinue
+    } catch {
+      # Ignore tray shutdown failures; the helper process shutdown is verified separately.
+    }
+  }
+}
+
 $helperPort = Get-HelperPort
 $taskName = "AUTO-TAX Renewal Local Helper"
 $candidateProcessIds = New-Object System.Collections.Generic.HashSet[int]
@@ -139,6 +150,7 @@ try {
 
 $gracefulShutdownRequested = Request-LocalRenewalHelperShutdown -Port $helperPort
 if ($gracefulShutdownRequested -and (Wait-LocalRenewalHelperStop -Port $helperPort)) {
+  Stop-HelperTray
   Write-Output "status=stopped"
   Write-Output "port=$helperPort"
   Write-Output "stoppedProcessCount=0"
@@ -158,6 +170,7 @@ try {
 if ($candidateProcessIds.Count -gt 0) {
   Stop-LocalRenewalHelperViaWmi -ProcessIds @($candidateProcessIds)
   if (Wait-LocalRenewalHelperStop -Port $helperPort -Attempts 8 -DelayMs 500) {
+    Stop-HelperTray
     Write-Output "status=stopped"
     Write-Output "port=$helperPort"
     Write-Output "stoppedProcessCount=$($candidateProcessIds.Count)"
@@ -223,6 +236,7 @@ if (-not $stopped) {
   throw "Failed to stop the running AUTO-TAX helper."
 }
 
+Stop-HelperTray
 Write-Output "status=$(if ($stoppedProcessIds.Count -gt 0 -or $gracefulShutdownRequested) { 'stopped' } else { 'not-running' })"
 Write-Output "port=$helperPort"
 Write-Output "stoppedProcessCount=$($stoppedProcessIds.Count)"
