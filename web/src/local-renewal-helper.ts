@@ -158,7 +158,7 @@ type GetLocalRenewalHelperStatusOptions = {
 };
 
 type LocalNetworkRequestInit = RequestInit & {
-  targetAddressSpace?: "local";
+  targetAddressSpace?: "local" | "loopback";
 };
 
 const LOCAL_RENEWAL_HELPER_OFFLINE_RETRY_MS = 15_000;
@@ -192,7 +192,7 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
       ...init,
       cache: "no-store",
       headers,
-      targetAddressSpace: "local"
+      targetAddressSpace: "loopback"
     };
     response = await fetch(`${LOCAL_RENEWAL_HELPER_URL}${pathname}`, fetchOptions);
   } catch {

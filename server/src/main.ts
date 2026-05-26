@@ -895,7 +895,7 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     }
     res.setHeader(
       "Permissions-Policy",
-      "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), local-network-access=(self), local-network=(self), loopback-network=(self)"
     );
 
     if (req.path.startsWith("/api")) {

@@ -57,7 +57,7 @@ test("getLocalRenewalHelperStatus reuses cached offline status until a forced re
   }
 });
 
-test("getLocalRenewalHelperStatus does not force the wrong private network target space", async () => {
+test("getLocalRenewalHelperStatus marks loopback helper fetches for local network access", async () => {
   resetLocalRenewalHelperStatusCacheForTests();
   const originalFetch = globalThis.fetch;
   let capturedInit: RequestInit | undefined;
@@ -87,7 +87,7 @@ test("getLocalRenewalHelperStatus does not force the wrong private network targe
     const status = await getLocalRenewalHelperStatus({ force: true });
 
     assert.equal(status.online, true);
-    assert.equal((capturedInit as RequestInit & { targetAddressSpace?: string } | undefined)?.targetAddressSpace, undefined);
+    assert.equal((capturedInit as RequestInit & { targetAddressSpace?: string } | undefined)?.targetAddressSpace, "loopback");
   } finally {
     globalThis.fetch = originalFetch;
     resetLocalRenewalHelperStatusCacheForTests();
