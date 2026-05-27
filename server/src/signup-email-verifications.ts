@@ -77,6 +77,35 @@ function envNumber(key: string, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function describeEmailTransportError(error: unknown): string {
+  if (error instanceof Error) {
+    const parts = [error.message];
+    const extra = error as Error & {
+      code?: unknown;
+      command?: unknown;
+      responseCode?: unknown;
+      response?: unknown;
+    };
+
+    if (extra.code !== undefined) {
+      parts.push(`code=${String(extra.code)}`);
+    }
+    if (extra.command !== undefined) {
+      parts.push(`command=${String(extra.command)}`);
+    }
+    if (extra.responseCode !== undefined) {
+      parts.push(`responseCode=${String(extra.responseCode)}`);
+    }
+    if (typeof extra.response === "string" && extra.response.trim()) {
+      parts.push(`response=${extra.response.trim()}`);
+    }
+
+    return parts.join(" | ");
+  }
+
+  return String(error);
+}
+
 function createSignupEmailProvider(): SignupEmailProvider {
   const supportEmail = envString("AUTO_TAX_SUPPORT_TO_EMAIL");
   const supportAppPassword = envString("AUTO_TAX_SUPPORT_APP_PASSWORD");
@@ -182,11 +211,17 @@ export async function createSignupEmailVerification(
     throw new Error(`한전 수신메일 인증 저장에 실패했습니다: ${error.message}`);
   }
 
-  const sent = await emailProvider.send({
-    to: email,
-    subject: "[AUTO-TAX] 한전 수신메일 인증번호",
-    text: `[AUTO-TAX] 한전 수신메일 인증번호는 ${code}입니다. 5분 안에 입력해주세요.`
-  });
+  let sent: EmailSendResult;
+  try {
+    sent = await emailProvider.send({
+      to: email,
+      subject: "[AUTO-TAX] 한전 수신메일 인증번호",
+      text: `[AUTO-TAX] 한전 수신메일 인증번호는 ${code}입니다. 5분 안에 입력해주세요.`
+    });
+  } catch (error) {
+    const detail = describeEmailTransportError(error);
+    throw new Error(`한전 수신메일 인증번호 발송에 실패했습니다: ${detail}`);
+  }
 
   if (sent.providerMessageId) {
     const { error: updateError } = await adminClient
