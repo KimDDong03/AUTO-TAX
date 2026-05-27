@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import type { z } from "zod";
 import { z as zod } from "zod";
-import type { AppSettings, Customer, CustomerInput } from "../domain.js";
+import type { AppSettings, Customer, CustomerInput, CustomerReportDetailInput } from "../domain.js";
 import type { CertificateRefreshResult } from "../certificate-monitor.js";
 import { MAX_CUSTOMER_REPORT_YEAR, MIN_CUSTOMER_REPORT_YEAR } from "../customer-report-detail.js";
 import {
@@ -343,7 +343,20 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
       res.status(404).json({ error: "고객을 찾지 못했습니다." });
       return;
     }
-    const payload = customerReportDetailSchema.parse(req.body ?? {});
+    const parsedPayload = customerReportDetailSchema.parse(req.body ?? {});
+    const payload: CustomerReportDetailInput = {
+      reportYear: parsedPayload.reportYear,
+      profile: {
+        certificateRenewalDate: parsedPayload.profile.certificateRenewalDate ?? null,
+        hasPersonalGeneralCertificate: parsedPayload.profile.hasPersonalGeneralCertificate ?? false,
+        hasTaxInvoiceBusinessCertificate: parsedPayload.profile.hasTaxInvoiceBusinessCertificate ?? false,
+        solarCapacityKw: parsedPayload.profile.solarCapacityKw ?? null,
+        contractStartMonth: parsedPayload.profile.contractStartMonth ?? null,
+        contractEndMonth: parsedPayload.profile.contractEndMonth ?? null,
+        otherNote: parsedPayload.profile.otherNote ?? ""
+      },
+      months: parsedPayload.months ?? []
+    };
     const detail = await requestStore.saveCustomerReportDetail(customerId, payload);
     await requestStore.createLog("info", "customers", "고객 신고 상세 정보를 저장했습니다.", {
       customerId,
