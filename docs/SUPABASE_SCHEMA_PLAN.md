@@ -244,6 +244,7 @@ Important invariants:
 
 - `certificate_password_encrypted` is legacy/transitional only; new flows should not store or return certificate passwords from this table.
 - `cert_dir_path` is local metadata, not a certificate payload, and should be masked in logs and errors.
+- Customer registration treats `electronic_tax` and `general_business` as issue-capable certificate kinds. `general_business` remains stored as `general_business`; it is not coerced to `electronic_tax`.
 - RLS is read-scoped to workspace members and write-scoped to workspace editors.
 
 ### customer_report_profiles

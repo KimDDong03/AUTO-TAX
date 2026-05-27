@@ -5,6 +5,7 @@ import type {
   CustomerOnboardingWorkbookInput
 } from "./customer-onboarding-workbook";
 import type { CustomerOnboardingResolutionResult } from "./electronic-tax-onboarding-resolver";
+import { isIssueCapableCustomerCertificateKind } from "../renewal/customerRenewalCertificateUtils";
 
 export type ElectronicTaxOnboardingSessionState = {
   templateDownloaded: boolean;
@@ -50,7 +51,7 @@ function getElectronicTaxOnboardingTargetBusinessNumbers(
 ): string[] {
   return [...new Set(
     workbook.certificates
-      .filter((certificate) => certificate.certificateKind === "electronic_tax")
+      .filter((certificate) => isIssueCapableCustomerCertificateKind(certificate.certificateKind))
       .map((certificate) => String(certificate.businessNumber ?? "").replace(/\D/g, ""))
       .filter((businessNumber) => businessNumber.length > 0)
   )];

@@ -191,6 +191,10 @@ function kindUsageFallback(kind: CustomerCertificateKind): string {
   }
 }
 
+function isIssueCapableCustomerCertificateKind(kind: CustomerCertificateKind): boolean {
+  return kind === "electronic_tax" || kind === "general_business";
+}
+
 function entryKeyForCustomerRow(row: { normalizedBusinessNumber: string; rowIndex: number }): string {
   return row.normalizedBusinessNumber || `row:${row.rowIndex}`;
 }
@@ -446,8 +450,8 @@ async function prepareCustomerOnboardingWorkbook(
       entry.warnings.add(`공동인증서 시트 ${certificate.rowIndex}행: 인증서 종류를 확인할 수 없어 이번 초기 등록에서 무시합니다.`);
       continue;
     }
-    if (certificate.certificateKind !== "electronic_tax") {
-      entry.warnings.add(`공동인증서 시트 ${certificate.rowIndex}행: 전자세금용이 아닌 인증서는 이번 초기 등록에서 무시합니다.`);
+    if (!isIssueCapableCustomerCertificateKind(certificate.certificateKind)) {
+      entry.warnings.add(`공동인증서 시트 ${certificate.rowIndex}행: 발행 가능 인증서가 아니어서 이번 초기 등록에서 무시합니다.`);
       continue;
     }
 
@@ -467,7 +471,7 @@ async function prepareCustomerOnboardingWorkbook(
     }
 
     if (entry.certificates.length === 0) {
-      entry.errors.add("전자세금용 공동인증서를 확인하지 못했습니다.");
+      entry.errors.add("발행 가능 공동인증서를 확인하지 못했습니다.");
     } else {
       const primaryIndex = entry.certificates.findIndex((certificate) => certificate.isPrimary);
       const effectivePrimaryIndex = primaryIndex >= 0 ? primaryIndex : 0;
@@ -609,12 +613,12 @@ export async function commitCustomerOnboardingPreparedEntry(
   );
   saveCustomerMs = Date.now() - saveCustomerStartedAt;
 
-  const electronicTaxCertificates = entry.certificates.filter(
-    (certificate) => certificate.certificateKind === "electronic_tax"
+  const issueCapableCertificates = entry.certificates.filter(
+    (certificate) => isIssueCapableCustomerCertificateKind(certificate.certificateKind)
   );
   let linkedCertificateCount = 0;
   const linkCertificatesStartedAt = Date.now();
-  for (const [index, certificate] of electronicTaxCertificates.entries()) {
+  for (const [index, certificate] of issueCapableCertificates.entries()) {
     await requestStore.upsertCustomerCertificate({
       customerId: customer.id,
       certificateKind: certificate.certificateKind,
@@ -647,7 +651,7 @@ export async function commitCustomerOnboardingPreparedEntry(
   }
 
   console.info(
-    `[customer-onboarding-timing] row=${entry.rowIndex} customerId=${customer.id} outcome=${customerId ? "update" : "create"} totalMs=${Date.now() - startedAt} saveCustomerMs=${saveCustomerMs} linkCertificatesMs=${linkCertificatesMs} autoJoinQueueMs=${autoJoinQueueMs} certificateCount=${electronicTaxCertificates.length}`
+    `[customer-onboarding-timing] row=${entry.rowIndex} customerId=${customer.id} outcome=${customerId ? "update" : "create"} totalMs=${Date.now() - startedAt} saveCustomerMs=${saveCustomerMs} linkCertificatesMs=${linkCertificatesMs} autoJoinQueueMs=${autoJoinQueueMs} certificateCount=${issueCapableCertificates.length}`
   );
 
   return {

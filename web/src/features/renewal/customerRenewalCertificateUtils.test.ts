@@ -152,13 +152,15 @@ test("findRenewalCertificatesByIdentity returns every same-cn candidate when onl
   assert.deepEqual(matches.map((certificate) => certificate.index), ["1", "2"]);
 });
 
-test("findCandidateCustomersForCertificate only suggests electronic tax customers by normalized name", () => {
+test("findCandidateCustomersForCertificate suggests issue-capable customers by normalized name", () => {
   const electronicTax = createCertificate({ cn: " 한빛 태양광 ", usageToName: "전자세금용" });
   const generalBusiness = createCertificate({ cn: "한빛태양광", usageToName: "사업자 범용 공동인증서" });
+  const generalPersonal = createCertificate({ cn: "한빛태양광", usageToName: "개인 범용 공동인증서" });
   const customers = [createCustomer(), createCustomer({ id: 11, corpName: "다른고객", customerName: "다른대표" })];
 
   assert.deepEqual(findCandidateCustomersForCertificate(electronicTax, customers).map((customer) => customer.id), [10]);
-  assert.deepEqual(findCandidateCustomersForCertificate(generalBusiness, customers), []);
+  assert.deepEqual(findCandidateCustomersForCertificate(generalBusiness, customers).map((customer) => customer.id), [10]);
+  assert.deepEqual(findCandidateCustomersForCertificate(generalPersonal, customers), []);
 });
 
 test("formatCustomerRenewalStatus preserves branch-specific customer renewal labels", () => {

@@ -6,7 +6,8 @@ import {
   findRenewalCertificatesByIdentity,
   findStoredCustomerCertificateForLocalCertificate,
   getCustomerCertificateTodayDateKey,
-  isCustomerCertificateExpired
+  isCustomerCertificateExpired,
+  isIssueCapableCustomerCertificate
 } from "../renewal/customerRenewalCertificateUtils";
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
 
@@ -149,6 +150,10 @@ export function filterCustomerOnestopCertificates(options: {
   let hiddenRegisteredCount = 0;
 
   for (const certificate of options.certificates) {
+    if (!isIssueCapableCustomerCertificate(certificate)) {
+      continue;
+    }
+
     if (isCustomerCertificateExpired(getCustomerOnestopCertificateExpireDate(certificate), todayDateKey)) {
       hiddenExpiredCount += 1;
       continue;
@@ -270,11 +275,11 @@ export async function runCustomerCertificateOnestopRegistration(
   if (!args.certificatePassword.trim()) {
     throw new Error("공동인증서 비밀번호를 입력하세요.");
   }
-  if (deriveCustomerCertificateKind(args.certificate) !== "electronic_tax") {
-    throw new Error("전자세금용 공동인증서만 고객 원스톱 등록에 사용할 수 있습니다.");
+  if (!isIssueCapableCustomerCertificate(args.certificate)) {
+    throw new Error("전자세금용 또는 기업범용 공동인증서만 고객 원스톱 등록에 사용할 수 있습니다.");
   }
   if (isCustomerCertificateExpired(getCustomerOnestopCertificateExpireDate(args.certificate))) {
-    throw new Error("만료된 전자세금용 공동인증서는 고객 등록과 발행 연동 준비에 사용할 수 없습니다. 갱신 후 다시 불러와 주세요.");
+    throw new Error("만료된 발행 가능 공동인증서는 고객 등록과 발행 연동 준비에 사용할 수 없습니다. 갱신 후 다시 불러와 주세요.");
   }
 
   const steps: CustomerCertificateOnestopStepResult[] = [];

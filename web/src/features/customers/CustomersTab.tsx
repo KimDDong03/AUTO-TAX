@@ -31,7 +31,8 @@ import type { CustomerCertificateCandidateView } from "../certificates/useCertif
 import {
   getCustomerCertificateTodayDateKey,
   normalizeCustomerCertificateExpireDateKey,
-  isCustomerCertificateExpired
+  isCustomerCertificateExpired,
+  isIssueCapableCustomerCertificateKind
 } from "../renewal/customerRenewalCertificateUtils";
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
 import {
@@ -434,12 +435,12 @@ function buildCustomerOnestopCertificateNotice(
   const hiddenSummary = formatCustomerOnestopHiddenCertificateSummary(filterResult);
   const suffix = hiddenSummary ? ` (${hiddenSummary})` : "";
   if (filterResult.availableCertificates.length > 0) {
-    return `${sourceLabel} 전자세금용 공동인증서 ${filterResult.availableCertificates.length}건을 표시합니다.${suffix}`;
+    return `${sourceLabel} 발행 가능 공동인증서 ${filterResult.availableCertificates.length}건을 표시합니다.${suffix}`;
   }
   if (certificates.length > 0) {
-    return `${sourceLabel} 표시할 새 전자세금용 공동인증서가 없습니다.${suffix}`;
+    return `${sourceLabel} 표시할 새 발행 가능 공동인증서가 없습니다.${suffix}`;
   }
-  return `${sourceLabel} 전자세금용 공동인증서를 찾지 못했습니다.`;
+  return `${sourceLabel} 발행 가능 공동인증서를 찾지 못했습니다.`;
 }
 
 function normalizeCustomerCertificateText(value: string | null | undefined): string {
@@ -452,7 +453,7 @@ function normalizeCustomerCertificateText(value: string | null | undefined): str
 function isTaxInvoiceCertificate(certificate: CustomerCertificate): boolean {
   const usageText = normalizeCustomerCertificateText(certificate.certificateUsageName);
   const nameText = normalizeCustomerCertificateText(certificate.certificateName);
-  return certificate.certificateKind === "electronic_tax" || usageText.includes("전자세금") || usageText.includes("세금계산서") || nameText.includes("전자세금");
+  return isIssueCapableCustomerCertificateKind(certificate.certificateKind) || usageText.includes("전자세금") || usageText.includes("세금계산서") || nameText.includes("전자세금");
 }
 
 function isNonElectronicTaxCustomerCertificate(certificate: CustomerCertificate): boolean {
@@ -478,7 +479,7 @@ function getCustomerAutoCertificateStatus(
 }
 
 function isNonElectronicTaxCertificateKind(kind: CustomerCertificateKind): boolean {
-  return kind !== "electronic_tax";
+  return !isIssueCapableCustomerCertificateKind(kind);
 }
 
 function getCustomerCertificateKindLabel(kind: CustomerCertificateKind): string {
@@ -950,7 +951,7 @@ export function CustomersTab(props: CustomersTabProps) {
 
   const confirmCustomerOnestopPassword = () => {
     if (!customerOnestopSelectedCertificate) {
-      setCustomerOnestopError("먼저 전자세금용 공동인증서를 선택하세요.");
+      setCustomerOnestopError("먼저 발행 가능 공동인증서를 선택하세요.");
       return;
     }
 
@@ -990,7 +991,7 @@ export function CustomersTab(props: CustomersTabProps) {
 
   const executeCustomerOnestopRegistration = () => {
     if (!customerOnestopSelectedCertificate) {
-      setCustomerOnestopError("먼저 전자세금용 공동인증서를 선택하세요.");
+      setCustomerOnestopError("먼저 발행 가능 공동인증서를 선택하세요.");
       return;
     }
 
@@ -1276,7 +1277,7 @@ export function CustomersTab(props: CustomersTabProps) {
     ? props.customerCertificateItems.filter((item) => item.linkedCustomerId === selectedCustomer.id)
     : [];
   const selectedCustomerElectronicTaxCertificate =
-    selectedCustomerCertificateItems.find((item) => item.certificateKind === "electronic_tax") ?? null;
+    selectedCustomerCertificateItems.find((item) => isIssueCapableCustomerCertificateKind(item.certificateKind)) ?? null;
   const selectedCustomerGeneralCertificate =
     selectedCustomerCertificateItems.find((item) => isNonElectronicTaxCertificateKind(item.certificateKind)) ?? null;
   const selectedCustomerElectronicTaxCertificateFallback =

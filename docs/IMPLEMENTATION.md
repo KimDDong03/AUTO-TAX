@@ -247,7 +247,7 @@ Main files:
 
 Operational invariants:
 
-- Certificate-driven onboarding and one-stop customer add use only non-expired electronic-tax certificates. Expired certificates are filtered before template generation/preflight and block customer creation, Popbill join, and Popbill certificate registration.
+- Certificate-driven onboarding and one-stop customer add use only non-expired issue-capable certificates: electronic-tax certificates and business/enterprise general certificates. Personal general and unknown certificates are ignored for customer registration. Expired certificates are filtered before template generation/preflight and block customer creation, Popbill join, and Popbill certificate registration.
 - Follow-up Popbill certificate registration only targets customers whose Popbill join state is `joined`; pending or failed join customers are skipped until join completes.
 
 ### C-1. Customer report detail

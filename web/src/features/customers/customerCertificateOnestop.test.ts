@@ -179,7 +179,7 @@ test("runCustomerCertificateOnestopRegistration rejects expired certificate befo
           throw new Error("should not refresh");
         }
       }),
-    /만료된 전자세금용 공동인증서/
+    /만료된 발행 가능 공동인증서/
   );
 
   assert.deepEqual(calls, []);
@@ -224,6 +224,74 @@ test("runCustomerCertificateOnestopRegistration uses existing customer without d
   assert.equal(result.canRetryPopbillJoin, false);
   assert.equal(result.canRetryCertificateRegistration, false);
   assert.deepEqual(calls, ["link:1", "join:1", "register:1:7", "status:1"]);
+});
+
+test("runCustomerCertificateOnestopRegistration accepts business general certificates", async () => {
+  const calls: string[] = [];
+  const certificate = createCertificate({ usageToName: "사업자 범용" });
+
+  const result = await runCustomerCertificateOnestopRegistration({
+    customers: [],
+    draft: createDraft(),
+    certificate,
+    certificatePassword: "pw",
+    createCustomer: async () => {
+      calls.push("create");
+      return { customer: createCustomer(), autoJoinStatus: "joined" };
+    },
+    joinPopbill: async (customerId) => {
+      calls.push(`join:${customerId}`);
+      return createCustomer({ id: customerId, popbillState: "joined" });
+    },
+    linkCertificate: async (customerId, linkedCertificate) => {
+      calls.push(`link:${customerId}:${linkedCertificate.usageToName}`);
+      return createLinkedCertificate(customerId);
+    },
+    loadAvailableCertificates: async () => {
+      calls.push("load-certs");
+      return [];
+    },
+    registerCertificate: async (customer, registeredCertificate) => {
+      calls.push(`register:${customer.id}:${registeredCertificate.usageToName}`);
+      return { outcome: "registered" };
+    },
+    refreshCertificateStatus: async (customerId) => {
+      calls.push(`status:${customerId}`);
+      return createCustomer({ id: customerId, popbillState: "joined", popbillCertRegistered: true });
+    }
+  });
+
+  assert.equal(result.customer.id, 1);
+  assert.deepEqual(calls, ["create", "link:1:사업자 범용", "register:1:사업자 범용", "status:1"]);
+});
+
+test("runCustomerCertificateOnestopRegistration rejects personal general certificates", async () => {
+  await assert.rejects(
+    () =>
+      runCustomerCertificateOnestopRegistration({
+        customers: [],
+        draft: createDraft(),
+        certificate: createCertificate({ usageToName: "개인 범용" }),
+        certificatePassword: "pw",
+        createCustomer: async () => {
+          throw new Error("should not create");
+        },
+        joinPopbill: async () => {
+          throw new Error("should not join");
+        },
+        linkCertificate: async () => {
+          throw new Error("should not link");
+        },
+        loadAvailableCertificates: async () => [],
+        registerCertificate: async () => {
+          throw new Error("should not register");
+        },
+        refreshCertificateStatus: async () => {
+          throw new Error("should not refresh");
+        }
+      }),
+    /전자세금용 또는 기업범용 공동인증서만/
+  );
 });
 
 test("runCustomerCertificateOnestopRegistration preserves customer and link when new auto join failed", async () => {

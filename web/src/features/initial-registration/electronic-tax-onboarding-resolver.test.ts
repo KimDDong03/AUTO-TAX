@@ -113,6 +113,59 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook groups plant rows and prese
   });
 });
 
+test("resolveElectronicTaxOnboardingTemplateWorkbook preserves business general certificate identity", async () => {
+  const workbook = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook(),
+    loadAvailableCertificates: async () => [createCertificate({ usageToName: "사업자 범용" })],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => ({
+      result: {
+        bridge: {
+          preflightProbe: {
+            ok: true,
+            renewInfoSnapshot: {
+              companyName: "한빛태양광",
+              businessNumber: "123-45-67890",
+              ceoName: "홍길동",
+              bizType: "전기업",
+              bizClass: "태양광발전",
+              businessFieldCode: null,
+              postalCode: null,
+              baseAddress: "서울시 중구 세종대로 1",
+              detailAddress: null,
+              contactName: null,
+              contactDepartment: null,
+              contactEmail: null,
+              contactTel: null,
+              contactFax: null,
+              contactMobile: "010-1234-5678"
+            }
+          } as RenewalBridgePreflightProbe
+        }
+      }
+    })
+  });
+
+  assert.equal(workbook.resolvedCertificateCount, 1);
+  assert.equal(workbook.workbook.certificates[0]?.certificateKind, "general_business");
+  assert.equal(workbook.workbook.certificates[0]?.certificateUsageName, "사업자 범용");
+});
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook rejects personal general certificates", async () => {
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook(),
+    loadAvailableCertificates: async () => [createCertificate({ usageToName: "개인 범용" })],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => {
+      throw new Error("should not preflight personal general certificates");
+    }
+  });
+
+  assert.equal(result.resolvedCertificateCount, 0);
+  assert.equal(result.skippedCertificateCount, 1);
+  assert.match(result.errors[0] ?? "", /전자세금용 또는 기업범용 공동인증서만/);
+});
+
 test("resolveElectronicTaxOnboardingTemplateWorkbook fails closed when grouped plant rows provide conflicting passwords", async () => {
   const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
     templateWorkbook: createTemplateWorkbook({
@@ -165,7 +218,7 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook skips expired certificates 
   assert.equal(preflightCalled, false);
   assert.equal(result.resolvedCertificateCount, 0);
   assert.equal(result.skippedCertificateCount, 1);
-  assert.match(result.errors[0] ?? "", /만료된 전자세금용 공동인증서/);
+  assert.match(result.errors[0] ?? "", /만료된 발행 가능 공동인증서/);
 });
 
 test("resolveElectronicTaxOnboardingTemplateWorkbook skips certificates expiring today before preflight", async () => {
@@ -190,7 +243,7 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook skips certificates expiring
   assert.equal(preflightCalled, false);
   assert.equal(result.resolvedCertificateCount, 0);
   assert.equal(result.skippedCertificateCount, 1);
-  assert.match(result.errors[0] ?? "", /만료된 전자세금용 공동인증서/);
+  assert.match(result.errors[0] ?? "", /만료된 발행 가능 공동인증서/);
 });
 
 test("resolveElectronicTaxOnboardingTemplateWorkbook includes SignGate preflight detail in skipped row errors", async () => {

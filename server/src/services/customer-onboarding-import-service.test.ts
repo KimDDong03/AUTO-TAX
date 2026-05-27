@@ -123,7 +123,7 @@ test("buildCustomerOnboardingPreview classifies create and update rows and detec
   );
 });
 
-test("buildCustomerOnboardingPreview ignores non-electronic certificates and blocks rows without electronic-tax input", async () => {
+test("buildCustomerOnboardingPreview accepts business general certificates as issue-capable", async () => {
   const requestStore = {
     listCustomers: async () => []
   } as unknown as Pick<AppStore, "listCustomers"> as AppStore;
@@ -169,8 +169,8 @@ test("buildCustomerOnboardingPreview ignores non-electronic certificates and blo
   });
 
   assert.equal(preview.totalCustomers, 1);
-  assert.equal(preview.createCount, 0);
-  assert.equal(preview.blockedCount, 1);
+  assert.equal(preview.createCount, 1);
+  assert.equal(preview.blockedCount, 0);
   assert.deepEqual(preview.rows, [
     {
       rowIndex: 2,
@@ -178,13 +178,63 @@ test("buildCustomerOnboardingPreview ignores non-electronic certificates and blo
       businessNumber: "2223344445",
       corpName: "새 발전소",
       plantCount: 1,
-      certificateCount: 0,
-      status: "blocked",
-      errors: ["전자세금용 공동인증서를 확인하지 못했습니다."],
-      warnings: ["공동인증서 시트 2행: 전자세금용이 아닌 인증서는 이번 초기 등록에서 무시합니다."],
-      canImport: false
+      certificateCount: 1,
+      status: "create",
+      errors: [],
+      warnings: [],
+      canImport: true
     }
   ]);
+});
+
+test("buildCustomerOnboardingPreview still ignores personal general certificates", async () => {
+  const requestStore = {
+    listCustomers: async () => []
+  } as unknown as Pick<AppStore, "listCustomers"> as AppStore;
+
+  const workbook: CustomerOnboardingWorkbookInput = {
+    customers: [
+      {
+        rowIndex: 2,
+        customerName: "새 고객",
+        businessNumber: "222-33-44445",
+        corpName: "새 발전소",
+        addr: "경기도 여주시 대신면 새길 10",
+        bizType: "전기업",
+        bizClass: "태양광",
+        renewalContactMobile: "",
+        memo: ""
+      }
+    ],
+    plants: [
+      {
+        rowIndex: 2,
+        businessNumber: "222-33-44445",
+        plantName: "새 1호기",
+        matchAddress: "경기도 여주시 대신면 새길 10"
+      }
+    ],
+    certificates: [
+      {
+        rowIndex: 2,
+        businessNumber: "222-33-44445",
+        certificateKind: "general_personal",
+        certificateName: "개인 범용 인증서",
+        certificateUsageName: "",
+        issuerName: "",
+        certificatePassword: "pw-personal",
+        isPrimary: true
+      }
+    ]
+  };
+
+  const preview = await buildCustomerOnboardingPreview(requestStore, workbook, {
+    resolveAddress: resolveAddressStub
+  });
+
+  assert.equal(preview.blockedCount, 1);
+  assert.deepEqual(preview.rows[0]?.errors, ["발행 가능 공동인증서를 확인하지 못했습니다."]);
+  assert.deepEqual(preview.rows[0]?.warnings, ["공동인증서 시트 2행: 발행 가능 인증서가 아니어서 이번 초기 등록에서 무시합니다."]);
 });
 
 test("commitCustomerOnboardingImport saves customers, links certificates, and reports warnings", async () => {
@@ -280,11 +330,14 @@ test("commitCustomerOnboardingImport saves customers, links certificates, and re
       {
         rowIndex: 3,
         businessNumber: "2223344445",
-        certificateKind: "general_personal",
-        certificateName: "홍길동",
-        certificateUsageName: "",
+        certificateKind: "general_business",
+        certificateName: "기업범용",
+        certificateUsageName: "사업자범용",
         issuerName: "",
-        certificatePassword: "",
+        serial: "SERIAL-102",
+        userDN: "USER-DN-102",
+        expireDate: "2099-12-31",
+        certificatePassword: "pw-2",
         isPrimary: false
       }
     ]
@@ -299,18 +352,21 @@ test("commitCustomerOnboardingImport saves customers, links certificates, and re
   assert.equal(result.updatedCount, 0);
   assert.equal(result.successCount, 1);
   assert.equal(result.failedCount, 0);
-  assert.equal(result.linkedCertificateCount, 1);
+  assert.equal(result.linkedCertificateCount, 2);
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0]?.message ?? "", /발행 연동 실패/);
   assert.equal(savedCustomers.length, 1);
   assert.deepEqual(savedCustomers[0]?.input.plantNames, ["새 1호기"]);
   assert.deepEqual(savedCustomers[0]?.input.matchAddresses, ["경기도 여주시 대신면 새길 10"]);
-  assert.equal(linkedCertificates.length, 1);
+  assert.equal(linkedCertificates.length, 2);
   assert.equal(linkedCertificates[0]?.certificatePassword, undefined);
   assert.equal(linkedCertificates[0]?.certificateKind, "electronic_tax");
   assert.equal(linkedCertificates[0]?.serial, "SERIAL-101");
   assert.equal(linkedCertificates[0]?.userDN, "USER-DN-101");
   assert.equal(linkedCertificates[0]?.expireDate, "2099-12-31");
+  assert.equal(linkedCertificates[1]?.certificateKind, "general_business");
+  assert.equal(linkedCertificates[1]?.serial, "SERIAL-102");
+  assert.equal(linkedCertificates[1]?.userDN, "USER-DN-102");
   assert.equal(logs.length, 1);
   assert.equal(logs[0]?.scope, "customer-onboarding-import");
 });

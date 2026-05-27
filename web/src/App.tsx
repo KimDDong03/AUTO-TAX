@@ -97,7 +97,8 @@ import {
   formatCustomerRenewalStatus,
   getLatestRenewalPreflightProbeForCertificate,
   isCustomerCertificateExpired,
-  isElectronicTaxCertificate,
+  isIssueCapableCustomerCertificate,
+  isIssueCapableCustomerCertificateKind,
   isRenewalPaymentReady,
   matchesRenewalCertificate,
   normalizeCustomerCertificateExpireDateKey,
@@ -1853,7 +1854,7 @@ function getOnboardingElectronicTaxBusinessNumbers(
 
   return [...new Set(
     (workbook.certificates ?? [])
-      .filter((certificate) => certificate.certificateKind === "electronic_tax")
+      .filter((certificate) => isIssueCapableCustomerCertificateKind(certificate.certificateKind))
       .map((certificate) => digitsOnly(certificate.businessNumber))
       .filter((businessNumber): businessNumber is string => Boolean(businessNumber))
   )];
@@ -1901,7 +1902,7 @@ function getOnboardingElectronicTaxCertificateRowForCustomer(
   const businessNumber = digitsOnly(customer.businessNumber);
   const matches = (workbook?.certificates ?? []).filter(
     (certificate) =>
-      certificate.certificateKind === "electronic_tax" && digitsOnly(certificate.businessNumber) === businessNumber
+      isIssueCapableCustomerCertificateKind(certificate.certificateKind) && digitsOnly(certificate.businessNumber) === businessNumber
   );
   return matches.find((certificate) => certificate.isPrimary) ?? matches[0] ?? null;
 }
@@ -1911,7 +1912,7 @@ function getPrimaryElectronicTaxCertificateForCustomer(
   customerId: number
 ): CustomerCertificate | null {
   const matches = customerCertificates.filter(
-    (certificate) => certificate.customerId === customerId && certificate.certificateKind === "electronic_tax"
+    (certificate) => certificate.customerId === customerId && isIssueCapableCustomerCertificateKind(certificate.certificateKind)
   );
   return matches.find((certificate) => certificate.isPrimary) ?? matches[0] ?? null;
 }
@@ -1944,7 +1945,7 @@ function hasExpiredOnboardingElectronicTaxCertificate(options: {
   };
   return findRenewalCertificatesByIdentity(
     (options.localCertificates ?? []).filter(
-      (certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax"
+      (certificate) => isIssueCapableCustomerCertificate(certificate)
     ),
     identity
   ).some((certificate) => isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null));
@@ -2832,13 +2833,13 @@ export function App() {
   });
   const customerRenewalAssistantElectronicTaxCertificateCount = customerRenewalAssistantAllCertificates.filter(
     (certificate) =>
-      deriveCustomerCertificateKind(certificate) === "electronic_tax" &&
+      isIssueCapableCustomerCertificate(certificate) &&
       !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
   ).length;
   const customerRenewalAssistantGeneralCertificateCount = customerRenewalAssistantAllCertificates.filter((certificate) => {
     const kind = deriveCustomerCertificateKind(certificate);
     return (
-      (kind === "general_personal" || kind === "general_business") &&
+      kind === "general_personal" &&
       !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
     );
   }).length;
@@ -2906,22 +2907,22 @@ export function App() {
               status: "running"
             });
             const certificates = await syncCustomerRenewalCertificates({ showAlert: false });
-            const electronicTaxCertificateCount = certificates.filter(
+            const issueCapableCertificateCount = certificates.filter(
               (certificate) =>
-                deriveCustomerCertificateKind(certificate) === "electronic_tax" &&
+                isIssueCapableCustomerCertificate(certificate) &&
                 !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
             ).length;
             const generalCertificateCount = certificates.filter((certificate) => {
               const kind = deriveCustomerCertificateKind(certificate);
               return (
-                (kind === "general_personal" || kind === "general_business") &&
+                kind === "general_personal" &&
                 !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
               );
             }).length;
-            const availableCertificateCount = electronicTaxCertificateCount + generalCertificateCount;
+            const availableCertificateCount = issueCapableCertificateCount + generalCertificateCount;
             setCertificateReadProgress({
               label: "읽기 완료",
-              detail: `사용 가능한 전자세금용 공동인증서 ${electronicTaxCertificateCount}건, 범용 공동인증서 ${generalCertificateCount}건을 확인했습니다.`,
+              detail: `사용 가능한 발행 가능 공동인증서 ${issueCapableCertificateCount}건, 개인 범용 공동인증서 ${generalCertificateCount}건을 확인했습니다.`,
               percent: 100,
               completedCount: availableCertificateCount,
               totalCount: availableCertificateCount,
@@ -4029,7 +4030,7 @@ export function App() {
   };
 
   const loadCustomerOnboardingAvailableCertificates = async (options?: { forceRefresh?: boolean }) => {
-    ensureLocalRenewalHelperActionAllowed("전자세금용 공동인증서 읽기");
+    ensureLocalRenewalHelperActionAllowed("발행 가능 공동인증서 읽기");
     if (!options?.forceRefresh && customerOnboardingCertificatesRef.current) {
       return customerOnboardingCertificatesRef.current;
     }
@@ -4052,11 +4053,11 @@ export function App() {
         defaultRenewalHelperDownloadUrl
       })
     );
-    const electronicTaxCertificates = (certificates as RenewalAgentCertificate[]).filter(
-      (certificate) => deriveCustomerCertificateKind(certificate) === "electronic_tax"
+    const issueCapableCertificates = (certificates as RenewalAgentCertificate[]).filter(
+      (certificate) => isIssueCapableCustomerCertificate(certificate)
     );
-    customerOnboardingCertificatesRef.current = electronicTaxCertificates;
-    return electronicTaxCertificates;
+    customerOnboardingCertificatesRef.current = issueCapableCertificates;
+    return issueCapableCertificates;
   };
   const { resolveSingleElectronicTaxCertificate } = useElectronicTaxOnboarding({
     loadAvailableCertificates: loadCustomerOnboardingAvailableCertificates
@@ -4086,11 +4087,11 @@ export function App() {
     ]);
     const activeCertificates = (certificates as RenewalAgentCertificate[]).filter(
       (certificate) =>
-        deriveCustomerCertificateKind(certificate) === "electronic_tax" &&
+        isIssueCapableCustomerCertificate(certificate) &&
         !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
     );
     if (activeCertificates.length === 0) {
-      throw new Error("이 PC에서 전자세금용 공동인증서를 찾지 못했습니다.");
+      throw new Error("이 PC에서 발행 가능 공동인증서를 찾지 못했습니다.");
     }
 
     downloadCustomerOnboardingTemplate(XLSX, activeCertificates);
@@ -4884,7 +4885,7 @@ export function App() {
     customerId: number;
     certificateIndex: number;
     certificateCn?: string | null;
-    certificateKind: "electronic_tax";
+    certificateKind: "electronic_tax" | "general_business";
     serial?: string | null;
     userDN?: string | null;
     targetExpireDate?: string | null;
@@ -4959,7 +4960,7 @@ export function App() {
         expireDate: certificate.todate || certificate.detailValidateTo || null,
         certDirPath: certificate.certDirPath || null,
         certificatePassword: options?.certificatePassword ?? "",
-        isPrimary: deriveCustomerCertificateKind(certificate) === "electronic_tax",
+        isPrimary: isIssueCapableCustomerCertificate(certificate),
         linkSource: options?.linkSource ?? "manual"
       })
     });
@@ -5021,7 +5022,7 @@ export function App() {
     ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
     const response = await requestLocalRenewalBridgeProbe();
     const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
-    const certificates = allCertificates.filter(isElectronicTaxCertificate);
+    const certificates = allCertificates.filter(isIssueCapableCustomerCertificate);
     let bridgeJob = buildLocalRenewalBridgeJob(response.result, certificates.length);
     let jobs: RenewalJob[] = [bridgeJob];
     let helperMessage = bridgeJob.error ?? bridgeJob.summary;
@@ -5029,9 +5030,9 @@ export function App() {
     let alertTone: AppDialogTone = certificates.length > 0 ? "success" : allCertificates.length > 0 ? "warn" : "danger";
     let alertMessage =
       certificates.length > 0
-        ? `전자세금용 공동인증서 ${certificates.length}건을 불러왔습니다.\n원하는 인증서에서 정보 읽기를 누르면 고객 초안을 바로 만들 수 있습니다.`
+        ? `발행 가능 공동인증서 ${certificates.length}건을 불러왔습니다.\n원하는 인증서에서 정보 읽기를 누르면 고객 초안을 바로 만들 수 있습니다.`
         : allCertificates.length > 0
-          ? "전자세금용 공동인증서를 찾지 못했습니다.\n고객 초안 만들기에는 전자세금용 공동인증서만 표시합니다."
+          ? "발행 가능 공동인증서를 찾지 못했습니다.\n고객 초안 만들기에는 전자세금용/기업범용 공동인증서만 표시합니다."
           : bridgeJob.error ?? "공동인증서를 불러오지 못했습니다.";
 
     if (certificates.length > 0) {
@@ -5122,7 +5123,7 @@ export function App() {
               customerId: createdCustomer.id,
               certificateIndex: Number(entry.certificate.index),
               certificateCn: entry.certificate.cn || createdCustomer.customerName,
-              certificateKind: "electronic_tax",
+              certificateKind: deriveCustomerCertificateKind(entry.certificate) === "general_business" ? "general_business" : "electronic_tax",
               serial: entry.certificate.serial || null,
               userDN: entry.certificate.userDN || null,
               targetExpireDate: entry.certificate.todate || entry.certificate.detailValidateTo || null,
@@ -5144,18 +5145,18 @@ export function App() {
             }
           } catch (error) {
             certificateRegistrationFailedDetails.push(
-              `${createdCustomer.customerName}: ${getDisplayErrorMessage(error, "전자세금용 인증서 자동 등록 실패")}`
+              `${createdCustomer.customerName}: ${getDisplayErrorMessage(error, "인증서 자동 등록 실패")}`
             );
           }
         }
 
         const summaryParts = [
-          `전자세금용 공동인증서 ${certificates.length}건 처리`,
+          `발행 가능 공동인증서 ${certificates.length}건 처리`,
           `고객 생성 ${createdCount}건`,
           existingCount > 0 ? `기존 고객 ${existingCount}건` : null,
           missingDataCount > 0 ? `정보 부족 ${missingDataCount}건` : null,
           failedCount > 0 ? `실패 ${failedCount}건` : null,
-          certificateRegistrationCompletedNames.length > 0 ? `전자세금용 인증서 자동 등록 ${certificateRegistrationCompletedNames.length}건` : null,
+          certificateRegistrationCompletedNames.length > 0 ? `인증서 자동 등록 ${certificateRegistrationCompletedNames.length}건` : null,
           certificateRegistrationAlreadyRegisteredNames.length > 0
             ? `이미 등록된 인증서 ${certificateRegistrationAlreadyRegisteredNames.length}건`
             : null
@@ -5169,7 +5170,7 @@ export function App() {
         };
         jobs = [bridgeJob, ...preflightJobs];
         helperMessage = bridgeJob.error ?? batchSummary;
-        alertTitle = "전자세금용 공동인증서 고객 생성";
+        alertTitle = "발행 가능 공동인증서 고객 생성";
         alertTone =
           failedCount > 0
             ? createdCount > 0 || existingCount > 0
@@ -5308,7 +5309,7 @@ export function App() {
     }
 
     const certificate = selectCustomerRenewalCertificate(
-      (customerRenewalAssistant?.certificates ?? []).filter(isElectronicTaxCertificate),
+      (customerRenewalAssistant?.certificates ?? []).filter(isIssueCapableCustomerCertificate),
       customer
     );
 
@@ -6498,7 +6499,7 @@ export function App() {
 
   const getPrimaryElectronicTaxCustomerCertificate = (customerId: number) => {
     const matches = (data?.customerCertificates ?? []).filter(
-      (certificate) => certificate.customerId === customerId && certificate.certificateKind === "electronic_tax"
+      (certificate) => certificate.customerId === customerId && isIssueCapableCustomerCertificateKind(certificate.certificateKind)
     );
     if (matches.length === 0) {
       return null;
@@ -6511,7 +6512,7 @@ export function App() {
     const businessNumber = digitsOnly(customer.businessNumber);
     const matches = (customerOnboardingWorkbook?.certificates ?? []).filter(
       (certificate) =>
-        certificate.certificateKind === "electronic_tax" && digitsOnly(certificate.businessNumber) === businessNumber
+        isIssueCapableCustomerCertificateKind(certificate.certificateKind) && digitsOnly(certificate.businessNumber) === businessNumber
     );
     if (matches.length === 0) {
       return null;
@@ -6568,9 +6569,9 @@ export function App() {
       reloadAfter?: boolean;
     }
   ) => {
-    ensureLocalRenewalHelperActionAllowed("전자세금용 인증서 등록");
+    ensureLocalRenewalHelperActionAllowed("발행 가능 인증서 등록");
     if (customer.popbillState !== "joined") {
-      throw new Error(`${customer.customerName} 고객은 발행 연동 준비가 완료되지 않아 전자세금용 인증서 등록을 진행할 수 없습니다.`);
+      throw new Error(`${customer.customerName} 고객은 발행 연동 준비가 완료되지 않아 인증서 등록을 진행할 수 없습니다.`);
     }
     const businessNumber = digitsOnly(customer.businessNumber);
     if (customerOnboardingAttemptedCertificateBusinessNumbers.includes(businessNumber)) {
@@ -6597,7 +6598,7 @@ export function App() {
 
     if (!effectivePassword) {
       throw new Error(
-        `${customer.customerName} 고객의 전자세금용 공동인증서 비밀번호가 없습니다. 엑셀의 인증서 비밀번호를 입력하거나 현재 브라우저 탭에서 공통 비밀번호를 다시 입력하세요.`
+        `${customer.customerName} 고객의 발행 가능 공동인증서 비밀번호가 없습니다. 엑셀의 인증서 비밀번호를 입력하거나 현재 브라우저 탭에서 공통 비밀번호를 다시 입력하세요.`
       );
     }
 
@@ -6617,7 +6618,7 @@ export function App() {
           linkedCertificate?.certificateName.trim() ||
           customer.corpName.trim() ||
           customer.customerName.trim(),
-        certificateKind: "electronic_tax",
+        certificateKind: deriveCustomerCertificateKind(selectedLocalCertificate) === "general_business" ? "general_business" : "electronic_tax",
         serial: selectedLocalCertificate?.serial || onboardingCertificateRow?.serial || linkedCertificate?.serial || null,
         userDN: selectedLocalCertificate?.userDN || onboardingCertificateRow?.userDN || linkedCertificate?.userDN || null,
         targetExpireDate:
@@ -6709,7 +6710,7 @@ export function App() {
     await loadCustomerOnboardingAvailableCertificates({ forceRefresh: true });
 
   const uploadCustomerAddCertificateFiles = async (files: File[]) => {
-    ensureLocalRenewalHelperActionAllowed("전자세금용 공동인증서 업로드");
+    ensureLocalRenewalHelperActionAllowed("발행 가능 공동인증서 업로드");
     const response = await requestLocalCertificateUploadSession(files);
     setCustomerRenewalAssistant((prev) =>
       buildCustomerRenewalAssistant({
@@ -6720,13 +6721,13 @@ export function App() {
           message:
             response.result.certificates.length > 0
               ? `업로드 인증서 ${response.result.certificates.length}건을 읽었습니다.`
-              : "업로드한 파일에서 전자세금용 공동인증서를 찾지 못했습니다."
+              : "업로드한 파일에서 발행 가능 공동인증서를 찾지 못했습니다."
         },
         helperVersion: response.version,
         helperMessage:
           response.result.certificates.length > 0
             ? `업로드 인증서 ${response.result.certificates.length}건을 읽었습니다.`
-            : "업로드한 파일에서 전자세금용 공동인증서를 찾지 못했습니다.",
+            : "업로드한 파일에서 발행 가능 공동인증서를 찾지 못했습니다.",
         jobs: prev?.jobs ?? [],
         certificates: prev?.certificates ?? [],
         releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
@@ -6743,7 +6744,7 @@ export function App() {
     draft: CustomerCertificateOnestopDraft;
     message: string;
   }> => {
-    ensureLocalRenewalHelperActionAllowed("전자세금용 공동인증서 정보 확인");
+    ensureLocalRenewalHelperActionAllowed("발행 가능 공동인증서 정보 확인");
     const certificateIndex = Number(certificate.index);
     const canRunPreflight =
       Number.isInteger(certificateIndex) &&
@@ -6835,7 +6836,7 @@ export function App() {
           customerId: customer.id,
           certificateIndex: Number(certificate.index),
           certificateCn: certificate.cn || customer.corpName || customer.customerName,
-          certificateKind: "electronic_tax",
+          certificateKind: deriveCustomerCertificateKind(certificate) === "general_business" ? "general_business" : "electronic_tax",
           serial: certificate.serial || null,
           userDN: certificate.userDN || null,
           targetExpireDate: certificate.todate || certificate.detailValidateTo || null,
@@ -6871,7 +6872,7 @@ export function App() {
   const proceedOnboardingCertificateRegistration = async () => {
     const pendingCustomers = [...pendingOnboardingCertificateRegistrationTargets];
     if (pendingCustomers.length === 0) {
-      throw new Error("전자세금용 인증서 등록이 필요한 고객이 없습니다.");
+      throw new Error("발행 가능 인증서 등록이 필요한 고객이 없습니다.");
     }
     setCustomerOnboardingCertificateRegistrationProgress(null);
     const skippedBeforeJoinCount = onboardingPendingCertificateCustomers.filter(

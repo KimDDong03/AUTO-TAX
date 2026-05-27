@@ -71,7 +71,7 @@ function createCertificate(
   };
 }
 
-test("downloadCustomerOnboardingTemplate writes only electronic-tax onboarding sheets", async () => {
+test("downloadCustomerOnboardingTemplate writes issue-capable onboarding sheets", async () => {
   const { downloadCustomerOnboardingTemplate } = await loadTemplateWorkbookModule();
   let writtenWorkbook: XLSX.WorkBook | null = null;
   let writtenFileName = "";
@@ -117,8 +117,9 @@ test("downloadCustomerOnboardingTemplate writes only electronic-tax onboarding s
   }) as string[][];
 
   assert.deepEqual(plantRows[0], ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"]);
-  assert.equal(plantRows.length, 2);
+  assert.equal(plantRows.length, 3);
   assert.deepEqual(plantRows[1], ["1", "전자세금 인증서", "", ""]);
+  assert.deepEqual(plantRows[2], ["3", "사업자 범용 인증서", "", ""]);
 });
 
 test("parseCustomerOnboardingWorkbook reads the simplified electronic-tax workbook without requiring a legacy sheet", async () => {

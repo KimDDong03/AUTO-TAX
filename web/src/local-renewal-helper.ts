@@ -123,7 +123,7 @@ type LocalPopbillCertificateRegistrationResponse =
         browserChannel: string;
         certificateIndex: number;
         certificateCn: string;
-        certificateKind: "electronic_tax";
+        certificateKind: "electronic_tax" | "general_business";
         serial: string | null;
         userDN: string | null;
         targetExpireDate: string | null;
@@ -425,7 +425,7 @@ export async function requestLocalPopbillCertificateRegistration(payload: {
   certificateRegistrationUrl: string;
   certificateIndex: number;
   certificateCn?: string | null;
-  certificateKind: "electronic_tax";
+  certificateKind: "electronic_tax" | "general_business";
   serial?: string | null;
   userDN?: string | null;
   targetExpireDate?: string | null;

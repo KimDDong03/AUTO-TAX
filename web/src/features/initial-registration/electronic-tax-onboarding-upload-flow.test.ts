@@ -167,7 +167,7 @@ test("runElectronicTaxOnboardingUploadFlow returns preview-ready state after pre
     targetBusinessNumbers: ["1234567890"]
   });
   assert.match(result.notice, /등록 대상 1건을 확인했습니다\./);
-  assert.match(result.notice, /확인된 전자세금용 인증서 1건/);
+  assert.match(result.notice, /확인된 발행 가능 인증서 1건/);
   assert.equal(result.error, "인증서 비밀번호 공란은 공통 비밀번호를 사용합니다.");
 });
 

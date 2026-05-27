@@ -179,8 +179,9 @@ function applySheetColumnWidths(
   }));
 }
 
-function isElectronicTaxUsageName(usageName: string) {
-  return usageName.replace(/\s+/g, "").includes("전자세금");
+function isIssueCapableUsageName(usageName: string) {
+  const normalized = usageName.replace(/\s+/g, "");
+  return normalized.includes("전자세금") || (normalized.includes("사업자") && normalized.includes("범용"));
 }
 
 export function downloadCustomerOnboardingTemplate(
@@ -188,16 +189,16 @@ export function downloadCustomerOnboardingTemplate(
   certificates: RenewalBridgeCertificateSummary[]
 ) {
   const workbook = XLSX.utils.book_new();
-  const electronicTaxCertificates = certificates.filter((certificate) => isElectronicTaxUsageName(certificate.usageToName));
+  const issueCapableCertificates = certificates.filter((certificate) => isIssueCapableUsageName(certificate.usageToName));
 
   const guideRows = [
     ["시트", "작성 방법"],
-    ["발전소", "이 시트가 초기 등록 기준입니다. 이 PC에서 읽힌 전자세금용 공동인증서만 자동으로 들어갑니다. 등록할 대상 행만 남기고 발전소명과 필요 시 인증서 비밀번호만 입력하세요. 행이 남아 있으면 등록 대상으로 보고, 완전히 빈 행은 오류 없이 건너뜁니다."],
-    ["업로드 순서", "1) AT 헬퍼 실행 후 전자세금용 공동인증서 읽기 확인 2) 양식 다운로드 3) 발전소 시트에서 등록할 고객 행만 남기고 발전소명과 필요 시 인증서 비밀번호 입력 4) 양식 업로드 후 전자세금용 인증서 확인 결과와 고객 생성/갱신 가능 여부 확인 5) 고객 등록 반영 6) 전자세금용 인증서 등록 마무리"]
+    ["발전소", "이 시트가 초기 등록 기준입니다. 이 PC에서 읽힌 발행 가능 공동인증서가 자동으로 들어갑니다. 등록할 대상 행만 남기고 발전소명과 필요 시 인증서 비밀번호만 입력하세요. 행이 남아 있으면 등록 대상으로 보고, 완전히 빈 행은 오류 없이 건너뜁니다."],
+    ["업로드 순서", "1) AT 헬퍼 실행 후 발행 가능 공동인증서 읽기 확인 2) 양식 다운로드 3) 발전소 시트에서 등록할 고객 행만 남기고 발전소명과 필요 시 인증서 비밀번호 입력 4) 양식 업로드 후 인증서 확인 결과와 고객 생성/갱신 가능 여부 확인 5) 고객 등록 반영 6) 인증서 등록 마무리"]
   ];
   const plantRows = [
     ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"],
-    ...electronicTaxCertificates.map((certificate) => [String(certificate.index), certificate.cn, "", ""])
+    ...issueCapableCertificates.map((certificate) => [String(certificate.index), certificate.cn, "", ""])
   ];
 
   const guideSheet = XLSX.utils.aoa_to_sheet(guideRows);

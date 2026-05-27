@@ -2,6 +2,7 @@ import type { RenewalBridgePreflightProbe, RenewalInfoSnapshot } from "../../typ
 import {
   deriveCustomerCertificateKind,
   isCustomerCertificateExpired,
+  isIssueCapableCustomerCertificate,
   matchesRenewalCertificate,
   normalizeRenewalCertificateKey
 } from "../renewal/customerRenewalCertificateUtils";
@@ -525,13 +526,13 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     });
     const matchedCertificate = findMatchingRenewalCertificateFromList(availableCertificates, plantGroup);
     if (!matchedCertificate) {
-      errors.push(`발전소 시트 (${certificateLabel}): 이 PC에서 같은 전자세금용 공동인증서를 다시 찾지 못했습니다.`);
+      errors.push(`발전소 시트 (${certificateLabel}): 이 PC에서 같은 발행 가능 공동인증서를 다시 찾지 못했습니다.`);
       skippedCertificateCount += 1;
       continue;
     }
 
-    if (deriveCustomerCertificateKind(matchedCertificate) !== "electronic_tax") {
-      errors.push(`발전소 시트 (${certificateLabel}): 전자세금용 공동인증서만 고객 등록에 사용할 수 있습니다.`);
+    if (!isIssueCapableCustomerCertificate(matchedCertificate)) {
+      errors.push(`발전소 시트 (${certificateLabel}): 전자세금용 또는 기업범용 공동인증서만 고객 등록에 사용할 수 있습니다.`);
       skippedCertificateCount += 1;
       continue;
     }
@@ -539,7 +540,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     const matchedCertificateExpireDate = getRenewalAgentCertificateExpireDate(matchedCertificate);
     if (isCustomerCertificateExpired(matchedCertificateExpireDate)) {
       errors.push(
-        `발전소 시트 (${certificateLabel}): 만료된 전자세금용 공동인증서는 고객 등록과 발행 연동 준비에 사용할 수 없습니다. 갱신 후 다시 불러와 주세요.`
+        `발전소 시트 (${certificateLabel}): 만료된 발행 가능 공동인증서는 고객 등록과 발행 연동 준비에 사용할 수 없습니다. 갱신 후 다시 불러와 주세요.`
       );
       skippedCertificateCount += 1;
       continue;
@@ -777,13 +778,14 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       result.matchedCertificate.cn?.trim() || result.selection.certificateLabel,
       entry
     );
+    const certificateKind = deriveCustomerCertificateKind(result.matchedCertificate);
     entry.certificateRows.push({
       rowIndex: result.selection.rowIndex,
       businessNumber: result.businessNumber,
-      certificateKind: "electronic_tax",
+      certificateKind,
       certificateIndex: String(result.matchedCertificate.index),
       certificateName: result.matchedCertificate.cn?.trim() || result.selection.certificateName.trim() || entry.corpName,
-      certificateUsageName: "전자세금용",
+      certificateUsageName: result.matchedCertificate.usageToName.trim() || (certificateKind === "general_business" ? "사업자범용" : "전자세금용"),
       issuerName: result.matchedCertificate.issuerToName.trim(),
       serial: result.matchedCertificate.serial?.trim() || "",
       userDN: result.matchedCertificate.userDN?.trim() || "",

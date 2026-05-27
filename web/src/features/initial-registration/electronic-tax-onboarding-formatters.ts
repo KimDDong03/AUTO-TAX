@@ -4,7 +4,7 @@ export function buildElectronicTaxOnboardingTemplateNotice(options: {
   certificateCount: number;
   unregisteredCustomerCount?: number;
 }): string {
-  return `만료되지 않은 전자세금용 공동인증서 ${options.certificateCount}건으로 양식을 만들었습니다. 등록할 행만 남기고 발전소명을 입력해 주세요.`;
+  return `만료되지 않은 발행 가능 공동인증서 ${options.certificateCount}건으로 양식을 만들었습니다. 등록할 행만 남기고 발전소명을 입력해 주세요.`;
 }
 
 export function buildElectronicTaxOnboardingPreviewNotice(options: {
@@ -16,7 +16,7 @@ export function buildElectronicTaxOnboardingPreviewNotice(options: {
 }): string {
   const noticeParts = [
     `등록 대상 ${options.customerCount}건을 확인했습니다.`,
-    `확인된 전자세금용 인증서 ${options.resolvedCertificateCount}건`
+    `확인된 발행 가능 인증서 ${options.resolvedCertificateCount}건`
   ];
 
   if (options.skippedCertificateCount > 0) {

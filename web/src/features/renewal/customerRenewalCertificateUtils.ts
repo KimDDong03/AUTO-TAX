@@ -21,6 +21,14 @@ export function isElectronicTaxCertificate(certificate: RenewalAgentCertificate)
   return certificate.usageToName.includes("전자세금");
 }
 
+export function isIssueCapableCustomerCertificateKind(kind: CustomerCertificateKind): boolean {
+  return kind === "electronic_tax" || kind === "general_business";
+}
+
+export function isIssueCapableCustomerCertificate(certificate: RenewalAgentCertificate): boolean {
+  return isIssueCapableCustomerCertificateKind(deriveCustomerCertificateKind(certificate));
+}
+
 export function deriveCustomerCertificateKind(
   certificate: Pick<RenewalAgentCertificate, "usageToName">
 ): CustomerCertificateKind {
@@ -286,7 +294,7 @@ export function findCandidateCustomersForCertificate(
   }
 
   const kind = deriveCustomerCertificateKind(certificate);
-  if (kind === "general_personal" || kind === "general_business") {
+  if (!isIssueCapableCustomerCertificateKind(kind)) {
     return [];
   }
 

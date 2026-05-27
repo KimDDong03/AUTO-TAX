@@ -229,9 +229,9 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           : "certificate";
   const blockedReason =
     !input.helperReady && !downloadCompleted
-      ? "먼저 전자세금용 공동인증서를 읽으세요."
+      ? "먼저 발행 가능 공동인증서를 읽으세요."
       : !downloadCompleted && input.helperReady && !hasElectronicTaxCertificates
-        ? "이 PC에서 전자세금용 공동인증서를 찾지 못했습니다."
+        ? "이 PC에서 발행 가능 공동인증서를 찾지 못했습니다."
         : needsUploadRetry
           ? `검토 ${input.blockedCount}건 수정 후 다시 업로드하세요.`
         : stage === "commit" && commitSubmitted && input.certificatePendingJoinCount > 0
@@ -270,7 +270,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
       ? input.helperReady
         ? hasElectronicTaxCertificates
           ? `전자세금용 인증서 ${input.helperCertificateCount}건 기준`
-          : "전자세금용 없음"
+          : "발행 가능 인증서 없음"
         : "AT 헬퍼 필요"
       : stage === "commit"
         ? commitSubmitted && input.certificatePendingJoinCount > 0
@@ -329,7 +329,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           : input.helperReady
             ? hasElectronicTaxCertificates
               ? "다운로드 후 업로드"
-              : "전자세금용 없음"
+              : "발행 가능 인증서 없음"
             : "AT 헬퍼 필요",
       status: templateStepStatus,
       ...getInitialRegistrationStepMeta(templateStepStatus)
@@ -534,7 +534,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const downloadBlockedTitle = !props.helperReady
     ? "먼저 공동인증서를 읽어주세요."
     : props.helperCertificateCount === 0
-      ? "이 PC에서 전자세금용 공동인증서를 먼저 확인하세요."
+      ? "이 PC에서 발행 가능 공동인증서를 먼저 확인하세요."
       : undefined;
   const billingMonthCompletionList = props.billingMonthSummaries.length > 0 ? (
     <div className="list month-completion-list">
