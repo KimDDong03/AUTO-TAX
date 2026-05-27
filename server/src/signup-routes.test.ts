@@ -18,6 +18,7 @@ for (const key of [
   "AUTO_TAX_SIGNUP_SMTP_PASS",
   "AUTO_TAX_SIGNUP_EMAIL_FROM",
   "AUTO_TAX_SIGNUP_EMAIL_FROM_NAME",
+  "AUTO_TAX_SIGNUP_SMTP_ALLOW_WEAK_DH",
   "AUTO_TAX_SUPPORT_TO_EMAIL",
   "AUTO_TAX_SUPPORT_APP_PASSWORD"
 ]) {
@@ -922,6 +923,27 @@ test("public signup kepco email verification rejects wrong codes and confirms de
     assert.equal(confirmed.status, 200);
     assert.deepEqual(await confirmed.json(), { verified: true });
   });
+});
+
+test("public signup kepco email verification allows the service sender address as the entered mailbox", async () => {
+  await withTemporaryEnv(
+    {
+      AUTO_TAX_SIGNUP_EMAIL_FROM: "auto-tax@kiyo.kr"
+    },
+    async () => {
+      await withSignupServer(async (baseUrl, fixture) => {
+        const email = "auto-tax@kiyo.kr";
+        const response = await fetch(`${baseUrl}/api/public/signup/email-verifications/send`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+
+        assert.equal(response.status, 201);
+        assert.equal(fixture.state.emailVerificationRows[0]?.email, email);
+      });
+    }
+  );
 });
 
 test("public signup kepco email verification returns service unavailable when SMTP setup fails", async () => {
