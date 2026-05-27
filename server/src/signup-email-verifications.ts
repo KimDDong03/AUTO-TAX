@@ -122,6 +122,7 @@ function createSignupEmailProvider(): SignupEmailProvider {
     const smtpPass = envString("AUTO_TAX_SIGNUP_SMTP_PASS") ?? supportAppPassword;
     const fromEmail = envString("AUTO_TAX_SIGNUP_EMAIL_FROM") ?? smtpUser;
     const fromName = envString("AUTO_TAX_SIGNUP_EMAIL_FROM_NAME") ?? "AUTO-TAX";
+    const allowWeakDh = envBool("AUTO_TAX_SIGNUP_SMTP_ALLOW_WEAK_DH", smtpHost === "smtp.whoisworks.com");
 
     if (!fromEmail) {
       throw new Error("회원가입 메일 인증 발신 주소가 없습니다. AUTO_TAX_SIGNUP_EMAIL_FROM를 확인하세요.");
@@ -131,7 +132,8 @@ function createSignupEmailProvider(): SignupEmailProvider {
       host: smtpHost,
       port: smtpPort,
       secure: smtpSecure,
-      auth: smtpUser ? { user: smtpUser, pass: smtpPass ?? "" } : undefined
+      auth: smtpUser ? { user: smtpUser, pass: smtpPass ?? "" } : undefined,
+      tls: allowWeakDh ? { ciphers: "DEFAULT@SECLEVEL=0" } : undefined
     });
 
     return {
