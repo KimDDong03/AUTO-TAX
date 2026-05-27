@@ -190,6 +190,46 @@ function Get-PackagedLocalRenewalHelperVersion {
   return ""
 }
 
+function Register-LocalRenewalHelperUninstallEntry {
+  param(
+    [string]$InstallRoot,
+    [string]$UninstallScript,
+    [string]$DisplayVersion,
+    [string]$PowerShellExe
+  )
+
+  $uninstallKeyPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\AUTO-TAX Renewal Local Helper"
+  $displayIcon = Join-Path $InstallRoot "app\\ATHelperTray.exe"
+  if (-not (Test-Path $displayIcon)) {
+    $displayIcon = $PowerShellExe
+  }
+
+  $estimatedSizeKb = 0
+  try {
+    $totalBytes = (Get-ChildItem -LiteralPath $InstallRoot -Recurse -File -ErrorAction Stop |
+      Measure-Object -Property Length -Sum).Sum
+    if ($totalBytes) {
+      $estimatedSizeKb = [int][math]::Ceiling([double]$totalBytes / 1KB)
+    }
+  } catch {
+    $estimatedSizeKb = 0
+  }
+
+  New-Item -Path $uninstallKeyPath -Force | Out-Null
+  New-ItemProperty -Path $uninstallKeyPath -Name "DisplayName" -Value "AT helper" -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstallKeyPath -Name "DisplayVersion" -Value $(if ([string]::IsNullOrWhiteSpace($DisplayVersion)) { "0.0.0" } else { $DisplayVersion }) -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstallKeyPath -Name "Publisher" -Value "AUTO-TAX" -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstallKeyPath -Name "InstallLocation" -Value $InstallRoot -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstallKeyPath -Name "DisplayIcon" -Value $displayIcon -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstallKeyPath -Name "UninstallString" -Value "`"$PowerShellExe`" -NoProfile -ExecutionPolicy Bypass -File `"$UninstallScript`" -RemoveInstallRoot" -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstallKeyPath -Name "QuietUninstallString" -Value "`"$PowerShellExe`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$UninstallScript`" -RemoveInstallRoot" -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstallKeyPath -Name "NoModify" -Value 1 -PropertyType DWord -Force | Out-Null
+  New-ItemProperty -Path $uninstallKeyPath -Name "NoRepair" -Value 1 -PropertyType DWord -Force | Out-Null
+  if ($estimatedSizeKb -gt 0) {
+    New-ItemProperty -Path $uninstallKeyPath -Name "EstimatedSize" -Value $estimatedSizeKb -PropertyType DWord -Force | Out-Null
+  }
+}
+
 function Get-LocalRenewalHelperProcessIds {
   param(
     [int]$Port,
@@ -462,6 +502,7 @@ $statusScript = Join-Path $installRoot "scripts\\status-renewal-local-helper.ps1
 $uninstallScript = Join-Path $installRoot "scripts\\uninstall-renewal-local-helper-autostart.ps1"
 $currentUser = if ($env:USERDOMAIN) { "$($env:USERDOMAIN)\$($env:USERNAME)" } else { $env:USERNAME }
 $desktopPath = [Environment]::GetFolderPath("Desktop")
+$expectedVersion = Get-PackagedLocalRenewalHelperVersion -InstallRoot $installRoot
 
 if (-not (Test-Path $launcherScript)) {
   throw "Helper launcher script not found: $launcherScript"
@@ -491,8 +532,15 @@ if ($PSCmdlet.ShouldProcess($taskName, "Register renewal local helper scheduled 
     -Force | Out-Null
 }
 
+if ($isPackagedInstall -and $PSCmdlet.ShouldProcess("AT helper", "Register Windows uninstall entry")) {
+  Register-LocalRenewalHelperUninstallEntry `
+    -InstallRoot $installRoot `
+    -UninstallScript $uninstallScript `
+    -DisplayVersion $expectedVersion `
+    -PowerShellExe $powershellExe
+}
+
 if ($StartNow -and $PSCmdlet.ShouldProcess("AUTO-TAX renewal helper", "Start helper immediately after install")) {
-  $expectedVersion = Get-PackagedLocalRenewalHelperVersion -InstallRoot $installRoot
   $started = Start-LocalRenewalHelperDetached `
     -PowerShellExe $powershellExe `
     -LauncherScript $launcherScript `

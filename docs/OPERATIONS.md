@@ -174,6 +174,7 @@ There are two local Windows components:
 - Stable install path: `%LOCALAPPDATA%\\AUTO-TAX\\renewal-local-helper`
 - The installed Windows logon autostart task runs the helper in the background without opening the tray app; manual Start still opens the tray for status/exit controls.
 - The tray right-click menu must open immediately; helper health refresh runs in the background and should not block menu display.
+- Packaged installs register `AT helper` under the current user's Windows installed-apps list; uninstalling it there removes the scheduled task, tray/helper files, and helper desktop shortcuts.
 
 Commands:
 
