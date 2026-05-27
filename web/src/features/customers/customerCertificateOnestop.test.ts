@@ -144,6 +144,21 @@ test("filterCustomerOnestopCertificates searches available certificates", () => 
   assert.deepEqual(result.visibleCertificates.map((certificate) => certificate.index), ["2"]);
 });
 
+test("filterCustomerOnestopCertificates treats enterprise general certificates as issue-capable", () => {
+  const result = filterCustomerOnestopCertificates({
+    certificates: [
+      createCertificate({ index: "1", usageToName: "기업 범용" }),
+      createCertificate({ index: "2", usageToName: "범용(기업)" }),
+      createCertificate({ index: "3", usageToName: "은행/보험용" })
+    ],
+    customers: [],
+    customerCertificates: [],
+    todayDateKey: "2026-05-05"
+  });
+
+  assert.deepEqual(result.availableCertificates.map((certificate) => certificate.index), ["1", "2"]);
+});
+
 test("runCustomerCertificateOnestopRegistration rejects expired certificate before customer creation or Popbill join", async () => {
   const calls: string[] = [];
 

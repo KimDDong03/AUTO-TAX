@@ -39,7 +39,7 @@ export function deriveCustomerCertificateKind(
   if (usageName.includes("개인") && usageName.includes("범용")) {
     return "general_personal";
   }
-  if (usageName.includes("사업자") && usageName.includes("범용")) {
+  if ((usageName.includes("사업자") || usageName.includes("기업")) && usageName.includes("범용")) {
     return "general_business";
   }
   return "unknown";

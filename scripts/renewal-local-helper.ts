@@ -23,10 +23,9 @@ const PREFLIGHT_BATCH_DEFAULT_CONCURRENCY = 16;
 const PREFLIGHT_BATCH_MAX_CONCURRENCY = 32;
 const UPLOAD_SESSION_MAX_FILE_COUNT = 80;
 const UPLOAD_SESSION_MAX_BASE64_CHARS = 2_500_000;
-const UPLOAD_ELECTRONIC_TAX_OID = "1.2.410.200004.5.2.1.6.257";
 const UPLOAD_USAGE_NAME_BY_OID: Record<string, string> = {
   "1.2.410.200004.5.2.1.6.257": "전자세금용",
-  "1.2.410.200004.5.2.1.2": "범용(기업)",
+  "1.2.410.200004.5.2.1.2": "기업 범용",
   "1.2.410.200005.1.1.4": "은행/보험용"
 };
 
@@ -434,13 +433,11 @@ export function createCertificateUploadSessionMetadata(
 
       const certificate = new X509Certificate(raw);
       const policyOid = resolveUploadedCertificatePolicyOid(raw);
-      if (policyOid !== UPLOAD_ELECTRONIC_TAX_OID) {
+      if (!policyOid) {
         rejectedFiles.push({
           name: file.name,
           relativePath: file.relativePath,
-          reason: policyOid
-            ? `전자세금용 공동인증서가 아닙니다. (${UPLOAD_USAGE_NAME_BY_OID[policyOid] ?? policyOid})`
-            : "인증서 정책 OID를 확인하지 못했습니다."
+          reason: "인증서 정책 OID를 확인하지 못했습니다."
         });
         continue;
       }

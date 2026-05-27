@@ -54,7 +54,7 @@ const FILESYSTEM_ELECTRONIC_TAX_OID_SET = new Set<string>([
 ]);
 const FILESYSTEM_USAGE_NAME_BY_OID: Record<string, string> = {
   "1.2.410.200004.5.2.1.6.257": "전자세금용",
-  "1.2.410.200004.5.2.1.2": "범용(기업)",
+  "1.2.410.200004.5.2.1.2": "기업 범용",
   "1.2.410.200005.1.1.4": "은행/보험용",
 };
 const HDD_CERTIFICATE_STORAGE_DIR_NAMES = [

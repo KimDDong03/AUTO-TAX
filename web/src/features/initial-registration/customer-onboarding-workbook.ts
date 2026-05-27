@@ -181,7 +181,7 @@ function applySheetColumnWidths(
 
 function isIssueCapableUsageName(usageName: string) {
   const normalized = usageName.replace(/\s+/g, "");
-  return normalized.includes("전자세금") || (normalized.includes("사업자") && normalized.includes("범용"));
+  return normalized.includes("전자세금") || ((normalized.includes("사업자") || normalized.includes("기업")) && normalized.includes("범용"));
 }
 
 export function downloadCustomerOnboardingTemplate(
