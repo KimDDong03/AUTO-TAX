@@ -108,6 +108,11 @@ function writeWindowsCmdScript(filePath, lines) {
   fs.writeFileSync(filePath, `${lines.join("\r\n")}\r\n`, "ascii");
 }
 
+function writeUtf8BomTextFile(filePath, content) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(content, "utf8")]));
+}
+
 function writePackageReadme() {
   const content = [
     "AT helper",
@@ -440,7 +445,7 @@ namespace AutoTaxRenewalHelperInstaller
   }
 }
 `;
-  fs.writeFileSync(sourcePath, source.trimStart(), "utf8");
+  writeUtf8BomTextFile(sourcePath, source.trimStart());
 }
 
 function writeInstallerCompileScript(scriptPath, sourcePath, iconPath, zipPath, exePath) {
@@ -452,7 +457,7 @@ $parameters = New-Object System.CodeDom.Compiler.CompilerParameters
 $parameters.GenerateExecutable = $true
 $parameters.OutputAssembly = ${JSON.stringify(exePath)}
 $parameters.MainClass = "AutoTaxRenewalHelperInstaller.Program"
-$parameters.CompilerOptions = "/target:winexe /win32icon:${iconPath.replace(/\\/g, "\\\\")} /resource:${zipPath.replace(/\\/g, "\\\\")},renewal-local-helper.zip"
+$parameters.CompilerOptions = "/target:winexe /codepage:65001 /win32icon:${iconPath.replace(/\\/g, "\\\\")} /resource:${zipPath.replace(/\\/g, "\\\\")},renewal-local-helper.zip"
 [void]$parameters.ReferencedAssemblies.Add("System.dll")
 [void]$parameters.ReferencedAssemblies.Add("System.Drawing.dll")
 [void]$parameters.ReferencedAssemblies.Add("System.Windows.Forms.dll")
@@ -564,7 +569,9 @@ namespace AutoTaxRenewalHelperTray
     private readonly NotifyIcon notifyIcon;
     private readonly ToolStripMenuItem statusMenuItem;
     private readonly ToolStripMenuItem versionMenuItem;
+    private readonly Control uiInvoker;
     private readonly System.Windows.Forms.Timer refreshTimer;
+    private int refreshInProgress;
     private string currentStatus = "확인 중";
     private string currentVersion = "-";
 
@@ -580,6 +587,9 @@ namespace AutoTaxRenewalHelperTray
 
       ToolStripMenuItem exitMenuItem = new ToolStripMenuItem("종료");
       exitMenuItem.Click += ExitMenuItem_Click;
+
+      uiInvoker = new Control();
+      uiInvoker.CreateControl();
 
       ContextMenuStrip menu = new ContextMenuStrip();
       menu.Opening += delegate { RefreshStatus(); };
@@ -605,19 +615,51 @@ namespace AutoTaxRenewalHelperTray
 
     private void RefreshStatus()
     {
-      try
+      if (Interlocked.Exchange(ref refreshInProgress, 1) == 1)
       {
-        string body = SendRequest("GET", "/health");
-        string version = ExtractJsonString(body, "version");
-        currentStatus = "실행 중";
-        currentVersion = String.IsNullOrWhiteSpace(version) ? "-" : version;
-      }
-      catch
-      {
-        currentStatus = "연결 안 됨";
-        currentVersion = "-";
+        return;
       }
 
+      ThreadPool.QueueUserWorkItem(delegate
+      {
+        string status = "연결 안 됨";
+        string version = "-";
+
+        try
+        {
+          string body = SendRequest("GET", "/health");
+          string parsedVersion = ExtractJsonString(body, "version");
+          status = "실행 중";
+          version = String.IsNullOrWhiteSpace(parsedVersion) ? "-" : parsedVersion;
+        }
+        catch
+        {
+          status = "연결 안 됨";
+          version = "-";
+        }
+        finally
+        {
+          Interlocked.Exchange(ref refreshInProgress, 0);
+        }
+
+        try
+        {
+          uiInvoker.BeginInvoke((MethodInvoker)delegate
+          {
+            ApplyStatus(status, version);
+          });
+        }
+        catch
+        {
+          // The tray may be shutting down while a background status check completes.
+        }
+      });
+    }
+
+    private void ApplyStatus(string status, string version)
+    {
+      currentStatus = status;
+      currentVersion = version;
       statusMenuItem.Text = "상태: " + currentStatus;
       versionMenuItem.Text = "버전: " + currentVersion;
       notifyIcon.Text = TruncateNotifyText("AT helper - " + currentStatus + (currentVersion == "-" ? "" : " (" + currentVersion + ")"));
@@ -688,6 +730,7 @@ namespace AutoTaxRenewalHelperTray
       if (disposing)
       {
         refreshTimer.Dispose();
+        uiInvoker.Dispose();
         notifyIcon.Dispose();
       }
 
@@ -696,7 +739,7 @@ namespace AutoTaxRenewalHelperTray
   }
 }
 `;
-  fs.writeFileSync(sourcePath, source.trimStart(), "utf8");
+  writeUtf8BomTextFile(sourcePath, source.trimStart());
 }
 
 function writeTrayCompileScript(scriptPath, sourcePath, iconPath, exePath) {
@@ -708,7 +751,7 @@ $parameters = New-Object System.CodeDom.Compiler.CompilerParameters
 $parameters.GenerateExecutable = $true
 $parameters.OutputAssembly = ${JSON.stringify(exePath)}
 $parameters.MainClass = "AutoTaxRenewalHelperTray.Program"
-$parameters.CompilerOptions = "/target:winexe /win32icon:${iconPath.replace(/\\/g, "\\\\")}"
+$parameters.CompilerOptions = "/target:winexe /codepage:65001 /win32icon:${iconPath.replace(/\\/g, "\\\\")}"
 [void]$parameters.ReferencedAssemblies.Add("System.dll")
 [void]$parameters.ReferencedAssemblies.Add("System.Drawing.dll")
 [void]$parameters.ReferencedAssemblies.Add("System.Windows.Forms.dll")

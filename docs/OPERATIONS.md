@@ -172,6 +172,8 @@ There are two local Windows components:
 - Runs on the operator PC
 - Handles certificate listing, browser-selected NPKI upload-session metadata extraction, local checks, and payment-window/open support
 - Stable install path: `%LOCALAPPDATA%\\AUTO-TAX\\renewal-local-helper`
+- The installed Windows logon autostart task runs the helper in the background without opening the tray app; manual Start still opens the tray for status/exit controls.
+- The tray right-click menu must open immediately; helper health refresh runs in the background and should not block menu display.
 
 Commands:
 

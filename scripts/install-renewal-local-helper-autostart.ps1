@@ -469,7 +469,7 @@ if (-not (Test-Path $launcherScript)) {
 
 $action = New-ScheduledTaskAction `
   -Execute $powershellExe `
-  -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcherScript`" -Detached" `
+  -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcherScript`" -Detached -SkipTray" `
   -WorkingDirectory $installRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
 $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
