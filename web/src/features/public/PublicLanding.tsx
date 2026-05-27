@@ -204,6 +204,47 @@ const emptyLoginIdLookup: LoginIdLookupState = {
   loginId: ""
 };
 
+type LandingRevealProps = {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+};
+
+function LandingReveal({ children, className = "", delay = 0 }: LandingRevealProps) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setShown(true);
+            observer.unobserve(entry.target);
+          }
+        }
+      },
+      { threshold: 0.15, rootMargin: "0px 0px -60px 0px" }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      style={{ transitionDelay: `${delay}ms` }}
+      className={`landing-reveal ${shown ? "is-visible" : ""} ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
 const publicTerms: readonly PublicTerm[] = [
   {
     id: "termsAccepted",
@@ -1410,7 +1451,7 @@ export function PublicLanding({
         {activeMode === "landing" ? (
           <div className="landing-page">
             <section id="서비스-소개" className="landing-hero">
-              <div className="landing-hero-copy">
+              <div className="landing-hero-copy landing-hero-enter">
                 <p className="landing-pill">태양광 회사를 위한 세금계산서 자동화 솔루션</p>
                 <h1>
                   세금계산서 <span>원클릭 발행</span>,
@@ -1449,24 +1490,30 @@ export function PublicLanding({
                   })}
                 </div>
               </div>
-              <LandingDashboardPreview />
+              <div className="landing-dashboard-enter">
+                <LandingDashboardPreview />
+              </div>
             </section>
 
             <section id="기능" className="landing-section landing-muted-section">
               <div className="landing-section-inner">
-                <div className="landing-section-title">
-                  <span>Features</span>
-                  <h2>AUTO-TAX가 제공하는 핵심 기능</h2>
-                </div>
+                <LandingReveal>
+                  <div className="landing-section-title">
+                    <span>Features</span>
+                    <h2>AUTO-TAX가 제공하는 핵심 기능</h2>
+                  </div>
+                </LandingReveal>
                 <div className="landing-card-grid landing-three-grid">
-                  {landingFeatures.map(({ icon: Icon, title, description }) => (
-                    <article key={title} className="landing-feature-card">
-                      <span>
-                        <Icon size={22} aria-hidden="true" />
-                      </span>
-                      <h3>{title}</h3>
-                      <p>{description}</p>
-                    </article>
+                  {landingFeatures.map(({ icon: Icon, title, description }, index) => (
+                    <LandingReveal key={title} delay={index * 100}>
+                      <article className="landing-feature-card">
+                        <span>
+                          <Icon size={22} aria-hidden="true" />
+                        </span>
+                        <h3>{title}</h3>
+                        <p>{description}</p>
+                      </article>
+                    </LandingReveal>
                   ))}
                 </div>
               </div>
@@ -1474,22 +1521,26 @@ export function PublicLanding({
 
             <section id="서비스-과정" className="landing-section">
               <div className="landing-section-inner">
-                <div className="landing-section-title">
-                  <span>How it works</span>
-                  <h2>AUTO-TAX 서비스 과정</h2>
-                </div>
+                <LandingReveal>
+                  <div className="landing-section-title">
+                    <span>How it works</span>
+                    <h2>AUTO-TAX 서비스 과정</h2>
+                  </div>
+                </LandingReveal>
                 <div className="landing-card-grid landing-four-grid">
                   {landingSteps.map(({ icon: Icon, title, description }, index) => (
-                    <article key={title} className="landing-step-card">
-                      <div>
-                        <span>
-                          <Icon size={22} aria-hidden="true" />
-                        </span>
-                        <strong>0{index + 1}</strong>
-                      </div>
-                      <h3>{title}</h3>
-                      <p>{description}</p>
-                    </article>
+                    <LandingReveal key={title} delay={index * 100}>
+                      <article className="landing-step-card">
+                        <div>
+                          <span>
+                            <Icon size={22} aria-hidden="true" />
+                          </span>
+                          <strong>0{index + 1}</strong>
+                        </div>
+                        <h3>{title}</h3>
+                        <p>{description}</p>
+                      </article>
+                    </LandingReveal>
                   ))}
                 </div>
               </div>
@@ -1497,23 +1548,27 @@ export function PublicLanding({
 
             <section id="요금-안내" className="landing-section landing-muted-section">
               <div className="landing-section-inner">
-                <div className="landing-section-title">
-                  <span>Pricing</span>
-                  <h2>합리적인 요금제로 시작하세요</h2>
-                </div>
+                <LandingReveal>
+                  <div className="landing-section-title">
+                    <span>Pricing</span>
+                    <h2>합리적인 요금제로 시작하세요</h2>
+                  </div>
+                </LandingReveal>
                 <div className="landing-card-grid landing-four-grid">
-                  {landingPlans.map(([range, price]) => (
-                    <article key={range} className="landing-plan-card">
-                      <p>{range}</p>
-                      <strong>
-                        {price}
-                        <span> / 월</span>
-                      </strong>
-                      <div>
-                        <CheckCircle2 size={16} aria-hidden="true" />
-                        기본 기능 모두 포함
-                      </div>
-                    </article>
+                  {landingPlans.map(([range, price], index) => (
+                    <LandingReveal key={range} delay={index * 80}>
+                      <article className="landing-plan-card">
+                        <p>{range}</p>
+                        <strong>
+                          {price}
+                          <span> / 월</span>
+                        </strong>
+                        <div>
+                          <CheckCircle2 size={16} aria-hidden="true" />
+                          기본 기능 모두 포함
+                        </div>
+                      </article>
+                    </LandingReveal>
                   ))}
                 </div>
                 <p className="landing-pricing-note">부가세 별도 · 연 구독 시 1개월 무료 지원</p>
@@ -1521,21 +1576,23 @@ export function PublicLanding({
               </div>
             </section>
 
-            <section id="문의하기" className="landing-contact">
-              <div>
-                <h2>AUTO-TAX와 함께 업무 효율을 높여보세요.</h2>
-                <p>지금 바로 도입 문의하거나 데모를 신청하세요.</p>
-              </div>
-              <div>
-                <button type="button" className="landing-primary-action" onClick={openContactModal}>
-                  <MessageCircle size={16} aria-hidden="true" />
-                  도입 문의하기
-                </button>
-                <button type="button" className="landing-secondary-action" onClick={() => navigatePublicAuthMode("signup")}>
-                  데모 사용 신청 <ArrowRight size={16} aria-hidden="true" />
-                </button>
-              </div>
-            </section>
+            <LandingReveal>
+              <section id="문의하기" className="landing-contact">
+                <div>
+                  <h2>AUTO-TAX와 함께 업무 효율을 높여보세요.</h2>
+                  <p>지금 바로 도입 문의하거나 데모를 신청하세요.</p>
+                </div>
+                <div>
+                  <button type="button" className="landing-primary-action" onClick={openContactModal}>
+                    <MessageCircle size={16} aria-hidden="true" />
+                    도입 문의하기
+                  </button>
+                  <button type="button" className="landing-secondary-action" onClick={() => navigatePublicAuthMode("signup")}>
+                    데모 사용 신청 <ArrowRight size={16} aria-hidden="true" />
+                  </button>
+                </div>
+              </section>
+            </LandingReveal>
           </div>
         ) : null}
 
