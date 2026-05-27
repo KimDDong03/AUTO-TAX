@@ -355,7 +355,13 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
         contractEndMonth: parsedPayload.profile.contractEndMonth ?? null,
         otherNote: parsedPayload.profile.otherNote ?? ""
       },
-      months: parsedPayload.months ?? []
+      months: (parsedPayload.months ?? []).map((month) => ({
+        reportMonth: month.reportMonth,
+        issueYear: month.issueYear ?? null,
+        issueDate: month.issueDate ?? null,
+        supplyAmount: month.supplyAmount,
+        vatAmount: month.vatAmount
+      }))
     };
     const detail = await requestStore.saveCustomerReportDetail(customerId, payload);
     await requestStore.createLog("info", "customers", "고객 신고 상세 정보를 저장했습니다.", {
