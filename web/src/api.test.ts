@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveApiUrl } from "./api-url.js";
+import { isAnonymousApiRequestUrl, resolveApiUrl } from "./api-url.js";
 
 test("resolveApiUrl keeps same-origin relative paths in production", () => {
   assert.equal(
@@ -57,4 +57,11 @@ test("resolveApiUrl leaves absolute URLs untouched", () => {
     }),
     "https://example.test/api/public/login"
   );
+});
+
+test("isAnonymousApiRequestUrl recognizes public API routes without touching auth state", () => {
+  assert.equal(isAnonymousApiRequestUrl("/api/public/signup/email-verifications/send"), true);
+  assert.equal(isAnonymousApiRequestUrl("/api/public/signup/email-verifications/send?retry=1"), true);
+  assert.equal(isAnonymousApiRequestUrl("https://example.test/api/public/login"), true);
+  assert.equal(isAnonymousApiRequestUrl("/api/bootstrap"), false);
 });

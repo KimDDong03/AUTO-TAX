@@ -444,13 +444,22 @@ export function registerCoreRoutes(deps: RouteDeps) {
 
   app.post("/api/public/signup/email-verifications/send", publicSignupLimiter, async (req, res) => {
     const payload = publicSignupEmailVerificationSendSchema.parse(req.body ?? {});
-    const result = await createSignupEmailVerification(createSupabaseAdminClient(), {
-      email: payload.email,
-      requestIp: req.ip ?? req.socket.remoteAddress ?? "",
-      requestUserAgent: req.header("user-agent") ?? ""
-    });
+    try {
+      const result = await createSignupEmailVerification(createSupabaseAdminClient(), {
+        email: payload.email,
+        requestIp: req.ip ?? req.socket.remoteAddress ?? "",
+        requestUserAgent: req.header("user-agent") ?? ""
+      });
 
-    res.status(201).json(result);
+      res.status(201).json(result);
+      return;
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+      console.error("[signup] 한전 수신메일 인증번호 발송에 실패했습니다.", error);
+      throw new HttpError(503, "한전 수신메일 인증번호 발송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요.");
+    }
   });
 
   app.post("/api/public/signup/email-verifications/confirm", publicSignupLimiter, async (req, res) => {

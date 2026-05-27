@@ -100,6 +100,7 @@ npm run build:vercel
 
 - Production deployment assumes HTTPS end-to-end.
 - `/api/*` responses and Windows local helper responses send `Cache-Control: no-store`.
+- The production CSP allows the jsDelivr Pretendard stylesheet/font CDN used by the web bundle.
 - Server-managed secrets include mail credentials, Popbill env values, the customer user-id prefix/shared password defaults, and the optional encrypted renewal issue password default.
 - Set `AUTO_TAX_ENCRYPTION_KEY` in production as an app-specific high-entropy key. Do not rely on the Supabase service role key as the encryption-key fallback for real customer data.
 - The public consultation form accepts only name and phone. Do not collect mail app passwords, Hometax credentials, or account passwords on the public page.

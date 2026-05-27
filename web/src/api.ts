@@ -1,5 +1,5 @@
 import { getSessionSafely, refreshSessionSafely } from "./supabase";
-import { resolveApiUrl } from "./api-url";
+import { isAnonymousApiRequestUrl, resolveApiUrl } from "./api-url";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "auto-tax.active-organization-id";
 let fallbackAccessToken: string | null = null;
@@ -48,6 +48,12 @@ export function setApiAccessToken(accessToken: string | null) {
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const requestUrl = resolveApiUrl(url, {
+    explicitBaseUrl: import.meta.env.VITE_API_BASE_URL,
+    isDev: import.meta.env.DEV,
+    locationProtocol: typeof window !== "undefined" ? window.location.protocol : null,
+    locationHostname: typeof window !== "undefined" ? window.location.hostname : null
+  });
   const buildHeaders = (accessToken?: string) => {
     const headers = new Headers(init?.headers ?? {});
 
@@ -69,18 +75,34 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
   const fetchWithSession = (accessToken?: string) =>
     fetch(
-      resolveApiUrl(url, {
-        explicitBaseUrl: import.meta.env.VITE_API_BASE_URL,
-        isDev: import.meta.env.DEV,
-        locationProtocol: typeof window !== "undefined" ? window.location.protocol : null,
-        locationHostname: typeof window !== "undefined" ? window.location.hostname : null
-      }),
+      requestUrl,
       {
         ...init,
         cache: "no-store",
         headers: buildHeaders(accessToken)
       }
     );
+
+  if (isAnonymousApiRequestUrl(url)) {
+    const response = await fetchWithSession();
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({ error: "요청 실패" }))) as {
+        error?: string;
+        errorCode?: string;
+        errorDetails?: string;
+        errorOperation?: string;
+      };
+      throw new ApiError(
+        response.status,
+        payload.error ?? "요청에 실패했습니다.",
+        payload.errorCode,
+        payload.errorDetails,
+        payload.errorOperation
+      );
+    }
+
+    return (await response.json()) as T;
+  }
 
   const { session } = await getSessionSafely();
   let response = await fetchWithSession(session?.access_token ?? fallbackAccessToken ?? undefined);

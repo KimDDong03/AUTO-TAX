@@ -698,6 +698,31 @@ const validSignupPayload = {
   marketingConsent: false
 };
 
+async function withTemporaryEnv<T>(overrides: Record<string, string | undefined>, callback: () => Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const key of Object.keys(overrides)) {
+    previous.set(key, process.env[key]);
+    const nextValue = overrides[key];
+    if (nextValue === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = nextValue;
+    }
+  }
+
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 async function createVerifiedSignupPayload(
   baseUrl: string,
   overrides: Partial<typeof validSignupPayload> = {}
@@ -897,6 +922,40 @@ test("public signup kepco email verification rejects wrong codes and confirms de
     assert.equal(confirmed.status, 200);
     assert.deepEqual(await confirmed.json(), { verified: true });
   });
+});
+
+test("public signup kepco email verification returns service unavailable when SMTP setup fails", async () => {
+  await withTemporaryEnv(
+    {
+      AUTO_TAX_SIGNUP_EMAIL_PROVIDER: "smtp",
+      AUTO_TAX_SIGNUP_SMTP_HOST: undefined,
+      AUTO_TAX_SIGNUP_SMTP_USER: undefined,
+      AUTO_TAX_SIGNUP_SMTP_PASS: undefined,
+      AUTO_TAX_SIGNUP_EMAIL_FROM: undefined,
+      AUTO_TAX_SUPPORT_TO_EMAIL: undefined,
+      AUTO_TAX_SUPPORT_APP_PASSWORD: undefined
+    },
+    async () => {
+      const originalConsoleError = console.error;
+      console.error = () => undefined;
+      try {
+        await withSignupServer(async (baseUrl) => {
+          const response = await fetch(`${baseUrl}/api/public/signup/email-verifications/send`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email: validSignupPayload.kepcoEmail })
+          });
+
+          assert.equal(response.status, 503);
+          assert.deepEqual(await response.json(), {
+            error: "한전 수신메일 인증번호 발송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요."
+          });
+        });
+      } finally {
+        console.error = originalConsoleError;
+      }
+    }
+  );
 });
 
 test("public signup rejects unreasonable identity fields", async () => {

@@ -155,9 +155,9 @@ const LOOPBACK_WEB_ORIGIN_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
   "img-src 'self' data: blob:",
-  "font-src 'self' data:",
+  "font-src 'self' data: https://cdn.jsdelivr.net",
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co http://127.0.0.1:* http://localhost:*",
   "object-src 'none'",
   "base-uri 'self'",
