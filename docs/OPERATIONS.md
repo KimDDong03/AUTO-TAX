@@ -1,5 +1,7 @@
 # AUTO-TAX Operations Runbook
 
+Status: canonical_operations.
+
 This file is for development, deployment, and runtime debugging work. It is not an end-user operations manual.
 
 ## 1. Required Environment
@@ -8,7 +10,6 @@ Environment templates are split by runtime:
 
 - `.env.local.example`: local development template. Copy it to `.env` for `npm run dev`.
 - `.env.vercel.example`: Vercel dashboard checklist for production or preview deployment.
-- `.env.example`: pointer file that explains which template to use.
 
 ### Browser runtime
 
@@ -40,10 +41,15 @@ to an organization default prefix.
 - `VITE_API_BASE_URL`
 - `AUTO_TAX_ALLOWED_ORIGINS`
 - `AUTO_TAX_POPBILL_PARTNER_CORP_NUM`
+- `SMS_PROVIDER=solapi`
+- `SOLAPI_API_KEY`
+- `SOLAPI_API_SECRET`
+- `SOLAPI_SENDER_NUMBER`
 - Signup email verification defaults to Gmail SMTP when both `AUTO_TAX_SUPPORT_TO_EMAIL` and `AUTO_TAX_SUPPORT_APP_PASSWORD` are set.
 - `AUTO_TAX_SIGNUP_EMAIL_PROVIDER=smtp`
 - `AUTO_TAX_SIGNUP_SMTP_HOST`, `AUTO_TAX_SIGNUP_SMTP_PORT`, `AUTO_TAX_SIGNUP_SMTP_SECURE`
 - `AUTO_TAX_SIGNUP_SMTP_USER`, `AUTO_TAX_SIGNUP_SMTP_PASS`, `AUTO_TAX_SIGNUP_EMAIL_FROM`, `AUTO_TAX_SIGNUP_EMAIL_FROM_NAME`
+- `AUTO_TAX_RENEWAL_AGENT_SECRET`; if omitted, renewal agent auth falls back to `AUTO_TAX_JOB_SECRET`
 - `AUTO_TAX_RENEWAL_AGENT_*`
 - Supabase cron `job-tick`, only if enabled: `AUTO_TAX_SERVER_URL`, `AUTO_TAX_JOB_SECRET`
 - `SUPABASE_DB_PASSWORD`

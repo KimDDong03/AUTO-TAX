@@ -1,6 +1,6 @@
 # AUTO-TAX
 
-AUTO-TAX is a multi-tenant tax invoice operations app for solar operators. The current product shape is a consultation-first public portal, a secondary existing-customer login path, and a workspace app for mail ingestion, customer management, invoice draft issuance, and Windows-only local certificate assistance.
+AUTO-TAX is a multi-tenant tax invoice operations app for solar operators. The current product shape is a consultation/signup-first public portal, a secondary existing-customer login path, and a workspace app for mail ingestion, customer management, invoice draft issuance, and Windows-only local certificate assistance.
 
 ## System Shape
 
@@ -42,17 +42,20 @@ npm run renewal-agent:dev
 ## Working Docs
 
 - [Agent Guide](./AGENTS.md)
+- [Codex Doc Index](./docs/ai/DOC_INDEX.md)
+- [Codex Task Routing](./docs/ai/TASK_ROUTING.md)
 - [Architecture / Implementation](./docs/IMPLEMENTATION.md)
 - [Schema Reference](./docs/SUPABASE_SCHEMA_PLAN.md)
 - [Operations Runbook](./docs/OPERATIONS.md)
+- [Design System](./docs/design.md)
 - [Status / Backlog](./docs/IMPLEMENTATION_STATUS.md)
 
 ## Ground Truths
 
 - Customer auto-matching is address-first through `managed_customer_match_addresses`.
-- Public `/` is a consultation request portal first and an existing-customer login path second.
+- Public `/` is a consultation/signup portal first and an existing-customer login path second.
 - Product behavior is mostly `owner` versus non-owner member even though the DB still stores broader roles.
 - Popbill live secrets and customer identity defaults are server-managed env values.
 - `job_queue` and `renewal_automation_jobs` are separate systems and should not be debugged as one queue.
-- There is no canonical design guide; visual and interaction rules are intentionally not fixed in docs.
+- `docs/design.md` is the canonical design-system guide for changed UI.
 - `data/` may hold user state; do not remove it casually.

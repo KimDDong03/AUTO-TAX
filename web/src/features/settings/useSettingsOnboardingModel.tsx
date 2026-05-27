@@ -131,8 +131,8 @@ type SettingsOnboardingHelperStatus = {
   upgradeAvailable: boolean;
   actionBlockedReason: string;
   online: boolean;
-  checkedAt: string | null;
-  certificateCount: number;
+  electronicTaxCertificateCount: number;
+  generalCertificateCount: number;
   upgradeMessage: string | null;
   latestVersion: string | null;
   minSupportedVersion: string | null;
@@ -148,7 +148,6 @@ type UseSettingsOnboardingModelArgs = {
   certificateReadProgress: SettingsCertificateReadProgress;
   renewalHelperDownloadUrl: string;
   runReadCertificates: () => Promise<void>;
-  formatDateTime: (value: string | null) => string;
 };
 
 type SettingsOnboardingContentModel = {
@@ -166,8 +165,7 @@ export function useSettingsOnboardingModel({
   helper,
   certificateReadProgress,
   renewalHelperDownloadUrl,
-  runReadCertificates,
-  formatDateTime
+  runReadCertificates
 }: UseSettingsOnboardingModelArgs): SettingsOnboardingContentModel {
   const busy = busyKey !== null;
   const isReadingCertificates = busyKey === "customer-renewal-bridge-probe";
@@ -245,8 +243,8 @@ export function useSettingsOnboardingModel({
           helperActionBlockedReason={helper.actionBlockedReason}
           helperStatusLine={onboarding.helperStatusLine}
           helperOnline={helper.online}
-          helperCheckedAt={helper.checkedAt}
-          helperCertificateCount={helper.certificateCount}
+          electronicTaxCertificateCount={helper.electronicTaxCertificateCount}
+          generalCertificateCount={helper.generalCertificateCount}
           certificateReadProgress={certificateReadProgress}
           busy={busy}
           isReadingCertificates={isReadingCertificates}
@@ -255,7 +253,6 @@ export function useSettingsOnboardingModel({
             settingsState.actions.runRefreshCustomerRenewalAssistant
           }
           onDownloadHelper={downloadHelper}
-          formatDateTime={formatDateTime}
         />
       )
     }),
@@ -263,7 +260,6 @@ export function useSettingsOnboardingModel({
       busy,
       certificateReadProgress,
       downloadHelper,
-      formatDateTime,
       helper,
       isMailTesting,
       isReadingCertificates,

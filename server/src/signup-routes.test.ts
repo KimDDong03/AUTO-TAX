@@ -988,6 +988,35 @@ test("signup creates a pending auth user, blocks login until approval, then crea
   });
 });
 
+test("public signup accepts already verified phone and email after verification expiry", async () => {
+  await withSignupServer(async (baseUrl, fixture) => {
+    const signupPayload = await createVerifiedSignupPayload(baseUrl);
+    const expiredAt = "2026-05-06T23:00:00.000Z";
+    const phoneVerification = fixture.state.phoneVerificationRows.find(
+      (row) => row.id === signupPayload.phoneVerificationId
+    );
+    const emailVerification = fixture.state.emailVerificationRows.find(
+      (row) => row.id === signupPayload.kepcoEmailVerificationId
+    );
+
+    assert.ok(phoneVerification?.verified_at);
+    assert.ok(emailVerification?.verified_at);
+    phoneVerification.expires_at = expiredAt;
+    emailVerification.expires_at = expiredAt;
+
+    const created = await fetch(`${baseUrl}/api/public/signup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(signupPayload)
+    });
+
+    assert.equal(created.status, 201);
+    assert.equal(fixture.state.signupRows.length, 1);
+    assert.ok(phoneVerification.consumed_at);
+    assert.ok(emailVerification.consumed_at);
+  });
+});
+
 test("public login id lookup returns matching signup login id after email verification", async () => {
   await withSignupServer(async (baseUrl) => {
     const signupPayload = await createVerifiedSignupPayload(baseUrl);

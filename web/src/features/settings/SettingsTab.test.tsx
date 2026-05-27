@@ -177,6 +177,8 @@ function createModel(
           minSupportedVersion: null,
           checkedAt: null,
           loadedCertificateCount: 0,
+          loadedElectronicTaxCertificateCount: 0,
+          loadedGeneralCertificateCount: 0,
           certificateReadProgress: null,
           renewalHelperDownloadUrl: "https://example.com/helper.zip",
           openCertificates: () => {},

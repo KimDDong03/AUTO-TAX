@@ -1,0 +1,389 @@
+{
+  "last_reviewed": "2026-05-27",
+  "repo_summary": "Multi-tenant tax invoice operations app for solar operators with a React/Vite web app, Express API, Supabase persistence, Vercel entrypoint, and Windows renewal helper tooling.",
+  "primary_languages": ["TypeScript", "SQL", "PowerShell", "JavaScript", "CSS"],
+  "frameworks": ["React", "Vite", "Express", "Supabase", "Vercel", "Tailwind CSS", "shadcn/ui"],
+  "package_managers": ["npm"],
+  "commands": {
+    "install": ["npm install"],
+    "dev": ["npm run dev", "npm run dev:server", "npm run dev:web", "npm run dev:vercel"],
+    "build": ["npm run build", "npm run build:server", "npm run build:web", "npm run build:vercel"],
+    "test": ["npm run test", "npm run test:server", "npm run test:web", "npm run test:scripts", "npm run test:e2e:smoke", "npm run smoke:ops"],
+    "lint": [],
+    "typecheck": ["npm run check"],
+    "format": []
+  },
+  "documentation_policy": {
+    "default_entrypoint": "AGENTS.md",
+    "active_docs": [
+      "AGENTS.md",
+      "README.md",
+      "docs/ai/DOC_INDEX.md",
+      "docs/ai/TASK_ROUTING.md",
+      "docs/ai/repo-map.json",
+      "docs/IMPLEMENTATION.md",
+      "docs/OPERATIONS.md",
+      "docs/SUPABASE_SCHEMA_PLAN.md",
+      "docs/design.md",
+      "docs/IMPLEMENTATION_STATUS.md",
+      "docs/TAB_STRUCTURE_COMPARISON.md"
+    ],
+    "draft_docs": ["docs/IA_DRAFT.md", "docs/WIREFRAME_FEATURE_SPEC.md"],
+    "archived_docs": ["docs/SITEMAP_DRAFT.md"],
+    "delete_candidates": [],
+    "conflict_resolution_order": [
+      "current code, tests, migrations, config, and package scripts",
+      "AGENTS.md",
+      "docs/IMPLEMENTATION.md",
+      "docs/SUPABASE_SCHEMA_PLAN.md",
+      "docs/OPERATIONS.md",
+      "docs/design.md",
+      "docs/IMPLEMENTATION_STATUS.md",
+      "docs/TAB_STRUCTURE_COMPARISON.md",
+      "working drafts",
+      "archived drafts",
+      "obsolete delete candidates"
+    ]
+  },
+  "documents": [
+    {
+      "path": "AGENTS.md",
+      "status": "agent_entrypoint",
+      "purpose": "Codex entrypoint and routing rules.",
+      "read_when": ["starting any task", "checking documentation maintenance rules"],
+      "do_not_use_for": ["detailed architecture", "schema reference"],
+      "supersedes": [],
+      "superseded_by": [],
+      "needs_verification": false
+    },
+    {
+      "path": "README.md",
+      "status": "canonical_runtime",
+      "purpose": "Concise repo overview, runtime surfaces, commands, and ground truths.",
+      "read_when": ["quick orientation", "checking common commands"],
+      "do_not_use_for": ["complete architecture", "complete runbook"],
+      "supersedes": [],
+      "superseded_by": ["docs/IMPLEMENTATION.md", "docs/OPERATIONS.md", "docs/SUPABASE_SCHEMA_PLAN.md", "docs/design.md"],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/ai/DOC_INDEX.md",
+      "status": "canonical_operations",
+      "purpose": "Documentation inventory and conflict-resolution policy.",
+      "read_when": ["deciding which docs are canonical", "adding or demoting docs"],
+      "do_not_use_for": ["runtime implementation details"],
+      "supersedes": [],
+      "superseded_by": [],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/ai/TASK_ROUTING.md",
+      "status": "canonical_operations",
+      "purpose": "Task-type routing to docs, code entrypoints, and verification.",
+      "read_when": ["after AGENTS.md for any task"],
+      "do_not_use_for": ["feature behavior details after routing is chosen"],
+      "supersedes": [],
+      "superseded_by": [],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/ai/repo-map.json",
+      "status": "canonical_operations",
+      "purpose": "Machine-readable routing, docs, commands, generated files, risky areas, and environment files.",
+      "read_when": ["tooling or agents need structured repo context"],
+      "do_not_use_for": ["human design rationale"],
+      "supersedes": [],
+      "superseded_by": [],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/IMPLEMENTATION.md",
+      "status": "canonical_runtime",
+      "purpose": "Architecture map, runtime shape, primary flows, invariants, and code ownership.",
+      "read_when": ["runtime behavior changes", "API changes", "feature ownership questions"],
+      "do_not_use_for": ["visual design rules", "authoritative DB migrations"],
+      "supersedes": ["docs/SITEMAP_DRAFT.md for current runtime routing"],
+      "superseded_by": [],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/OPERATIONS.md",
+      "status": "canonical_operations",
+      "purpose": "Env, local development, deployment, runbook, cron/jobs, renewal helper, and smoke tests.",
+      "read_when": ["dev server", "deployment", "env", "smoke test", "debugging operations"],
+      "do_not_use_for": ["product IA", "DB column reference"],
+      "supersedes": [],
+      "superseded_by": [],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/SUPABASE_SCHEMA_PLAN.md",
+      "status": "canonical_schema",
+      "purpose": "Supabase schema and RLS reference with migrations as authority.",
+      "read_when": ["schema", "migration", "RLS", "persistence model", "store changes"],
+      "do_not_use_for": ["running migrations without inspecting supabase/migrations"],
+      "supersedes": [],
+      "superseded_by": ["supabase/migrations/ for exact DDL"],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/design.md",
+      "status": "canonical_design",
+      "purpose": "AUTO-TAX UI design system, density, palette, layout, status, component rules, and terminology.",
+      "read_when": ["UI changes", "design-system changes", "customer-facing wording"],
+      "do_not_use_for": ["runtime architecture", "DB schema"],
+      "supersedes": ["README.md older no-design-guide note"],
+      "superseded_by": [],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/IMPLEMENTATION_STATUS.md",
+      "status": "active_backlog",
+      "purpose": "Short active backlog, sharp edges, and pressure points.",
+      "read_when": ["planning risky changes", "looking for known weak areas"],
+      "do_not_use_for": ["current runtime truth", "feature promises"],
+      "supersedes": [],
+      "superseded_by": [],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/TAB_STRUCTURE_COMPARISON.md",
+      "status": "decision_record",
+      "purpose": "Recorded IA decision for active top-level tabs and onboarding absorption.",
+      "read_when": ["IA changes", "navigation changes", "screen structure work"],
+      "do_not_use_for": ["current route code without checking web/src/App.tsx"],
+      "supersedes": ["docs/SITEMAP_DRAFT.md top-level-tab claims"],
+      "superseded_by": [],
+      "needs_verification": false
+    },
+    {
+      "path": "docs/IA_DRAFT.md",
+      "status": "working_draft",
+      "purpose": "Non-canonical IA exploration.",
+      "read_when": ["IA exploration", "wireframe planning"],
+      "do_not_use_for": ["current navigation source of truth", "implementation routing"],
+      "supersedes": [],
+      "superseded_by": ["docs/IMPLEMENTATION.md", "docs/TAB_STRUCTURE_COMPARISON.md"],
+      "needs_verification": true
+    },
+    {
+      "path": "docs/WIREFRAME_FEATURE_SPEC.md",
+      "status": "working_draft",
+      "purpose": "Non-canonical feature inventory for pre-wireframe planning.",
+      "read_when": ["wireframe planning", "feature inventory discussions"],
+      "do_not_use_for": ["current runtime behavior without checking code"],
+      "supersedes": [],
+      "superseded_by": ["docs/IMPLEMENTATION.md", "docs/design.md", "docs/TAB_STRUCTURE_COMPARISON.md"],
+      "needs_verification": true
+    },
+    {
+      "path": "docs/SITEMAP_DRAFT.md",
+      "status": "archived_draft",
+      "purpose": "Historical sitemap draft from earlier IA phase.",
+      "read_when": ["historical context only"],
+      "do_not_use_for": ["current sitemap", "current navigation", "implementation routing"],
+      "supersedes": [],
+      "superseded_by": ["docs/IMPLEMENTATION.md", "docs/TAB_STRUCTURE_COMPARISON.md"],
+      "needs_verification": true
+    }
+  ],
+  "directories": [
+    {
+      "path": "web",
+      "purpose": "React/Vite public portal and workspace app.",
+      "when_to_read": ["UI changes", "frontend behavior", "client API contracts", "browser verification"],
+      "avoid_unless": ["task is unrelated to UI or client behavior"],
+      "entrypoints": ["web/src/main.tsx", "web/src/App.tsx", "web/vite.config.ts"],
+      "tests": ["web/src/**/*.test.ts", "web/src/**/*.test.tsx"]
+    },
+    {
+      "path": "server",
+      "purpose": "Express API, auth/access control, persistence services, integrations, jobs, and route tests.",
+      "when_to_read": ["API changes", "auth changes", "server-side behavior", "persistence", "integration boundaries"],
+      "avoid_unless": ["task is pure UI copy/design with no API effect"],
+      "entrypoints": ["server/src/main.ts", "server/src/routes/*", "server/src/supabase-store.ts"],
+      "tests": ["server/src/**/*.test.ts"]
+    },
+    {
+      "path": "api",
+      "purpose": "Vercel serverless entrypoint for Express app.",
+      "when_to_read": ["Vercel deployment", "serverless API behavior"],
+      "avoid_unless": ["local-only frontend task"],
+      "entrypoints": ["api/index.ts"],
+      "tests": []
+    },
+    {
+      "path": "supabase/migrations",
+      "purpose": "Authoritative DB schema and RLS history.",
+      "when_to_read": ["schema changes", "RLS changes", "persistence questions"],
+      "avoid_unless": ["task does not touch data model"],
+      "entrypoints": ["supabase/migrations/20260326000000_initial_saas_schema.sql"],
+      "tests": []
+    },
+    {
+      "path": "supabase/functions/job-tick",
+      "purpose": "Supabase Edge Function that triggers internal business job endpoints.",
+      "when_to_read": ["cron", "job queue", "maintenance", "deployment runbook"],
+      "avoid_unless": ["task is unrelated to background jobs"],
+      "entrypoints": ["supabase/functions/job-tick/index.ts"],
+      "tests": []
+    },
+    {
+      "path": "scripts",
+      "purpose": "Smoke scripts, renewal helper and agent tooling, packaging, and maintenance utilities.",
+      "when_to_read": ["smoke tests", "renewal helper", "local agent", "packaging", "script tests"],
+      "avoid_unless": ["task has no operational or helper impact"],
+      "entrypoints": ["scripts/e2e-smoke.mjs", "scripts/ops-health-smoke.mjs", "scripts/renewal-local-helper.ts", "scripts/renewal-agent.ts"],
+      "tests": ["scripts/*.test.ts"]
+    },
+    {
+      "path": "docs",
+      "purpose": "Human documentation, canonical references, drafts, and agent routing docs.",
+      "when_to_read": ["starting task via routing", "documentation updates"],
+      "avoid_unless": ["after relevant canonical docs are selected"],
+      "entrypoints": ["docs/ai/DOC_INDEX.md", "docs/ai/TASK_ROUTING.md"],
+      "tests": []
+    }
+  ],
+  "task_routing": [
+    {
+      "task_type": "UI 수정",
+      "start_with_docs": ["docs/design.md", "docs/IMPLEMENTATION.md"],
+      "start_with_code": ["web/src/App.tsx", "web/src/features/*", "web/src/components/ui/*", "web/src/components/console/*", "web/src/styles.css"],
+      "then_check": ["components.json", "web/src/api.ts", "related web tests"],
+      "usually_ignore": ["server/src/* unless API contract changes", "working drafts unless IA is the task"],
+      "verification": ["npm run test:web", "npm run check", "browser verification for visible UI"]
+    },
+    {
+      "task_type": "API 수정",
+      "start_with_docs": ["docs/IMPLEMENTATION.md", "docs/OPERATIONS.md"],
+      "start_with_code": ["server/src/main.ts", "server/src/routes/*", "server/src/services/*", "server/src/supabase-store.ts"],
+      "then_check": ["web/src/api.ts", "web/src/types.ts", "route tests"],
+      "usually_ignore": ["UI drafts", "migrations unless schema changes"],
+      "verification": ["npm run test:server", "npm run check"]
+    },
+    {
+      "task_type": "DB/schema 변경",
+      "start_with_docs": ["docs/SUPABASE_SCHEMA_PLAN.md", "docs/OPERATIONS.md"],
+      "start_with_code": ["supabase/migrations", "server/src/supabase-store.ts", "server/src/domain.ts", "server/src/store-contract.ts"],
+      "then_check": ["RLS policies", "server/src/api-access.ts", "affected web types"],
+      "usually_ignore": ["UI drafts", "design docs unless user-facing schema behavior changes"],
+      "verification": ["migration review", "npm run test:server", "npm run check"]
+    },
+    {
+      "task_type": "인증/권한 수정",
+      "start_with_docs": ["docs/IMPLEMENTATION.md", "docs/SUPABASE_SCHEMA_PLAN.md", "docs/OPERATIONS.md"],
+      "start_with_code": ["server/src/api-access.ts", "server/src/supabase.ts", "server/src/routes/core-routes.ts", "server/src/routes/organization-member-routes.ts", "web/src/features/auth/*"],
+      "then_check": ["RLS helper functions", "organization_members", "web/src/App.tsx UI gating"],
+      "usually_ignore": ["IA drafts unless navigation exposure changes"],
+      "verification": ["npm run test:server", "npm run test:web", "npm run check"]
+    },
+    {
+      "task_type": "운영/배포/env 문제",
+      "start_with_docs": ["docs/OPERATIONS.md", "README.md", "docs/ai/repo-map.json"],
+      "start_with_code": ["package.json", "vercel.json", ".env.local.example", ".env.vercel.example", "server/src/env.ts", "api/index.ts", "web/vite.config.ts"],
+      "then_check": ["supabase/config.toml", "supabase/functions/job-tick", "scripts/*smoke*"],
+      "usually_ignore": ["UI drafts", "design docs"],
+      "verification": ["npm run check", "npm run build or npm run build:vercel", "relevant smoke script"]
+    },
+    {
+      "task_type": "테스트 실패 수정",
+      "start_with_docs": ["docs/ai/TASK_ROUTING.md", "area-specific canonical docs"],
+      "start_with_code": ["exact failing test file", "implementation file named in error output"],
+      "then_check": ["nearby tests", "fixtures", "package scripts"],
+      "usually_ignore": ["unrelated docs after area is identified"],
+      "verification": ["rerun exact failing command", "area test script", "npm run check"]
+    },
+    {
+      "task_type": "디자인 시스템 수정",
+      "start_with_docs": ["docs/design.md", "AGENTS.md", "components.json"],
+      "start_with_code": ["web/src/components/ui/*", "web/src/components/console/*", "web/src/styles.css"],
+      "then_check": ["lucide-react usage", "representative feature screens"],
+      "usually_ignore": ["server/src/*", "schema docs"],
+      "verification": ["npm run test:web", "npm run check", "browser verification"]
+    },
+    {
+      "task_type": "IA/화면 구조 수정",
+      "start_with_docs": ["docs/TAB_STRUCTURE_COMPARISON.md", "docs/IMPLEMENTATION.md", "docs/design.md"],
+      "start_with_code": ["web/src/App.tsx", "web/src/features/home/*", "web/src/features/settings/*"],
+      "then_check": ["hash routing", "resolveWorkspaceTab", "visible nav items"],
+      "usually_ignore": ["docs/SITEMAP_DRAFT.md except historical context"],
+      "verification": ["npm run test:web", "npm run check", "browser navigation smoke"]
+    },
+    {
+      "task_type": "onboarding/import 수정",
+      "start_with_docs": ["docs/IMPLEMENTATION.md", "docs/SUPABASE_SCHEMA_PLAN.md", "docs/OPERATIONS.md"],
+      "start_with_code": ["web/src/features/onboarding/*", "web/src/features/initial-registration/*", "web/src/features/settings/onboarding/*", "server/src/routes/settings-routes.ts", "server/src/services/customer-import-service.ts", "server/src/services/customer-onboarding-import-service.ts", "server/src/services/customer-onboarding-batch-service.ts"],
+      "then_check": ["server/src/job-queue.ts", "onboarding migrations", "workbook tests"],
+      "usually_ignore": ["ops routes unless admin flow changes"],
+      "verification": ["npm run test:server", "npm run test:web", "npm run check"]
+    },
+    {
+      "task_type": "background job/cron/queue 수정",
+      "start_with_docs": ["docs/OPERATIONS.md", "docs/IMPLEMENTATION.md", "docs/SUPABASE_SCHEMA_PLAN.md"],
+      "start_with_code": ["server/src/job-queue.ts", "server/src/maintenance-retention.ts", "server/src/renewal-automation.ts", "server/src/routes/core-routes.ts", "server/src/routes/renewal-routes.ts", "supabase/functions/job-tick/index.ts"],
+      "then_check": ["job_queue vs renewal_automation_jobs separation", "env secrets", "ops UI"],
+      "usually_ignore": ["UI design drafts unless queue status UI changes"],
+      "verification": ["npm run test:server", "npm run check", "npm run smoke:ops when environment is available"]
+    },
+    {
+      "task_type": "외부 연동 수정",
+      "start_with_docs": ["docs/OPERATIONS.md", "docs/IMPLEMENTATION.md", "docs/SUPABASE_SCHEMA_PLAN.md"],
+      "start_with_code": ["server/src/popbill-client.ts", "server/src/mail-sync.ts", "server/src/mail-test.ts", "server/src/parser.ts", "server/src/sms-provider.ts", "server/src/signup-*", "web/src/local-renewal-helper.ts", "scripts/renewal-local-helper.ts", "scripts/renewal-agent.ts"],
+      "then_check": ["env templates", "masking/logging", "AGENTS.md terminology"],
+      "usually_ignore": ["IA drafts unless navigation changes"],
+      "verification": ["npm run test:server", "npm run test:web if browser boundary changes", "npm run check"]
+    },
+    {
+      "task_type": "대규모 리팩터링",
+      "start_with_docs": ["AGENTS.md", "docs/ai/DOC_INDEX.md", "docs/IMPLEMENTATION.md", "docs/IMPLEMENTATION_STATUS.md"],
+      "start_with_code": ["smallest affected route group, feature directory, service, or store"],
+      "then_check": ["public contracts", "tests", "package scripts", "docs that may become stale"],
+      "usually_ignore": ["archived drafts unless restoring older design"],
+      "verification": ["targeted tests during refactor", "npm run check", "npm run test and build when shared behavior changes"]
+    }
+  ],
+  "generated_or_do_not_edit": [
+    "node_modules/",
+    "dist/",
+    "build/",
+    ".next/",
+    ".turbo/",
+    "coverage/",
+    "public/",
+    "web/public/downloads/",
+    "supabase/.temp/",
+    "tmp/",
+    "tmp-*.log",
+    ".codex-runlogs/",
+    "minified files",
+    "lockfiles unless dependency resolution is the task"
+  ],
+  "risky_areas": [
+    "server/src/api-access.ts auth and workspace scoping",
+    "supabase/migrations RLS and schema authority",
+    "server/src/supabase-store.ts large persistence boundary",
+    "web/src/App.tsx large orchestration and routing boundary",
+    "Popbill integration and customer-facing terminology",
+    "mail parsing and address-based matching",
+    "job_queue and renewal_automation_jobs separation",
+    "certificate password and local NPKI handling",
+    "public signup verification and rate limiting",
+    "data/ may contain local state"
+  ],
+  "environment_files": [
+    ".env.local.example",
+    ".env.vercel.example",
+    ".env",
+    ".env.local",
+    ".env.vercel"
+  ],
+  "notes_for_future_agents": [
+    "Read AGENTS.md first, then docs/ai/TASK_ROUTING.md.",
+    "Do not read the whole repo by default.",
+    "Use migrations as schema authority and docs/SUPABASE_SCHEMA_PLAN.md as a reference.",
+    "Draft docs require verification before implementation use.",
+    "Update documentation in the same change when behavior, commands, env, schema, routing, UI conventions, deployment, or operations change.",
+    "Do not expose secrets or real env values in responses."
+  ]
+}

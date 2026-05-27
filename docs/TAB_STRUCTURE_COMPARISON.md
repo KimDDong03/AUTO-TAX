@@ -1,5 +1,8 @@
 # AUTO-TAX 탭 구조안 비교
 
+> Status: decision record.
+> This records the current IA decision that onboarding is not a persistent active-workspace top-level tab, while issuance and certificates stay independent top-level areas.
+
 > 이 문서는 와이어프레임 전 단계에서 `상위 탭을 어떻게 나눌지` 비교하기 위한 문서다.  
 > 비교를 거쳐 현재 기준안은 `B. 도입 준비 흡수형`으로 정리한다.
 

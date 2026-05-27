@@ -53,6 +53,8 @@ export type SettingsScreenProps = {
   customerRenewalAssistantMinSupportedVersion: string | null;
   customerRenewalAssistantCheckedAt: string | null;
   customerRenewalLoadedCertificateCount: number;
+  customerRenewalElectronicTaxCertificateCount: number;
+  customerRenewalGeneralCertificateCount: number;
   certificateReadProgress: SettingsCertificateReadProgress;
   renewalHelperDownloadUrl: string;
 };
@@ -109,6 +111,9 @@ export function useSettingsScreenModel(
       minSupportedVersion: props.customerRenewalAssistantMinSupportedVersion,
       checkedAt: props.customerRenewalAssistantCheckedAt,
       loadedCertificateCount: props.customerRenewalLoadedCertificateCount,
+      loadedElectronicTaxCertificateCount:
+        props.customerRenewalElectronicTaxCertificateCount,
+      loadedGeneralCertificateCount: props.customerRenewalGeneralCertificateCount,
       certificateReadProgress: props.certificateReadProgress,
       renewalHelperDownloadUrl: props.renewalHelperDownloadUrl,
       openCertificates: props.openCertificates,
@@ -126,6 +131,8 @@ export function useSettingsScreenModel(
       props.customerRenewalAssistantLatestVersion,
       props.customerRenewalAssistantMinSupportedVersion,
       props.customerRenewalAssistantOnline,
+      props.customerRenewalElectronicTaxCertificateCount,
+      props.customerRenewalGeneralCertificateCount,
       props.customerRenewalLoadedCertificateCount,
       props.formatDateTime,
       props.openCertificates,

@@ -7,7 +7,8 @@ import {
   findLocalCertificateForStoredCustomerCertificate,
   findStoredCustomerCertificateForLocalCertificate,
   formatCustomerRenewalStatus,
-  getLatestRenewalPreflightProbeForCertificate
+  getLatestRenewalPreflightProbeForCertificate,
+  isCustomerCertificateExpired
 } from "../renewal/customerRenewalCertificateUtils";
 
 export type CustomerCertificateCandidateView = {
@@ -53,6 +54,13 @@ export function useCertificatesScreenModel({
   customerRenewalAssistantJobs,
   customerRenewalAssistantAllCertificates
 }: UseCertificatesScreenModelArgs) {
+  const availableLocalCertificates = useMemo(
+    () =>
+      customerRenewalAssistantAllCertificates.filter(
+        (certificate) => !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+      ),
+    [customerRenewalAssistantAllCertificates]
+  );
   const certificateItems = useMemo<CustomerCertificateCandidateView[]>(
     () =>
       [
@@ -60,7 +68,7 @@ export function useCertificatesScreenModel({
           const linkedCustomer = customers.find((customer) => customer.id === storedCertificate.customerId) ?? null;
           const localCertificate = findLocalCertificateForStoredCustomerCertificate(
             storedCertificate,
-            customerRenewalAssistantAllCertificates
+            availableLocalCertificates
           );
           const preflightProbe = localCertificate
             ? getLatestRenewalPreflightProbeForCertificate(localCertificate, customerRenewalAssistantJobs, null)
@@ -96,7 +104,7 @@ export function useCertificatesScreenModel({
             canOpenPayment: status.canOpenPayment
           } satisfies CustomerCertificateCandidateView;
         }),
-        ...customerRenewalAssistantAllCertificates
+        ...availableLocalCertificates
           .filter((certificate) => !findStoredCustomerCertificateForLocalCertificate(certificate, customerCertificates))
           .map((certificate) => {
             const candidateCustomers = findCandidateCustomersForCertificate(certificate, customers);
@@ -152,7 +160,7 @@ export function useCertificatesScreenModel({
       }),
     [
       customerCertificates,
-      customerRenewalAssistantAllCertificates,
+      availableLocalCertificates,
       customerRenewalAssistantJobs,
       customerRenewalAssistantOnline,
       customers
@@ -161,12 +169,12 @@ export function useCertificatesScreenModel({
 
   const metrics = useMemo<CertificatesScreenMetrics>(
     () => ({
-      loadedCertificateCount: customerRenewalAssistantAllCertificates.length,
+      loadedCertificateCount: availableLocalCertificates.length,
       unlinkedCount: certificateItems.filter((item) => item.linkedCustomerId === null).length,
       paymentReadyCount: certificateItems.filter((item) => item.canOpenPayment).length,
       actionNeededCount: certificateItems.filter((item) => item.statusTone === "warn" || item.statusTone === "danger").length
     }),
-    [certificateItems, customerRenewalAssistantAllCertificates.length]
+    [availableLocalCertificates.length, certificateItems]
   );
 
   return {

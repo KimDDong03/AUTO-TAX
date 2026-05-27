@@ -1,5 +1,8 @@
 # AUTO-TAX 사이트맵 초안
 
+> Status: archived / historical only.
+> This draft predates the current active-workspace navigation where onboarding is routed through settings rather than a persistent top-level tab. Use `docs/IMPLEMENTATION.md` and `docs/TAB_STRUCTURE_COMPARISON.md` for current routing decisions.
+
 > 이 문서는 `2026-04-23` 현재 구현과 기능명세/IA 초안을 바탕으로 만든 화면 지도 초안이다.  
 > 목적은 화면 범위와 상하위 관계를 한눈에 보는 것이다.
 

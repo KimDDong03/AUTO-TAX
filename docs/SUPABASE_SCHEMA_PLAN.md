@@ -1,5 +1,7 @@
 # AUTO-TAX Schema Reference
 
+Status: canonical_schema.
+
 This file is the developer reference for the current Supabase model. The migrations are authoritative. This document exists so Codex and future developers can reason about the model without rereading every SQL file first.
 
 ## 1. Source Of Truth
@@ -31,6 +33,7 @@ This file is the developer reference for the current Supabase model. The migrati
 - `customer_certificates`
 - `customer_report_profiles`
 - `customer_report_months`
+- `customer_contract_periods`
 
 ### Import and onboarding
 
@@ -49,6 +52,10 @@ This file is the developer reference for the current Supabase model. The migrati
 ### Operational state
 
 - `public_consultation_requests`
+- `public_signup_requests`
+- `public_signup_phone_verifications`
+- `public_signup_email_verifications`
+- `public_rate_limits`
 - `app_logs`
 - `job_queue`
 - `renewal_agent_heartbeats`
@@ -286,6 +293,25 @@ Important invariants:
 - `total_amount` is not stored. App code calculates it as `supply_amount + vat_amount`.
 - RLS is read-scoped to workspace members and write-scoped to workspace editors through the linked customer.
 
+### customer_contract_periods
+
+Per-customer contract period history in day precision.
+
+Important fields:
+
+- `organization_id`
+- `managed_customer_id`
+- `contract_start_date`
+- `contract_end_date`
+
+Important invariants:
+
+- Uniqueness is `(managed_customer_id, contract_start_date, contract_end_date)`.
+- `contract_end_date` must be the same date or later than `contract_start_date`.
+- The table was backfilled from `customer_report_profiles.contract_start_month` and `contract_end_month` when introduced.
+- Customer contract summaries can read this table, while the existing home renewal-due workflow still depends on the report profile month fields.
+- RLS is read-scoped to workspace members and write-scoped to workspace editors through the linked customer.
+
 ## 6. Import And Onboarding Tables
 
 ### customer_import_profiles
@@ -438,7 +464,6 @@ Important fields:
 - `tax_total`
 - `total_amount`
 - `kepco_*`
-- `recipient_email`
 - `popbill_mgt_key`
 - `popbill_environment`
 - `popbill_result_json`
@@ -467,9 +492,15 @@ Important fields:
 - `id`
 - `name`
 - `phone`
+- `category`
+- `message`
+- `email`
+- `region`
 - `status`
 - `note`
 - `handled_by`
+- `request_ip`
+- `request_user_agent`
 - `created_at`
 - `updated_at`
 
@@ -482,9 +513,109 @@ Current `status` values:
 
 Important invariants:
 
-- The public form stores only name and phone.
+- The consultation-first public form originally stored only name and phone; current storage also supports category, message, email, region, and request metadata.
 - It does not create Supabase auth users, organization rows, or pending workspaces.
 - Ops routes update status and notes with the platform admin user recorded in `handled_by`.
+
+### public_signup_requests
+
+Pending public signup queue for prospects who complete the signup request flow.
+
+Important fields:
+
+- `user_id`
+- `login_id`
+- `auth_email`
+- `organization_name`
+- `name`
+- `phone`
+- `kepco_email`
+- `representative_name`
+- `business_registration_number`
+- `business_address`
+- `business_type`
+- `business_item`
+- `invoice_email`
+- `status`
+- consent version and accepted-at fields
+- request and review metadata
+
+Current `status` values:
+
+- `pending`
+- `approved`
+- `rejected`
+
+Important invariants:
+
+- Unique indexes enforce one request per `user_id`, `login_id`, and `auth_email`.
+- `login_id` is stored lowercase.
+- Ops approval creates or links the owner workspace and seeds signup-derived defaults.
+
+### public_signup_phone_verifications
+
+Short-lived phone verification records for public signup.
+
+Important fields:
+
+- `phone`
+- `code_hash`
+- `code_salt`
+- `expires_at`
+- `verified_at`
+- `consumed_at`
+- `attempt_count`
+- `provider`
+- `provider_message_id`
+- request metadata
+
+Important invariants:
+
+- Verification codes are stored as hash plus salt, not plaintext.
+- `attempt_count` must be non-negative.
+- Public signup code confirmation must happen before `expires_at`; after `verified_at`, the final signup submit may consume the record once even if `expires_at` has passed.
+- RLS is enabled; service code performs the public verification flow.
+
+### public_signup_email_verifications
+
+Short-lived email verification records for public signup.
+
+Important fields:
+
+- `email`
+- `code_hash`
+- `code_salt`
+- `expires_at`
+- `verified_at`
+- `consumed_at`
+- `attempt_count`
+- `provider`
+- `provider_message_id`
+- request metadata
+
+Important invariants:
+
+- Verification codes are stored as hash plus salt, not plaintext.
+- `attempt_count` must be non-negative.
+- Public signup code confirmation must happen before `expires_at`; after `verified_at`, the final signup submit may consume the record once even if `expires_at` has passed.
+- RLS is enabled; service code performs the public verification flow.
+
+### public_rate_limits
+
+Persistent public endpoint rate-limit storage.
+
+Important fields:
+
+- `key`
+- `count`
+- `reset_at`
+- `updated_at`
+
+Important invariants:
+
+- `increment_public_rate_limit` is a security-definer function granted only to `service_role`.
+- Expired rows older than one day past reset are pruned opportunistically by the function.
+- Public route limiters may fall back to in-memory limits if persistent increment fails.
 
 ### app_logs
 

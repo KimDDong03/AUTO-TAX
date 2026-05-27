@@ -190,15 +190,14 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and action s
     helperActionBlockedReason: "재설치 필요",
     helperStatusLine: "인증서 3건 읽음",
     helperOnline: true,
-    helperCheckedAt: "2026-04-15T00:00:00.000Z",
-    helperCertificateCount: 3,
+    electronicTaxCertificateCount: 2,
+    generalCertificateCount: 1,
     certificateReadProgress: null,
     busy: false,
     isReadingCertificates: false,
     onReadCertificates: noopAsync,
     onRefreshHelper: noopAsync,
-    onDownloadHelper: noop,
-    formatDateTime: () => "2026-04-15 09:00"
+    onDownloadHelper: noop
   });
   const offlineTree = SettingsHelperOnboardingStep({
     helperReady: false,
@@ -207,15 +206,14 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and action s
     helperActionBlockedReason: "재설치 필요",
     helperStatusLine: "상태 미확인",
     helperOnline: false,
-    helperCheckedAt: null,
-    helperCertificateCount: 0,
+    electronicTaxCertificateCount: 0,
+    generalCertificateCount: 0,
     certificateReadProgress: null,
     busy: true,
     isReadingCertificates: false,
     onReadCertificates: noopAsync,
     onRefreshHelper: noopAsync,
-    onDownloadHelper: noop,
-    formatDateTime: () => "-"
+    onDownloadHelper: noop
   });
   const offlineButton = findElement(
     offlineTree,
@@ -234,6 +232,9 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and action s
   assert.doesNotMatch(collectText(readyTree), /버전 정보 보기/);
   assert.match(collectText(readyTree), /상태 확인/);
   assert.match(collectText(readyTree), /AT 헬퍼 다운로드/);
+  assert.match(collectText(readyTree), /전자세금용 공동인증서\s*2\s*건/);
+  assert.match(collectText(readyTree), /범용 공동인증서\s*1\s*건/);
+  assert.doesNotMatch(collectText(readyTree), /마지막 확인/);
   assert.ok(versionMismatchButton);
   assert.equal(versionMismatchButton.props.disabled, true);
   assert.ok(offlineButton);

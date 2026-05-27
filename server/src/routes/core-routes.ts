@@ -498,11 +498,13 @@ export function registerCoreRoutes(deps: RouteDeps) {
 
     await consumeSignupPhoneVerification(adminClient, {
       verificationId: payload.phoneVerificationId,
-      phone: payload.phone
+      phone: payload.phone,
+      allowExpiredVerified: true
     });
     await consumeSignupEmailVerification(adminClient, {
       verificationId: payload.kepcoEmailVerificationId,
-      email: payload.kepcoEmail
+      email: payload.kepcoEmail,
+      allowExpiredVerified: true
     });
 
     const { data: createdUserResult, error: createUserError } = await adminClient.auth.admin.createUser({

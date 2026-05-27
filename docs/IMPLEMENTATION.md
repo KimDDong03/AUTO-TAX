@@ -1,5 +1,7 @@
 # AUTO-TAX Implementation Map
 
+Status: canonical_runtime.
+
 This document is the developer-facing architecture map. It explains where behavior lives, how the major flows move through the system, and which files are tightly coupled.
 It is not a visual design guide or UI/UX rulebook. Layout, styling, and information architecture can be redesigned without treating this file as a constraint.
 
@@ -19,8 +21,8 @@ The product is multi-tenant. A logged-in session always operates against one act
 ### Public surface
 
 - `/` is a consultation-first access portal.
-- Anonymous users can submit a name and phone number through `POST /api/public/consultation-requests`.
-- Public signup requests collect organization name, contact name, phone, contact email, and required consents. Approval creates the owner workspace and seeds workspace contact defaults from those submitted values; KEPCO recipient mail credentials and internal notification recipients are configured separately.
+- Anonymous users can submit consultation/contact inquiries through `POST /api/public/consultation-requests` and `POST /api/public/contact-inquiries`.
+- Public signup requests collect login, organization, representative, business-registration, contact, KEPCO receiving email, phone/email verification, and required consents. Approval creates the owner workspace and seeds signup-derived workspace defaults; KEPCO mail password setup and internal notification recipients are configured separately.
 - Existing customers who already received an account can still use the secondary login form.
 - The anonymous signup flow creates a pending Supabase user but does not collect mail app passwords.
 
@@ -33,7 +35,7 @@ The product is multi-tenant. A logged-in session always operates against one act
 - `settings`
 - `ops` for platform admins only
 
-`onboarding` is not a persistent top-level tab. The active shell uses a top navigation bar for `home`, `issuance`, `customers`, `certificates`, `settings`, and platform-admin `ops`; onboarding opens as a large modal from the home setup card, settings, or legacy `#onboarding` hash compatibility. The modal keeps setup, first customer registration, first mail sync, exception handling, and first issue confirmation in one task surface.
+`onboarding` is not a persistent top-level tab for an active workspace. The active shell uses a top navigation bar for `home`, `issuance`, `customers`, `certificates`, `settings`, and platform-admin `ops`; legacy `#onboarding` routing resolves into the settings onboarding section. The onboarding content keeps setup, first customer registration, first mail sync, exception handling, and first issue confirmation in one task surface.
 
 ### Runtime truth
 
@@ -186,9 +188,9 @@ The product is multi-tenant. A logged-in session always operates against one act
 ### A. Public consultation, signup, and login
 
 1. Public root renders a consultation request form first and the customer login form second.
-2. New prospects post `POST /api/public/consultation-requests` with only `name` and `phone`.
+2. New prospects post `POST /api/public/consultation-requests` or `POST /api/public/contact-inquiries`; the current storage supports name, phone, category, message, email, region, and request metadata.
 3. Platform admins review requests in ops and change status through `GET/PATCH /api/ops/consultation-requests`.
-4. Public signup requests post `POST /api/public/signup`, creating a pending auth user and signup request.
+4. Public signup requests verify phone/email, then post `POST /api/public/signup`, creating a pending auth user and signup request.
 5. Platform admins approve signup requests through `POST /api/ops/signup-requests/:id/approve`, which creates or links the owner workspace and seeds the KEPCO receiving mail address.
 6. The platform admin can still save or override the target workspace mail app password from ops and run a mail connection test.
 7. Existing customers post `POST /api/public/login`, receive a Supabase session, set the active workspace id, and load `GET /api/bootstrap`.
@@ -358,8 +360,8 @@ Do not debug these two systems as if they were one queue.
    Internal AUTO-TAX operational notifications prefer `AUTO_TAX_OPS_EMAILS`; customer contact email is not auto-seeded as an internal alert recipient.
 2. UI roles are narrower than DB roles.
    The DB still stores `owner/admin/operator/viewer`, but product behavior is mostly owner versus member.
-3. The public root is not a general landing page.
-   Anonymous behavior should stay tightly scoped to access portal flows.
+3. The public root is an acquisition and access portal, not the workspace app.
+   Anonymous behavior should stay tightly scoped to consultation/contact, signup request, and existing-customer login flows.
 4. `public/` is generated output for Vercel builds.
 5. `dist/renewal-local-helper/` is packaging output, not source.
 

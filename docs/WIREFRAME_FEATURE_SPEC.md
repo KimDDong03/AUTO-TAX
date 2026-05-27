@@ -1,5 +1,9 @@
 # AUTO-TAX 와이어프레임 전 단계 기능명세
 
+> Status: working draft / non-canonical.
+> Use this as feature planning input for wireframes. Current runtime behavior is authoritative in `docs/IMPLEMENTATION.md`, current UI rules are in `docs/design.md`, and tab/IA decisions are in `docs/TAB_STRUCTURE_COMPARISON.md`.
+> Needs verification before using any screen inventory claim as source of truth.
+
 ## 문서 목적
 
 - 이 문서는 `2026-04-23` 현재 AUTO-TAX 구현을 기준으로, 와이어프레임 설계 전에 필요한 기능 판단 재료를 정리한 문서다.

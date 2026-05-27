@@ -299,6 +299,7 @@ export async function consumeSignupEmailVerification(
   input: {
     verificationId: string;
     email: string;
+    allowExpiredVerified?: boolean;
   }
 ): Promise<void> {
   const row = await getVerificationRow(adminClient, input.verificationId);
@@ -314,7 +315,7 @@ export async function consumeSignupEmailVerification(
   if (asString(row.consumed_at)) {
     throw new HttpError(400, "이미 사용된 한전 수신메일 인증입니다.");
   }
-  if (isExpired(asString(row.expires_at))) {
+  if (!input.allowExpiredVerified && isExpired(asString(row.expires_at))) {
     throw new HttpError(400, "한전 수신메일 인증이 만료되었습니다. 다시 인증해주세요.");
   }
 

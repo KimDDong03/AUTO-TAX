@@ -1,5 +1,9 @@
 # AUTO-TAX IA 초안
 
+> Status: working draft / non-canonical.
+> Use this only for IA exploration or screen-structure planning. For current runtime truth, read `docs/IMPLEMENTATION.md`; for the current tab decision, read `docs/TAB_STRUCTURE_COMPARISON.md`.
+> Needs verification before using any menu or screen claim as implementation truth.
+
 > 이 문서는 와이어프레임 작업을 위한 `정보구조 초안`이다.  
 > canonical runtime 문서가 아니라, 현재 구현을 바탕으로 화면 구조와 기능 묶음을 제안하는 설계 초안이다.
 

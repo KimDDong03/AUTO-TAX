@@ -1,5 +1,7 @@
 # AUTO-TAX Design System
 
+Status: canonical_design.
+
 AUTO-TAX UI is a dense B2B operations console. The interface should help users quickly understand what is complete, what is blocked, and what action comes next.
 
 ## Core Direction

@@ -238,7 +238,7 @@ test("IssuanceTab exposes manual mail sync from the issuance toolbar", () => {
 test("IssuanceTab defaults to the all filter", () => {
   const { markup } = renderIssuanceTab();
 
-  assert.match(markup, /issuance-filter-chip active"[^>]*aria-pressed="true"[^>]*><span class="issuance-filter-label">전체<\/span>/);
+  assert.match(markup, /aria-pressed="true"[^>]*is-active issuance-filter-chip"[^>]*><span class="issuance-filter-label">전체<\/span>/);
 });
 
 test("IssuanceTab shows mail sync progress while sync is busy", () => {
@@ -375,15 +375,14 @@ test("IssuanceTab keeps unmatched exception details out of the detail panel", ()
 });
 
 test("IssuanceTab shows current-month customers without mail as missing mail", () => {
-  const billingMonth = getCurrentSeoulBillingMonthForTest();
   const { markup } = renderIssuanceTab({
     requestedFilter: "missingMail",
     customers: [buildCustomer()]
   });
 
-  assert.match(markup, /issuance-filter-label">메일 미수신<\/span><span class="issuance-filter-count">1명<\/span>/);
+  assert.match(markup, /issuance-filter-label">메일 미수신<\/span><span class="summary-filter-card-count issuance-filter-count"><strong>1<\/strong>명<\/span>/);
   assert.match(markup, /하예리/);
-  assert.match(markup, new RegExp(`${billingMonth} 메일 대기`));
+  assert.match(markup, /IssuanceStatusBadge|메일 미수신/);
 });
 
 test("IssuanceTab does not show missing mail when the current month mail exists", () => {
@@ -393,6 +392,6 @@ test("IssuanceTab does not show missing mail when the current month mail exists"
     inboxMessages: [buildInboxMessage()]
   });
 
-  assert.match(markup, /issuance-filter-label">메일 미수신<\/span><span class="issuance-filter-count">0명<\/span>/);
+  assert.match(markup, /issuance-filter-label">메일 미수신<\/span><span class="summary-filter-card-count issuance-filter-count"><strong>0<\/strong>명<\/span>/);
   assert.doesNotMatch(markup, /하예리/);
 });

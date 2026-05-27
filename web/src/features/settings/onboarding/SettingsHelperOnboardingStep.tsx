@@ -8,15 +8,14 @@ type SettingsHelperOnboardingStepProps = {
   helperActionBlockedReason: string;
   helperStatusLine: string;
   helperOnline: boolean;
-  helperCheckedAt: string | null;
-  helperCertificateCount: number;
+  electronicTaxCertificateCount: number;
+  generalCertificateCount: number;
   certificateReadProgress: SettingsCertificateReadProgress;
   busy: boolean;
   isReadingCertificates: boolean;
   onReadCertificates: () => Promise<void>;
   onRefreshHelper: () => Promise<void>;
   onDownloadHelper: () => void;
-  formatDateTime: (value: string | null) => string;
 };
 
 export function SettingsHelperOnboardingStep({
@@ -26,15 +25,14 @@ export function SettingsHelperOnboardingStep({
   helperActionBlockedReason,
   helperStatusLine,
   helperOnline,
-  helperCheckedAt,
-  helperCertificateCount,
+  electronicTaxCertificateCount,
+  generalCertificateCount,
   certificateReadProgress,
   busy,
   isReadingCertificates,
   onReadCertificates,
   onRefreshHelper,
-  onDownloadHelper,
-  formatDateTime
+  onDownloadHelper
 }: SettingsHelperOnboardingStepProps) {
   const helperVersionMismatch = helperUpgradeRequired || helperUpgradeAvailable;
   const readBlockedReason = helperVersionMismatch
@@ -66,11 +64,11 @@ export function SettingsHelperOnboardingStep({
           </div>
           <div>
             <span>전자세금용 공동인증서</span>
-            <strong>{helperCertificateCount}건</strong>
+            <strong>{electronicTaxCertificateCount}건</strong>
           </div>
           <div>
-            <span>마지막 확인</span>
-            <strong>{formatDateTime(helperCheckedAt)}</strong>
+            <span>범용 공동인증서</span>
+            <strong>{generalCertificateCount}건</strong>
           </div>
         </div>
 

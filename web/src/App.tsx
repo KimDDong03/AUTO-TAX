@@ -2835,6 +2835,16 @@ export function App() {
       deriveCustomerCertificateKind(certificate) === "electronic_tax" &&
       !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
   ).length;
+  const customerRenewalAssistantGeneralCertificateCount = customerRenewalAssistantAllCertificates.filter((certificate) => {
+    const kind = deriveCustomerCertificateKind(certificate);
+    return (
+      (kind === "general_personal" || kind === "general_business") &&
+      !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+    );
+  }).length;
+  const customerRenewalAssistantAvailableCertificateCount = customerRenewalAssistantAllCertificates.filter(
+    (certificate) => !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+  ).length;
   const helperSetupCompleted =
     helperSetupPreference.organizationId === activeOrganizationId && helperSetupPreference.completed;
   const helperVersionMismatch = helperUpgradeRequired || helperUpgradeAvailable;
@@ -2852,7 +2862,7 @@ export function App() {
     busyKey,
     currentUserId: data?.auth.userId ?? null,
     helperReady: helperOnboardingReady,
-    helperCertificateCount: customerRenewalAssistantElectronicTaxCertificateCount,
+    helperCertificateCount: customerRenewalAssistantAvailableCertificateCount,
     customerRenewalAssistantOnline: customerRenewalAssistant?.agentOnline ?? false,
     customerRenewalAssistantUpgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
     setGlobalError: setError,
@@ -2881,7 +2891,7 @@ export function App() {
           setCertificateReadProgress({
             label: "AT 헬퍼 확인 중",
             detail: "공동인증서를 읽기 전에 헬퍼 연결 상태를 확인하고 있습니다.",
-            percent: 20,
+            percent: 10,
             completedCount: 0,
             totalCount: null,
             status: "running"
@@ -2889,8 +2899,8 @@ export function App() {
           try {
             setCertificateReadProgress({
               label: "공동인증서 저장소 읽는 중",
-              detail: "PC의 공동인증서 저장소에서 전자세금용 인증서를 찾고 있습니다.",
-              percent: 65,
+              detail: "PC의 공동인증서 저장소에서 공동인증서를 찾고 있습니다.",
+              percent: 25,
               completedCount: 0,
               totalCount: null,
               status: "running"
@@ -2901,12 +2911,20 @@ export function App() {
                 deriveCustomerCertificateKind(certificate) === "electronic_tax" &&
                 !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
             ).length;
+            const generalCertificateCount = certificates.filter((certificate) => {
+              const kind = deriveCustomerCertificateKind(certificate);
+              return (
+                (kind === "general_personal" || kind === "general_business") &&
+                !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+              );
+            }).length;
+            const availableCertificateCount = electronicTaxCertificateCount + generalCertificateCount;
             setCertificateReadProgress({
               label: "읽기 완료",
-              detail: `사용 가능한 전자세금용 공동인증서 ${electronicTaxCertificateCount}건을 확인했습니다.`,
+              detail: `사용 가능한 전자세금용 공동인증서 ${electronicTaxCertificateCount}건, 범용 공동인증서 ${generalCertificateCount}건을 확인했습니다.`,
               percent: 100,
-              completedCount: electronicTaxCertificateCount,
-              totalCount: electronicTaxCertificateCount,
+              completedCount: availableCertificateCount,
+              totalCount: availableCertificateCount,
               status: "done"
             });
           } catch (readError) {
@@ -3039,7 +3057,7 @@ export function App() {
       helper: {
         ready: helperOnboardingReady,
         online: customerRenewalAssistant?.agentOnline ?? false,
-        certificateCount: customerRenewalAssistantElectronicTaxCertificateCount,
+        certificateCount: customerRenewalAssistantAvailableCertificateCount,
         upgradeState: customerRenewalAssistant?.upgradeState ?? "unknown",
         actionBlockedReason: helperActionBlockedReason,
         upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null
@@ -3076,21 +3094,20 @@ export function App() {
     busyKey,
     isMailTesting,
     helper: {
-        ready: helperOnboardingReady,
+      ready: helperOnboardingReady,
       upgradeRequired: helperUpgradeRequired,
       upgradeAvailable: helperUpgradeAvailable,
       actionBlockedReason: helperActionBlockedReason,
       online: customerRenewalAssistant?.agentOnline ?? false,
-      checkedAt: customerRenewalAssistant?.helperCheckedAt ?? null,
-      certificateCount: customerRenewalAssistantElectronicTaxCertificateCount,
+      electronicTaxCertificateCount: customerRenewalAssistantElectronicTaxCertificateCount,
+      generalCertificateCount: customerRenewalAssistantGeneralCertificateCount,
       upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
       latestVersion: customerRenewalAssistant?.latestVersion ?? null,
       minSupportedVersion: customerRenewalAssistant?.minSupportedVersion ?? null
     },
     certificateReadProgress,
     renewalHelperDownloadUrl,
-    runReadCertificates: runSettingsCertificateRead,
-    formatDateTime
+    runReadCertificates: runSettingsCertificateRead
   });
 
   const certificatesScreenModel = useCertificatesScreenModel({
@@ -7237,11 +7254,11 @@ export function App() {
       step: 1,
       title: "AT 헬퍼 준비",
       summary: helperOnboardingReady
-        ? customerRenewalAssistantElectronicTaxCertificateCount > 0
-          ? `전자세금용 인증서 ${customerRenewalAssistantElectronicTaxCertificateCount}건`
+        ? customerRenewalAssistantAvailableCertificateCount > 0
+          ? `공동인증서 ${customerRenewalAssistantAvailableCertificateCount}건`
           : "준비 완료"
         : "확인 필요",
-      primaryActionLabel: helperOnboardingReady ? "전자세금용 공동인증서 읽기 완료" : "전자세금용 공동인증서 읽기",
+      primaryActionLabel: helperOnboardingReady ? "공동인증서 읽기 완료" : "공동인증서 읽기",
       blockedReason: helperVersionMismatch
         ? helperActionBlockedReason
         : customerRenewalAssistant?.agentOnline
@@ -8045,7 +8062,7 @@ export function App() {
             customerRenewalAssistantUpgradeState={customerRenewalAssistant?.upgradeState ?? "unknown"}
             customerRenewalAssistantUpgradeMessage={customerRenewalAssistant?.upgradeMessage ?? null}
             renewalHelperDownloadUrl={renewalHelperDownloadUrl}
-            customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
+            customerRenewalLoadedCertificateCount={customerRenewalAssistantAvailableCertificateCount}
             userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
             workspaceLabel={activeWorkspaceName}
             workspaceModeLabel={workspacePopbillModeLabel}
@@ -8139,7 +8156,9 @@ export function App() {
             customerRenewalAssistantLatestVersion={customerRenewalAssistant?.latestVersion ?? null}
             customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
             customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
-            customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
+            customerRenewalLoadedCertificateCount={customerRenewalAssistantAvailableCertificateCount}
+            customerRenewalElectronicTaxCertificateCount={customerRenewalAssistantElectronicTaxCertificateCount}
+            customerRenewalGeneralCertificateCount={customerRenewalAssistantGeneralCertificateCount}
             certificateReadProgress={certificateReadProgress}
             renewalHelperDownloadUrl={renewalHelperDownloadUrl}
             setActiveSettingsSection={setActiveSettingsSection}
@@ -8162,7 +8181,7 @@ export function App() {
             customerRenewalAssistantLatestVersion={customerRenewalAssistant?.latestVersion ?? null}
             customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
             renewalHelperDownloadUrl={renewalHelperDownloadUrl}
-            customerRenewalLoadedCertificateCount={customerRenewalAssistantAllCertificates.length}
+            customerRenewalLoadedCertificateCount={customerRenewalAssistantAvailableCertificateCount}
             userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
             workspaceLabel={activeWorkspaceName}
             popbillModeLabel={workspacePopbillModeLabel}

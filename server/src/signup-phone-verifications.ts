@@ -196,6 +196,7 @@ export async function consumeSignupPhoneVerification(
   input: {
     verificationId: string;
     phone: string;
+    allowExpiredVerified?: boolean;
   }
 ): Promise<void> {
   const row = await getVerificationRow(adminClient, input.verificationId);
@@ -211,7 +212,7 @@ export async function consumeSignupPhoneVerification(
   if (asString(row.consumed_at)) {
     throw new HttpError(400, "이미 사용된 휴대폰 인증입니다.");
   }
-  if (isExpired(asString(row.expires_at))) {
+  if (!input.allowExpiredVerified && isExpired(asString(row.expires_at))) {
     throw new HttpError(400, "휴대폰 인증이 만료되었습니다. 다시 인증해주세요.");
   }
 

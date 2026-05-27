@@ -136,6 +136,8 @@ export type SettingsHelperStatusModel = {
   minSupportedVersion: string | null;
   checkedAt: string | null;
   loadedCertificateCount: number;
+  loadedElectronicTaxCertificateCount: number;
+  loadedGeneralCertificateCount: number;
   certificateReadProgress: SettingsCertificateReadProgress;
   renewalHelperDownloadUrl: string;
   openCertificates: () => void;
