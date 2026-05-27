@@ -253,7 +253,7 @@ export function registerOpsRoutes(deps: RouteDeps) {
       await requestStore.createLog(
         "info",
         "ops",
-        "회원가입 신청 정보로 작업공간 한전 수신메일 설정을 채웠습니다.",
+        "회원가입 신청 정보로 작업공간 한전 메일 수신 주소 설정을 채웠습니다.",
         {
           sourceSignupRequestId: input.sourceSignupRequestId ?? null,
           mailAddress: mailAddress || null

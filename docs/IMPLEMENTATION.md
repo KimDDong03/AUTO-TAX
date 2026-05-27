@@ -22,7 +22,7 @@ The product is multi-tenant. A logged-in session always operates against one act
 
 - `/` is a consultation-first access portal.
 - Anonymous users can submit consultation/contact inquiries through `POST /api/public/consultation-requests` and `POST /api/public/contact-inquiries`.
-- Public signup requests collect login, organization, representative, business-registration, contact, the customer's own KEPCO receiving email, phone/email verification, and required consents. Approval creates the owner workspace and seeds signup-derived workspace defaults; KEPCO mail password setup and internal notification recipients are configured separately.
+- Public signup requests collect login, organization, representative, business-registration, contact, the customer's own KEPCO mail receiving address, phone/email verification, and required consents. Approval creates the owner workspace and seeds signup-derived workspace defaults; KEPCO mail password setup and internal notification recipients are configured separately.
 - Existing customers who already received an account can still use the secondary login form.
 - The anonymous signup flow creates a pending Supabase user but does not collect mail app passwords.
 
@@ -197,7 +197,7 @@ The product is multi-tenant. A logged-in session always operates against one act
 
 Signup email invariant:
 
-- The `한전 수신메일` field is the customer's actual KEPCO receiving mailbox that AUTO-TAX will later read for that workspace.
+- The `한전 메일 수신 주소` field is the customer's actual KEPCO receiving mailbox that AUTO-TAX will later read for that workspace.
 - Signup email verification sends the code to that customer-entered mailbox. It is not a verification of the AUTO-TAX sender mailbox.
 - `AUTO_TAX_SIGNUP_EMAIL_FROM` / `AUTO_TAX_SIGNUP_SMTP_USER` are service-owned sender credentials only, for example `auto-tax@kiyo.kr`; they must not be treated as the customer signup email unless the customer truly owns and uses that mailbox.
 

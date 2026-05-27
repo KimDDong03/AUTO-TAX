@@ -457,8 +457,8 @@ export function registerCoreRoutes(deps: RouteDeps) {
       if (error instanceof HttpError) {
         throw error;
       }
-      console.error("[signup] 한전 수신메일 인증번호 발송에 실패했습니다.", error);
-      throw new HttpError(503, "한전 수신메일 인증번호 발송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요.");
+      console.error("[signup] 한전 메일 수신 주소 인증번호 발송에 실패했습니다.", error);
+      throw new HttpError(503, "한전 메일 수신 주소 인증번호 발송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요.");
     }
   });
 

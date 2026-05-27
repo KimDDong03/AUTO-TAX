@@ -970,7 +970,7 @@ test("public signup kepco email verification returns service unavailable when SM
 
           assert.equal(response.status, 503);
           assert.deepEqual(await response.json(), {
-            error: "한전 수신메일 인증번호 발송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요."
+            error: "한전 메일 수신 주소 인증번호 발송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요."
           });
         });
       } finally {

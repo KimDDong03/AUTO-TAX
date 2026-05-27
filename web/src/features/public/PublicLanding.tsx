@@ -268,7 +268,7 @@ const publicTerms: readonly PublicTerm[] = [
       {
         title: "제3조 서비스의 성격",
         items: [
-          "서비스는 한전 수신메일 분석, 고객 정보 관리, 전자세금계산서 발행 준비, 팝빌(Popbill) 연동, 발행 완료 알림, 인증서 및 계약 상태 관리 등을 지원하는 업무 보조 도구입니다.",
+          "서비스는 한전 메일 수신 주소의 메일 분석, 고객 정보 관리, 전자세금계산서 발행 준비, 팝빌(Popbill) 연동, 발행 완료 알림, 인증서 및 계약 상태 관리 등을 지원하는 업무 보조 도구입니다.",
           "서비스는 세무, 회계, 법률 자문을 제공하는 서비스가 아니며, 세금계산서 발행 여부와 발행 내용에 대한 최종 확인 책임은 이용자에게 있습니다.",
           "회사는 이용자가 입력하거나 승인한 정보, 연동된 외부 시스템의 응답, 이용자가 부여한 권한 범위 내에서 서비스를 제공합니다."
         ]
@@ -401,7 +401,7 @@ const publicTerms: readonly PublicTerm[] = [
           "회원가입 신청 접수, 본인 및 담당자 확인",
           "계정 생성, 로그인, 작업공간 관리",
           "고객사 및 거래처 관리",
-          "한전 수신메일 조회 및 분석",
+          "한전 메일 수신 주소의 메일 조회 및 분석",
           "전자세금계산서 발행 준비, 발행 요청, 발행 결과 확인",
           "발행 완료 문자 알림 발송",
           "고객 문의 대응 및 서비스 운영 지원",
@@ -424,7 +424,7 @@ const publicTerms: readonly PublicTerm[] = [
           "Supabase: 회원 인증, 데이터베이스 운영, 서비스 데이터 보관",
           "Vercel: 웹 서비스 배포, API 실행, 접속 로그 처리",
           "팝빌(Popbill): 발행 완료 문자 발송",
-          "이용자가 설정한 이메일 서비스 제공자: 한전 수신메일 조회를 위한 IMAP 연동",
+          "이용자가 설정한 이메일 서비스 제공자: 한전 메일 수신 주소의 메일 조회를 위한 IMAP 연동",
           "이용자가 설정한 이메일 서비스 제공자는 이용자가 직접 선택한 메일 서비스 제공자를 의미하며, 예를 들어 네이버, Google, 카카오/다음 등일 수 있습니다. 해당 이메일 서비스 자체의 개인정보 처리 및 보관은 이용자가 선택한 이메일 서비스 제공자의 정책을 따릅니다.",
           "회사는 수탁자가 위탁받은 업무 목적 외 개인정보를 처리하지 않도록 관리·감독합니다. 위탁업무 또는 수탁자가 변경되는 경우 서비스 화면, 이메일, 공지사항 등 합리적인 방법으로 안내할 수 있습니다."
         ]
@@ -949,7 +949,7 @@ export function PublicLanding({
       : signupPhoneValid && !signupPhoneVerified
         ? "휴대폰 인증을 완료해주세요."
         : signupEmailValid && !signupEmailVerified
-          ? "한전 수신메일 인증을 완료해주세요."
+          ? "한전 메일 수신 주소 인증을 완료해주세요."
       : !signupRequiredFieldsFilled
         ? "필수 입력값과 비밀번호 확인을 맞춰주세요."
         : "필수 약관 동의가 필요합니다.";
@@ -1031,7 +1031,7 @@ export function PublicLanding({
       setLoginIdLookup((prev) => ({
         ...prev,
         status: "error",
-        message: "한전 수신메일을 먼저 올바르게 입력하세요."
+        message: "한전 메일 수신 주소를 먼저 올바르게 입력하세요."
       }));
       return;
     }
@@ -1096,7 +1096,7 @@ export function PublicLanding({
       setLoginIdLookup((prev) => ({
         ...prev,
         status: verified ? "verified" : "error",
-        message: verified ? "한전 수신메일 인증이 완료되었습니다." : "인증번호 확인에 실패했습니다."
+        message: verified ? "한전 메일 수신 주소 인증이 완료되었습니다." : "인증번호 확인에 실패했습니다."
       }));
     } catch (verificationError) {
       setLoginIdLookup((prev) => ({
@@ -1114,7 +1114,7 @@ export function PublicLanding({
       setLoginIdLookup((prev) => ({
         ...prev,
         status: "error",
-        message: "가입 시 입력한 한전 수신메일을 입력하세요."
+        message: "가입 시 입력한 한전 메일 수신 주소를 입력하세요."
       }));
       return;
     }
@@ -1123,7 +1123,7 @@ export function PublicLanding({
       setLoginIdLookup((prev) => ({
         ...prev,
         status: "error",
-        message: "한전 수신메일 인증을 완료한 뒤 아이디를 찾을 수 있습니다."
+        message: "한전 메일 수신 주소 인증을 완료한 뒤 아이디를 찾을 수 있습니다."
       }));
       return;
     }
@@ -1245,7 +1245,7 @@ export function PublicLanding({
       setSignupEmailVerification((prev) => ({
         ...prev,
         status: "error",
-        message: "한전 수신메일을 먼저 올바르게 입력하세요."
+        message: "한전 메일 수신 주소를 먼저 올바르게 입력하세요."
       }));
       return;
     }
@@ -1306,7 +1306,7 @@ export function PublicLanding({
       setSignupEmailVerification((prev) => ({
         ...prev,
         status: verified ? "verified" : "error",
-        message: verified ? "한전 수신메일 인증이 완료되었습니다." : "인증번호 확인에 실패했습니다."
+        message: verified ? "한전 메일 수신 주소 인증이 완료되었습니다." : "인증번호 확인에 실패했습니다."
       }));
     } catch (verificationError) {
       setSignupEmailVerification((prev) => ({
@@ -1652,7 +1652,7 @@ export function PublicLanding({
                 onSubmit={(event) => void submitLoginIdLookup(event)}
               >
                 <label>
-                  <span>한전 수신메일</span>
+                  <span>한전 메일 수신 주소</span>
                   <div className="portal-login-id-control portal-phone-verification-control">
                     <input
                       type="email"
@@ -1694,7 +1694,7 @@ export function PublicLanding({
                   </span>
                 </label>
                 <label>
-                  <span>한전 수신메일 인증번호</span>
+                  <span>한전 메일 수신 주소 인증번호</span>
                   <div className="portal-login-id-control portal-phone-verification-control">
                     <input
                       value={loginIdLookup.code}
@@ -1998,12 +1998,12 @@ export function PublicLanding({
                   </span>
                 </label>
                 <label className="row-start">
-                  <span>한전 수신메일</span>
+                  <span>한전 메일 수신 주소</span>
                   <div className="portal-login-id-control portal-phone-verification-control">
                     <input
                       type="text"
                       inputMode="email"
-                      aria-label="한전 수신메일"
+                      aria-label="한전 메일 수신 주소"
                       value={signupForm.kepcoEmail}
                       onChange={(event) => updateSignupForm("kepcoEmail", event.target.value)}
                       placeholder="kepco@example.com"
@@ -2035,15 +2035,15 @@ export function PublicLanding({
                       : signupEmailVerification.message
                         ? signupEmailVerification.message
                         : signupEmailValid
-                          ? "인증번호를 받아 한전 수신메일 인증을 완료하세요."
+                          ? "인증번호를 받아 한전 메일 수신 주소 인증을 완료하세요."
                         : "\u00a0"}
                   </span>
                 </label>
                 <label>
-                  <span>한전 수신메일 인증번호</span>
+                  <span>한전 메일 수신 주소 인증번호</span>
                   <div className="portal-login-id-control portal-phone-verification-control">
                     <input
-                      aria-label="한전 수신메일 인증번호"
+                      aria-label="한전 메일 수신 주소 인증번호"
                       value={signupEmailVerification.code}
                       onChange={(event) => {
                         const code = event.target.value.replace(/\D/g, "").slice(0, 6);
@@ -2075,7 +2075,7 @@ export function PublicLanding({
                     </button>
                   </div>
                   <span className={`field-hint portal-password-hint ${signupEmailVerified ? "portal-field-ok" : ""}`}>
-                    {signupEmailVerified ? "한전 수신메일 인증이 완료되었습니다." : "\u00a0"}
+                    {signupEmailVerified ? "한전 메일 수신 주소 인증이 완료되었습니다." : "\u00a0"}
                   </span>
                 </label>
                 <div className="portal-signup-section-title full">

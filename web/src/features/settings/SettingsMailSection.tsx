@@ -38,7 +38,7 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
             onChange={(event) => model.onMailAddressChange(event.target.value)}
           />
           <span className="field-hint">
-            한전 수신메일을 읽는 계정입니다.
+            한전 메일 수신 주소의 메일을 읽는 계정입니다.
           </span>
         </label>
         <label>

@@ -159,7 +159,7 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
         <div className="settings-option1-card-head">
           <div>
             <strong>메일 연결 설정</strong>
-            <span>한전 수신메일을 읽기 위한 계정과 수신 서버를 설정합니다.</span>
+            <span>한전 메일 수신 주소의 메일을 읽기 위한 계정과 수신 서버를 설정합니다.</span>
           </div>
           <button
             type="button"

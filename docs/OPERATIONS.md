@@ -50,7 +50,7 @@ to an organization default prefix.
 - `AUTO_TAX_SIGNUP_SMTP_HOST`, `AUTO_TAX_SIGNUP_SMTP_PORT`, `AUTO_TAX_SIGNUP_SMTP_SECURE`
 - `AUTO_TAX_SIGNUP_SMTP_USER`, `AUTO_TAX_SIGNUP_SMTP_PASS`, `AUTO_TAX_SIGNUP_EMAIL_FROM`, `AUTO_TAX_SIGNUP_EMAIL_FROM_NAME`
 - `AUTO_TAX_SIGNUP_SMTP_ALLOW_WEAK_DH`; defaults to enabled only for `smtp.whoisworks.com`, whose TLS handshake uses legacy DH parameters.
-- Signup SMTP env values are sender-side service credentials only. Public signup verification codes are sent to the customer-entered KEPCO receiving email, not to the service sender address unless the user explicitly typed that same mailbox.
+- Signup SMTP env values are sender-side service credentials only. Public signup verification codes are sent to the customer-entered KEPCO mail receiving address, not to the service sender address unless the user explicitly typed that same mailbox.
 - `AUTO_TAX_RENEWAL_AGENT_SECRET`; if omitted, renewal agent auth falls back to `AUTO_TAX_JOB_SECRET`
 - `AUTO_TAX_RENEWAL_AGENT_*`
 - Supabase cron `job-tick`, only if enabled: `AUTO_TAX_SERVER_URL`, `AUTO_TAX_JOB_SECRET`

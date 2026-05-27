@@ -101,7 +101,7 @@ export function SettingsMailOnboardingStep({
               invalid: onboarding.address.invalid,
               invalidText: "메일 형식이 올바르지 않습니다.",
               defaultText:
-                "한전 수신메일을 읽을 계정입니다."
+                "한전 메일 수신 주소의 메일을 읽을 계정입니다."
             })}
           </label>
           <label

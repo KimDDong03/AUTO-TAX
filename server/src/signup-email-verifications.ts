@@ -174,7 +174,7 @@ async function getVerificationRow(adminClient: AdminClient, verificationId: stri
     .maybeSingle();
 
   if (error) {
-    throw new Error(`한전 수신메일 인증 조회에 실패했습니다: ${error.message}`);
+    throw new Error(`한전 메일 수신 주소 인증 조회에 실패했습니다: ${error.message}`);
   }
 
   return data ? data as Row : null;
@@ -210,19 +210,19 @@ export async function createSignupEmailVerification(
     .single();
 
   if (error) {
-    throw new Error(`한전 수신메일 인증 저장에 실패했습니다: ${error.message}`);
+    throw new Error(`한전 메일 수신 주소 인증 저장에 실패했습니다: ${error.message}`);
   }
 
   let sent: EmailSendResult;
   try {
     sent = await emailProvider.send({
       to: email,
-      subject: "[AUTO-TAX] 한전 수신메일 인증번호",
-      text: `[AUTO-TAX] 한전 수신메일 인증번호는 ${code}입니다. 5분 안에 입력해주세요.`
+      subject: "[AUTO-TAX] 한전 메일 수신 주소 인증번호",
+      text: `[AUTO-TAX] 한전 메일 수신 주소 인증번호는 ${code}입니다. 5분 안에 입력해주세요.`
     });
   } catch (error) {
     const detail = describeEmailTransportError(error);
-    throw new Error(`한전 수신메일 인증번호 발송에 실패했습니다: ${detail}`);
+    throw new Error(`한전 메일 수신 주소 인증번호 발송에 실패했습니다: ${detail}`);
   }
 
   if (sent.providerMessageId) {
@@ -234,7 +234,7 @@ export async function createSignupEmailVerification(
       })
       .eq("id", asString((data as Row).id));
     if (updateError) {
-      console.warn(`한전 수신메일 인증 발송 ID 저장에 실패했습니다: ${updateError.message}`);
+      console.warn(`한전 메일 수신 주소 인증 발송 ID 저장에 실패했습니다: ${updateError.message}`);
     }
   }
 
@@ -282,14 +282,14 @@ export async function confirmSignupEmailVerification(
 ): Promise<void> {
   const row = await getVerificationRow(adminClient, input.verificationId);
   if (!row) {
-    throw new HttpError(404, "한전 수신메일 인증 요청을 찾을 수 없습니다.");
+    throw new HttpError(404, "한전 메일 수신 주소 인증 요청을 찾을 수 없습니다.");
   }
 
   if (asString(row.email) !== normalizeSignupEmail(input.email)) {
-    throw new HttpError(400, "인증 요청한 한전 수신메일과 일치하지 않습니다.");
+    throw new HttpError(400, "인증 요청한 한전 메일 수신 주소와 일치하지 않습니다.");
   }
   if (asString(row.consumed_at)) {
-    throw new HttpError(400, "이미 사용된 한전 수신메일 인증입니다.");
+    throw new HttpError(400, "이미 사용된 한전 메일 수신 주소 인증입니다.");
   }
   if (asString(row.verified_at)) {
     return;
@@ -314,7 +314,7 @@ export async function confirmSignupEmailVerification(
       })
       .eq("id", input.verificationId);
     if (error) {
-      throw new Error(`한전 수신메일 인증 실패 횟수 저장에 실패했습니다: ${error.message}`);
+      throw new Error(`한전 메일 수신 주소 인증 실패 횟수 저장에 실패했습니다: ${error.message}`);
     }
     throw new HttpError(400, "인증번호가 일치하지 않습니다.");
   }
@@ -327,7 +327,7 @@ export async function confirmSignupEmailVerification(
     })
     .eq("id", input.verificationId);
   if (error) {
-    throw new Error(`한전 수신메일 인증 완료 저장에 실패했습니다: ${error.message}`);
+    throw new Error(`한전 메일 수신 주소 인증 완료 저장에 실패했습니다: ${error.message}`);
   }
 }
 
@@ -341,19 +341,19 @@ export async function consumeSignupEmailVerification(
 ): Promise<void> {
   const row = await getVerificationRow(adminClient, input.verificationId);
   if (!row) {
-    throw new HttpError(400, "한전 수신메일 인증을 먼저 완료해주세요.");
+    throw new HttpError(400, "한전 메일 수신 주소 인증을 먼저 완료해주세요.");
   }
   if (asString(row.email) !== normalizeSignupEmail(input.email)) {
-    throw new HttpError(400, "인증한 한전 수신메일과 가입 메일이 일치하지 않습니다.");
+    throw new HttpError(400, "인증한 한전 메일 수신 주소와 가입 메일이 일치하지 않습니다.");
   }
   if (!asString(row.verified_at)) {
-    throw new HttpError(400, "한전 수신메일 인증을 먼저 완료해주세요.");
+    throw new HttpError(400, "한전 메일 수신 주소 인증을 먼저 완료해주세요.");
   }
   if (asString(row.consumed_at)) {
-    throw new HttpError(400, "이미 사용된 한전 수신메일 인증입니다.");
+    throw new HttpError(400, "이미 사용된 한전 메일 수신 주소 인증입니다.");
   }
   if (!input.allowExpiredVerified && isExpired(asString(row.expires_at))) {
-    throw new HttpError(400, "한전 수신메일 인증이 만료되었습니다. 다시 인증해주세요.");
+    throw new HttpError(400, "한전 메일 수신 주소 인증이 만료되었습니다. 다시 인증해주세요.");
   }
 
   const { error } = await adminClient
@@ -364,6 +364,6 @@ export async function consumeSignupEmailVerification(
     })
     .eq("id", input.verificationId);
   if (error) {
-    throw new Error(`한전 수신메일 인증 사용 처리에 실패했습니다: ${error.message}`);
+    throw new Error(`한전 메일 수신 주소 인증 사용 처리에 실패했습니다: ${error.message}`);
   }
 }
