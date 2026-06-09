@@ -6,6 +6,12 @@ export function isOrganizationOwnerRole(
   return role === "owner";
 }
 
+export function isOrganizationAdminRole(
+  role: OrganizationMemberRole | null | undefined
+): role is "owner" | "admin" {
+  return role === "owner" || role === "admin";
+}
+
 export function isWorkspaceEditorRole(
   role: OrganizationMemberRole | null | undefined
 ): role is "owner" | "admin" | "operator" {

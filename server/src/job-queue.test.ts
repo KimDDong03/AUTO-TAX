@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dispatchRecurringJobs } from "./job-queue.js";
+import { dispatchRecurringJobs, JobClaimLostError, runDueJobs } from "./job-queue.js";
 
 function createRecurringDispatchContext(
   joinedOrganizationIds: string[] = [],
@@ -91,4 +91,133 @@ test("dispatchRecurringJobs queues certificate-check for eligible organizations 
         detail.reason === "due"
     )
   );
+});
+
+test("runDueJobs does not retry or fail when late completion loses the runner fence", async () => {
+  const followupWrites: string[] = [];
+  const result = await runDueJobs(
+    {
+      now: new Date("2026-04-14T00:00:00.000Z"),
+      limit: 1,
+      claimedBy: "runner-a"
+    },
+    {
+      requeueStaleClaimedJobs: async () => 0,
+      listDueQueuedJobs: async () => [
+        {
+          id: "job-1",
+          organization_id: "org-1",
+          managed_customer_id: null,
+          job_type: "certificate-check",
+          status: "queued",
+          run_after: "2026-04-14T00:00:00.000Z",
+          payload: {},
+          result: null,
+          error: null,
+          claimed_at: null,
+          finished_at: null,
+          created_at: "2026-04-14T00:00:00.000Z",
+          updated_at: "2026-04-14T00:00:00.000Z"
+        }
+      ],
+      claimQueuedJob: async () =>
+        ({
+          id: "job-1",
+          organizationId: "org-1",
+          managedCustomerId: null,
+          jobType: "certificate-check",
+          status: "claimed",
+          runAfter: "2026-04-14T00:00:00.000Z",
+          payload: {},
+          result: { claimedBy: "runner-a" },
+          error: null,
+          claimedAt: "2026-04-14T00:00:00.000Z",
+          claimedBy: "runner-a",
+          finishedAt: null,
+          createdAt: "2026-04-14T00:00:00.000Z",
+          updatedAt: "2026-04-14T00:00:00.000Z"
+        }) as never,
+      executeJob: async () => ({ ok: true }),
+      completeJob: async () => {
+        throw new JobClaimLostError("job-1");
+      },
+      scheduleRetry: async () => {
+        followupWrites.push("retry");
+        return { scheduled: false, retryCount: 0 };
+      },
+      failJob: async () => {
+        followupWrites.push("fail");
+      }
+    } as never
+  );
+
+  assert.deepEqual(followupWrites, []);
+  assert.equal(result.completed, 0);
+  assert.equal(result.failed, 0);
+  assert.equal(result.details[0]?.status, "skipped");
+});
+
+test("runDueJobs does not fail a job when late failure loses the runner fence", async () => {
+  const followupWrites: string[] = [];
+  const result = await runDueJobs(
+    {
+      now: new Date("2026-04-14T00:00:00.000Z"),
+      limit: 1,
+      claimedBy: "runner-a"
+    },
+    {
+      requeueStaleClaimedJobs: async () => 0,
+      listDueQueuedJobs: async () => [
+        {
+          id: "job-1",
+          organization_id: "org-1",
+          managed_customer_id: null,
+          job_type: "certificate-check",
+          status: "queued",
+          run_after: "2026-04-14T00:00:00.000Z",
+          payload: {},
+          result: null,
+          error: null,
+          claimed_at: null,
+          finished_at: null,
+          created_at: "2026-04-14T00:00:00.000Z",
+          updated_at: "2026-04-14T00:00:00.000Z"
+        }
+      ],
+      claimQueuedJob: async () =>
+        ({
+          id: "job-1",
+          organizationId: "org-1",
+          managedCustomerId: null,
+          jobType: "certificate-check",
+          status: "claimed",
+          runAfter: "2026-04-14T00:00:00.000Z",
+          payload: { retryCount: 1 },
+          result: { claimedBy: "runner-a" },
+          error: null,
+          claimedAt: "2026-04-14T00:00:00.000Z",
+          claimedBy: "runner-a",
+          finishedAt: null,
+          createdAt: "2026-04-14T00:00:00.000Z",
+          updatedAt: "2026-04-14T00:00:00.000Z"
+        }) as never,
+      executeJob: async () => {
+        throw new Error("external timeout");
+      },
+      completeJob: async () => {
+        followupWrites.push("complete");
+      },
+      scheduleRetry: async () => {
+        throw new JobClaimLostError("job-1");
+      },
+      failJob: async () => {
+        followupWrites.push("fail");
+      }
+    } as never
+  );
+
+  assert.deepEqual(followupWrites, []);
+  assert.equal(result.completed, 0);
+  assert.equal(result.failed, 0);
+  assert.equal(result.details[0]?.status, "skipped");
 });

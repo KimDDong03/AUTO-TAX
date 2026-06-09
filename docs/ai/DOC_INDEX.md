@@ -27,7 +27,7 @@ design documents it points to.
 
 | Document | Status | Use when | Do not use for | Current source of truth | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `docs/TAB_STRUCTURE_COMPARISON.md` | `decision_record` | IA/top-level-tab decisions, especially onboarding absorbed into home/settings while issuance and certificates stay independent. | Current route implementation details without checking code. | Yes, for the recorded tab decision. | Current code routes active-workspace `#onboarding` to settings. |
+| `docs/TAB_STRUCTURE_COMPARISON.md` | `decision_record` | IA/top-level-tab decisions, especially onboarding absorbed into home/settings while issuance stays independent and certificate work is integrated into customers. | Current route implementation details without checking code. | Yes, for the recorded tab decision. | Current code routes active-workspace `#onboarding` to settings and legacy `#certificates` to customers. |
 
 ## Working drafts
 

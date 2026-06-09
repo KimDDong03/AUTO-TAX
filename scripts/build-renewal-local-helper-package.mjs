@@ -19,10 +19,6 @@ const outputZipPath = path.join(repoRoot, "dist", "renewal-local-helper.zip");
 const outputExePath = path.join(repoRoot, "dist", "renewal-local-helper.exe");
 const staticDownloadDir = path.join(repoRoot, "web", "public", "downloads");
 const staticDownloadMetadataPath = path.join(staticDownloadDir, "renewal-local-helper.json");
-const staticDownloadZipPath = path.join(staticDownloadDir, "AT helper.zip");
-const staticDownloadExePath = path.join(staticDownloadDir, "AT helper.exe");
-const legacyStaticDownloadZipPath = path.join(staticDownloadDir, "renewal-local-helper.zip");
-const legacyStaticDownloadExePath = path.join(staticDownloadDir, "renewal-local-helper.exe");
 const runtimeVersionPath = path.join(appDir, "renewal-local-helper-release.json");
 const installerStagingDir = path.join(repoRoot, "dist", "renewal-local-helper-installer");
 const trayStagingDir = path.join(repoRoot, "dist", "renewal-local-helper-tray");
@@ -795,11 +791,7 @@ function writeTrayExe() {
 function syncStaticDownloadAsset(versionedZipPath, versionedStaticZipPath, versionedExePath, versionedStaticExePath) {
   fs.mkdirSync(staticDownloadDir, { recursive: true });
   copyRecursive(versionedZipPath, versionedStaticZipPath);
-  copyRecursive(versionedZipPath, staticDownloadZipPath);
-  copyRecursive(versionedZipPath, legacyStaticDownloadZipPath);
   copyRecursive(versionedExePath, versionedStaticExePath);
-  copyRecursive(versionedExePath, staticDownloadExePath);
-  copyRecursive(versionedExePath, legacyStaticDownloadExePath);
   copyRecursive(outputMetadataPath, staticDownloadMetadataPath);
 }
 
@@ -991,9 +983,7 @@ async function main() {
   console.log(`legacyExe=${outputExePath}`);
   console.log(`publicMetadata=${staticDownloadMetadataPath}`);
   console.log(`publicZip=${versionedStaticZipPath}`);
-  console.log(`publicLegacyZip=${staticDownloadZipPath}`);
   console.log(`publicExe=${versionedStaticExePath}`);
-  console.log(`publicLegacyExe=${staticDownloadExePath}`);
 }
 
 await main();

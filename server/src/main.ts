@@ -6,7 +6,7 @@ import cors, { type CorsOptions } from "cors";
 import express from "express";
 import { z } from "zod";
 import { resolveRoadAddress } from "./address-resolver.js";
-import { createApiAuthMiddleware, createInternalJobAccessGuard, createRenewalAgentAccessGuard, getLoggingStore, getRequestStore, requireAuthContext, requireOrganizationOwner, requirePlatformAdmin, requireWorkspaceEditor } from "./api-access.js";
+import { createApiAuthMiddleware, createInternalJobAccessGuard, createRenewalAgentAccessGuard, getLoggingStore, getRequestStore, requireAuthContext, requireOrganizationAdmin, requireOrganizationOwner, requirePlatformAdmin, requireWorkspaceEditor } from "./api-access.js";
 import { registerAppShell } from "./app-shell.js";
 import { createWorkspaceLoginEmail, isEmailLikeAccount, normalizeEmail, normalizeLoginId } from "./auth-utils.js";
 import { findAuthUserByLoginId, listAllAuthUsers, upsertAuthUserLoginIndex } from "./auth-user-service.js";
@@ -71,7 +71,8 @@ import {
   createSupabaseAdminClient,
   createSupabasePublicClient,
   resolveAuthenticatedAppSession,
-  type AuthenticatedAppSession
+  type AuthenticatedAppSession,
+  type OrganizationMemberRole
 } from "./supabase.js";
 import { SupabaseStore } from "./supabase-store.js";
 import { digitsOnly, nowIso } from "./utils.js";
@@ -424,40 +425,44 @@ function resolvePathFromRoot(rootDir: string, value: string): string {
   return path.isAbsolute(value) ? value : path.resolve(rootDir, value);
 }
 
-export function toClientSettings(settings: AppSettings): ClientAppSettings {
+export function toClientSettings(
+  settings: AppSettings,
+  options: { role?: OrganizationMemberRole | null } = {}
+): ClientAppSettings {
   const runtimeSettings = applyServerManagedSettings(settings);
-  const mailPasswordConfigured = Boolean(trimOrNull(settings.imapPass) || trimOrNull(settings.smtpPass));
-  const popbillSharedPasswordConfigured = Boolean(trimOrNull(runtimeSettings.popbillSharedPassword));
-  const renewalCertificatePasswordConfigured = Boolean(trimOrNull(settings.renewalCertificatePassword));
-  const renewalIssuePasswordConfigured = Boolean(trimOrNull(settings.renewalIssuePassword));
+  const canViewOperationalSettings = options.role !== "viewer";
+  const mailPasswordConfigured = canViewOperationalSettings && Boolean(trimOrNull(settings.imapPass) || trimOrNull(settings.smtpPass));
+  const popbillSharedPasswordConfigured = canViewOperationalSettings && Boolean(trimOrNull(runtimeSettings.popbillSharedPassword));
+  const renewalCertificatePasswordConfigured = canViewOperationalSettings && Boolean(trimOrNull(settings.renewalCertificatePassword));
+  const renewalIssuePasswordConfigured = canViewOperationalSettings && Boolean(trimOrNull(settings.renewalIssuePassword));
   return {
     id: settings.id,
-    imapHost: settings.imapHost,
+    imapHost: canViewOperationalSettings ? settings.imapHost : "",
     imapPort: settings.imapPort,
     imapSecure: settings.imapSecure,
-    imapUser: settings.imapUser,
+    imapUser: canViewOperationalSettings ? settings.imapUser : "",
     imapPass: "",
-    imapMailbox: settings.imapMailbox,
-    smtpHost: settings.smtpHost,
+    imapMailbox: canViewOperationalSettings ? settings.imapMailbox : "",
+    smtpHost: canViewOperationalSettings ? settings.smtpHost : "",
     smtpPort: settings.smtpPort,
     smtpSecure: settings.smtpSecure,
-    smtpUser: settings.smtpUser,
+    smtpUser: canViewOperationalSettings ? settings.smtpUser : "",
     smtpPass: "",
-    smtpFromName: settings.smtpFromName,
-    smtpFromEmail: settings.smtpFromEmail,
-    mailConnectionVerifiedAt: settings.mailConnectionVerifiedAt,
-    notificationEmails: settings.notificationEmails,
+    smtpFromName: canViewOperationalSettings ? settings.smtpFromName : "",
+    smtpFromEmail: canViewOperationalSettings ? settings.smtpFromEmail : "",
+    mailConnectionVerifiedAt: canViewOperationalSettings ? settings.mailConnectionVerifiedAt : null,
+    notificationEmails: canViewOperationalSettings ? settings.notificationEmails : [],
     defaultIssueDay: settings.defaultIssueDay,
     defaultIssueHour: settings.defaultIssueHour,
     defaultIssueMinute: settings.defaultIssueMinute,
     mailPollMinutes: settings.mailPollMinutes,
     mailSyncStartAt: settings.mailSyncStartAt,
     timezone: settings.timezone,
-    popbillIsTest: runtimeSettings.popbillIsTest,
+    popbillIsTest: canViewOperationalSettings ? runtimeSettings.popbillIsTest : false,
     popbillUserIdPrefix: "",
     popbillSharedPassword: "",
-    renewalContactDepartment: settings.renewalContactDepartment,
-    renewalContactFax: settings.renewalContactFax,
+    renewalContactDepartment: canViewOperationalSettings ? settings.renewalContactDepartment : "",
+    renewalContactFax: canViewOperationalSettings ? settings.renewalContactFax : "",
     renewalCertificatePassword: "",
     renewalIssuePassword: "",
     schedulerEnabled: settings.schedulerEnabled,
@@ -466,7 +471,7 @@ export function toClientSettings(settings: AppSettings): ClientAppSettings {
     createdAt: settings.createdAt,
     updatedAt: settings.updatedAt,
     mailPasswordConfigured,
-    popbillConfigured: Boolean(runtimeSettings.popbillLinkId && runtimeSettings.popbillSecretKey),
+    popbillConfigured: canViewOperationalSettings && Boolean(runtimeSettings.popbillLinkId && runtimeSettings.popbillSecretKey),
     popbillSharedPasswordConfigured,
     renewalCertificatePasswordConfigured,
     renewalIssuePasswordConfigured,
@@ -854,13 +859,32 @@ const publicConsultationLimiter = createRateLimiter({
   keyGenerator: (req) => resolveRequestIp(req)
 });
 
-const publicSignupLimiter = (
-  _req: express.Request,
-  _res: express.Response,
-  next: express.NextFunction
-) => {
-  next();
-};
+function readSignupLimiterIdentity(req: express.Request): string {
+  const body = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
+  const query = req.query && typeof req.query === "object" ? req.query as Record<string, unknown> : {};
+  const rawIdentity =
+    body.phone ??
+    body.email ??
+    body.loginId ??
+    body.account ??
+    query.phone ??
+    query.email ??
+    query.loginId ??
+    "";
+  return String(rawIdentity).trim().toLowerCase();
+}
+
+export function createPublicSignupLimiter(): express.RequestHandler {
+  return createRateLimiter({
+    keyPrefix: "public-signup",
+    windowMs: 60 * 60 * 1000,
+    max: 30,
+    message: "회원가입 인증 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+    keyGenerator: (req) => `${req.path}:${resolveRequestIp(req)}:${readSignupLimiterIdentity(req)}`
+  });
+}
+
+const publicSignupLimiter = createPublicSignupLimiter();
 
 const requireInternalJobAccess = createInternalJobAccessGuard({
   hasValidJobSecret
@@ -1037,7 +1061,9 @@ export async function createApp(store: AppStore | null, webDist: string, rootDir
     app,
     store,
     getRequestStore,
+    requireAuthContext,
     requireWorkspaceEditor,
+    requireOrganizationAdmin,
     requirePlatformAdmin,
     getLoggingStore,
     getServerManagedSettings,

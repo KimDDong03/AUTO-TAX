@@ -31,11 +31,10 @@ The product is multi-tenant. A logged-in session always operates against one act
 - `home`
 - `issuance`
 - `customers`
-- `certificates`
 - `settings`
 - `ops` for platform admins only
 
-`onboarding` is not a persistent top-level tab for an active workspace. The active shell uses a top navigation bar for `home`, `issuance`, `customers`, `certificates`, `settings`, and platform-admin `ops`; legacy `#onboarding` routing resolves into the settings onboarding section. The onboarding content keeps setup, first customer registration, first mail sync, exception handling, and first issue confirmation in one task surface.
+`onboarding` is not a persistent top-level tab for an active workspace. The active shell uses a top navigation bar for `home`, `issuance`, `customers`, `settings`, and platform-admin `ops`; legacy `#onboarding` routing resolves into the settings onboarding section. Certificate operations are not a separate top-level tab; home alerts, settings helper links, and legacy `#certificates` routing send users to the customer tab's certificate-focused customer filter. The onboarding content keeps setup, first customer registration, first mail sync, exception handling, and first issue confirmation in one task surface.
 
 ### Runtime truth
 
@@ -70,9 +69,10 @@ The product is multi-tenant. A logged-in session always operates against one act
   - customer state, notes, and Popbill actions
   - certificate-first customer add flow for one-stop customer creation, certificate linking, Popbill join, and Popbill certificate registration retries
   - two-pane customer console with report-detail profile and monthly report history editing
+  - customer-integrated certificate expiration, certificate linking, renewal preparation, and payment entry flows
 - `web/src/features/certificates/`
-  - certificate listing and customer linking
-  - newer split screen model for certificate operations
+  - shared certificate-listing/model helpers for customer-integrated certificate views
+  - no active top-level certificate page
 - `web/src/features/renewal/`
   - renewal diagnostics, summaries, and helper-facing client logic
 - `web/src/features/settings/`

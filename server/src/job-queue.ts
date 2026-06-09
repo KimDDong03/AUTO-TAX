@@ -27,6 +27,7 @@ type QueueJob = {
   result: Record<string, unknown> | null;
   error: string | null;
   claimedAt: string | null;
+  claimedBy: string | null;
   finishedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -59,6 +60,16 @@ type DispatchRecurringJobsDependencies = {
   enqueueJob: typeof enqueueJob;
 };
 
+type RunDueJobsDependencies = {
+  requeueStaleClaimedJobs: typeof requeueStaleClaimedJobs;
+  listDueQueuedJobs: typeof listDueQueuedJobs;
+  claimQueuedJob: typeof claimQueuedJob;
+  executeJob: typeof executeJob;
+  completeJob: typeof completeJob;
+  scheduleRetry: typeof scheduleRetry;
+  failJob: typeof failJob;
+};
+
 export type JobDispatchResult = {
   checkedOrganizations: number;
   dispatched: number;
@@ -79,6 +90,15 @@ export type JobRunResult = {
     message: string;
   }>;
 };
+
+export class JobClaimLostError extends Error {
+  readonly status = 409;
+
+  constructor(jobId: string) {
+    super(`작업 ${jobId} 선점이 만료되었거나 다른 runner로 이동했습니다.`);
+    this.name = "JobClaimLostError";
+  }
+}
 
 const customerPopbillAutoJoinPayloadSchema = z.object({
   customerId: z.number().int().positive()
@@ -126,6 +146,7 @@ async function scheduleRetry(job: QueueJob, errorMessage: string): Promise<{ sch
   const client = createSupabaseAdminClient();
   const retryPolicy = getRetryPolicy(job.jobType);
   const currentRetryCount = asNumber(job.payload.retryCount, 0);
+  const claimedBy = requireClaimedBy(job);
 
   if (currentRetryCount >= retryPolicy.maxRetries) {
     return {
@@ -136,7 +157,7 @@ async function scheduleRetry(job: QueueJob, errorMessage: string): Promise<{ sch
 
   const retryCount = currentRetryCount + 1;
   const runAfter = new Date(Date.now() + retryPolicy.delayMinutes * 60_000).toISOString();
-  await assertNoError(
+  const updated = await assertNoError(
     "작업 재시도 예약 실패",
     client
       .from("job_queue")
@@ -159,7 +180,14 @@ async function scheduleRetry(job: QueueJob, errorMessage: string): Promise<{ sch
       })
       .eq("id", job.id)
       .eq("status", "claimed")
+      .contains("result", { claimedBy })
+      .select("id")
+      .maybeSingle()
   );
+
+  if (!updated) {
+    throw new JobClaimLostError(job.id);
+  }
 
   return {
     scheduled: true,
@@ -275,6 +303,7 @@ async function loadRecurringDispatchContext(): Promise<RecurringDispatchContext>
 }
 
 function mapQueueJob(row: Row): QueueJob {
+  const result = (row.result as Record<string, unknown> | null) ?? null;
   return {
     id: asString(row.id),
     organizationId: asString(row.organization_id),
@@ -283,9 +312,10 @@ function mapQueueJob(row: Row): QueueJob {
     status: asString(row.status, "queued") as QueueJobStatus,
     runAfter: asString(row.run_after),
     payload: (row.payload as Record<string, unknown> | null) ?? {},
-    result: (row.result as Record<string, unknown> | null) ?? null,
+    result,
     error: asNullableString(row.error),
     claimedAt: asNullableString(row.claimed_at),
+    claimedBy: asNullableString(result?.claimedBy),
     finishedAt: asNullableString(row.finished_at),
     createdAt: asString(row.created_at, nowIso()),
     updatedAt: asString(row.updated_at, nowIso())
@@ -347,9 +377,17 @@ async function enqueueJob(args: {
   return mapQueueJob(data as Row);
 }
 
-async function completeJob(jobId: string, result: Record<string, unknown>): Promise<void> {
+function requireClaimedBy(job: QueueJob): string {
+  if (!job.claimedBy) {
+    throw new JobClaimLostError(job.id);
+  }
+  return job.claimedBy;
+}
+
+async function completeJob(job: QueueJob, result: Record<string, unknown>): Promise<void> {
   const client = createSupabaseAdminClient();
-  await assertNoError(
+  const claimedBy = requireClaimedBy(job);
+  const updated = await assertNoError(
     "작업 완료 처리 실패",
     client
       .from("job_queue")
@@ -359,13 +397,22 @@ async function completeJob(jobId: string, result: Record<string, unknown>): Prom
         error: null,
         finished_at: nowIso()
       })
-      .eq("id", jobId)
+      .eq("id", job.id)
+      .eq("status", "claimed")
+      .contains("result", { claimedBy })
+      .select("id")
+      .maybeSingle()
   );
+
+  if (!updated) {
+    throw new JobClaimLostError(job.id);
+  }
 }
 
-async function failJob(jobId: string, errorMessage: string, result?: Record<string, unknown>): Promise<void> {
+async function failJob(job: QueueJob, errorMessage: string, result?: Record<string, unknown>): Promise<void> {
   const client = createSupabaseAdminClient();
-  await assertNoError(
+  const claimedBy = requireClaimedBy(job);
+  const updated = await assertNoError(
     "작업 실패 처리 실패",
     client
       .from("job_queue")
@@ -375,8 +422,16 @@ async function failJob(jobId: string, errorMessage: string, result?: Record<stri
         result: result ?? null,
         finished_at: nowIso()
       })
-      .eq("id", jobId)
+      .eq("id", job.id)
+      .eq("status", "claimed")
+      .contains("result", { claimedBy })
+      .select("id")
+      .maybeSingle()
   );
+
+  if (!updated) {
+    throw new JobClaimLostError(job.id);
+  }
 }
 
 async function claimQueuedJob(jobId: string, claimedBy: string): Promise<QueueJob | null> {
@@ -400,6 +455,25 @@ async function claimQueuedJob(jobId: string, claimedBy: string): Promise<QueueJo
   );
 
   return claimed ? mapQueueJob(claimed as Row) : null;
+}
+
+async function listDueQueuedJobs(
+  client: ReturnType<typeof createSupabaseAdminClient>,
+  now: Date,
+  limit: number
+): Promise<Row[]> {
+  const rows = await assertNoError(
+    "실행 대기 작업 조회 실패",
+    client
+      .from("job_queue")
+      .select("*")
+      .eq("status", "queued")
+      .lte("run_after", now.toISOString())
+      .order("run_after", { ascending: true })
+      .limit(Math.min(limit, 25))
+  );
+
+  return rows ?? [];
 }
 
 function skipRetiredMailSyncJob(job: QueueJob): Record<string, unknown> {
@@ -582,12 +656,27 @@ export async function runDueJobs(options: {
   now?: Date;
   limit?: number;
   claimedBy?: string;
-} = {}): Promise<JobRunResult> {
-  const client = createSupabaseAdminClient();
+} = {}, dependencies: Partial<RunDueJobsDependencies> = {}): Promise<JobRunResult> {
   const now = options.now ?? new Date();
   const limit = Math.max(1, Math.min(options.limit ?? 10, MAX_JOB_RUN_LIMIT));
   const claimedBy = options.claimedBy ?? "job-runner";
-  await requeueStaleClaimedJobs(now);
+  const requeueStaleClaimedJobsImpl = dependencies.requeueStaleClaimedJobs ?? requeueStaleClaimedJobs;
+  const claimQueuedJobImpl = dependencies.claimQueuedJob ?? claimQueuedJob;
+  const executeJobImpl = dependencies.executeJob ?? executeJob;
+  const completeJobImpl = dependencies.completeJob ?? completeJob;
+  const scheduleRetryImpl = dependencies.scheduleRetry ?? scheduleRetry;
+  const failJobImpl = dependencies.failJob ?? failJob;
+  let dueJobsClient: ReturnType<typeof createSupabaseAdminClient> | null = null;
+  const listDueQueuedJobsImpl = async (listNow: Date, listLimit: number): Promise<Row[]> => {
+    if (dependencies.listDueQueuedJobs) {
+      return dependencies.listDueQueuedJobs(undefined as never, listNow, listLimit);
+    }
+    if (!dueJobsClient) {
+      dueJobsClient = createSupabaseAdminClient();
+    }
+    return listDueQueuedJobs(dueJobsClient, listNow, listLimit);
+  };
+  await requeueStaleClaimedJobsImpl(now);
   const details: JobRunResult["details"] = [];
   let attempted = 0;
   let claimed = 0;
@@ -595,16 +684,7 @@ export async function runDueJobs(options: {
   let failed = 0;
 
   while (claimed < limit) {
-    const rows = await assertNoError(
-      "실행 대기 작업 조회 실패",
-      client
-        .from("job_queue")
-        .select("*")
-        .eq("status", "queued")
-        .lte("run_after", now.toISOString())
-        .order("run_after", { ascending: true })
-        .limit(Math.min(limit - claimed, 25))
-    );
+    const rows = await listDueQueuedJobsImpl(now, limit - claimed);
 
     if (!rows || rows.length === 0) {
       break;
@@ -618,7 +698,7 @@ export async function runDueJobs(options: {
       }
 
       const queuedJob = mapQueueJob(row);
-      const job = await claimQueuedJob(queuedJob.id, claimedBy);
+      const job = await claimQueuedJobImpl(queuedJob.id, claimedBy);
       if (!job) {
         continue;
       }
@@ -626,8 +706,8 @@ export async function runDueJobs(options: {
       claimed += 1;
 
       try {
-        const result = await executeJob(job);
-        await completeJob(job.id, result);
+        const result = await executeJobImpl(job);
+        await completeJobImpl(job, result);
         completed += 1;
         details.push({
           jobId: job.id,
@@ -637,8 +717,34 @@ export async function runDueJobs(options: {
           message: result.skipped === true ? asString(result.reason, "skipped") : "completed"
         });
       } catch (error) {
+        if (error instanceof JobClaimLostError) {
+          details.push({
+            jobId: job.id,
+            jobType: job.jobType,
+            organizationId: job.organizationId,
+            status: "skipped",
+            message: error.message
+          });
+          continue;
+        }
+
         const message = error instanceof Error ? error.message : "작업 실행 실패";
-        const retry = await scheduleRetry(job, message);
+        let retry;
+        try {
+          retry = await scheduleRetryImpl(job, message);
+        } catch (retryError) {
+          if (retryError instanceof JobClaimLostError) {
+            details.push({
+              jobId: job.id,
+              jobType: job.jobType,
+              organizationId: job.organizationId,
+              status: "skipped",
+              message: retryError.message
+            });
+            continue;
+          }
+          throw retryError;
+        }
         if (retry.scheduled) {
           details.push({
             jobId: job.id,
@@ -648,11 +754,25 @@ export async function runDueJobs(options: {
             message: `${retry.retryCount}회차 재시도를 예약했습니다.`
           });
         } else {
-          await failJob(job.id, message, {
-            ...(job.result ?? {}),
-            lastError: message,
-            retryCount: asNumber(job.payload.retryCount, 0)
-          });
+          try {
+            await failJobImpl(job, message, {
+              ...(job.result ?? {}),
+              lastError: message,
+              retryCount: asNumber(job.payload.retryCount, 0)
+            });
+          } catch (failError) {
+            if (failError instanceof JobClaimLostError) {
+              details.push({
+                jobId: job.id,
+                jobType: job.jobType,
+                organizationId: job.organizationId,
+                status: "skipped",
+                message: failError.message
+              });
+              continue;
+            }
+            throw failError;
+          }
           failed += 1;
           details.push({
             jobId: job.id,

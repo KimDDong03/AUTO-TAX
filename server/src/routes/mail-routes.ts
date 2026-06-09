@@ -7,8 +7,8 @@ import type { MailSyncOptions, MailSyncResult } from "../mail-sync.js";
 import { buildMailContentFingerprint } from "../mail-sync.js";
 
 const mailSyncSchema = z.object({
-  receivedMonth: z.string().trim().regex(/^\d{4}-\d{2}$/).optional(),
-  billingMonth: z.string().trim().regex(/^\d{4}-\d{2}$/).optional()
+  receivedMonth: z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
+  billingMonth: z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional()
 });
 
 const inboxReprocessSchema = z.object({

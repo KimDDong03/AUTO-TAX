@@ -8,8 +8,12 @@ import type {
 } from "./types";
 
 const DEFAULT_LOCAL_RENEWAL_HELPER_PORT = 35119;
+const DEFAULT_LOCAL_RENEWAL_HELPER_TIMEOUT_MS = 8_000;
 const configuredLocalRenewalHelperPort = typeof import.meta.env?.VITE_RENEWAL_HELPER_PORT === "string"
   ? import.meta.env.VITE_RENEWAL_HELPER_PORT.trim()
+  : "";
+const configuredLocalRenewalHelperTimeout = typeof import.meta.env?.VITE_RENEWAL_HELPER_TIMEOUT_MS === "string"
+  ? import.meta.env.VITE_RENEWAL_HELPER_TIMEOUT_MS.trim()
   : "";
 const configuredLocalRenewalHelperHosts = typeof import.meta.env?.VITE_RENEWAL_HELPER_ALLOWED_ORIGINS === "string"
   ? import.meta.env.VITE_RENEWAL_HELPER_ALLOWED_ORIGINS.split(",").map((value) => value.trim().toLowerCase())
@@ -34,6 +38,11 @@ function shouldUseLocalRenewalHelperHost(): boolean {
 function resolveLocalRenewalHelperPort(): number {
   const parsed = Number(configuredLocalRenewalHelperPort);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LOCAL_RENEWAL_HELPER_PORT;
+}
+
+function resolveLocalRenewalHelperTimeoutMs(): number {
+  const parsed = Number(configuredLocalRenewalHelperTimeout);
+  return Number.isFinite(parsed) && parsed >= 1000 ? parsed : DEFAULT_LOCAL_RENEWAL_HELPER_TIMEOUT_MS;
 }
 
 export const LOCAL_RENEWAL_HELPER_URL = `http://127.0.0.1:${resolveLocalRenewalHelperPort()}`;
@@ -187,16 +196,22 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
   }
 
   let response: Response;
+  const timeoutMs = resolveLocalRenewalHelperTimeoutMs();
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const fetchOptions: LocalNetworkRequestInit = {
       ...init,
       cache: "no-store",
       headers,
+      signal: init?.signal ?? controller.signal,
       targetAddressSpace: "loopback"
     };
     response = await fetch(`${LOCAL_RENEWAL_HELPER_URL}${pathname}`, fetchOptions);
   } catch {
     throw new Error(buildHelperUnavailableMessage());
+  } finally {
+    globalThis.clearTimeout(timeout);
   }
 
   if (!response.ok) {
@@ -287,10 +302,14 @@ export function resetLocalRenewalHelperStatusCacheForTests(): void {
 }
 
 export async function getLocalRenewalHelperReleaseMetadata(): Promise<LocalRenewalHelperReleaseMetadata | null> {
+  const timeoutMs = resolveLocalRenewalHelperTimeoutMs();
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(LOCAL_RENEWAL_HELPER_RELEASE_METADATA_URL, {
       method: "GET",
-      cache: "no-store"
+      cache: "no-store",
+      signal: controller.signal
     });
     if (!response.ok) {
       return null;
@@ -315,6 +334,8 @@ export async function getLocalRenewalHelperReleaseMetadata(): Promise<LocalRenew
     };
   } catch {
     return null;
+  } finally {
+    globalThis.clearTimeout(timeout);
   }
 }
 

@@ -218,7 +218,7 @@ type RouteDeps = {
   ) => Promise<void>;
   createEmptyBootstrapWorkspace: CreateEmptyBootstrapWorkspace;
   createEmptySettings: CreateEmptySettings;
-  toClientSettings: (settings: AppSettings) => unknown;
+  toClientSettings: (settings: AppSettings, options?: { role?: AuthenticatedAppSession["activeOrganizationRole"] }) => unknown;
   toClientCustomer: (customer: Customer) => Customer;
   runPlatformMaintenance: () => Promise<Record<string, unknown>>;
   dispatchRecurringJobs: () => Promise<Record<string, unknown>>;
@@ -633,7 +633,7 @@ export function registerCoreRoutes(deps: RouteDeps) {
     res.json({
       ...workspaceDashboard,
       customers: workspaceDashboard.customers.map(toClientCustomer),
-      settings: toClientSettings(workspaceDashboard.settings),
+      settings: toClientSettings(workspaceDashboard.settings, { role: authContext.activeOrganizationRole }),
       auth: authContext
     });
   });

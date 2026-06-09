@@ -247,6 +247,11 @@ Avoid customer-facing use of:
 - Popbill
 - 팝빌
 
+Exception:
+
+- Public legal terms, privacy notices, and required third-party disclosure consent may name `팝빌(Popbill)` when the user must be told the legal recipient or processor.
+- This exception applies only to legal/consent copy. Marketing copy, workspace operations UI, customer management, helper flows, alerts, empty states, and ordinary error messages should still use customer-facing wording such as `발행 연동`, `인증서 연결`, or `공동인증서 등록`.
+
 If an internal integration causes an error, show the actionable cause without naming the integration unless the surface is explicitly internal admin, ops, or developer diagnostics.
 
 ## Component Rules

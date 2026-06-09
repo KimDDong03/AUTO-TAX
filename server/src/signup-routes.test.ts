@@ -980,6 +980,55 @@ test("public signup kepco email verification returns service unavailable when SM
   );
 });
 
+test("public signup verification providers fail closed in production when delivery env is missing", async () => {
+  await withTemporaryEnv(
+    {
+      NODE_ENV: "production",
+      VERCEL_ENV: undefined,
+      SMS_PROVIDER: undefined,
+      SOLAPI_API_KEY: undefined,
+      SOLAPI_API_SECRET: undefined,
+      SOLAPI_SENDER_NUMBER: undefined,
+      AUTO_TAX_SIGNUP_EMAIL_PROVIDER: undefined,
+      AUTO_TAX_SIGNUP_SMTP_HOST: undefined,
+      AUTO_TAX_SIGNUP_SMTP_USER: undefined,
+      AUTO_TAX_SIGNUP_SMTP_PASS: undefined,
+      AUTO_TAX_SIGNUP_EMAIL_FROM: undefined,
+      AUTO_TAX_SUPPORT_TO_EMAIL: undefined,
+      AUTO_TAX_SUPPORT_APP_PASSWORD: undefined
+    },
+    async () => {
+      const originalConsoleError = console.error;
+      console.error = () => undefined;
+      try {
+        await withSignupServer(async (baseUrl) => {
+          const phoneResponse = await fetch(`${baseUrl}/api/public/signup/phone-verifications/send`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ phone: validSignupPayload.phone })
+          });
+          assert.equal(phoneResponse.status, 503);
+          assert.deepEqual(await phoneResponse.json(), {
+            error: "휴대폰 인증 문자 발송 설정이 아직 준비되지 않았습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요."
+          });
+
+          const emailResponse = await fetch(`${baseUrl}/api/public/signup/email-verifications/send`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email: validSignupPayload.kepcoEmail })
+          });
+          assert.equal(emailResponse.status, 503);
+          assert.deepEqual(await emailResponse.json(), {
+            error: "한전 메일 수신 주소 인증번호 발송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요."
+          });
+        });
+      } finally {
+        console.error = originalConsoleError;
+      }
+    }
+  );
+});
+
 test("public signup rejects unreasonable identity fields", async () => {
   await withSignupServer(async (baseUrl, fixture) => {
     const invalidName = await fetch(`${baseUrl}/api/public/signup`, {

@@ -16,6 +16,8 @@ import type {
 import type {
   CreateEmptySettings,
   LoggingStoreGetter,
+  RequireAuthContext,
+  RequireOrganizationAdmin,
   RequestStoreGetter,
   RequirePlatformAdmin,
   RequireWorkspaceEditor,
@@ -142,20 +144,22 @@ const customerOnboardingCommitSchema = z.object({
 });
 
 const completedBillingMonthSchema = z.object({
-  billingMonth: z.string().regex(/^\d{4}-\d{2}$/, "정산월 형식이 올바르지 않습니다.")
+  billingMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "정산월 형식이 올바르지 않습니다.")
 });
 
 type RouteDeps = {
   app: Express;
   store: AppStore | null;
   getRequestStore: RequestStoreGetter;
+  requireAuthContext: RequireAuthContext;
   requireWorkspaceEditor: RequireWorkspaceEditor;
+  requireOrganizationAdmin: RequireOrganizationAdmin;
   requirePlatformAdmin: RequirePlatformAdmin;
   getLoggingStore: LoggingStoreGetter;
   getServerManagedSettings: ServerManagedSettingsGetter;
   applyServerManagedSettings: (settings: AppSettings) => AppSettings;
   createEmptySettings: CreateEmptySettings;
-  toClientSettings: (settings: AppSettings) => unknown;
+  toClientSettings: (settings: AppSettings, options?: { role?: ReturnType<RequireAuthContext>["activeOrganizationRole"] }) => unknown;
   testMailConnections: (input: {
     imapHost: string;
     imapPort: number;
@@ -212,7 +216,9 @@ export function registerSettingsRoutes(deps: RouteDeps) {
     app,
     store,
     getRequestStore,
+    requireAuthContext,
     requireWorkspaceEditor,
+    requireOrganizationAdmin,
     requirePlatformAdmin,
     getLoggingStore,
     getServerManagedSettings,
@@ -235,8 +241,9 @@ export function registerSettingsRoutes(deps: RouteDeps) {
   } = deps;
 
   app.get("/api/settings", async (_req, res) => {
+    const authContext = requireAuthContext(res);
     const requestStore = getRequestStore(res, store);
-    res.json(toClientSettings(await requestStore.getSettings()));
+    res.json(toClientSettings(await requestStore.getSettings(), { role: authContext.activeOrganizationRole }));
   });
 
   app.get("/api/settings/popbill-shared-password", async (_req, res) => {
@@ -347,12 +354,12 @@ export function registerSettingsRoutes(deps: RouteDeps) {
   });
 
   app.put("/api/settings", async (req, res) => {
-    requireWorkspaceEditor(res);
+    const authContext = requireOrganizationAdmin(res);
     const requestStore = getRequestStore(res, store);
     const payload = settingsSchema.parse(req.body) as Partial<AppSettings>;
     const settings = await requestStore.updateSettings(payload);
     await requestStore.createLog("info", "settings", "시스템 설정을 저장했습니다.");
-    res.json(toClientSettings(settings));
+    res.json(toClientSettings(settings, { role: authContext.activeOrganizationRole }));
   });
 
   app.post("/api/system/mail-test", async (req, res) => {
@@ -369,7 +376,7 @@ export function registerSettingsRoutes(deps: RouteDeps) {
   });
 
   app.post("/api/settings/mail-connection-verified", async (_req, res) => {
-    requireWorkspaceEditor(res);
+    const authContext = requireOrganizationAdmin(res);
     const requestStore = getRequestStore(res, store);
     const currentSettings = await requestStore.getSettings();
     const verifiedSettings = await requestStore.updateSettings({
@@ -379,7 +386,7 @@ export function registerSettingsRoutes(deps: RouteDeps) {
           : null
     });
     await requestStore.createLog("info", "settings", "메일 연결 검증 상태를 갱신했습니다.");
-    res.json(toClientSettings(verifiedSettings));
+    res.json(toClientSettings(verifiedSettings, { role: authContext.activeOrganizationRole }));
   });
 
   app.get("/api/address/resolve", async (req, res) => {

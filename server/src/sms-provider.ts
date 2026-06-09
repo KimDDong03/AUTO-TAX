@@ -40,6 +40,10 @@ function normalizeSmsPhone(value: string): string {
   return value.replace(/\D/g, "");
 }
 
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+}
+
 export function createSmsProvider(): SmsProvider {
   if (process.env.SMS_PROVIDER === "solapi") {
     const apiKey = process.env.SOLAPI_API_KEY?.trim();
@@ -65,6 +69,10 @@ export function createSmsProvider(): SmsProvider {
         };
       }
     };
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error("운영 환경에서는 개발용 문자 인증 provider를 사용할 수 없습니다. SMS_PROVIDER=solapi 설정을 확인하세요.");
   }
 
   return {

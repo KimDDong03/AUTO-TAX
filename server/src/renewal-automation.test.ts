@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RenewalAutomationManager } from "./renewal-automation.js";
+import type { RenewalBridgeProbeResult } from "./domain.js";
+import { RenewalAutomationClaimLostError, RenewalAutomationManager } from "./renewal-automation.js";
 import { encryptSecret } from "./secret-box.js";
 import { REDACTED_SENSITIVE_VALUE } from "./utils.js";
 
-function createProbeResult(overrides: Partial<Record<string, unknown>> = {}) {
+function createProbeResult(overrides: Partial<RenewalBridgeProbeResult> = {}): RenewalBridgeProbeResult {
   return {
     process: {
       detected: true,
@@ -277,4 +278,129 @@ test("claimNextJob rehydrates issuePassword for the agent while keeping stored r
 
   assert.equal(job?.submissionProfile?.issuePassword, "654321");
   assert.equal(job?.result?.bridge.storageProbe.certificates[0]?.certDirPath, REDACTED_SENSITIVE_VALUE);
+});
+
+function createClaimFenceTestManager(row: Record<string, unknown>, observedUpdates: Array<{
+  payload: Record<string, unknown>;
+  filters: Array<[string, unknown]>;
+}>) {
+  const manager = Object.create(RenewalAutomationManager.prototype) as RenewalAutomationManager;
+  Object.assign(manager as object, {
+    client: {
+      from(table: string) {
+        assert.equal(table, "renewal_automation_jobs");
+        return {
+          select() {
+            const filters: Array<[string, unknown]> = [];
+            return {
+              eq(column: string, value: unknown) {
+                filters.push([column, value]);
+                return this;
+              },
+              lt() {
+                return { data: [], error: null };
+              },
+              maybeSingle: async () => {
+                assert.deepEqual(filters, [["id", 31]]);
+                return { data: row, error: null };
+              }
+            };
+          },
+          update(payload: Record<string, unknown>) {
+            const filters: Array<[string, unknown]> = [];
+            return {
+              eq(column: string, value: unknown) {
+                filters.push([column, value]);
+                return this;
+              },
+              select() {
+                return this;
+              },
+              maybeSingle: async () => {
+                observedUpdates.push({ payload, filters });
+                return { data: null, error: null };
+              }
+            };
+          }
+        };
+      }
+    }
+  });
+  return manager;
+}
+
+test("completeJob refuses late completion after the renewal job claim moved", async () => {
+  const updates: Array<{ payload: Record<string, unknown>; filters: Array<[string, unknown]> }> = [];
+  const manager = createClaimFenceTestManager(
+    {
+      id: 31,
+      type: "bridge-probe",
+      status: "queued",
+      customer_id: null,
+      customer_name: "한빛발전소",
+      certificate_index: null,
+      certificate_cn: null,
+      requested_at: "2026-04-17T00:00:00.000Z",
+      claimed_at: null,
+      finished_at: null,
+      requested_by: "web-ui",
+      claimed_by: null,
+      summary: "재대기",
+      error: "이전 에이전트 응답이 없어 대기열로 재등록했습니다.",
+      result_json: null,
+      comparison_profile_json: null,
+      submission_profile_json: null,
+      execute_submit: false
+    },
+    updates
+  );
+
+  await assert.rejects(
+    () => manager.completeJob(31, "agent-old", createProbeResult()),
+    RenewalAutomationClaimLostError
+  );
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0]?.filters, [
+    ["id", 31],
+    ["status", "claimed"],
+    ["claimed_by", "agent-old"]
+  ]);
+});
+
+test("failJob refuses late failure after the renewal job claim moved", async () => {
+  const updates: Array<{ payload: Record<string, unknown>; filters: Array<[string, unknown]> }> = [];
+  const manager = createClaimFenceTestManager(
+    {
+      id: 31,
+      type: "renewal-preflight",
+      status: "claimed",
+      customer_id: 77,
+      customer_name: "한빛발전소",
+      certificate_index: 1,
+      certificate_cn: "한빛발전소",
+      requested_at: "2026-04-17T00:00:00.000Z",
+      claimed_at: "2026-04-17T00:05:00.000Z",
+      finished_at: null,
+      requested_by: "web-ui",
+      claimed_by: "agent-new",
+      summary: "실행 중",
+      error: null,
+      result_json: null,
+      comparison_profile_json: null,
+      submission_profile_json: null,
+      execute_submit: false
+    },
+    updates
+  );
+
+  await assert.rejects(
+    () => manager.failJob(31, "agent-old", "certificatePassword=secret timeout"),
+    RenewalAutomationClaimLostError
+  );
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0]?.filters, [
+    ["id", 31],
+    ["status", "claimed"],
+    ["claimed_by", "agent-old"]
+  ]);
 });

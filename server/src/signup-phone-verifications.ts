@@ -42,6 +42,10 @@ function isExpired(expiresAt: string): boolean {
   return new Date(expiresAt).getTime() <= Date.now();
 }
 
+function canExposeDevCode(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.VERCEL_ENV !== "production";
+}
+
 function getSmsSendFailureMessage(error: unknown): string {
   if (!(error instanceof Error)) {
     return "휴대폰 인증 문자 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.";
@@ -128,7 +132,7 @@ export async function createSignupPhoneVerification(
   return {
     verificationId: asString((data as Row).id),
     expiresAt: asString((data as Row).expires_at, expiresAt),
-    devCode: sent.devCode
+    devCode: canExposeDevCode() ? sent.devCode : undefined
   };
 }
 

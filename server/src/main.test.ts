@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
-import { buildClientApiErrorBody, createApp, isAllowedCorsOrigin, resolveDirectStartServerOptions } from "./main.js";
+import express from "express";
+import { buildClientApiErrorBody, createApp, createPublicSignupLimiter, isAllowedCorsOrigin, resolveDirectStartServerOptions } from "./main.js";
 
 test("isAllowedCorsOrigin accepts localhost dev origins on non-default Vite ports", () => {
   assert.equal(isAllowedCorsOrigin("http://localhost:5174", new Set()), true);
@@ -83,6 +84,49 @@ test("createApp sends browser security headers on API responses", async () => {
     assert.equal(response.headers.get("x-frame-options"), "DENY");
     assert.equal(response.headers.get("referrer-policy"), "strict-origin-when-cross-origin");
     assert.match(response.headers.get("permissions-policy") ?? "", /camera=\(\)/);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
+test("public signup limiter blocks repeated requests for the same IP and identity", async () => {
+  const app = express();
+  app.use(express.json());
+  app.post("/api/public/signup/phone-verifications/send", createPublicSignupLimiter(), (_req, res) => {
+    res.json({ ok: true });
+  });
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  try {
+    for (let index = 0; index < 30; index += 1) {
+      const response = await fetch(`${baseUrl}/api/public/signup/phone-verifications/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ phone: "010-1234-5678" })
+      });
+      assert.equal(response.status, 200);
+    }
+
+    const blocked = await fetch(`${baseUrl}/api/public/signup/phone-verifications/send`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ phone: "010-1234-5678" })
+    });
+    assert.equal(blocked.status, 429);
+    assert.deepEqual(await blocked.json(), {
+      error: "회원가입 인증 요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
+    });
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {

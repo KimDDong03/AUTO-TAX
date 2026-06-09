@@ -1,6 +1,6 @@
 import type { Request, RequestHandler, Response } from "express";
 import { HttpError } from "./http-errors.js";
-import { isOrganizationOwnerRole, isWorkspaceEditorRole } from "./access-policy.js";
+import { isOrganizationAdminRole, isOrganizationOwnerRole, isWorkspaceEditorRole } from "./access-policy.js";
 import { buildPilotLogContext } from "./pilot-issuance.js";
 import type { ActiveOrganizationSession } from "./route-types.js";
 import type { AppStore } from "./store-contract.js";
@@ -105,6 +105,14 @@ export function requireOrganizationOwner(res: Response): ActiveOrganizationSessi
   const authContext = requireActiveOrganization(res);
   if (!isOrganizationOwnerRole(authContext.activeOrganizationRole)) {
     throw new HttpError(403, "소유자만 사용자 관리를 할 수 있습니다.");
+  }
+  return authContext;
+}
+
+export function requireOrganizationAdmin(res: Response): ActiveOrganizationSession {
+  const authContext = requireActiveOrganization(res);
+  if (!isOrganizationAdminRole(authContext.activeOrganizationRole)) {
+    throw new HttpError(403, "소유자 또는 관리자만 운영 설정을 변경할 수 있습니다.");
   }
   return authContext;
 }

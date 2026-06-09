@@ -31,6 +31,8 @@ import type {
 const execFileAsync = promisify(execFile);
 const DEFAULT_SERVER_URL = "http://127.0.0.1:4300";
 const DEFAULT_INTERVAL_MS = 5000;
+const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10_000;
+const DEFAULT_EXTERNAL_REQUEST_TIMEOUT_MS = 10_000;
 const SIGNGATE_RENEW_URL =
   "https://www.signgate.com/renew/stepEntrpsCrtfctCnfirm.sg";
 const SIGNGATE_ORIGIN = "https://www.signgate.com";
@@ -457,6 +459,51 @@ function resolveIntervalMs(): number {
   return Number.isFinite(parsed) && parsed >= 1000
     ? parsed
     : DEFAULT_INTERVAL_MS;
+}
+
+function resolveServerRequestTimeoutMs(): number {
+  const raw =
+    getArgValue("--server-timeout-ms") ??
+    process.env.AUTO_TAX_RENEWAL_AGENT_SERVER_TIMEOUT_MS;
+  if (!raw) {
+    return DEFAULT_SERVER_REQUEST_TIMEOUT_MS;
+  }
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 1000
+    ? parsed
+    : DEFAULT_SERVER_REQUEST_TIMEOUT_MS;
+}
+
+function resolveExternalRequestTimeoutMs(): number {
+  const raw = process.env.AUTO_TAX_RENEWAL_AGENT_EXTERNAL_TIMEOUT_MS;
+  if (!raw) {
+    return DEFAULT_EXTERNAL_REQUEST_TIMEOUT_MS;
+  }
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 1000
+    ? parsed
+    : DEFAULT_EXTERNAL_REQUEST_TIMEOUT_MS;
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = resolveExternalRequestTimeoutMs()): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: init.signal ?? controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`외부 요청이 ${timeoutMs}ms 안에 완료되지 않았습니다: ${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function resolveAgentId(): string {
@@ -887,7 +934,7 @@ async function fetchRenewPageCookieHeader(
     return cachedRenewPageCookieHeader.value;
   }
 
-  const response = await fetch(SIGNGATE_RENEW_URL, {
+  const response = await fetchWithTimeout(SIGNGATE_RENEW_URL, {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AUTO-TAX-Renewal-Agent/0.1",
@@ -916,7 +963,7 @@ async function postRenewAjax(
   endpoint: string,
   formData: URLSearchParams,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${SIGNGATE_ORIGIN}${endpoint}`, {
+  const response = await fetchWithTimeout(`${SIGNGATE_ORIGIN}${endpoint}`, {
     method: "POST",
     headers: {
       "User-Agent":
@@ -946,7 +993,7 @@ async function postRenewPage(
     requestedWithXmlHttpRequest?: boolean;
   },
 ): Promise<string> {
-  const response = await fetch(`${SIGNGATE_ORIGIN}${pathname}`, {
+  const response = await fetchWithTimeout(`${SIGNGATE_ORIGIN}${pathname}`, {
     method: "POST",
     headers: {
       "User-Agent":
@@ -1779,7 +1826,7 @@ function extractSignGateLicense(configSource: string): string {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AUTO-TAX-Renewal-Agent/0.1",
@@ -4113,13 +4160,28 @@ export async function requestJson<T>(
   pathname: string,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(`${serverUrl}${pathname}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  });
+  const timeoutMs = resolveServerRequestTimeoutMs();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+
+  try {
+    response = await fetch(`${serverUrl}${pathname}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      signal: init?.signal ?? controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`서버 요청이 ${timeoutMs}ms 안에 완료되지 않았습니다: ${pathname}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const payload = (await response
