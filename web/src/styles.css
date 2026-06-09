@@ -8651,8 +8651,7 @@ textarea {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.customer-onestop-source-actions > button,
-.customer-onestop-file-button {
+.customer-onestop-source-actions > button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -8666,6 +8665,10 @@ textarea {
   font-size: 0.78rem;
   font-weight: 800;
   cursor: pointer;
+}
+
+.customer-onestop-file-input {
+  display: none;
 }
 
 .customer-onestop-certificate-search {
@@ -8692,10 +8695,6 @@ textarea {
   color: var(--text);
   font-size: 0.78rem;
   font-weight: 700;
-}
-
-.customer-onestop-file-button input {
-  display: none;
 }
 
 .customer-onestop-certificate {
@@ -19477,7 +19476,6 @@ button.issuance-list-item {
 
 .app-shell-topnav .customer-onestop-step,
 .app-shell-topnav .customer-onestop-source-actions > button,
-.app-shell-topnav .customer-onestop-file-button,
 .app-shell-topnav .customer-onestop-certificate,
 .app-shell-topnav .customer-onestop-certificate-search input,
 .app-shell-topnav .customer-onestop-result,
@@ -19488,8 +19486,7 @@ button.issuance-list-item {
   box-shadow: none;
 }
 
-.app-shell-topnav .customer-onestop-source-actions > button,
-.app-shell-topnav .customer-onestop-file-button {
+.app-shell-topnav .customer-onestop-source-actions > button {
   min-height: 30px;
   padding: 0 8px;
   font-size: 12px;
@@ -23755,7 +23752,6 @@ button.issuance-list-item {
 .app-shell-topnav .customer-detail-action-buttons button,
 .app-shell-topnav .customer-certificate-management-actions button,
 .app-shell-topnav .customer-onestop-source-actions > button,
-.app-shell-topnav .customer-onestop-file-button,
 .app-shell-topnav .customer-form-actions > button,
 .app-shell-topnav .customer-report-save-actions button {
   box-sizing: border-box;
@@ -23771,7 +23767,6 @@ button.issuance-list-item {
 .app-shell-topnav .customer-detail-card-actions button,
 .app-shell-topnav .customer-certificate-management-actions button,
 .app-shell-topnav .customer-onestop-source-actions > button,
-.app-shell-topnav .customer-onestop-file-button,
 .app-shell-topnav .customer-form-actions > button {
   border: 1px solid var(--customer-border);
   background: var(--customer-fill);
@@ -23791,8 +23786,7 @@ button.issuance-list-item {
 .app-shell-topnav .customer-detail-panel-head-actions .btn-secondary:hover:not(:disabled),
 .app-shell-topnav .customer-detail-card-actions button:hover:not(:disabled),
 .app-shell-topnav .customer-certificate-management-actions button:hover:not(:disabled),
-.app-shell-topnav .customer-onestop-source-actions > button:hover:not(:disabled),
-.app-shell-topnav .customer-onestop-file-button:hover {
+.app-shell-topnav .customer-onestop-source-actions > button:hover:not(:disabled) {
   border-color: var(--customer-border-strong);
   background: var(--customer-fill-muted);
   color: var(--customer-text);
@@ -27163,7 +27157,7 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .customer-info-certificate-card .customer-certificate-management-actions button {
-  box-shadow: none !important;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04) !important;
 }
 
 /* Lovable customer management pass. Keep this after the viewport lock above. */
@@ -28092,9 +28086,12 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .content-customers .customer-detail-overview .customer-certificate-management-actions button {
-  min-height: 26px !important;
-  padding: 0 10px !important;
-  border-radius: 2px !important;
+  min-height: var(--customer-control-height) !important;
+  padding: 0 12px !important;
+  border: 1px solid var(--customer-border) !important;
+  border-radius: var(--customer-control-radius) !important;
+  background: var(--customer-fill) !important;
+  color: #334155 !important;
   font-size: 12px !important;
   font-weight: 800 !important;
 }

@@ -560,6 +560,8 @@ export function CustomersTab(props: CustomersTabProps) {
   const previousCustomerDetailTabRef = useRef<CustomerDetailTabId>("info");
   const customerMainColumnRef = useRef<HTMLDivElement | null>(null);
   const customerTableWrapRef = useRef<HTMLDivElement | null>(null);
+  const customerOnestopFileInputRef = useRef<HTMLInputElement | null>(null);
+  const customerOnestopFolderInputRef = useRef<HTMLInputElement | null>(null);
   const [customerOnestopStep, setCustomerOnestopStep] = useState<CustomerOnestopStepId>("source");
   const [customerOnestopCertificates, setCustomerOnestopCertificates] = useState<RenewalAgentCertificate[]>([]);
   const [customerOnestopCertificateSearchQuery, setCustomerOnestopCertificateSearchQuery] = useState("");
@@ -947,6 +949,12 @@ export function CustomersTab(props: CustomersTabProps) {
       },
       { reload: false }
     );
+  };
+
+  const handleCustomerOnestopUploadInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    uploadCustomerOnestopFiles(files);
   };
 
   const confirmCustomerOnestopPassword = () => {
@@ -2698,11 +2706,7 @@ export function CustomersTab(props: CustomersTabProps) {
       multiple: true,
       directory: "",
       webkitdirectory: "",
-      onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.currentTarget.files ?? []);
-        event.currentTarget.value = "";
-        uploadCustomerOnestopFiles(files);
-      }
+      onChange: handleCustomerOnestopUploadInputChange
     } as React.InputHTMLAttributes<HTMLInputElement> & { directory: string; webkitdirectory: string };
 
     return (
@@ -2718,25 +2722,37 @@ export function CustomersTab(props: CustomersTabProps) {
             <Icon name="search" />
             PC에서 찾기
           </button>
-          <label className="customer-onestop-file-button">
+          <button
+            type="button"
+            onClick={() => customerOnestopFileInputRef.current?.click()}
+            disabled={props.busyKey !== null}
+          >
             <Icon name="cert" />
             로컬 파일 올리기
-            <input
-              type="file"
-              multiple
-              accept=".der,.key"
-              onChange={(event) => {
-                const files = Array.from(event.currentTarget.files ?? []);
-                event.currentTarget.value = "";
-                uploadCustomerOnestopFiles(files);
-              }}
-            />
-          </label>
-          <label className="customer-onestop-file-button">
+          </button>
+          <button
+            type="button"
+            onClick={() => customerOnestopFolderInputRef.current?.click()}
+            disabled={props.busyKey !== null}
+          >
             <Icon name="dashboard" />
             폴더 올리기
-            <input {...directoryInputProps} />
-          </label>
+          </button>
+          <input
+            ref={customerOnestopFileInputRef}
+            className="customer-onestop-file-input"
+            type="file"
+            multiple
+            accept=".der,.key"
+            aria-label="로컬 인증서 파일 올리기"
+            onChange={handleCustomerOnestopUploadInputChange}
+          />
+          <input
+            {...directoryInputProps}
+            ref={customerOnestopFolderInputRef}
+            className="customer-onestop-file-input"
+            aria-label="로컬 인증서 폴더 올리기"
+          />
         </div>
         {customerOnestopCertificateFilter.availableCertificates.length > 0 ? (
           <SearchField
