@@ -5,4 +5,3 @@ alter table public.public_consultation_requests
   add column if not exists region text not null default '',
   add column if not exists request_ip text not null default '',
   add column if not exists request_user_agent text not null default '';
-
