@@ -77,6 +77,14 @@ function envNumber(key: string, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+}
+
+function canExposeDevCode(): boolean {
+  return !isProductionRuntime();
+}
+
 function describeEmailTransportError(error: unknown): string {
   if (error instanceof Error) {
     const parts = [error.message];
@@ -151,6 +159,10 @@ function createSignupEmailProvider(): SignupEmailProvider {
         };
       }
     };
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error("운영 환경에서는 개발용 메일 인증 provider를 사용할 수 없습니다. 회원가입 SMTP 설정을 확인하세요.");
   }
 
   return {
@@ -241,7 +253,7 @@ export async function createSignupEmailVerification(
   return {
     verificationId: asString((data as Row).id),
     expiresAt: asString((data as Row).expires_at, expiresAt),
-    devCode: sent.devCode
+    devCode: canExposeDevCode() ? sent.devCode : undefined
   };
 }
 

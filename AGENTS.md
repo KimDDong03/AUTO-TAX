@@ -139,6 +139,8 @@ Treat with caution:
 - Treat Popbill as an internal integration detail.
 - Prefer customer-facing terms such as `발행 연동`, `인증서 연결`, or
   `공동인증서 등록`, depending on context.
+- Exception: public legal terms, privacy notices, and required third-party disclosure
+  consent may name `팝빌(Popbill)` when legal recipient/processor disclosure requires it.
 - If an error originates from Popbill, show the actionable cause without naming Popbill
   unless the screen is explicitly internal admin, ops, or developer diagnostics.
 

@@ -21,7 +21,7 @@ const AUTO_JOIN_POPBILL_MAX_ID_RETRIES = 5;
 export const POPBILL_JOIN_SUPPORT_MESSAGE =
   "발행 연동 가입을 완료하지 못했습니다. AUTO-TAX 운영팀에 문의해 주세요.";
 export const POPBILL_ALREADY_MEMBER_MESSAGE =
-  "이미 팝빌에 가입된 사업자번호입니다. 기존 팝빌 계정 정보 확인 후 발행 연동을 진행해야 합니다.";
+  "이미 외부 발행 연동 계정에 등록된 사업자번호입니다. 기존 계정 정보 확인 후 발행 연동을 진행해야 합니다.";
 type PopbillAutoJoinOperation = "check-is-member" | "join-member";
 
 type AutoJoinCustomerDeps = {

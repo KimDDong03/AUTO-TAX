@@ -22,7 +22,6 @@ Environment templates are split by runtime:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `AUTO_TAX_ENCRYPTION_KEY`
 - `AUTO_TAX_OPS_EMAILS`
-- `AUTO_TAX_JOB_SECRET`
 - `AUTO_TAX_POPBILL_LINK_ID`
 - `AUTO_TAX_POPBILL_SECRET_KEY`
 - `AUTO_TAX_POPBILL_IS_TEST`
@@ -51,6 +50,7 @@ to an organization default prefix.
 - `AUTO_TAX_SIGNUP_SMTP_USER`, `AUTO_TAX_SIGNUP_SMTP_PASS`, `AUTO_TAX_SIGNUP_EMAIL_FROM`, `AUTO_TAX_SIGNUP_EMAIL_FROM_NAME`
 - `AUTO_TAX_SIGNUP_SMTP_ALLOW_WEAK_DH`; defaults to enabled only for `smtp.whoisworks.com`, whose TLS handshake uses legacy DH parameters.
 - Signup SMTP env values are sender-side service credentials only. Public signup verification codes are sent to the customer-entered KEPCO mail receiving address, not to the service sender address unless the user explicitly typed that same mailbox.
+- `AUTO_TAX_JOB_SECRET`; first deployment runs in manual mode without Supabase cron, but this is required when enabling `job-tick` or renewal-agent secret auth.
 - `AUTO_TAX_RENEWAL_AGENT_SECRET`; if omitted, renewal agent auth falls back to `AUTO_TAX_JOB_SECRET`
 - `AUTO_TAX_RENEWAL_AGENT_*`
 - Supabase cron `job-tick`, only if enabled: `AUTO_TAX_SERVER_URL`, `AUTO_TAX_JOB_SECRET`
@@ -94,9 +94,12 @@ npm run dev:vercel
 Build commands:
 
 ```bash
+npm run check
 npm run build
 npm run build:vercel
 ```
+
+Vercel uses `npm run check && npm run build:vercel` as the configured build command, so server/API type errors must fail before static upload.
 
 ## 4. Security Boundary
 
@@ -126,7 +129,7 @@ When reviewing schema changes:
 
 ## 6. Optional Internal Jobs And Retention
 
-This is only needed when the deployment uses Supabase cron to run background jobs. The app can still run without `job-tick` when operational follow-up is handled manually.
+This is only needed when the deployment uses Supabase cron to run background jobs. The first production deployment runs in manual mode: leave `job-tick` disabled and run internal jobs from the ops UI or a deliberate operator command. The app can still run without `job-tick` when operational follow-up is handled manually.
 
 ### Business queue flow
 
@@ -149,7 +152,14 @@ Mail sync is not dispatched by cron. Users trigger mail sync from the app when t
   - `app_logs`: 30 days by `created_at`
   - `job_queue`: 21 days for terminal rows by `finished_at`
   - `renewal_automation_jobs`: 30 days for terminal rows by `finished_at`
+  - `public_signup_phone_verifications`: 7 days after `expires_at`
+  - `public_signup_email_verifications`: 7 days after `expires_at`
 - Queued or claimed rows are never prune targets.
+
+### Production migration rollout
+
+- Review new migrations for ordinary `CREATE INDEX` statements on hot tables before production rollout.
+- If `app_logs`, `job_queue`, `invoice_drafts`, or customer tables already hold large production volume, rehearse the migration against a recent copy and schedule a low-traffic window. Split high-cost index builds into a dedicated rollout when lock time is not acceptable.
 
 ### Edge Function deployment assumptions
 
@@ -161,6 +171,11 @@ Minimum remote secrets:
 
 - `AUTO_TAX_SERVER_URL`
 - `AUTO_TAX_JOB_SECRET`
+
+Smoke behavior:
+
+- Default `npm run smoke:ops` treats `job-tick` as optional.
+- Set `AUTO_TAX_OPS_SMOKE_REQUIRE_JOB_TICK=true` only after cron has been intentionally enabled; then the smoke requires the function to be active and deployed with JWT verification disabled.
 
 ## 7. Local Renewal Helper And Agent
 
@@ -192,13 +207,14 @@ Packaging output:
 - `dist/renewal-local-helper/`
 - `dist/renewal-local-helper.exe`
 - `dist/renewal-local-helper.zip`
-- `web/public/downloads/renewal-local-helper.exe`
-- `web/public/downloads/renewal-local-helper.zip`
+- `web/public/downloads/renewal-local-helper.json`
+- `web/public/downloads/AT helper-<version>.exe`
+- `web/public/downloads/AT helper-<version>.zip`
 
 Download path defaults:
 
-- Vercel/public: `/downloads/renewal-local-helper.exe`
-- local/self-hosted server: `/downloads/renewal-local-helper.exe`
+- Vercel/public: read `/downloads/renewal-local-helper.json`, then use the versioned `downloadUrl`.
+- local/self-hosted server: read `/downloads/renewal-local-helper.json`, then use the versioned `downloadUrl`.
 
 Override locations with:
 
@@ -272,9 +288,12 @@ npm run smoke:ops
 node scripts/public-access-portal-smoke.mjs
 ```
 
+`npm run test:e2e:smoke` creates and deletes test Auth/DB rows through the Supabase service role. It is for local or explicitly approved non-production targets only. Remote targets require `AUTO_TAX_E2E_ALLOW_REMOTE_WRITES=true`; production targets additionally require `AUTO_TAX_E2E_ALLOW_PRODUCTION_WRITES=true`.
+
 `npm run smoke:ops` checks the linked Supabase project for:
 
-- `job-tick` is active and deployed with JWT verification disabled.
+- deployed API readiness at `/api/health` when `AUTO_TAX_OPS_SMOKE_BASE_URL` or `AUTO_TAX_SERVER_URL` is set.
+- `job-tick` status when project metadata is available; it only requires active/JWT-disabled when `AUTO_TAX_OPS_SMOKE_REQUIRE_JOB_TICK=true`.
 - remote migration history is up to date.
 - queue/log pressure snapshot, failing on stale claimed jobs by default.
 
@@ -305,6 +324,10 @@ Disposable generated output:
 - `supabase/supabase/.temp/`
 - `tmp-*.log`
 - `.tmp-*.cjs`
+
+Managed release assets:
+
+- `web/public/downloads/` should contain only `renewal-local-helper.json` and the latest versioned helper exe/zip needed by that metadata. Do not keep old helper binaries in git.
 
 Treat with caution:
 
@@ -345,3 +368,9 @@ When local renewal flow looks wrong:
 - inspect `renewal_automation_jobs`
 - inspect `scripts/renewal-local-helper.ts`
 - inspect `scripts/renewal-agent.ts`
+
+When deployment health looks wrong:
+
+- inspect Vercel function logs for `api/index.ts`
+- inspect Supabase Edge Function logs only if `job-tick` is enabled
+- run `npm run smoke:ops` with `AUTO_TAX_OPS_SMOKE_BASE_URL` set to the deployed app URL

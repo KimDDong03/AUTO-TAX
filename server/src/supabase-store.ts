@@ -577,7 +577,7 @@ function mapCustomerCertificate(row: Row): CustomerCertificate {
     userDN: asNullableString(row.certificate_user_dn),
     oid: asNullableString(row.certificate_oid),
     expireDate: asNullableString(row.expire_date),
-    certDirPath: asNullableString(row.cert_dir_path),
+    certDirPath: null,
     certificatePasswordConfigured: false,
     isPrimary: asBoolean(row.is_primary, false),
     linkSource: asString(row.link_source, "manual") as CustomerCertificate["linkSource"],
@@ -1653,20 +1653,26 @@ export class SupabaseStore implements AppStore {
       this.client
         .from("managed_customer_match_addresses")
         .select("managed_customer_id")
+        .eq("organization_id", this.requireOrganizationId())
         .eq("normalized_match_address", normalized)
-        .maybeSingle()
+        .limit(100)
     );
-    if (!matchRow) return null;
+    const managedCustomerIds = Array.from(
+      new Set((matchRow as Row[]).map((row) => asString(row.managed_customer_id)).filter(Boolean))
+    );
+    if (managedCustomerIds.length === 0) return null;
 
-    const customerRow = await assertNoError(
+    const customerRows = await assertNoError(
       "매칭 주소 고객 조회 실패",
       this.client
         .from("managed_customers")
         .select("*")
-        .eq("id", asString((matchRow as Row).managed_customer_id))
         .eq("organization_id", this.requireOrganizationId())
-        .maybeSingle()
+        .in("id", managedCustomerIds)
+        .order("created_at", { ascending: true })
+        .limit(1)
     );
+    const customerRow = (customerRows as Row[])[0] ?? null;
     if (!customerRow) return null;
     return this.mapCustomerRow(customerRow as Row);
   }
@@ -1695,6 +1701,7 @@ export class SupabaseStore implements AppStore {
     await assertNoError(
       "매칭 주소 저장 실패",
       this.client.from("managed_customer_match_addresses").insert({
+        organization_id: this.requireOrganizationId(),
         managed_customer_id: asString(current.id),
         match_address: roadAddress,
         normalized_match_address: normalizedAddress
@@ -1881,6 +1888,7 @@ export class SupabaseStore implements AppStore {
         "매칭 주소 저장 실패",
         this.client.from("managed_customer_match_addresses").insert(
           effectiveMatchAddresses.map((matchAddress) => ({
+            organization_id: organizationId,
             managed_customer_id: managedCustomerId,
             match_address: matchAddress.trim(),
             normalized_match_address: normalizeAddress(matchAddress)

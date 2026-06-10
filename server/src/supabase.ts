@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { HttpError } from "./http-errors.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -110,6 +111,22 @@ function parseOpsAdminEmails(): Set<string> {
   return parseOpsAdminEmailsFromRaw(envString("AUTO_TAX_OPS_EMAILS"));
 }
 
+export function resolveActiveOrganizationMembership(
+  organizations: AuthenticatedOrganizationMembership[],
+  preferredOrganizationId?: string | null
+): AuthenticatedOrganizationMembership | null {
+  const requestedOrganizationId = preferredOrganizationId?.trim();
+  if (requestedOrganizationId) {
+    const matched = organizations.find((item) => item.organizationId === requestedOrganizationId) ?? null;
+    if (!matched) {
+      throw new HttpError(403, "선택한 작업공간에 접근할 권한이 없습니다.");
+    }
+    return matched;
+  }
+
+  return organizations[0] ?? null;
+}
+
 async function listOrganizationMemberships(
   client: SupabaseClient,
   userId: string
@@ -173,8 +190,7 @@ export async function resolveAuthenticatedAppSession(
     throw new Error("접속 가능한 작업공간이 없습니다.");
   }
 
-  const activeOrganization =
-    organizations.find((item) => item.organizationId === preferredOrganizationId) ?? organizations[0] ?? null;
+  const activeOrganization = resolveActiveOrganizationMembership(organizations, preferredOrganizationId);
 
   return {
     userId: user.id,

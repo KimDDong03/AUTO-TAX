@@ -412,7 +412,7 @@ export function useRenewalAssistantState({
   }, [activeTab, customerRenewalAssistant, loadCustomerRenewalAssistantSummary]);
 
   useEffect(() => {
-    if (activeTab !== "settings" && activeTab !== "certificates") {
+    if (activeTab !== "settings" && activeTab !== "customers") {
       customerRenewalAutoLoadedRef.current = false;
       customerRenewalAutoLoadedOrganizationRef.current = null;
       return;
@@ -459,7 +459,7 @@ export function useRenewalAssistantState({
 
   useEffect(() => {
     const shouldRefreshHelperSummary =
-      activeTab === "home" || activeTab === "certificates" || (activeTab === "settings" && isSettingsHelperActive);
+      activeTab === "home" || activeTab === "customers" || (activeTab === "settings" && isSettingsHelperActive);
 
     if (!shouldRefreshHelperSummary || !canUseCustomerRenewalAssistant || customerRenewalAssistant?.helperCheckedAt) {
       return;

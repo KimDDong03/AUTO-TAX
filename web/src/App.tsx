@@ -186,7 +186,7 @@ import type {
   RenewalAutomationPayload
 } from "./types";
 
-type TabId = "onboarding" | "home" | "issuance" | "customers" | "certificates" | "settings" | "ops";
+type TabId = "onboarding" | "home" | "issuance" | "customers" | "settings" | "ops";
 type OpsSectionId =
   | "subscription"
   | "signup-requests"
@@ -239,9 +239,6 @@ function lazyWithReload<T extends React.ComponentType<any>>(
   });
 }
 
-const CertificatesScreen = lazyWithReload(() =>
-  import("./features/certificates/CertificatesScreen").then((module) => ({ default: module.CertificatesScreen }))
-);
 const CustomersTab = lazyWithReload(() =>
   import("./features/customers/CustomersTab").then((module) => ({ default: module.CustomersTab }))
 );
@@ -1089,7 +1086,7 @@ function getTabFromHash(hash: string): TabId | null {
   }
 
   if (value === "certificates") {
-    return "certificates";
+    return "customers";
   }
 
   if (value === "settings") {
@@ -1144,7 +1141,6 @@ function resolveWorkspaceTab(
     requestedTab === "home" ||
     requestedTab === "issuance" ||
     requestedTab === "customers" ||
-    requestedTab === "certificates" ||
     requestedTab === "settings"
   ) {
     return requestedTab;
@@ -3184,9 +3180,13 @@ export function App() {
 
       const nextOpsSection = getOpsSectionFromHash(hash);
       const nextTab = getTabFromHash(hash);
+      const legacyCertificatesHash = hash.replace(/^#/, "") === "certificates";
 
       if (nextTab) {
         const resolvedTab = resolveWorkspaceTab(nextTab, tabRoutingStateRef.current);
+        if (legacyCertificatesHash && tabRoutingStateRef.current.hasActiveWorkspace) {
+          setCustomerListFilter("certificate-expiration");
+        }
         if (nextTab === "onboarding" && tabRoutingStateRef.current.hasActiveWorkspace) {
           setRequestedOnboardingStepId(null);
           setActiveSettingsSection("onboarding");
@@ -3195,7 +3195,7 @@ export function App() {
           setActiveOpsSection(nextOpsSection);
         }
         setActiveTab(resolvedTab);
-        if (resolvedTab !== nextTab) {
+        if (resolvedTab !== nextTab || legacyCertificatesHash) {
           window.history.replaceState(null, "", `#${resolvedTab}`);
         }
         return;
@@ -7411,13 +7411,12 @@ export function App() {
             { id: "home" as const, label: "홈", icon: "dashboard" },
             { id: "issuance" as const, label: "세금계산서 발행", icon: "issue" },
             { id: "customers" as const, label: "고객 관리", icon: "group" },
-            { id: "certificates" as const, label: "인증서", icon: "certificate" },
             { id: "settings" as const, label: "설정", icon: "settings" }
           ]
       : []),
     ...(isPlatformAdmin ? [{ id: "ops" as const, label: "관리자", icon: "ops" }] : [])
   ];
-  const visibleNavItems = navItems.filter((item) => item.id !== "certificates");
+  const visibleNavItems = navItems;
   const handleNavSelect = (nextTab: TabId) => {
     if (nextTab === "ops") {
       navigateToOpsSection(OPS_DEFAULT_SECTION);
@@ -7429,9 +7428,6 @@ export function App() {
       openSettingsSection("onboarding");
     }
   };
-  const certificateUnlinkedCount = certificatesScreenModel.metrics.unlinkedCount;
-  const certificatePaymentReadyCount = certificatesScreenModel.metrics.paymentReadyCount;
-  const certificateActionNeededCount = certificatesScreenModel.metrics.actionNeededCount;
   const homeScreenModel = buildHomeScreenModel({
     onboardingComplete,
     onboardingPendingStepCount,
@@ -7587,28 +7583,6 @@ export function App() {
         { label: "발행 가능", value: `${readyNowCustomers.length}명`, tone: readyNowCustomers.length > 0 ? "success" : "default" },
       ]
     },
-    certificates: {
-      title: certificateActionNeededCount > 0 ? "인증서 조치 필요" : "인증서 상태 확인",
-      primaryActionLabel: helperReady ? "인증서 불러오기" : "AT 헬퍼 상태 확인",
-      onPrimaryAction: () => {
-        if (helperReady) {
-          void runAction("customer-renewal-bridge-probe", loadCustomerRenewalCertificates, { reload: false });
-          return;
-        }
-
-        void settingsScreenState.runRefreshCustomerRenewalAssistant();
-      },
-      chips: [
-        {
-          label: "읽은 인증서",
-          value: `${certificatesScreenModel.metrics.loadedCertificateCount}건`,
-          tone: certificatesScreenModel.metrics.loadedCertificateCount > 0 ? "default" : "warn"
-        },
-        { label: "조치 필요", value: `${certificateActionNeededCount}건`, tone: certificateActionNeededCount > 0 ? "warn" : "success" },
-        { label: "미연결", value: `${certificateUnlinkedCount}건`, tone: certificateUnlinkedCount > 0 ? "warn" : "success" },
-        { label: "결제 가능", value: `${certificatePaymentReadyCount}건`, tone: certificatePaymentReadyCount > 0 ? "success" : "default" }
-      ]
-    },
     settings: {
       title: settingsActionBar.title,
       primaryActionLabel: settingsActionBar.primaryActionLabel,
@@ -7651,13 +7625,12 @@ export function App() {
     setActiveTab("customers");
   };
   const showHomeSyncButton = false;
-  const showScreenPrimaryAction = visibleActiveTab === "ops" || visibleActiveTab === "certificates" || visibleActiveTab === "issuance";
+  const showScreenPrimaryAction = visibleActiveTab === "ops" || visibleActiveTab === "issuance";
   const showActionBarActions = showHomeSyncButton || showScreenPrimaryAction;
   const showGlobalActionBar =
     visibleActiveTab !== "home" &&
     visibleActiveTab !== "customers" &&
     visibleActiveTab !== "issuance" &&
-    visibleActiveTab !== "certificates" &&
     visibleActiveTab !== "settings";
   return (
     <>
@@ -7811,8 +7784,6 @@ export function App() {
                 ? "content content-customers"
                 : visibleActiveTab === "issuance"
                   ? "content content-issuance"
-                : visibleActiveTab === "certificates"
-                  ? "content content-certificates"
                 : visibleActiveTab === "settings"
                   ? "content content-settings"
                   : visibleActiveTab === "ops"
@@ -8169,38 +8140,6 @@ export function App() {
           />
         ) : null}
 
-        {visibleActiveTab === "certificates" ? (
-          <CertificatesScreen
-            customers={data.customers}
-            busyKey={busyKey}
-            canUseCustomerRenewalAssistant={canUseCustomerRenewalAssistant}
-            customerRenewalAssistantOnline={customerRenewalAssistant?.agentOnline ?? false}
-            customerRenewalAssistantHelperVersion={customerRenewalAssistant?.helperVersion ?? null}
-            customerRenewalAssistantHelperMessage={customerRenewalAssistant?.helperMessage || "상태 확인 전"}
-            customerRenewalAssistantUpgradeState={customerRenewalAssistant?.upgradeState ?? "unknown"}
-            customerRenewalAssistantUpgradeMessage={customerRenewalAssistant?.upgradeMessage ?? null}
-            customerRenewalAssistantLatestVersion={customerRenewalAssistant?.latestVersion ?? null}
-            customerRenewalAssistantMinSupportedVersion={customerRenewalAssistant?.minSupportedVersion ?? null}
-            renewalHelperDownloadUrl={renewalHelperDownloadUrl}
-            customerRenewalLoadedCertificateCount={customerRenewalAssistantAvailableCertificateCount}
-            userLabel={currentMembership?.displayName || data.auth.email || "로그인 사용자"}
-            workspaceLabel={activeWorkspaceName}
-            popbillModeLabel={workspacePopbillModeLabel}
-            certificatesModel={certificatesScreenModel}
-            onLinkCustomerCertificate={linkLocalCertificateToCustomer}
-            onUnlinkCustomerCertificate={unlinkCustomerCertificate}
-            onPrepareCustomerCertificateRenewal={prepareLinkedCustomerCertificateRenewal}
-            onOpenCustomerCertificatePayment={openLinkedCustomerCertificatePayment}
-            runRefreshCustomerRenewalAssistant={async () =>
-              runAction("customer-renewal-refresh", refreshCustomerRenewalAssistant, { reload: false })
-            }
-            runLoadCustomerRenewalCertificates={async () =>
-              runAction("customer-renewal-bridge-probe", loadCustomerRenewalCertificates, { reload: false })
-            }
-            runAction={runAction}
-            formatCertificateExpireDate={formatCertificateExpireDate}
-          />
-        ) : null}
         </Suspense>
 
         {visibleActiveTab === "ops" ? (

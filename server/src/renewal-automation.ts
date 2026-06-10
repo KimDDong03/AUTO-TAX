@@ -54,6 +54,15 @@ type RenewalAutomationJobRow = {
   execute_submit: boolean | null;
 };
 
+export class RenewalAutomationClaimLostError extends Error {
+  readonly status = 409;
+
+  constructor(jobId: number) {
+    super(`갱신 자동화 작업 ${jobId} 선점이 만료되었거나 다른 에이전트로 이동했습니다.`);
+    this.name = "RenewalAutomationClaimLostError";
+  }
+}
+
 function readNullableString(value: unknown): string | null {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -797,13 +806,18 @@ export class RenewalAutomationManager {
               : summarizeProbeResult(result)
       })
       .eq("id", jobId)
+      .eq("status", "claimed")
+      .eq("claimed_by", agentId)
       .select(
         "id, type, status, customer_id, customer_name, certificate_index, certificate_cn, requested_at, claimed_at, finished_at, requested_by, claimed_by, summary, error, result_json, comparison_profile_json, submission_profile_json, execute_submit"
       )
-      .single();
+      .maybeSingle();
 
     if (error) {
       throw new Error(`갱신 자동화 작업 완료 저장 실패: ${error.message}`);
+    }
+    if (!data) {
+      throw new RenewalAutomationClaimLostError(jobId);
     }
 
     const { error: heartbeatError } = await this.client
@@ -838,13 +852,18 @@ export class RenewalAutomationManager {
         summary: getFailedSummary(job)
       })
       .eq("id", jobId)
+      .eq("status", "claimed")
+      .eq("claimed_by", agentId)
       .select(
         "id, type, status, customer_id, customer_name, certificate_index, certificate_cn, requested_at, claimed_at, finished_at, requested_by, claimed_by, summary, error, result_json, comparison_profile_json, submission_profile_json, execute_submit"
       )
-      .single();
+      .maybeSingle();
 
     if (error) {
       throw new Error(`갱신 자동화 작업 실패 저장 실패: ${error.message}`);
+    }
+    if (!data) {
+      throw new RenewalAutomationClaimLostError(jobId);
     }
 
     return mapJobRow(data as RenewalAutomationJobRow);

@@ -4,6 +4,7 @@ export const PLATFORM_MAINTENANCE_KEY = "retention-prune";
 export const APP_LOG_RETENTION_DAYS = 30;
 export const JOB_QUEUE_RETENTION_DAYS = 21;
 export const RENEWAL_AUTOMATION_JOB_RETENTION_DAYS = 30;
+export const PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS = 7;
 export const JOB_QUEUE_PRUNABLE_STATUSES = ["completed", "failed", "cancelled"] as const;
 export const RENEWAL_AUTOMATION_JOB_PRUNABLE_STATUSES = ["completed", "failed"] as const;
 
@@ -24,6 +25,16 @@ export const RETENTION_RULES = {
     retentionDays: RENEWAL_AUTOMATION_JOB_RETENTION_DAYS,
     timestampColumn: "finished_at",
     statuses: RENEWAL_AUTOMATION_JOB_PRUNABLE_STATUSES
+  },
+  publicSignupPhoneVerifications: {
+    table: "public_signup_phone_verifications",
+    retentionDays: PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS,
+    timestampColumn: "expires_at"
+  },
+  publicSignupEmailVerifications: {
+    table: "public_signup_email_verifications",
+    retentionDays: PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS,
+    timestampColumn: "expires_at"
   }
 } as const;
 
@@ -56,6 +67,8 @@ export interface MaintenanceRepository {
   pruneAppLogs: (cutoff: string) => Promise<number>;
   pruneJobQueue: (cutoff: string, statuses: readonly string[]) => Promise<number>;
   pruneRenewalAutomationJobs: (cutoff: string, statuses: readonly string[]) => Promise<number>;
+  prunePublicSignupPhoneVerifications: (cutoff: string) => Promise<number>;
+  prunePublicSignupEmailVerifications: (cutoff: string) => Promise<number>;
   saveCompletedRun: (args: {
     maintenanceKey: string;
     completedDate: string;
@@ -153,6 +166,20 @@ export function createSupabaseMaintenanceRepository(
       );
     },
 
+    async prunePublicSignupPhoneVerifications(cutoff: string): Promise<number> {
+      return assertCount(
+        "public_signup_phone_verifications 보존 기간 정리 실패",
+        client.from("public_signup_phone_verifications").delete({ count: "exact" }).lt("expires_at", cutoff)
+      );
+    },
+
+    async prunePublicSignupEmailVerifications(cutoff: string): Promise<number> {
+      return assertCount(
+        "public_signup_email_verifications 보존 기간 정리 실패",
+        client.from("public_signup_email_verifications").delete({ count: "exact" }).lt("expires_at", cutoff)
+      );
+    },
+
     async saveCompletedRun(args): Promise<void> {
       await assertNoError(
         "유지보수 실행 이력 저장 실패",
@@ -220,6 +247,10 @@ export async function runPlatformMaintenance(
     const appLogsCutoff = toCutoffIso(now, RETENTION_RULES.appLogs.retentionDays);
     const jobQueueCutoff = toCutoffIso(now, RETENTION_RULES.jobQueue.retentionDays);
     const renewalAutomationJobsCutoff = toCutoffIso(now, RETENTION_RULES.renewalAutomationJobs.retentionDays);
+    const publicSignupVerificationCutoff = toCutoffIso(
+      now,
+      RETENTION_RULES.publicSignupPhoneVerifications.retentionDays
+    );
 
     const tables: RetentionTableSummary[] = [
       {
@@ -247,6 +278,20 @@ export async function runPlatformMaintenance(
           renewalAutomationJobsCutoff,
           RETENTION_RULES.renewalAutomationJobs.statuses
         )
+      },
+      {
+        table: RETENTION_RULES.publicSignupPhoneVerifications.table,
+        retentionDays: RETENTION_RULES.publicSignupPhoneVerifications.retentionDays,
+        timestampColumn: RETENTION_RULES.publicSignupPhoneVerifications.timestampColumn,
+        cutoff: publicSignupVerificationCutoff,
+        deletedRows: await repository.prunePublicSignupPhoneVerifications(publicSignupVerificationCutoff)
+      },
+      {
+        table: RETENTION_RULES.publicSignupEmailVerifications.table,
+        retentionDays: RETENTION_RULES.publicSignupEmailVerifications.retentionDays,
+        timestampColumn: RETENTION_RULES.publicSignupEmailVerifications.timestampColumn,
+        cutoff: publicSignupVerificationCutoff,
+        deletedRows: await repository.prunePublicSignupEmailVerifications(publicSignupVerificationCutoff)
       }
     ];
 

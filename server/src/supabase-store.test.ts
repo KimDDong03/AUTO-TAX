@@ -474,6 +474,7 @@ test("addCustomerMatchAddress inserts a normalized match address for the custome
   Object.assign(store as object, {
     client: fakeClient,
     initialized: true,
+    organizationId: "org-1",
     customerCache: new Map(),
     managedCustomerRowCache: new Map(),
     getManagedCustomerRowByLegacyId: async () => currentRow,
@@ -484,6 +485,7 @@ test("addCustomerMatchAddress inserts a normalized match address for the custome
 
   assert.deepEqual(inserts, [
     {
+      organization_id: "org-1",
       managed_customer_id: "customer-uuid-7",
       match_address: toRoadAddress(matchAddress),
       normalized_match_address: normalizeAddress(matchAddress)
@@ -535,6 +537,81 @@ test("addCustomerMatchAddress rejects an address already mapped to another custo
     () => store.addCustomerMatchAddress(7, "경기도 성남시 대왕판교로 1"),
     /이미 다른 고객에 등록된 매칭 주소입니다\. 기존 고객: 기존 고객/
   );
+});
+
+test("findCustomerByMatchAddress filters global match-address candidates to the active organization", async () => {
+  const matchAddress = "경기도 성남시 대왕판교로 1";
+  const normalized = normalizeAddress(matchAddress);
+  const calls: Array<{ table: string; filters: Array<[string, unknown]>; inFilters: Array<[string, unknown[]]> }> = [];
+
+  const fakeClient = {
+    from(table: string) {
+      const filters: Array<[string, unknown]> = [];
+      const inFilters: Array<[string, unknown[]]> = [];
+      return {
+        select() {
+          return this;
+        },
+        eq(column: string, value: unknown) {
+          filters.push([column, value]);
+          return this;
+        },
+        in(column: string, values: unknown[]) {
+          inFilters.push([column, values]);
+          return this;
+        },
+        order() {
+          return this;
+        },
+        limit() {
+          calls.push({ table, filters: [...filters], inFilters: [...inFilters] });
+          if (table === "managed_customer_match_addresses") {
+            return Promise.resolve({
+              data: [
+                { managed_customer_id: "other-org-customer" },
+                { managed_customer_id: "customer-uuid-7" }
+              ],
+              error: null
+            });
+          }
+          if (table === "managed_customers") {
+            return Promise.resolve({
+              data: [buildManagedCustomerRow()],
+              error: null
+            });
+          }
+          return Promise.resolve({ data: [], error: null });
+        }
+      };
+    }
+  };
+
+  const store = Object.create(SupabaseStore.prototype) as SupabaseStore;
+  Object.assign(store as object, {
+    client: fakeClient,
+    initialized: true,
+    organizationId: "org-1",
+    mapCustomerRow: async () => buildStoreCustomer()
+  });
+
+  const customer = await store.findCustomerByMatchAddress(matchAddress);
+
+  assert.equal(customer?.id, 7);
+  assert.deepEqual(calls, [
+    {
+      table: "managed_customer_match_addresses",
+      filters: [
+        ["organization_id", "org-1"],
+        ["normalized_match_address", normalized]
+      ],
+      inFilters: []
+    },
+    {
+      table: "managed_customers",
+      filters: [["organization_id", "org-1"]],
+      inFilters: [["id", ["other-org-customer", "customer-uuid-7"]]]
+    }
+  ]);
 });
 
 test("unmatchDraftSource removes a match address added by manual mail reprocess", async () => {

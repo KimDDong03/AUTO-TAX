@@ -13,7 +13,8 @@ import {
   CustomerContractRenewalConflictError,
   CustomerContractRenewalInvalidPeriodError,
   getCurrentKstYearMonth,
-  isValidIsoDate
+  isValidIsoDate,
+  isValidYearMonth
 } from "../customer-contract-renewals.js";
 import {
   getCertificateExpireDate,
@@ -142,11 +143,11 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
       return trimmed === "" ? null : trimmed;
     });
   const nullableDateStringSchema = nullableTrimmedStringSchema.refine(
-    (value) => value === null || /^\d{4}-\d{2}-\d{2}$/.test(value),
+    (value) => value === null || isValidIsoDate(value),
     "날짜는 YYYY-MM-DD 형식이어야 합니다."
   );
   const nullableMonthStringSchema = nullableTrimmedStringSchema.refine(
-    (value) => value === null || /^\d{4}-\d{2}$/.test(value),
+    (value) => value === null || isValidYearMonth(value),
     "월은 YYYY-MM 형식이어야 합니다."
   );
   const nullableNonnegativeNumberSchema = zod

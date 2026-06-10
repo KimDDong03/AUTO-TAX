@@ -4,6 +4,7 @@ import {
   APP_LOG_RETENTION_DAYS,
   JOB_QUEUE_PRUNABLE_STATUSES,
   JOB_QUEUE_RETENTION_DAYS,
+  PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS,
   RENEWAL_AUTOMATION_JOB_PRUNABLE_STATUSES,
   RENEWAL_AUTOMATION_JOB_RETENTION_DAYS,
   createSupabaseMaintenanceRepository,
@@ -21,6 +22,11 @@ type QueueRow = {
   finishedAt: string | null;
 };
 
+type VerificationRow = {
+  id: string;
+  expiresAt: string;
+};
+
 type PruneCall = {
   table: string;
   cutoff: string;
@@ -35,12 +41,16 @@ function createInMemoryRepository(seed: {
   appLogs: AppLogRow[];
   jobQueue: QueueRow[];
   renewalAutomationJobs: QueueRow[];
+  publicSignupPhoneVerifications?: VerificationRow[];
+  publicSignupEmailVerifications?: VerificationRow[];
   completedDate?: string | null;
 }) {
   const state = {
     appLogs: [...seed.appLogs],
     jobQueue: [...seed.jobQueue],
     renewalAutomationJobs: [...seed.renewalAutomationJobs],
+    publicSignupPhoneVerifications: [...(seed.publicSignupPhoneVerifications ?? [])],
+    publicSignupEmailVerifications: [...(seed.publicSignupEmailVerifications ?? [])],
     completedDate: seed.completedDate ?? null,
     pruneCalls: [] as PruneCall[],
     completedSummaries: [] as unknown[]
@@ -73,6 +83,18 @@ function createInMemoryRepository(seed: {
           (row) => !(statuses.includes(row.status) && row.finishedAt !== null && row.finishedAt < cutoff)
         );
         return before - state.renewalAutomationJobs.length;
+      },
+      async prunePublicSignupPhoneVerifications(cutoff: string) {
+        state.pruneCalls.push({ table: "public_signup_phone_verifications", cutoff });
+        const before = state.publicSignupPhoneVerifications.length;
+        state.publicSignupPhoneVerifications = state.publicSignupPhoneVerifications.filter((row) => row.expiresAt >= cutoff);
+        return before - state.publicSignupPhoneVerifications.length;
+      },
+      async prunePublicSignupEmailVerifications(cutoff: string) {
+        state.pruneCalls.push({ table: "public_signup_email_verifications", cutoff });
+        const before = state.publicSignupEmailVerifications.length;
+        state.publicSignupEmailVerifications = state.publicSignupEmailVerifications.filter((row) => row.expiresAt >= cutoff);
+        return before - state.publicSignupEmailVerifications.length;
       },
       async saveCompletedRun(args: { completedDate: string; summary: unknown }) {
         state.completedDate = args.completedDate;
@@ -127,6 +149,14 @@ test("runPlatformMaintenance prunes only old terminal rows and leaves open rows 
         status: "claimed",
         finishedAt: isoDaysBefore(now, RENEWAL_AUTOMATION_JOB_RETENTION_DAYS + 11)
       }
+    ],
+    publicSignupPhoneVerifications: [
+      { id: "phone-old", expiresAt: isoDaysBefore(now, PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS + 1) },
+      { id: "phone-recent", expiresAt: isoDaysBefore(now, PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS - 1) }
+    ],
+    publicSignupEmailVerifications: [
+      { id: "email-old", expiresAt: isoDaysBefore(now, PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS + 1) },
+      { id: "email-recent", expiresAt: isoDaysBefore(now, PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS - 1) }
     ]
   });
 
@@ -140,7 +170,7 @@ test("runPlatformMaintenance prunes only old terminal rows and leaves open rows 
 
   assert.equal(result.action, "pruned");
   assert.equal(result.completedDate, "2026-04-14");
-  assert.equal(result.totalDeletedRows, 6);
+  assert.equal(result.totalDeletedRows, 8);
   assert.deepEqual(
     result.tables.map((table) => ({
       table: table.table,
@@ -162,6 +192,16 @@ test("runPlatformMaintenance prunes only old terminal rows and leaves open rows 
         table: "renewal_automation_jobs",
         deletedRows: 2,
         retentionDays: RENEWAL_AUTOMATION_JOB_RETENTION_DAYS
+      },
+      {
+        table: "public_signup_phone_verifications",
+        deletedRows: 1,
+        retentionDays: PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS
+      },
+      {
+        table: "public_signup_email_verifications",
+        deletedRows: 1,
+        retentionDays: PUBLIC_SIGNUP_VERIFICATION_RETENTION_DAYS
       }
     ]
   );
@@ -173,6 +213,8 @@ test("runPlatformMaintenance prunes only old terminal rows and leaves open rows 
     state.renewalAutomationJobs.map((row) => row.id).sort(),
     ["renewal-old-claimed", "renewal-old-queued", "renewal-recent-failed"].sort()
   );
+  assert.deepEqual(state.publicSignupPhoneVerifications.map((row) => row.id), ["phone-recent"]);
+  assert.deepEqual(state.publicSignupEmailVerifications.map((row) => row.id), ["email-recent"]);
   assert.deepEqual(
     state.pruneCalls.map((call) => ({
       table: call.table,
@@ -181,7 +223,9 @@ test("runPlatformMaintenance prunes only old terminal rows and leaves open rows 
     [
       { table: "app_logs", statuses: null },
       { table: "job_queue", statuses: JOB_QUEUE_PRUNABLE_STATUSES },
-      { table: "renewal_automation_jobs", statuses: RENEWAL_AUTOMATION_JOB_PRUNABLE_STATUSES }
+      { table: "renewal_automation_jobs", statuses: RENEWAL_AUTOMATION_JOB_PRUNABLE_STATUSES },
+      { table: "public_signup_phone_verifications", statuses: null },
+      { table: "public_signup_email_verifications", statuses: null }
     ]
   );
   assert.equal(state.completedSummaries.length, 1);
@@ -207,6 +251,14 @@ test("runPlatformMaintenance skips when the retention run already completed toda
           return 0;
         },
         async pruneRenewalAutomationJobs() {
+          pruneCalled = true;
+          return 0;
+        },
+        async prunePublicSignupPhoneVerifications() {
+          pruneCalled = true;
+          return 0;
+        },
+        async prunePublicSignupEmailVerifications() {
           pruneCalled = true;
           return 0;
         },
@@ -254,6 +306,12 @@ test("runPlatformMaintenance checkpoints failures before rethrowing the prune er
             async pruneRenewalAutomationJobs() {
               throw new Error("pruneRenewalAutomationJobs should not be called after app log prune failure");
             },
+            async prunePublicSignupPhoneVerifications() {
+              throw new Error("prunePublicSignupPhoneVerifications should not be called after app log prune failure");
+            },
+            async prunePublicSignupEmailVerifications() {
+              throw new Error("prunePublicSignupEmailVerifications should not be called after app log prune failure");
+            },
             async saveCompletedRun() {
               throw new Error("saveCompletedRun should not be called on failure");
             },
@@ -296,6 +354,12 @@ test("runPlatformMaintenance preserves the original prune error when failure che
             },
             async pruneRenewalAutomationJobs() {
               throw new Error("pruneRenewalAutomationJobs should not be called after app log prune failure");
+            },
+            async prunePublicSignupPhoneVerifications() {
+              throw new Error("prunePublicSignupPhoneVerifications should not be called after app log prune failure");
+            },
+            async prunePublicSignupEmailVerifications() {
+              throw new Error("prunePublicSignupEmailVerifications should not be called after app log prune failure");
             },
             async saveCompletedRun() {
               throw new Error("saveCompletedRun should not be called on failure");
@@ -359,6 +423,8 @@ test("createSupabaseMaintenanceRepository applies explicit safety filters to pru
     "2026-03-15T12:00:00.000Z",
     RENEWAL_AUTOMATION_JOB_PRUNABLE_STATUSES
   );
+  await repository.prunePublicSignupPhoneVerifications("2026-04-07T12:00:00.000Z");
+  await repository.prunePublicSignupEmailVerifications("2026-04-07T12:00:00.000Z");
 
   assert.deepEqual(calls, [
     {
@@ -383,6 +449,16 @@ test("createSupabaseMaintenanceRepository applies explicit safety filters to pru
         ["not", "finished_at", "is", null],
         ["lt", "finished_at", "2026-03-15T12:00:00.000Z"]
       ]
+    },
+    {
+      table: "public_signup_phone_verifications",
+      deleteOptions: { count: "exact" },
+      filters: [["lt", "expires_at", "2026-04-07T12:00:00.000Z"]]
+    },
+    {
+      table: "public_signup_email_verifications",
+      deleteOptions: { count: "exact" },
+      filters: [["lt", "expires_at", "2026-04-07T12:00:00.000Z"]]
     }
   ]);
 });

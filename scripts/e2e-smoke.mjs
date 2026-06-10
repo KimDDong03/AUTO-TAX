@@ -42,9 +42,93 @@ const env = {
   ...process.env
 };
 
+function isTruthyEnv(value) {
+  return /^(1|true|yes|y)$/i.test(String(value ?? "").trim());
+}
+
+function parseUrl(value) {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackUrl(value) {
+  const parsed = parseUrl(value);
+  if (!parsed) {
+    return false;
+  }
+  return ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+}
+
+function normalizeUrlForCompare(value) {
+  const parsed = parseUrl(value);
+  return parsed ? parsed.origin.toLowerCase() : String(value ?? "").trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function resolveSupabaseProjectRef(value) {
+  const parsed = parseUrl(value);
+  if (!parsed) {
+    return "";
+  }
+  if (!parsed.hostname.endsWith(".supabase.co")) {
+    return "";
+  }
+  return parsed.hostname.split(".")[0] ?? "";
+}
+
+function assertE2EWriteTargetAllowed() {
+  const allowRemoteWrites = isTruthyEnv(env.AUTO_TAX_E2E_ALLOW_REMOTE_WRITES);
+  const allowProductionWrites = isTruthyEnv(env.AUTO_TAX_E2E_ALLOW_PRODUCTION_WRITES);
+  const targetEnv = String(env.AUTO_TAX_E2E_TARGET_ENV ?? "").trim().toLowerCase();
+  const apiIsLoopback = isLoopbackUrl(baseUrl);
+  const supabaseIsLoopback = isLoopbackUrl(env.SUPABASE_URL);
+  const currentSupabaseRef = String(env.SUPABASE_PROJECT_REF ?? "").trim() || resolveSupabaseProjectRef(env.SUPABASE_URL);
+  const productionSupabaseRef = String(env.AUTO_TAX_PRODUCTION_SUPABASE_PROJECT_REF ?? "").trim();
+  const productionBaseUrl = String(env.AUTO_TAX_PRODUCTION_BASE_URL ?? "").trim();
+  const productionSupabaseUrl = String(env.AUTO_TAX_PRODUCTION_SUPABASE_URL ?? "").trim();
+  const productionSignals = [];
+
+  if (targetEnv === "production" || targetEnv === "prod") {
+    productionSignals.push("AUTO_TAX_E2E_TARGET_ENV=production");
+  }
+  if (env.VERCEL_ENV === "production") {
+    productionSignals.push("VERCEL_ENV=production");
+  }
+  if (env.NODE_ENV === "production") {
+    productionSignals.push("NODE_ENV=production");
+  }
+  if (productionBaseUrl && normalizeUrlForCompare(baseUrl) === normalizeUrlForCompare(productionBaseUrl)) {
+    productionSignals.push("AUTO_TAX_PRODUCTION_BASE_URL matches target");
+  }
+  if (productionSupabaseUrl && normalizeUrlForCompare(env.SUPABASE_URL) === normalizeUrlForCompare(productionSupabaseUrl)) {
+    productionSignals.push("AUTO_TAX_PRODUCTION_SUPABASE_URL matches target");
+  }
+  if (productionSupabaseRef && currentSupabaseRef === productionSupabaseRef) {
+    productionSignals.push("AUTO_TAX_PRODUCTION_SUPABASE_PROJECT_REF matches target");
+  }
+
+  if (productionSignals.length > 0 && !allowProductionWrites) {
+    throw new Error(
+      `E2E smoke refuses production DB/Auth writes by default. signals=${productionSignals.join(", ")}. ` +
+        "Set AUTO_TAX_E2E_ALLOW_PRODUCTION_WRITES=true only for an intentional production write test."
+    );
+  }
+
+  if ((!apiIsLoopback || !supabaseIsLoopback) && !allowRemoteWrites && !allowProductionWrites) {
+    throw new Error(
+      "E2E smoke writes test data through the Supabase service role. Remote API or Supabase targets require " +
+        "AUTO_TAX_E2E_ALLOW_REMOTE_WRITES=true, and production targets additionally require AUTO_TAX_E2E_ALLOW_PRODUCTION_WRITES=true."
+    );
+  }
+}
+
 if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error("SUPABASE_URL 과 SUPABASE_SERVICE_ROLE_KEY 환경변수가 필요합니다.");
 }
+
+assertE2EWriteTargetAllowed();
 
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false }
@@ -1976,40 +2060,15 @@ try {
     await settingsDetail.locator(".workspace-member-card").filter({ hasText: `member${suffix}` }).first().waitFor();
   });
 
-  await recordStep("certificates action-needed view renders", async () => {
+  await recordStep("customer certificate-expiration view renders", async () => {
     await page.evaluate(() => {
-      window.location.hash = "#certificates";
+      window.location.hash = "#customers";
     });
-    await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
-    await page.locator(".certificates-screen").waitFor();
-    await page.locator(".certificate-layout-grid").waitFor();
-    await page.locator(".certificate-ops-toolbar").getByText("연결된 고객", { exact: true }).waitFor();
-    await page.locator(".certificate-linked-table").waitFor();
-    const certificateTableClassProbe = await page.evaluate(() => {
-      const mainWrap = document.querySelector(".certificate-main-table-wrap");
-      const unlinkedWrap = document.querySelector(".certificate-unlinked-table-wrap");
-      return {
-        mainWrapClass: mainWrap?.className ?? null,
-        mainScrollbarGutter: mainWrap ? window.getComputedStyle(mainWrap).scrollbarGutter : null,
-        unlinkedScrollbarGutter: unlinkedWrap ? window.getComputedStyle(unlinkedWrap).scrollbarGutter : null
-      };
-    });
-    if (!certificateTableClassProbe.mainWrapClass) {
-      throw new Error(`certificate table structure probe missing: ${JSON.stringify(certificateTableClassProbe)}`);
-    }
-    const certificateMainWrapClasses = certificateTableClassProbe.mainWrapClass.split(/\s+/);
-    if (certificateMainWrapClasses.includes("certificate-table-wrap")) {
-      throw new Error(`certificate main table should not inherit legacy table wrapper: ${JSON.stringify(certificateTableClassProbe)}`);
-    }
-    if (
-      certificateTableClassProbe.mainScrollbarGutter === "stable" ||
-      certificateTableClassProbe.unlinkedScrollbarGutter === "stable"
-    ) {
-      throw new Error(`certificate table wrappers should not reserve a stable gutter: ${JSON.stringify(certificateTableClassProbe)}`);
-    }
-    await page.locator(".certificate-unlinked-card .certificate-work-card-head strong").getByText("미연결", { exact: false }).waitFor();
-    await page.locator(".certificate-match-card").waitFor();
-    await page.locator(".certificate-bottom-actionbar").waitFor();
+    await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
+    await page.locator(".customers-screen").waitFor();
+    await page.getByRole("button", { name: /인증서 만료 예정/ }).click();
+    await page.locator(".customer-console-table-wrap").waitFor();
+    await page.getByText("인증서", { exact: true }).first().waitFor();
   });
 
   await recordStep("latest helper metadata keeps upgrade notice hidden", async () => {
@@ -2060,12 +2119,9 @@ try {
     ]);
     await helperPanel.getByText("헬퍼 업데이트 권장", { exact: true }).waitFor();
     await helperPanel.getByText("최신 버전: v0.1.1", { exact: true }).waitFor();
-    await page.evaluate(() => {
-      window.location.hash = "#certificates";
-    });
-    await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
-    const certificatesReadButton = page.locator(".certificate-hero-panel").getByRole("button", { name: "공동인증서 읽기" });
-    assert.equal(await certificatesReadButton.isDisabled(), true);
+    await helperPanel.getByRole("button", { name: "인증서 화면 열기" }).click();
+    await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
+    await page.locator(".customers-screen").waitFor();
     await page.evaluate(() => {
       window.location.hash = "#settings";
     });
@@ -2093,12 +2149,9 @@ try {
     ]);
     await helperPanel.getByText("헬퍼 재설치 필요", { exact: true }).waitFor();
     await helperPanel.getByText("최소 지원 버전: v0.1.1", { exact: true }).waitFor();
-    await page.evaluate(() => {
-      window.location.hash = "#certificates";
-    });
-    await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
-    const certificatesReadButton = page.locator(".certificate-hero-panel").getByRole("button", { name: "공동인증서 읽기" });
-    assert.equal(await certificatesReadButton.isDisabled(), true);
+    await helperPanel.getByRole("button", { name: "인증서 화면 열기" }).click();
+    await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
+    await page.locator(".customers-screen").waitFor();
     await page.evaluate(() => {
       window.location.hash = "#settings";
     });
@@ -2121,12 +2174,9 @@ try {
     await page.waitForTimeout(300);
     assert.equal(await page.getByText("헬퍼 업데이트 권장", { exact: true }).count(), 0);
     assert.equal(await page.getByText("헬퍼 재설치 필요", { exact: true }).count(), 0);
-    await page.evaluate(() => {
-      window.location.hash = "#certificates";
-    });
-    await page.waitForFunction(() => window.location.hash === "#certificates", null, { timeout: 15000 });
-    const certificatesReadButton = page.locator(".certificate-hero-panel").getByRole("button", { name: "공동인증서 읽기" });
-    assert.equal(await certificatesReadButton.isDisabled(), false);
+    await helperPanel.getByRole("button", { name: "인증서 화면 열기" }).click();
+    await page.waitForFunction(() => window.location.hash === "#customers", null, { timeout: 15000 });
+    await page.locator(".customers-screen").waitFor();
   });
 
   await recordStep("logout returns to public page", async () => {

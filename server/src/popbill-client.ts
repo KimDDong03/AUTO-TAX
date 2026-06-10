@@ -22,6 +22,7 @@ const popbill = require("popbill");
 const MGT_KEY_TYPE_SELL = popbill.MgtKeyType?.SELL ?? "SELL";
 const KEPCO_TAX_INVOICE_HOMETAX_EMAIL = "kepcoppa@kepco.co.kr";
 const KEPCO_TAX_INVOICE_OTHER_EMAIL = "ppa0194@kepco.co.kr";
+const DEFAULT_POPBILL_API_TIMEOUT_MS = 15_000;
 
 export type PopbillOperation =
   | "join-member"
@@ -188,6 +189,17 @@ export class PopbillApiError extends Error {
   }
 }
 
+export class PopbillApiTimeoutError extends Error {
+  readonly status = 504;
+  readonly operation: PopbillOperation;
+
+  constructor(operation: PopbillOperation, timeoutMs: number) {
+    super(`외부 발행 연동 응답이 ${timeoutMs}ms 안에 완료되지 않았습니다.`);
+    this.name = "PopbillApiTimeoutError";
+    this.operation = operation;
+  }
+}
+
 export function isPopbillMemberMissingError(error: unknown): boolean {
   if (!(error instanceof PopbillApiError)) {
     return false;
@@ -286,18 +298,43 @@ function getMessageService(settings: AppSettings): any {
   return popbill.MessageService();
 }
 
+function resolvePopbillApiTimeoutMs(): number {
+  const parsed = Number(process.env.AUTO_TAX_POPBILL_API_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed >= 1000 ? parsed : DEFAULT_POPBILL_API_TIMEOUT_MS;
+}
+
 function promisify<T>(
   operation: PopbillOperation,
   executor: (done: (result: CallbackResult<T>) => void) => void
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    executor((result) => {
-      if (result.error) {
-        reject(new PopbillApiError(operation, result.error.code, result.error.message));
-        return;
+    const timeoutMs = resolvePopbillApiTimeoutMs();
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      reject(new PopbillApiTimeoutError(operation, timeoutMs));
+    }, timeoutMs);
+
+    try {
+      executor((result) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        if (result.error) {
+          reject(new PopbillApiError(operation, result.error.code, result.error.message));
+          return;
+        }
+        resolve(result.response as T);
+      });
+    } catch (error) {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
       }
-      resolve(result.response as T);
-    });
+    }
   });
 }
 

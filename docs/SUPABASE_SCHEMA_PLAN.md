@@ -211,6 +211,7 @@ Canonical mail-to-customer matching substrate.
 
 Important fields:
 
+- `organization_id`
 - `managed_customer_id`
 - `match_address`
 - `normalized_match_address`
@@ -218,6 +219,7 @@ Important fields:
 Important invariant:
 
 - This is the real matching table for auto-match logic.
+- Matching is tenant-scoped by `organization_id`; `(organization_id, normalized_match_address)` must stay unique to avoid ambiguous mail matching.
 
 ### customer_certificates
 
@@ -575,6 +577,7 @@ Important invariants:
 - Verification codes are stored as hash plus salt, not plaintext.
 - `attempt_count` must be non-negative.
 - Public signup code confirmation must happen before `expires_at`; after `verified_at`, the final signup submit may consume the record once even if `expires_at` has passed.
+- Maintenance deletes rows seven days after `expires_at`.
 - RLS is enabled; service code performs the public verification flow.
 
 ### public_signup_email_verifications
@@ -599,6 +602,7 @@ Important invariants:
 - Verification codes are stored as hash plus salt, not plaintext.
 - `attempt_count` must be non-negative.
 - Public signup code confirmation must happen before `expires_at`; after `verified_at`, the final signup submit may consume the record once even if `expires_at` has passed.
+- Maintenance deletes rows seven days after `expires_at`.
 - RLS is enabled; service code performs the public verification flow.
 
 ### public_rate_limits
@@ -752,6 +756,7 @@ Important fields:
 
 - Address matching quality depends on keeping `managed_customer_match_addresses` complete and normalized.
 - DB roles are broader than the current product behavior model, which increases latent permission risk.
+- Customer-owned child tables with denormalized `organization_id` should enforce parent/tenant consistency with composite foreign keys where practical. Report detail, certificates, drafts, inbox, job queue customer links, contract periods, and match addresses are covered; onboarding batch preview/row alignment remains a follow-up data-quality hardening item.
 - Certificate-password columns exist for compatibility but should keep shrinking in importance.
 - Reporting still depends on `app_logs` semantics; changing log shapes carelessly can break pilot metrics.
 - Business jobs and renewal jobs are intentionally separate; do not collapse them into one abstraction without a deliberate redesign.

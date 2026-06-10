@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import test from "node:test";
 import express from "express";
 import type { AppSettings } from "./domain.js";
+import { HttpError } from "./http-errors.js";
 import { toClientSettings } from "./main.js";
 import { registerSettingsRoutes } from "./routes/settings-routes.js";
 import type { AppStore } from "./store-contract.js";
@@ -50,6 +51,163 @@ function createSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   };
 }
 
+test("toClientSettings redacts operational integration identifiers for viewers", () => {
+  const payload = toClientSettings(
+    createSettings({
+      imapHost: "imap.example.com",
+      imapUser: "owner@example.com",
+      imapPass: "mail-secret",
+      imapMailbox: "INBOX",
+      smtpHost: "smtp.example.com",
+      smtpUser: "sender@example.com",
+      smtpPass: "smtp-secret",
+      smtpFromName: "AUTO-TAX",
+      smtpFromEmail: "sender@example.com",
+      notificationEmails: ["ops@example.com"],
+      mailConnectionVerifiedAt: "2026-04-16T00:00:00.000Z",
+      renewalContactDepartment: "운영팀",
+      renewalContactFax: "02-0000-0000",
+      renewalIssuePassword: "123456"
+    }),
+    { role: "viewer" }
+  );
+
+  assert.equal(payload.imapHost, "");
+  assert.equal(payload.imapUser, "");
+  assert.equal(payload.imapMailbox, "");
+  assert.equal(payload.smtpHost, "");
+  assert.equal(payload.smtpUser, "");
+  assert.equal(payload.smtpFromName, "");
+  assert.equal(payload.smtpFromEmail, "");
+  assert.deepEqual(payload.notificationEmails, []);
+  assert.equal(payload.mailConnectionVerifiedAt, null);
+  assert.equal(payload.renewalContactDepartment, "");
+  assert.equal(payload.renewalContactFax, "");
+  assert.equal(payload.mailPasswordConfigured, false);
+  assert.equal(payload.renewalIssuePasswordConfigured, false);
+});
+
+test("settings update rejects operator role before persisting operational settings", async () => {
+  let updateCalled = false;
+  const requestStore = {
+    updateSettings: async () => {
+      updateCalled = true;
+      return createSettings();
+    },
+    createLog: async () => undefined
+  } as unknown as AppStore;
+
+  const app = express();
+  app.use(express.json());
+
+  registerSettingsRoutes({
+    app,
+    store: requestStore,
+    getRequestStore: () => requestStore,
+    requireAuthContext: () => ({ activeOrganizationRole: "operator" }) as never,
+    requireWorkspaceEditor: () => ({ activeOrganizationId: "org-1", activeOrganizationRole: "operator" }) as never,
+    requireOrganizationAdmin: () => {
+      throw new HttpError(403, "소유자 또는 관리자만 운영 설정을 변경할 수 있습니다.");
+    },
+    requirePlatformAdmin: () => ({}) as never,
+    getLoggingStore: () => requestStore,
+    getServerManagedSettings: async () => createSettings(),
+    applyServerManagedSettings: (settings) => settings,
+    createEmptySettings: () => createSettings(),
+    toClientSettings,
+    testMailConnections: async () => {
+      throw new Error("unused");
+    },
+    resolveRoadAddress: async () => null,
+    getPartnerBalance: async () => ({ remainPoint: 0 }),
+    getTaxInvoiceUnitCost: async () => 0,
+    getPartnerChargeURL: async () => "https://example.com",
+    maskBusinessNumber: () => null,
+    normalizeCustomerImportRow: () => {
+      throw new Error("unused");
+    },
+    buildCustomerImportPreview: async () => {
+      throw new Error("unused");
+    },
+    commitCustomerImport: async () => {
+      throw new Error("unused");
+    },
+    createCustomerOnboardingPreviewSession: async () => {
+      throw new Error("unused");
+    },
+    startCustomerOnboardingCommitBatch: async () => {
+      throw new Error("unused");
+    },
+    getCustomerOnboardingCommitBatchStatus: async () => {
+      throw new Error("unused");
+    },
+    runDueJobs: async () => ({})
+  });
+
+  app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (error instanceof HttpError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "server error" });
+  });
+
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+
+  try {
+    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const response = await fetch(`${baseUrl}/api/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        imapHost: "imap.example.com",
+        imapPort: 993,
+        imapSecure: true,
+        imapUser: "owner@example.com",
+        imapPass: "secret",
+        imapMailbox: "INBOX",
+        smtpHost: "smtp.example.com",
+        smtpPort: 465,
+        smtpSecure: true,
+        smtpUser: "sender@example.com",
+        smtpPass: "secret",
+        smtpFromName: "AUTO-TAX",
+        smtpFromEmail: "sender@example.com",
+        notificationEmails: ["ops@example.com"],
+        defaultIssueDay: 20,
+        defaultIssueHour: 9,
+        defaultIssueMinute: 0,
+        mailPollMinutes: 1440,
+        mailSyncStartAt: null,
+        timezone: "Asia/Seoul",
+        renewalContactDepartment: "",
+        renewalContactFax: "",
+        renewalCertificatePassword: "",
+        renewalIssuePassword: "",
+        schedulerEnabled: true
+      })
+    });
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), {
+      error: "소유자 또는 관리자만 운영 설정을 변경할 수 있습니다."
+    });
+    assert.equal(updateCalled, false);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
 test("stored server-managed password reveal endpoints are blocked and never return plaintext", async () => {
   const logs: Array<{ message: string; context?: unknown }> = [];
   const requestStore = {
@@ -65,7 +223,9 @@ test("stored server-managed password reveal endpoints are blocked and never retu
     app,
     store: requestStore,
     getRequestStore: () => requestStore,
+    requireAuthContext: () => ({ activeOrganizationRole: "owner" }) as never,
     requireWorkspaceEditor: () => ({ activeOrganizationId: "org-1" }) as never,
+    requireOrganizationAdmin: () => ({ activeOrganizationId: "org-1", activeOrganizationRole: "owner" }) as never,
     requirePlatformAdmin: () => ({}) as never,
     getLoggingStore: () => requestStore,
     getServerManagedSettings: async () => ({}) as never,
@@ -170,7 +330,9 @@ test("settings route uses server env for issuing readiness while redacting hidde
     app,
     store: requestStore,
     getRequestStore: () => requestStore,
+    requireAuthContext: () => ({ activeOrganizationRole: "owner" }) as never,
     requireWorkspaceEditor: () => ({ activeOrganizationId: "org-1" }) as never,
+    requireOrganizationAdmin: () => ({ activeOrganizationId: "org-1", activeOrganizationRole: "owner" }) as never,
     requirePlatformAdmin: () => ({}) as never,
     getLoggingStore: () => requestStore,
     getServerManagedSettings: async () => settings,
