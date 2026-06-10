@@ -1115,6 +1115,9 @@ function isPublicAuthHash(hash: string): boolean {
     value === "public-login-card" ||
     value === "signup" ||
     value === "public-signup-card" ||
+    value === "terms" ||
+    value === "privacy" ||
+    value === "third-party" ||
     ["서비스 소개", "기능", "서비스 과정", "요금 안내", "문의하기"].includes(value.replaceAll("-", " "))
   );
 }

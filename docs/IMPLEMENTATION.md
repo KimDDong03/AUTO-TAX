@@ -21,6 +21,7 @@ The product is multi-tenant. A logged-in session always operates against one act
 ### Public surface
 
 - `/` is a consultation-first access portal.
+- Public legal policy screens are served inside the portal with `#terms`, `#privacy`, and `#third-party`.
 - Anonymous users can submit consultation/contact inquiries through `POST /api/public/consultation-requests` and `POST /api/public/contact-inquiries`.
 - Public signup requests collect login, organization, representative, business-registration, contact, the customer's own KEPCO mail receiving address, phone/email verification, and required consents. Approval creates the owner workspace and seeds signup-derived workspace defaults; KEPCO mail password setup and internal notification recipients are configured separately.
 - Existing customers who already received an account can still use the secondary login form.

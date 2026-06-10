@@ -138,6 +138,7 @@ type PublicLandingProps = {
 };
 
 type PublicAuthMode = "landing" | "login" | "signup";
+type PublicPolicySlug = "terms" | "privacy" | "third-party";
 
 const landingNavItems = ["서비스 소개", "기능", "서비스 과정", "요금 안내", "문의하기"];
 
@@ -203,6 +204,36 @@ const emptyLoginIdLookup: LoginIdLookupState = {
   message: "",
   loginId: ""
 };
+
+const publicPolicyTermIdBySlug = {
+  terms: "termsAccepted",
+  privacy: "privacyAccepted",
+  "third-party": "thirdPartyAccepted"
+} satisfies Record<PublicPolicySlug, PublicTermId>;
+
+const publicPolicyTitleBySlug = {
+  terms: "AUTO-TAX 서비스 이용약관",
+  privacy: "개인정보 수집·이용 동의 및 처리위탁 안내",
+  "third-party": "개인정보 제3자 제공 동의서"
+} satisfies Record<PublicPolicySlug, string>;
+
+function getPublicPolicySlugFromHash(): PublicPolicySlug | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const rawHash = window.location.hash;
+  const decodedHash = (() => {
+    try {
+      return decodeURIComponent(rawHash);
+    } catch {
+      return rawHash;
+    }
+  })();
+  const value = decodedHash.replace(/^#/, "");
+
+  return value === "terms" || value === "privacy" || value === "third-party" ? value : null;
+}
 
 type LandingRevealProps = {
   children: React.ReactNode;
@@ -492,6 +523,41 @@ const publicTerms: readonly PublicTerm[] = [
   }
 ] as const;
 
+function PublicLegalPage({ slug }: { slug: PublicPolicySlug }) {
+  const termId = publicPolicyTermIdBySlug[slug];
+  const term = publicTerms.find((item) => item.id === termId);
+
+  if (!term) {
+    return null;
+  }
+
+  return (
+    <main className="portal-legal-page" aria-labelledby="portal-legal-title">
+      <article className="portal-legal-article">
+        <a href="#home" className="portal-legal-back">
+          ← 홈으로 돌아가기
+        </a>
+        <h1 id="portal-legal-title">{publicPolicyTitleBySlug[slug]}</h1>
+        <div className="portal-legal-sections">
+          {term.sections.map((section) => (
+            <section key={section.title}>
+              <h2>{section.title}</h2>
+              {section.body ? <p>{section.body}</p> : null}
+              {section.items ? (
+                <ul>
+                  {section.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ))}
+        </div>
+      </article>
+    </main>
+  );
+}
+
 function isKoreanMobilePhone(value: string): boolean {
   const digits = value.replace(/\D/g, "");
   return /^01[016789]\d{7,8}$/.test(digits);
@@ -779,6 +845,7 @@ export function PublicLanding({
   onPasswordReset
 }: PublicLandingProps) {
   const [activeMode, setActiveMode] = useState<PublicAuthMode>(() => getPublicAuthModeFromHash());
+  const [activePolicySlug, setActivePolicySlug] = useState<PublicPolicySlug | null>(() => getPublicPolicySlugFromHash());
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [signupForm, setSignupForm] = useState<PublicSignupFormState>(emptySignupForm);
   const [signupError, setSignupError] = useState("");
@@ -810,12 +877,23 @@ export function PublicLanding({
   const [passwordResetError, setPasswordResetError] = useState("");
 
   useEffect(() => {
-    const syncPublicAuthMode = () => setActiveMode(getPublicAuthModeFromHash());
+    const syncPublicRoute = () => {
+      setActiveMode(getPublicAuthModeFromHash());
+      setActivePolicySlug(getPublicPolicySlugFromHash());
+    };
 
-    syncPublicAuthMode();
-    window.addEventListener("hashchange", syncPublicAuthMode);
-    return () => window.removeEventListener("hashchange", syncPublicAuthMode);
+    syncPublicRoute();
+    window.addEventListener("hashchange", syncPublicRoute);
+    return () => window.removeEventListener("hashchange", syncPublicRoute);
   }, []);
+
+  useEffect(() => {
+    if (!activePolicySlug || typeof window === "undefined") {
+      return;
+    }
+
+    window.scrollTo({ top: 0, left: 0 });
+  }, [activePolicySlug]);
 
   const navigatePublicAuthMode = (mode: Exclude<PublicAuthMode, "landing">) => {
     setActiveMode(mode);
@@ -1415,6 +1493,14 @@ export function PublicLanding({
       navigatePublicAuthMode("login");
     }
   };
+
+  if (activePolicySlug) {
+    return (
+      <div className="portal-shell">
+        <PublicLegalPage slug={activePolicySlug} />
+      </div>
+    );
+  }
 
   return (
     <div className="portal-shell">
@@ -2260,31 +2346,28 @@ export function PublicLanding({
         ) : null}
 
         <footer className="portal-footer" aria-label="AUTO-TAX 회사 및 정책 정보">
-          <nav className="portal-footer-links" aria-label="정책 문서">
-            <a href="#signup">서비스 이용약관</a>
-            <a href="#signup">개인정보 수집·이용 및 처리위탁 안내</a>
-            <a href="#signup">개인정보 제3자 제공 동의서</a>
-          </nav>
-          <dl className="portal-footer-info">
-            <div>
-              <dt>회사명</dt>
-              <dd>KIYO</dd>
-            </div>
-            <div>
-              <dt>대표자명</dt>
-              <dd>김성결</dd>
-            </div>
-            <div>
-              <dt>사업자등록번호</dt>
-              <dd>559-22-02292</dd>
-            </div>
-            <div>
-              <dt>고객지원</dt>
-              <dd>
+          <div className="portal-footer-grid">
+            <section className="portal-footer-column">
+              <h2>키요(kiyo)</h2>
+              <p>서울시 중랑구 신내역로</p>
+              <p>사업자등록번호: 559-22-05592</p>
+              <p>대표이사: 김성결</p>
+            </section>
+            <section className="portal-footer-column">
+              <h2>문의</h2>
+              <p>
                 <a href="mailto:auto-tax@kiyo.kr">auto-tax@kiyo.kr</a>
-              </dd>
-            </div>
-          </dl>
+              </p>
+            </section>
+            <section className="portal-footer-column portal-footer-policy-column">
+              <nav className="portal-footer-links" aria-label="정책 문서">
+                <a href="#terms">서비스 이용약관</a>
+                <a href="#privacy">개인정보 수집·이용 동의 및 처리위탁 안내</a>
+                <a href="#third-party">개인정보 제3자 제공 동의서</a>
+              </nav>
+              <p>© AUTO-TAX. All rights reserved.</p>
+            </section>
+          </div>
         </footer>
       </div>
     </div>

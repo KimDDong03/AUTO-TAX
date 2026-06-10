@@ -16831,10 +16831,44 @@ button.issuance-list-item {
 }
 
 .portal-shell .portal-footer {
-  display: grid;
-  gap: 12px;
-  padding: 0 40px 32px;
+  padding: 0 40px 48px;
   color: var(--portal-muted);
+}
+
+.portal-shell .portal-footer-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1.2fr 1fr;
+  gap: 40px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-top: 28px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-shell .portal-footer-column {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.portal-shell .portal-footer-column h2 {
+  margin: 0 0 6px;
+  color: var(--portal-text);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.portal-shell .portal-footer-column p {
+  margin: 0;
+  color: var(--portal-muted);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.6;
+}
+
+.portal-shell .portal-footer-policy-column {
+  gap: 14px;
 }
 
 .portal-shell .portal-footer-links {
@@ -16842,51 +16876,100 @@ button.issuance-list-item {
   flex-wrap: wrap;
   gap: 8px 16px;
   align-items: center;
-  padding-top: 18px;
-  border-top: 1px solid var(--portal-border);
 }
 
 .portal-shell .portal-footer-links a,
-.portal-shell .portal-footer-info a {
+.portal-shell .portal-footer-column a {
   color: var(--portal-muted);
   font-size: 12px;
   font-weight: 800;
   text-decoration: none;
+  transition: color 160ms ease;
 }
 
 .portal-shell .portal-footer-links a:hover,
-.portal-shell .portal-footer-info a:hover {
+.portal-shell .portal-footer-column a:hover {
   color: var(--portal-primary);
 }
 
-.portal-shell .portal-footer-info {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  margin: 0;
+.portal-shell .portal-legal-page {
+  min-height: 100vh;
+  padding: 64px 20px;
+  background: var(--portal-bg);
+  animation: portal-legal-enter 220ms ease-out both;
 }
 
-.portal-shell .portal-footer-info div {
+.portal-shell .portal-legal-article {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.portal-shell .portal-legal-back {
   display: inline-flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.portal-shell .portal-footer-info dt,
-.portal-shell .portal-footer-info dd {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.portal-shell .portal-footer-info dt {
+  margin-bottom: 24px;
   color: var(--portal-muted);
+  font-size: 13px;
   font-weight: 800;
+  text-decoration: none;
+  transition: color 160ms ease;
 }
 
-.portal-shell .portal-footer-info dd {
+.portal-shell .portal-legal-back:hover {
   color: var(--portal-text);
-  font-weight: 700;
+}
+
+.portal-shell .portal-legal-article h1 {
+  margin: 0;
+  color: var(--portal-text);
+  font-size: 34px;
+  font-weight: 850;
+  line-height: 1.22;
+  letter-spacing: 0;
+}
+
+.portal-shell .portal-legal-sections {
+  display: grid;
+  gap: 36px;
+  margin-top: 40px;
+}
+
+.portal-shell .portal-legal-sections h2 {
+  margin: 0 0 12px;
+  color: var(--portal-text);
+  font-size: 17px;
+  font-weight: 850;
+  line-height: 1.4;
+}
+
+.portal-shell .portal-legal-sections p,
+.portal-shell .portal-legal-sections li {
+  color: var(--portal-muted);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.75;
+}
+
+.portal-shell .portal-legal-sections p {
+  margin: 0;
+}
+
+.portal-shell .portal-legal-sections ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+@keyframes portal-legal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Admin option 3 */
@@ -17374,6 +17457,12 @@ button.issuance-list-item {
     padding: 0 20px 28px;
   }
 
+  .portal-shell .portal-footer-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding-top: 24px;
+  }
+
   .portal-login-card {
     margin: 0;
   }
@@ -17420,13 +17509,16 @@ button.issuance-list-item {
     margin: 0 10px 10px;
   }
 
-  .portal-shell .portal-footer-links,
-  .portal-shell .portal-footer-info {
+  .portal-shell .portal-footer-links {
     gap: 8px 12px;
   }
 
-  .portal-shell .portal-footer-info div {
-    flex: 1 1 100%;
+  .portal-shell .portal-legal-page {
+    padding: 44px 20px;
+  }
+
+  .portal-shell .portal-legal-article h1 {
+    font-size: 28px;
   }
 
   .app-shell-topnav .settings-option1-member-table {
