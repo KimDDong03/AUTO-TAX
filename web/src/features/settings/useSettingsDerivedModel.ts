@@ -191,7 +191,7 @@ export function buildSettingsOnboardingModel({
       : helper.upgradeState === "upgrade-available"
         ? "업데이트 필요"
         : helper.online
-          ? "연결됨"
+          ? "AT 헬퍼 연결됨"
           : "상태 미확인";
 
   return {

@@ -3721,6 +3721,15 @@ async function collectMagicLineCertificateList(): Promise<
   };
 }
 
+export function shouldRunFilesystemCertificateFallback(
+  storageProbe: Pick<
+    BridgeProbeResult["bridge"]["storageProbe"],
+    "ok" | "certificateCount"
+  >,
+): boolean {
+  return !storageProbe.ok || storageProbe.certificateCount === 0;
+}
+
 export async function collectBridgeCertificateList(options?: {
   preferCached?: boolean;
 }): Promise<
@@ -3818,7 +3827,11 @@ export async function collectBridgeCertificateList(options?: {
     };
   }
 
-  const filesystemCertificates = collectFilesystemElectronicTaxCertificates();
+  const shouldRunFilesystemFallback =
+    shouldRunFilesystemCertificateFallback(storageProbe);
+  const filesystemCertificates = shouldRunFilesystemFallback
+    ? collectFilesystemElectronicTaxCertificates()
+    : [];
   const bridgeCertificates =
     magicLineStorageProbe?.ok &&
     magicLineStorageProbe.certificates.length > 0 &&

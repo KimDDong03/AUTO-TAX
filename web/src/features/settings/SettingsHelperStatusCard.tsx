@@ -26,7 +26,7 @@ export function SettingsHelperStatusCard({
           <span
             className={helperStatus.online ? "chip chip-success" : "chip chip-danger"}
           >
-            {helperStatus.online ? "연결됨" : "연결 안 됨"}
+            {helperStatus.online ? "AT 헬퍼 연결됨" : "AT 헬퍼 연결 안 됨"}
           </span>
           {helperStatus.helperVersion ? (
             <span className="chip">v{helperStatus.helperVersion}</span>

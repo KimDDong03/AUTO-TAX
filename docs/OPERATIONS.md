@@ -197,6 +197,7 @@ There are two local Windows components:
 - `bridgeTransportSummary` is the raw TCP probe for SignGate/SecuKit ports `14315/14319`.
   `bridgeFunctionalSummary` and legacy `bridgeSummary` are functional readiness summaries. Do not treat a raw TCP failure as proof that certificate listing is unavailable when `GetVersion`, license, or storage probes succeed.
 - Certificate-listing UI should use `/api/certificates`; renewal preflight/payment diagnostics can use `/api/bridge-probe` or the preflight endpoints.
+- `/api/certificates` should return after a bridge-backed listing succeeds. It prefers HomeTax MagicLine, then SignGate/SecuKit storage probes, and only runs the filesystem NPKI scan if those bridge-backed listing paths are unavailable or empty.
 
 Commands:
 
