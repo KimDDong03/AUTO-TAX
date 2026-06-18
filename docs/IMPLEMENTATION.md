@@ -90,7 +90,7 @@ The product is multi-tenant. A logged-in session always operates against one act
   - talks to the Windows helper running on the operator machine
   - used for certificate listing, browser-selected NPKI/P12/PFX upload-session metadata extraction, local checks, prepare/payment-open support, and local Popbill certificate registration help
   - keeps helper reachability, certificate-listing readiness, and SignGate/SecuKit renewal bridge diagnostics as separate signals so UI certificate reads do not depend on raw `14315/14319` TCP probe status
-  - certificate listing prefers HomeTax MagicLine, then SignGate/SecuKit storage probes, and only runs the filesystem NPKI scan when bridge-backed listing is unavailable or empty
+  - certificate listing prefers the HomeTax ML4Web flow: read `ML4Web_Config.js`, follow the configured storage order, and call MagicLine `GetCertList` with the same lowercase `hdd` plus root `hddOpt` option shape that HomeTax uses. It then falls back to SignGate/SecuKit storage probes and only runs the filesystem NPKI scan when bridge-backed listing is unavailable or empty.
 
 ## 4. Backend Map
 

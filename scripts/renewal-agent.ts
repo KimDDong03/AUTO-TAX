@@ -45,6 +45,7 @@ const HOMETAX_MAGICLINE_CONFIG_URL =
 const HOMETAX_MAGICLINE_CONFIG_CACHE_TTL_MS = 10 * 60 * 1000;
 const HOMETAX_MAGICLINE_PORT = 42235;
 const HOMETAX_MAGICLINE_SESSION_TIMEOUT = "60";
+const HOMETAX_MAGICLINE_DEFAULT_STORAGE_ORDER = ["web_kftc", "hdd"];
 const PORT_TARGETS = [
   { port: 14315, protocol: "https" as const },
   { port: 14319, protocol: "http" as const },
@@ -118,7 +119,13 @@ type BridgeProbeResult = {
         validateFrom: string | null;
         detailValidateTo: string | null;
         certDirPath: string | null;
-        listSource?: "bridge-hdd" | "filesystem-hdd" | "ml4web-hdd" | "ml4web-web" | "upload-session";
+        listSource?:
+          | "bridge-hdd"
+          | "filesystem-hdd"
+          | "ml4web-hdd"
+          | "ml4web-web"
+          | "ml4web-web-kftc"
+          | "upload-session";
         supportsPreflight?: boolean;
       }>;
       error: string | null;
@@ -247,6 +254,8 @@ type MagicLineRuntimeConfig = {
   serviceId: string;
   certPathMap: Record<string, string[]>;
   policyOidNameMap: Record<string, string>;
+  storageList: string[];
+  defaultStorage: string | null;
 };
 
 type BridgeCommandResult = {
@@ -1936,6 +1945,44 @@ function extractMagicLineConfigJson<T>(
   }
 }
 
+function extractMagicLineConfigArray(
+  configSource: string,
+  key: string,
+  fallback: string[],
+): string[] {
+  const escapedKey = escapeRegExp(key);
+  const match = configSource.match(
+    new RegExp(`(?:^|[\\s,{])${escapedKey}\\s*:\\s*(\\[[^\\]]*\\])`),
+  );
+  if (!match?.[1]) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.flatMap((value) =>
+          typeof value === "string" && value.trim() !== ""
+            ? [value.trim()]
+            : [],
+        )
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function extractMagicLineConfigOptionalString(
+  configSource: string,
+  key: string,
+): string | null {
+  try {
+    return extractMagicLineConfigString(configSource, key);
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveMagicLineRuntimeConfig(
   forceRefresh = false,
 ): Promise<MagicLineRuntimeConfig> {
@@ -1967,6 +2014,15 @@ export async function resolveMagicLineRuntimeConfig(
     "DS_PKI_POLICY_OID",
     {},
   );
+  const storageList = extractMagicLineConfigArray(
+    configSource,
+    "STORAGELIST",
+    HOMETAX_MAGICLINE_DEFAULT_STORAGE_ORDER,
+  );
+  const defaultStorage = extractMagicLineConfigOptionalString(
+    configSource,
+    "STORAGESELECT",
+  );
 
   cachedMagicLineRuntimeConfig = {
     fetchedAt: now,
@@ -1980,6 +2036,8 @@ export async function resolveMagicLineRuntimeConfig(
       serviceId,
       certPathMap,
       policyOidNameMap,
+      storageList,
+      defaultStorage,
     },
   };
 
@@ -2075,7 +2133,12 @@ function parseStorageCertificates(
     "certificates",
     "certificate",
     "certificateList",
+    "certificate_list",
     "certList",
+    "cert_list",
+    "certlist",
+    "certInfos",
+    "certinfos",
     "items",
     "list",
     "result",
@@ -2127,12 +2190,17 @@ function parseStorageCertificates(
         "certid",
         "issueid",
         "certificateid",
+        "storagecertidx",
+        "storage_cert_idx",
+        "subkeyid",
+        "fingerprint",
       ) ?? indexHint;
     const serial = readValue(
       normalizedEntry,
       "serial",
       "serialnumber",
       "serial_number",
+      "serialnum",
     );
     const oid = readValue(
       normalizedEntry,
@@ -2152,6 +2220,9 @@ function parseStorageCertificates(
       "expired",
       "validity",
       "expirydate",
+      "enddate",
+      "enddatetime",
+      "notafter",
     );
     const usageToName =
       readValue(
@@ -2183,10 +2254,23 @@ function parseStorageCertificates(
         "issuername",
         "issuedby",
       );
+    const subjectName = readValue(
+      normalizedEntry,
+      "subjectname",
+      "subject",
+      "subjectdn",
+      "userdn",
+      "distinguishedname",
+    );
+    const cn =
+      readValue(normalizedEntry, "cn", "issuercn", "name", "realname") ??
+      (subjectName
+        ? extractDnAttributeValue(subjectName.replace(/\r?\n/g, ","), "cn") ??
+          subjectName
+        : "");
     const cert = {
       index,
-      cn:
-        readValue(normalizedEntry, "cn", "issuercn", "subject", "name") ?? "",
+      cn,
       issuerToName: issuerToName ?? "",
       usageToName,
       todate: validateToFromIssue ?? null,
@@ -2199,7 +2283,10 @@ function parseStorageCertificates(
           "subjectdn",
           "distinguishedname",
           "subject",
-        ) ?? null,
+          "subjectname",
+        ) ??
+        subjectName ??
+        null,
       validateFrom:
         readValue(
           normalizedEntry,
@@ -2207,6 +2294,9 @@ function parseStorageCertificates(
           "validfrom",
           "issuedat",
           "issueddate",
+          "startdate",
+          "startdatetime",
+          "notbefore",
         ) ?? null,
       detailValidateTo: validateToFromIssue ?? null,
       certDirPath: null,
@@ -2681,6 +2771,24 @@ function readCertificateDumpText(filePath: string): string | null {
 function resolveUsageNameFromPolicyOid(oid: string | null): string {
   if (!oid) {
     return "알 수 없음";
+  }
+  if (
+    oid === FILESYSTEM_ELECTRONIC_TAX_OID ||
+    oid === "1.2.410.200004.5.5.1.4.2"
+  ) {
+    return "\uc804\uc790\uc138\uae08\uc6a9";
+  }
+  if (
+    oid === "1.2.410.200004.5.2.1.2" ||
+    oid === "1.2.410.200004.5.5.1.2"
+  ) {
+    return "\uae30\uc5c5 \ubc94\uc6a9";
+  }
+  if (
+    oid === "1.2.410.200004.5.1.1.5" ||
+    oid === "1.2.410.200004.5.5.1.1"
+  ) {
+    return "\uac1c\uc778 \ubc94\uc6a9";
   }
   return FILESYSTEM_USAGE_NAME_BY_OID[oid] ?? oid;
 }
@@ -3640,16 +3748,56 @@ export async function probeLicenseAndStorage(
   return { licenseProbe, storageProbe, selectionProbe };
 }
 
-function buildMagicLineHddCertificateListOption(
+type MagicLineCertificateListSource =
+  | "ml4web-hdd"
+  | "ml4web-web"
+  | "ml4web-web-kftc";
+
+function resolveMagicLineCertificateStorageOrder(
   config: MagicLineRuntimeConfig,
+): string[] {
+  const ordered = [
+    config.defaultStorage,
+    ...config.storageList,
+    ...HOMETAX_MAGICLINE_DEFAULT_STORAGE_ORDER,
+  ];
+  const supportedDirectStorages = new Set(["web_kftc", "web", "hdd"]);
+  const unique = new Set<string>();
+  for (const storageName of ordered) {
+    const normalized = String(storageName ?? "").trim().toLowerCase();
+    if (!supportedDirectStorages.has(normalized) || unique.has(normalized)) {
+      continue;
+    }
+    unique.add(normalized);
+  }
+  return [...unique];
+}
+
+function resolveMagicLineCertificateListSource(
+  storageName: string,
+): MagicLineCertificateListSource {
+  if (storageName === "web_kftc") {
+    return "ml4web-web-kftc";
+  }
+  if (storageName === "web") {
+    return "ml4web-web";
+  }
+  return "ml4web-hdd";
+}
+
+function buildMagicLineCertificateListOption(
+  config: MagicLineRuntimeConfig,
+  storageName: string,
+  selectionReply: Record<string, unknown> | null,
 ): Record<string, unknown> {
   return {
-    storageName: "HDD",
+    storageName,
     storageOpt: {},
     DS_PKI_CERT_PATH: encodeURIComponent(JSON.stringify(config.certPathMap)),
     DS_PKI_POLICY_OID: encodeURIComponent(
       JSON.stringify(config.policyOidNameMap),
     ),
+    ...(selectionReply ?? {}),
   };
 }
 
@@ -3672,10 +3820,11 @@ function parseMagicLineResultMessage(
 
 function normalizeMagicLineCertificates(
   reply: Record<string, unknown> | null,
+  listSource: MagicLineCertificateListSource,
 ): BridgeProbeResult["bridge"]["storageProbe"]["certificates"] {
   return parseStorageCertificates(reply).map((certificate) => ({
     ...certificate,
-    listSource: "ml4web-hdd" as const,
+    listSource,
     supportsPreflight: false,
   }));
 }
@@ -3712,22 +3861,66 @@ async function collectMagicLineCertificateList(): Promise<
     };
   }
 
-  await invokeMagicLineCommand(config, sessionId, "SelectStorageInfo", ["hdd"]);
-  const listOption = buildMagicLineHddCertificateListOption(config);
-  const listResult = await invokeMagicLineCommand(
-    config,
-    sessionId,
-    "GetCertList",
-    [encodeURIComponent(JSON.stringify(listOption))],
-  );
-  const certificates = normalizeMagicLineCertificates(
-    parseMagicLineResultMessage(listResult),
-  );
-  const noCertificate =
-    listResult.resultCode === 10004 ||
-    /no\s*cert|not\s*found/i.test(listResult.resultMessage ?? "");
+  const storageOrder = resolveMagicLineCertificateStorageOrder(config);
+  let storageOk = false;
+  let lastError: string | null = null;
+  let certificates: BridgeProbeResult["bridge"]["storageProbe"]["certificates"] =
+    [];
 
-  if (listResult.ok || noCertificate) {
+  for (const storageName of storageOrder) {
+    let selectionReply: Record<string, unknown> | null = null;
+    if (storageName === "hdd") {
+      const selectionResult = await invokeMagicLineCommand(
+        config,
+        sessionId,
+        "SelectStorageInfo",
+        [storageName],
+      );
+      if (!selectionResult.ok) {
+        lastError =
+          selectionResult.error ??
+          selectionResult.resultMessage ??
+          `HomeTax MagicLine SelectStorageInfo(${storageName}) ResultCode=${selectionResult.resultCode ?? "unknown"}`;
+        continue;
+      }
+      selectionReply = parseMagicLineResultMessage(selectionResult);
+    }
+
+    const listOption = buildMagicLineCertificateListOption(
+      config,
+      storageName,
+      selectionReply,
+    );
+    const listResult = await invokeMagicLineCommand(
+      config,
+      sessionId,
+      "GetCertList",
+      [encodeURIComponent(JSON.stringify(listOption))],
+    );
+    const noCertificate =
+      listResult.resultCode === 10004 ||
+      /no\s*cert|not\s*found/i.test(listResult.resultMessage ?? "");
+
+    if (listResult.ok || noCertificate) {
+      storageOk = true;
+      const storageCertificates = normalizeMagicLineCertificates(
+        parseMagicLineResultMessage(listResult),
+        resolveMagicLineCertificateListSource(storageName),
+      );
+      certificates = mergeCertificateLists({
+        bridgeCertificates: certificates,
+        filesystemCertificates: storageCertificates,
+      });
+      continue;
+    }
+
+    lastError =
+      listResult.error ??
+      listResult.resultMessage ??
+      `HomeTax MagicLine GetCertList(${storageName}) ResultCode=${listResult.resultCode ?? "unknown"}`;
+  }
+
+  if (storageOk) {
     return {
       licenseProbe,
       storageProbe: {
@@ -3747,9 +3940,8 @@ async function collectMagicLineCertificateList(): Promise<
       ...defaultStorageProbe(),
       sourcePort: HOMETAX_MAGICLINE_PORT,
       error:
-        listResult.error ??
-        listResult.resultMessage ??
-        `HomeTax MagicLine GetCertList ResultCode=${listResult.resultCode ?? "unknown"}`,
+        lastError ??
+        "HomeTax MagicLine GetCertList ResultCode=unknown",
     },
   };
 }

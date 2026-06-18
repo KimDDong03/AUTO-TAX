@@ -397,7 +397,7 @@ export interface RenewalBridgeCertificateSummary {
   validateFrom: string | null;
   detailValidateTo: string | null;
   certDirPath: string | null;
-  listSource?: "bridge-hdd" | "filesystem-hdd" | "ml4web-hdd" | "ml4web-web" | "upload-session";
+  listSource?: "bridge-hdd" | "filesystem-hdd" | "ml4web-hdd" | "ml4web-web" | "ml4web-web-kftc" | "upload-session";
   supportsPreflight?: boolean;
 }
 

@@ -197,7 +197,7 @@ There are two local Windows components:
 - `bridgeTransportSummary` is the raw TCP probe for SignGate/SecuKit ports `14315/14319`.
   `bridgeFunctionalSummary` and legacy `bridgeSummary` are functional readiness summaries. Do not treat a raw TCP failure as proof that certificate listing is unavailable when `GetVersion`, license, or storage probes succeed.
 - Certificate-listing UI should use `/api/certificates`; renewal preflight/payment diagnostics can use `/api/bridge-probe` or the preflight endpoints.
-- `/api/certificates` should return after a bridge-backed listing succeeds. It prefers HomeTax MagicLine, then SignGate/SecuKit storage probes, and only runs the filesystem NPKI scan if those bridge-backed listing paths are unavailable or empty.
+- `/api/certificates` should return after a bridge-backed listing succeeds. It prefers the HomeTax ML4Web storage flow, including the lowercase `hdd` storage name and root `hddOpt` option returned by `SelectStorageInfo`, then falls back to SignGate/SecuKit storage probes and only runs the filesystem NPKI scan if those bridge-backed listing paths are unavailable or empty.
 - Browser-selected upload sessions accept NPKI `signCert.der`/`signPri.key` pairs and P12/PFX files. P12/PFX metadata is read locally with Windows `certutil -v -dump` for list/export use; private-key operations still require the certificate password later.
 
 Commands:
