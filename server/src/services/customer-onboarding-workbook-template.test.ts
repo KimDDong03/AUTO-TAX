@@ -99,7 +99,8 @@ test("downloadCustomerOnboardingTemplate writes issue-capable onboarding sheets"
       index: "3",
       cn: "사업자 범용 인증서",
       issuerToName: "금융결제원",
-      usageToName: "사업자 범용"
+      usageToName: "",
+      oid: "1.2.410.200004.5.2.1.2"
     })
   ]);
 

@@ -179,7 +179,15 @@ function applySheetColumnWidths(
   }));
 }
 
-function isIssueCapableUsageName(usageName: string) {
+function isIssueCapableCertificate(certificate: Pick<RenewalBridgeCertificateSummary, "usageToName" | "oid">) {
+  if (
+    certificate.oid === "1.2.410.200004.5.2.1.6.257" ||
+    certificate.oid === "1.2.410.200004.5.2.1.2"
+  ) {
+    return true;
+  }
+
+  const usageName = certificate.usageToName;
   const normalized = usageName.replace(/\s+/g, "");
   return normalized.includes("전자세금") || ((normalized.includes("사업자") || normalized.includes("기업")) && normalized.includes("범용"));
 }
@@ -189,7 +197,7 @@ export function downloadCustomerOnboardingTemplate(
   certificates: RenewalBridgeCertificateSummary[]
 ) {
   const workbook = XLSX.utils.book_new();
-  const issueCapableCertificates = certificates.filter((certificate) => isIssueCapableUsageName(certificate.usageToName));
+  const issueCapableCertificates = certificates.filter(isIssueCapableCertificate);
 
   const guideRows = [
     ["시트", "작성 방법"],

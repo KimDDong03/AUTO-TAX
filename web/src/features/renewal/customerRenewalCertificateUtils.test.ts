@@ -93,6 +93,14 @@ test("deriveCustomerCertificateKind categorizes renewal certificates", () => {
     deriveCustomerCertificateKind(createCertificate({ usageToName: "사업자 범용 공동인증서" })),
     "general_business"
   );
+  assert.equal(
+    deriveCustomerCertificateKind(createCertificate({ usageToName: "", oid: "1.2.410.200004.5.2.1.6.257" })),
+    "electronic_tax"
+  );
+  assert.equal(
+    deriveCustomerCertificateKind(createCertificate({ usageToName: "", oid: "1.2.410.200004.5.2.1.2" })),
+    "general_business"
+  );
 });
 
 test("normalizeCustomerCertificateExpireDateKey accepts dotted dates with spaces", () => {

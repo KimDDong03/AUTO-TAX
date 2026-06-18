@@ -17,8 +17,20 @@ export type CustomerRenewalStatusSummary = {
   canOpenPayment: boolean;
 };
 
+const ELECTRONIC_TAX_CERTIFICATE_OIDS = new Set([
+  "1.2.410.200004.5.2.1.6.257"
+]);
+
+const GENERAL_PERSONAL_CERTIFICATE_OIDS = new Set([
+  "1.2.410.200004.5.1.1.5"
+]);
+
+const GENERAL_BUSINESS_CERTIFICATE_OIDS = new Set([
+  "1.2.410.200004.5.2.1.2"
+]);
+
 export function isElectronicTaxCertificate(certificate: RenewalAgentCertificate): boolean {
-  return certificate.usageToName.includes("전자세금");
+  return deriveCustomerCertificateKind(certificate) === "electronic_tax";
 }
 
 export function isIssueCapableCustomerCertificateKind(kind: CustomerCertificateKind): boolean {
@@ -30,8 +42,19 @@ export function isIssueCapableCustomerCertificate(certificate: RenewalAgentCerti
 }
 
 export function deriveCustomerCertificateKind(
-  certificate: Pick<RenewalAgentCertificate, "usageToName">
+  certificate: Pick<RenewalAgentCertificate, "usageToName"> & { oid?: string | null }
 ): CustomerCertificateKind {
+  const oid = certificate.oid?.trim() ?? "";
+  if (ELECTRONIC_TAX_CERTIFICATE_OIDS.has(oid)) {
+    return "electronic_tax";
+  }
+  if (GENERAL_BUSINESS_CERTIFICATE_OIDS.has(oid)) {
+    return "general_business";
+  }
+  if (GENERAL_PERSONAL_CERTIFICATE_OIDS.has(oid)) {
+    return "general_personal";
+  }
+
   const usageName = certificate.usageToName.trim();
   if (usageName.includes("전자세금")) {
     return "electronic_tax";
