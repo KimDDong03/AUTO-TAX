@@ -250,7 +250,7 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: LocalRenewa
 
 function isNPKICertificateMaterialFile(file: File): boolean {
   const relativePath = ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/\\/g, "/");
-  return /(^|\/)(signCert\.der|signPri\.key)$/i.test(relativePath) || /^(signCert\.der|signPri\.key)$/i.test(file.name);
+  return /(^|\/)(signCert\.der|signPri\.key|[^/]+\.(?:p12|pfx))$/i.test(relativePath) || /^(signCert\.der|signPri\.key|.+\.(?:p12|pfx))$/i.test(file.name);
 }
 
 function arrayBufferToBase64(arrayBuffer: ArrayBuffer): string {
@@ -382,7 +382,7 @@ export async function requestLocalRenewalCertificates() {
 export async function requestLocalCertificateUploadSession(files: File[]) {
   const certificateFiles = files.filter(isNPKICertificateMaterialFile);
   if (certificateFiles.length === 0) {
-    throw new Error("NPKI 인증서 파일(signCert.der, signPri.key)을 찾지 못했습니다.");
+    throw new Error("인증서 파일(signCert.der, signPri.key, p12, pfx)을 찾지 못했습니다.");
   }
   if (certificateFiles.length > 80) {
     throw new Error("한 번에 처리할 수 있는 인증서 파일은 80개까지입니다.");

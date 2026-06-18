@@ -2743,7 +2743,7 @@ export function CustomersTab(props: CustomersTabProps) {
             className="customer-onestop-file-input"
             type="file"
             multiple
-            accept=".der,.key"
+            accept=".der,.key,.p12,.pfx"
             aria-label="로컬 인증서 파일 올리기"
             onChange={handleCustomerOnestopUploadInputChange}
           />

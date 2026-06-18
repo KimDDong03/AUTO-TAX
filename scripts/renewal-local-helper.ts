@@ -1,6 +1,8 @@
+import { spawnSync } from "node:child_process";
 import { X509Certificate, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import type { Server } from "node:http";
+import os from "node:os";
 import path from "node:path";
 import express from "express";
 import { z } from "zod";
@@ -25,8 +27,10 @@ const UPLOAD_SESSION_MAX_FILE_COUNT = 80;
 const UPLOAD_SESSION_MAX_BASE64_CHARS = 2_500_000;
 const UPLOAD_USAGE_NAME_BY_OID: Record<string, string> = {
   "1.2.410.200004.5.2.1.6.257": "전자세금용",
+  "1.2.410.200004.5.1.1.5": "개인 범용",
   "1.2.410.200004.5.2.1.2": "기업 범용",
-  "1.2.410.200005.1.1.4": "은행/보험용"
+  "1.2.410.200005.1.1.4": "은행/보험용",
+  "1.2.410.200005.1.1.6.8": "은행/보험용"
 };
 
 let activeHelperServer: Server | null = null;
@@ -281,6 +285,11 @@ function isUploadSignCertFile(file: Pick<CertificateUploadSessionFile, "name" | 
   return /(^|\/)signCert\.der$/i.test(relativePath) || /^signCert\.der$/i.test(file.name);
 }
 
+function isUploadPfxCertificateFile(file: Pick<CertificateUploadSessionFile, "name" | "relativePath">): boolean {
+  const relativePath = normalizeUploadRelativePath(file.relativePath || file.name);
+  return /(^|\/)[^/]+\.(p12|pfx)$/i.test(relativePath) || /\.(p12|pfx)$/i.test(file.name);
+}
+
 function hasSiblingUploadPrivateKey(
   signCertFile: Pick<CertificateUploadSessionFile, "name" | "relativePath">,
   files: Array<Pick<CertificateUploadSessionFile, "name" | "relativePath">>
@@ -296,6 +305,68 @@ function hasSiblingUploadPrivateKey(
 function decodeUploadBase64(value: string): Buffer {
   const normalized = value.includes(",") ? value.slice(value.indexOf(",") + 1) : value;
   return Buffer.from(normalized, "base64");
+}
+
+function decodeCertutilOutput(buffer: Buffer): string {
+  try {
+    return new TextDecoder("euc-kr").decode(buffer);
+  } catch {
+    return buffer.toString("utf8");
+  }
+}
+
+function escapeDumpFieldRegExpLabel(label: string): string {
+  return label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+}
+
+function extractDumpFieldValue(dumpText: string, labels: string[]): string | null {
+  const escapedLabels = labels
+    .map((label) => escapeDumpFieldRegExpLabel(label))
+    .filter(Boolean)
+    .join("|");
+  if (!escapedLabels) {
+    return null;
+  }
+
+  const regex = new RegExp(
+    `(?:^|\\r?\\n)\\s*(?:${escapedLabels})\\s*[:=]\\s*([^\\r\\n]+)`,
+    "i"
+  );
+  const match = dumpText.match(regex);
+  return match?.[1]?.trim() ?? null;
+}
+
+function extractPolicyOidFromDump(dumpText: string): string | null {
+  const matches = [...dumpText.matchAll(/Policy Identifier\s*=\s*([0-9]+(?:\.[0-9]+)*)/gi)].map((match) => match[1]);
+  return matches.find((oid) => oid && UPLOAD_USAGE_NAME_BY_OID[oid]) ?? matches[0] ?? null;
+}
+
+function parseCertutilDate(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const match = value.match(/(\d{4})[-.](\d{1,2})[-.](\d{1,2})(?:\s+(오전|오후|AM|PM)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?/i);
+  if (!match) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const meridiem = match[4]?.toLowerCase();
+  let hour = Number(match[5] ?? 0);
+  const minute = Number(match[6] ?? 0);
+  const second = Number(match[7] ?? 0);
+  if (meridiem === "오후" || meridiem === "pm") {
+    hour = hour === 12 ? 12 : hour + 12;
+  } else if (meridiem === "오전" || meridiem === "am") {
+    hour = hour === 12 ? 0 : hour;
+  }
+
+  const parsed = new Date(year, month - 1, day, hour, minute, second);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
 function encodeOidComponent(value: number): number[] {
@@ -362,7 +433,7 @@ function extractDnAttributeValue(userDn: string, attribute: string): string | nu
 
 function resolveIssuerDisplayName(issuer: string): string {
   const organization = issuer
-    .split(/\r?\n/)
+    .split(/[\r\n,]+/)
     .map((line) => line.trim())
     .find((line) => /^O=/i.test(line))
     ?.replace(/^O=/i, "")
@@ -401,6 +472,93 @@ function getUploadedCertificateUserDn(relativePath: string): string | null {
   return directoryName && directoryName !== "." ? directoryName : null;
 }
 
+function readUploadedPfxDumpText(raw: Buffer, relativePath: string): string | null {
+  if (process.platform !== "win32") {
+    return null;
+  }
+
+  const extension = path.extname(relativePath).toLowerCase() || ".pfx";
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "auto-tax-pfx-"));
+  const tempFile = path.join(tempDir, `${randomUUID()}${extension}`);
+  try {
+    fs.writeFileSync(tempFile, raw);
+    const result = spawnSync("certutil.exe", ["-v", "-dump", tempFile], {
+      encoding: "buffer",
+      timeout: 10_000,
+      windowsHide: true
+    });
+    const stdout = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? ""));
+    const stderr = Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(String(result.stderr ?? ""));
+    const text = decodeCertutilOutput(Buffer.concat([stdout, Buffer.from("\n"), stderr]));
+    return text.trim() ? text : null;
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(tempDir, { force: true, recursive: true });
+  }
+}
+
+function resolveUploadedPfxCertificateMetadata(
+  file: CertificateUploadSessionFile,
+  raw: Buffer,
+  sessionId: string
+): UploadedCertificateMetadata | null {
+  const dumpText = readUploadedPfxDumpText(raw, file.relativePath);
+  if (!dumpText) {
+    return null;
+  }
+
+  const subject =
+    extractDumpFieldValue(dumpText, ["Subject", "주체"]) ?? "";
+  const normalizedSubject = subject
+    .replace(/\r?\n/g, ",")
+    .replace(/\s*,\s*/g, ",")
+    .trim();
+  const issuer =
+    extractDumpFieldValue(dumpText, ["Issuer", "발급자"]) ?? "";
+  const normalizedIssuer = issuer
+    .replace(/\r?\n/g, ",")
+    .replace(/\s*,\s*/g, ",")
+    .trim();
+  const cn =
+    extractDnAttributeValue(normalizedSubject, "CN") ??
+    path.basename(file.name, path.extname(file.name));
+  const policyOid = extractPolicyOidFromDump(dumpText);
+  const validTo = parseCertutilDate(
+    extractDumpFieldValue(dumpText, ["NotAfter", "Not After", "유효 종료일", "만료일"])
+  );
+  const validFrom = parseCertutilDate(
+    extractDumpFieldValue(dumpText, ["NotBefore", "Not Before", "유효 시작일", "발급일"])
+  );
+  const serial = convertHexSerialToDecimal(
+    extractDumpFieldValue(dumpText, ["Serial Number", "Serial", "일련 번호", "시리얼 번호"]) ?? ""
+  );
+
+  if (!cn && !serial && !validTo) {
+    return null;
+  }
+
+  return {
+    index: buildUploadCertificateIndex(`${serial ?? ""}|${normalizedSubject}|${file.relativePath}`),
+    cn,
+    issuerToName: resolveIssuerDisplayName(normalizedIssuer || normalizedSubject),
+    usageToName: policyOid ? (UPLOAD_USAGE_NAME_BY_OID[policyOid] ?? policyOid) : "알 수 없음",
+    todate: validTo,
+    oid: policyOid,
+    serial,
+    userDN: normalizedSubject || cn || null,
+    validateFrom: validFrom,
+    detailValidateTo: validTo,
+    certDirPath: null,
+    listSource: "upload-session",
+    supportsPreflight: false,
+    uploadSessionId: sessionId,
+    fileName: file.name,
+    relativePath: file.relativePath,
+    privateKeyIncluded: true
+  };
+}
+
 export function createCertificateUploadSessionMetadata(
   files: CertificateUploadSessionFile[]
 ): CertificateUploadSessionResult {
@@ -414,9 +572,10 @@ export function createCertificateUploadSessionMetadata(
     relativePath: normalizeUploadRelativePath(file.relativePath || file.name) || file.name
   }));
   const signCertFiles = normalizedFiles.filter(isUploadSignCertFile);
+  const pfxCertificateFiles = normalizedFiles.filter(isUploadPfxCertificateFile);
 
-  if (signCertFiles.length === 0) {
-    warnings.push("선택한 파일에서 signCert.der를 찾지 못했습니다. NPKI 인증서 폴더나 signCert.der 파일을 선택하세요.");
+  if (signCertFiles.length === 0 && pfxCertificateFiles.length === 0) {
+    warnings.push("선택한 파일에서 signCert.der 또는 p12/pfx 인증서 파일을 찾지 못했습니다. NPKI 인증서 폴더나 p12/pfx 파일이 있는 폴더를 선택하세요.");
   }
 
   for (const file of signCertFiles) {
@@ -472,6 +631,37 @@ export function createCertificateUploadSessionMetadata(
         relativePath: file.relativePath,
         privateKeyIncluded
       });
+    } catch {
+      rejectedFiles.push({
+        name: file.name,
+        relativePath: file.relativePath,
+        reason: "인증서 파일을 읽지 못했습니다."
+      });
+    }
+  }
+
+  for (const file of pfxCertificateFiles) {
+    try {
+      const raw = decodeUploadBase64(file.base64);
+      if (raw.length === 0) {
+        rejectedFiles.push({
+          name: file.name,
+          relativePath: file.relativePath,
+          reason: "빈 인증서 파일입니다."
+        });
+        continue;
+      }
+
+      const certificate = resolveUploadedPfxCertificateMetadata(file, raw, sessionId);
+      if (!certificate) {
+        rejectedFiles.push({
+          name: file.name,
+          relativePath: file.relativePath,
+          reason: "인증서 공개 정보를 읽지 못했습니다."
+        });
+        continue;
+      }
+      certificates.push(certificate);
     } catch {
       rejectedFiles.push({
         name: file.name,

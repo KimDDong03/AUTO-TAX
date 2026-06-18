@@ -185,7 +185,7 @@ There are two local Windows components:
 
 - Browser-facing HTTP helper
 - Runs on the operator PC
-- Handles certificate listing, browser-selected NPKI upload-session metadata extraction, local checks, and payment-window/open support
+- Handles certificate listing, browser-selected NPKI/P12/PFX upload-session metadata extraction, local checks, and payment-window/open support
 - Stable install path: `%LOCALAPPDATA%\\AUTO-TAX\\renewal-local-helper`
 - The installed Windows logon autostart task runs the helper in the background without opening the tray app; manual Start still opens the tray for status/exit controls.
 - The tray right-click menu must open immediately; helper health refresh runs in the background and should not block menu display.
@@ -198,6 +198,7 @@ There are two local Windows components:
   `bridgeFunctionalSummary` and legacy `bridgeSummary` are functional readiness summaries. Do not treat a raw TCP failure as proof that certificate listing is unavailable when `GetVersion`, license, or storage probes succeed.
 - Certificate-listing UI should use `/api/certificates`; renewal preflight/payment diagnostics can use `/api/bridge-probe` or the preflight endpoints.
 - `/api/certificates` should return after a bridge-backed listing succeeds. It prefers HomeTax MagicLine, then SignGate/SecuKit storage probes, and only runs the filesystem NPKI scan if those bridge-backed listing paths are unavailable or empty.
+- Browser-selected upload sessions accept NPKI `signCert.der`/`signPri.key` pairs and P12/PFX files. P12/PFX metadata is read locally with Windows `certutil -v -dump` for list/export use; private-key operations still require the certificate password later.
 
 Commands:
 

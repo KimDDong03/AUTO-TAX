@@ -56,8 +56,10 @@ const FILESYSTEM_ELECTRONIC_TAX_OID_SET = new Set<string>([
 ]);
 const FILESYSTEM_USAGE_NAME_BY_OID: Record<string, string> = {
   "1.2.410.200004.5.2.1.6.257": "전자세금용",
+  "1.2.410.200004.5.1.1.5": "개인 범용",
   "1.2.410.200004.5.2.1.2": "기업 범용",
   "1.2.410.200005.1.1.4": "은행/보험용",
+  "1.2.410.200005.1.1.6.8": "은행/보험용",
 };
 const HDD_CERTIFICATE_STORAGE_DIR_NAMES = [
   "NPKI",
@@ -2522,11 +2524,36 @@ function parseCertificateDateFromDump(dumpText: string, label: string): string |
   if (!match) {
     return null;
   }
-  const parsed = new Date(match.trim());
+  const koreanDateMatch = match.match(/(\d{4})[-.](\d{1,2})[-.](\d{1,2})(?:\s+(오전|오후|AM|PM)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?/i);
+  const parsed = koreanDateMatch
+    ? (() => {
+        const year = Number(koreanDateMatch[1]);
+        const month = Number(koreanDateMatch[2]);
+        const day = Number(koreanDateMatch[3]);
+        const meridiem = koreanDateMatch[4]?.toLowerCase();
+        let hour = Number(koreanDateMatch[5] ?? 0);
+        const minute = Number(koreanDateMatch[6] ?? 0);
+        const second = Number(koreanDateMatch[7] ?? 0);
+        if (meridiem === "오후" || meridiem === "pm") {
+          hour = hour === 12 ? 12 : hour + 12;
+        } else if (meridiem === "오전" || meridiem === "am") {
+          hour = hour === 12 ? 0 : hour;
+        }
+        return new Date(year, month - 1, day, hour, minute, second);
+      })()
+    : new Date(match.trim());
   if (Number.isNaN(parsed.getTime())) {
     return null;
   }
   return parsed.toISOString();
+}
+
+function decodeCertutilOutput(buffer: Buffer): string {
+  try {
+    return new TextDecoder("euc-kr").decode(buffer);
+  } catch {
+    return buffer.toString("utf8");
+  }
 }
 
 function normalizePolicyOid(rawOid: string | null): string | null {
@@ -2636,12 +2663,18 @@ function resolveFilesystemPfxCertificateMetadata(
 }
 
 function readCertificateDumpText(filePath: string): string | null {
-  const result = spawnSync("certutil.exe", ["-dump", filePath], {
-    encoding: "utf8",
+  const result = spawnSync("certutil.exe", ["-v", "-dump", filePath], {
+    encoding: "buffer",
     timeout: 8000,
     windowsHide: true,
   });
-  const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  const stdout = Buffer.isBuffer(result.stdout)
+    ? result.stdout
+    : Buffer.from(String(result.stdout ?? ""));
+  const stderr = Buffer.isBuffer(result.stderr)
+    ? result.stderr
+    : Buffer.from(String(result.stderr ?? ""));
+  const text = decodeCertutilOutput(Buffer.concat([stdout, Buffer.from("\n"), stderr]));
   return text.trim() ? text : null;
 }
 
@@ -2654,7 +2687,7 @@ function resolveUsageNameFromPolicyOid(oid: string | null): string {
 
 function resolveIssuerDisplayName(issuer: string): string {
   const organization = issuer
-    .split(/\r?\n/)
+    .split(/[\r\n,]+/)
     .map((line) => line.trim())
     .find((line) => /^O=/i.test(line))
     ?.replace(/^O=/i, "")
