@@ -53,6 +53,12 @@ Write-Output "processIds=$(if ($owningProcessIds.Count -gt 0) { $owningProcessId
 if ($health) {
   Write-Output "version=$($health.version)"
   Write-Output "bridgeSummary=$($health.status.bridgeSummary)"
+  if ($health.status.bridgeTransportSummary) {
+    Write-Output "bridgeTransportSummary=$($health.status.bridgeTransportSummary)"
+  }
+  if ($health.status.bridgeFunctionalSummary) {
+    Write-Output "bridgeFunctionalSummary=$($health.status.bridgeFunctionalSummary)"
+  }
   if ($health.popbillDebugArtifacts) {
     Write-Output "popbillDebugArtifactSupport=$(if ($health.popbillDebugArtifacts.supported) { 'enabled' } else { 'disabled' })"
     Write-Output "popbillDebugArtifactDir=$($health.popbillDebugArtifacts.artifactDir)"

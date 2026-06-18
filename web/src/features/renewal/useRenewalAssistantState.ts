@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import {
   getLocalRenewalHelperReleaseMetadata,
   getLocalRenewalHelperStatus,
-  requestLocalRenewalBridgeProbe
+  requestLocalRenewalCertificates
 } from "../../local-renewal-helper";
 import {
   evaluateLocalRenewalHelperUpgrade,
@@ -13,6 +13,7 @@ import type { RenewalAutomationPayload } from "../../types";
 import { isCustomerCertificateExpired } from "./customerRenewalCertificateUtils";
 
 export type RenewalAgentSnapshot = RenewalAutomationPayload["agent"];
+type RenewalBridgeProbeResult = NonNullable<RenewalAutomationPayload["jobs"][number]["result"]>;
 export type RenewalAgentCertificate = RenewalAgentSnapshot["bridge"]["storageProbe"]["certificates"][number];
 export type RenewalJob = RenewalAutomationPayload["jobs"][number];
 export type RenewalAssistantAlertTone = "default" | "warn" | "danger" | "success";
@@ -50,6 +51,117 @@ let localRenewalJobSeed = Date.now();
 function nextLocalRenewalJobId(): number {
   localRenewalJobSeed += 1;
   return localRenewalJobSeed;
+}
+
+function summarizeCertificateListProbe(
+  licenseProbe: RenewalAgentSnapshot["bridge"]["licenseProbe"],
+  storageProbe: RenewalAgentSnapshot["bridge"]["storageProbe"]
+): RenewalAgentSnapshot["bridge"]["summary"] {
+  if (storageProbe.ok) {
+    return "ok";
+  }
+  if (licenseProbe.ok) {
+    return "partial";
+  }
+  return storageProbe.error || licenseProbe.error ? "down" : "unknown";
+}
+
+function buildCertificateListProbeResult(
+  licenseProbe: RenewalAgentSnapshot["bridge"]["licenseProbe"],
+  storageProbe: RenewalAgentSnapshot["bridge"]["storageProbe"]
+): RenewalBridgeProbeResult {
+  const summary = summarizeCertificateListProbe(licenseProbe, storageProbe);
+  const notes = [
+    storageProbe.ok
+      ? `공동인증서 목록 조회 성공: ${storageProbe.certificateCount}건`
+      : storageProbe.error ?? licenseProbe.error ?? "공동인증서 목록 조회 결과가 없습니다."
+  ];
+
+  return {
+    process: {
+      detected: true,
+      names: ["AT helper"],
+      detail: "certificate-list"
+    },
+    bridge: {
+      summary,
+      transportSummary: "unknown",
+      functionalSummary: summary,
+      ports: [],
+      versionProbe: {
+        ok: false,
+        sourcePort: null,
+        values: {
+          kpmcnt: null,
+          kpmsvc: null,
+          secukitNX: null
+        },
+        error: null
+      },
+      licenseProbe,
+      storageProbe,
+      selectionProbe: {
+        ok: false,
+        sourcePort: null,
+        certificateIndex: null,
+        certificateCn: null,
+        certID: null,
+        error: null
+      },
+      preflightProbe: {
+        ok: false,
+        sourcePort: null,
+        certificateIndex: null,
+        certificateCn: null,
+        certID: null,
+        branch: "unknown",
+        branchPageUrl: null,
+        issueCompany: null,
+        companyChkYn: null,
+        policy: null,
+        orderNo: null,
+        orderSeq: null,
+        orderStatus: null,
+        orderApplySeCd: null,
+        payYn: null,
+        nextUrl: null,
+        renewInfoPageTitle: null,
+        renewInfoSubmitUrl: null,
+        renewInfoSubmitPathKind: null,
+        renewInfoFormFieldNames: [],
+        renewInfoMustHaveFieldNames: [],
+        renewInfoFinalNum: null,
+        renewInfoSnapshot: null,
+        renewInfoBlockingMismatchFields: [],
+        renewInfoAutoSubmitReady: null,
+        renewInfoAutoSubmitSummary: null,
+        renewInfoSubmitMissingFields: [],
+        renewInfoSubmitReady: null,
+        renewInfoSubmitSummary: null,
+        renewInfoSubmitAttempted: null,
+        renewInfoSubmitResultBranch: null,
+        renewInfoSubmitResultUrl: null,
+        renewInfoSubmitResultPageTitle: null,
+        renewInfoSubmitResultSummary: null,
+        renewInfoSubmitResultError: null,
+        renewInfoPaymentPreviewLoaded: null,
+        renewInfoPaymentPreviewItems: [],
+        renewInfoPaymentPreviewTotalAmount: null,
+        renewInfoPaymentPreviewHasAdditionalAgreement: null,
+        actionImageUrl: null,
+        actionImageAlt: null,
+        externalFlowKind: null,
+        externalFlowProductName: null,
+        externalFlowProductId: null,
+        externalFlowSubmitUrl: null,
+        externalFlowSubmitPathKind: null,
+        rawCode: null,
+        message: null,
+        error: null
+      }
+    },
+    notes
+  };
 }
 
 export function buildLocalRenewalBridgeJob(
@@ -313,13 +425,14 @@ export function useRenewalAssistantState({
       );
 
       const showLoadAlert = options?.showAlert ?? true;
-      const response = await requestLocalRenewalBridgeProbe();
-      const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
+      const response = await requestLocalRenewalCertificates();
+      const result = buildCertificateListProbeResult(response.result.licenseProbe, response.result.storageProbe);
+      const allCertificates = response.result.storageProbe.ok ? response.result.storageProbe.certificates : [];
       const availableCertificates = allCertificates.filter(
         (certificate) => !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
       );
       const bridgeJob = buildLocalRenewalBridgeJob(
-        response.result,
+        result,
         availableCertificates.length,
         "사용 가능한 공동인증서",
         "만료되지 않은 공동인증서를 찾지 못했습니다."
@@ -345,16 +458,16 @@ export function useRenewalAssistantState({
 
       if (showLoadAlert && showAlert) {
         const alertMessage =
-          response.result.bridge.storageProbe.ok && availableCertificates.length > 0
+          response.result.storageProbe.ok && availableCertificates.length > 0
             ? `사용 가능한 공동인증서 ${availableCertificates.length}건을 불러왔습니다.\n만료된 인증서는 목록에서 제외됩니다.`
-            : response.result.bridge.storageProbe.ok
+            : response.result.storageProbe.ok
               ? "만료되지 않은 공동인증서를 찾지 못했습니다.\n만료된 인증서는 목록에서 제외됩니다."
               : bridgeJob.error ?? "공동인증서를 불러오지 못했습니다.";
         await showAlert(
           alertMessage,
           {
             title: "공동인증서 읽기",
-            tone: availableCertificates.length > 0 ? "success" : response.result.bridge.storageProbe.ok ? "warn" : "danger"
+            tone: availableCertificates.length > 0 ? "success" : response.result.storageProbe.ok ? "warn" : "danger"
           }
         );
       }

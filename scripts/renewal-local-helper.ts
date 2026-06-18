@@ -590,6 +590,8 @@ export function createRenewalLocalHelperApp() {
         status: {
           processDetected: probe.process.detected,
           bridgeSummary: probe.bridge.summary,
+          bridgeTransportSummary: probe.bridge.transportSummary ?? probe.bridge.summary,
+          bridgeFunctionalSummary: probe.bridge.functionalSummary ?? probe.bridge.summary,
           notes: probe.notes
         },
         popbillDebugArtifacts: getPopbillDebugArtifactSupport()

@@ -81,6 +81,8 @@ function defaultProcessStatus(): RenewalAgentProcessStatus {
 function defaultBridgeStatus(): RenewalAgentBridgeStatus {
   return {
     summary: "unknown",
+    transportSummary: "unknown",
+    functionalSummary: "unknown",
     ports: [],
     versionProbe: {
       ok: false,
@@ -178,6 +180,8 @@ function cloneJob(job: RenewalAutomationJob): RenewalAutomationJob {
           },
           bridge: {
             summary: job.result.bridge.summary,
+            transportSummary: job.result.bridge.transportSummary ?? job.result.bridge.summary,
+            functionalSummary: job.result.bridge.functionalSummary ?? job.result.bridge.summary,
             ports: job.result.bridge.ports.map((port) => ({ ...port })),
             versionProbe: {
               ok: job.result.bridge.versionProbe.ok,
@@ -280,6 +284,8 @@ function cloneStatus(status: RenewalAgentStatus): RenewalAgentStatus {
     },
     bridge: {
       summary: status.bridge.summary,
+      transportSummary: status.bridge.transportSummary ?? status.bridge.summary,
+      functionalSummary: status.bridge.functionalSummary ?? status.bridge.summary,
       ports: status.bridge.ports.map((port) => ({ ...port })),
       versionProbe: {
         ok: status.bridge.versionProbe.ok,

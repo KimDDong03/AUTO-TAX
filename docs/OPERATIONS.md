@@ -190,6 +190,13 @@ There are two local Windows components:
 - The installed Windows logon autostart task runs the helper in the background without opening the tray app; manual Start still opens the tray for status/exit controls.
 - The tray right-click menu must open immediately; helper health refresh runs in the background and should not block menu display.
 - Packaged installs register `AT helper` under the current user's Windows installed-apps list; uninstalling it there removes the scheduled task, tray/helper files, and helper desktop shortcuts.
+- Helper diagnostics separate three signals:
+  - helper reachability: `GET http://127.0.0.1:35119/health`
+  - certificate listing: `POST http://127.0.0.1:35119/api/certificates`
+  - SignGate/SecuKit renewal bridge diagnostics: `POST http://127.0.0.1:35119/api/bridge-probe`
+- `bridgeTransportSummary` is the raw TCP probe for SignGate/SecuKit ports `14315/14319`.
+  `bridgeFunctionalSummary` and legacy `bridgeSummary` are functional readiness summaries. Do not treat a raw TCP failure as proof that certificate listing is unavailable when `GetVersion`, license, or storage probes succeed.
+- Certificate-listing UI should use `/api/certificates`; renewal preflight/payment diagnostics can use `/api/bridge-probe` or the preflight endpoints.
 
 Commands:
 

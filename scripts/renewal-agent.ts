@@ -75,6 +75,8 @@ type BridgeProbeResult = {
   };
   bridge: {
     summary: "ok" | "partial" | "down" | "unknown";
+    transportSummary: "ok" | "partial" | "down" | "unknown";
+    functionalSummary: "ok" | "partial" | "down" | "unknown";
     ports: Array<{
       port: number;
       protocol: "https" | "http";
@@ -597,6 +599,30 @@ function summarizeBridge(
     return "down";
   }
   return "partial";
+}
+
+function summarizeBridgeFunctionality(options: {
+  transportSummary: BridgeProbeResult["bridge"]["summary"];
+  versionProbe: BridgeProbeResult["bridge"]["versionProbe"];
+  licenseProbe: BridgeProbeResult["bridge"]["licenseProbe"];
+  storageProbe: BridgeProbeResult["bridge"]["storageProbe"];
+  detailedProbeRan: boolean;
+}): BridgeProbeResult["bridge"]["summary"] {
+  if (options.detailedProbeRan) {
+    if (options.licenseProbe.ok && options.storageProbe.ok) {
+      return "ok";
+    }
+    if (options.versionProbe.ok || options.licenseProbe.ok || options.storageProbe.ok) {
+      return "partial";
+    }
+    return options.transportSummary;
+  }
+
+  if (options.versionProbe.ok) {
+    return options.transportSummary === "ok" ? "ok" : "partial";
+  }
+
+  return options.transportSummary;
 }
 
 function defaultLicenseProbe(): BridgeProbeResult["bridge"]["licenseProbe"] {
@@ -3990,7 +4016,7 @@ export async function collectBridgeProbeResult(options?: {
     probeBridgeVersion(),
   ]);
 
-  const summary = summarizeBridge(portChecks);
+  const transportSummary = summarizeBridge(portChecks);
   let { licenseProbe, storageProbe } = cloneDetailedBridgeStatus();
   let selectionProbe = cloneSelectionProbe();
   let preflightProbe = clonePreflightProbe();
@@ -4091,14 +4117,21 @@ export async function collectBridgeProbeResult(options?: {
     }
   }
 
+  const functionalSummary = summarizeBridgeFunctionality({
+    transportSummary,
+    versionProbe,
+    licenseProbe,
+    storageProbe,
+    detailedProbeRan: options?.includeDetailedProbe === true,
+  });
   const notes: string[] = [];
 
   if (!processStatus.detected) {
     notes.push("SecuKit 관련 프로세스가 감지되지 않았습니다.");
   }
-  if (summary === "down") {
+  if (transportSummary === "down") {
     notes.push("127.0.0.1:14315/14319 포트 모두 연결되지 않았습니다.");
-  } else if (summary === "partial") {
+  } else if (transportSummary === "partial") {
     notes.push("로컬 브리지 포트가 일부만 응답합니다.");
   }
   if (versionProbe.ok) {
@@ -4143,7 +4176,9 @@ export async function collectBridgeProbeResult(options?: {
   return {
     process: processStatus,
     bridge: {
-      summary,
+      summary: functionalSummary,
+      transportSummary,
+      functionalSummary,
       ports: portChecks,
       versionProbe,
       licenseProbe,

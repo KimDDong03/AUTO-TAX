@@ -583,6 +583,8 @@ export interface RenewalAgentProcessStatus {
 
 export interface RenewalAgentBridgeStatus {
   summary: RenewalBridgeSummary;
+  transportSummary?: RenewalBridgeSummary;
+  functionalSummary?: RenewalBridgeSummary;
   ports: RenewalAgentPortStatus[];
   versionProbe: RenewalBridgeVersionProbe;
   licenseProbe: RenewalBridgeLicenseProbe;

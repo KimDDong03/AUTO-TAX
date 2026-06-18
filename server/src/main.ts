@@ -615,8 +615,17 @@ const renewalAgentPortSchema = z.object({
   error: z.string().nullable()
 });
 
+const renewalBridgeSummarySchema = z.union([
+  z.literal("ok"),
+  z.literal("partial"),
+  z.literal("down"),
+  z.literal("unknown")
+]);
+
 const renewalAgentBridgeSchema = z.object({
-  summary: z.union([z.literal("ok"), z.literal("partial"), z.literal("down"), z.literal("unknown")]),
+  summary: renewalBridgeSummarySchema,
+  transportSummary: renewalBridgeSummarySchema.optional(),
+  functionalSummary: renewalBridgeSummarySchema.optional(),
   ports: z.array(renewalAgentPortSchema),
   versionProbe: z.object({
     ok: z.boolean(),

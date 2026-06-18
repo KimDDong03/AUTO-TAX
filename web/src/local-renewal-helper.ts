@@ -9,6 +9,7 @@ import type {
 
 const DEFAULT_LOCAL_RENEWAL_HELPER_PORT = 35119;
 const DEFAULT_LOCAL_RENEWAL_HELPER_TIMEOUT_MS = 8_000;
+const DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS = 60_000;
 const configuredLocalRenewalHelperPort = typeof import.meta.env?.VITE_RENEWAL_HELPER_PORT === "string"
   ? import.meta.env.VITE_RENEWAL_HELPER_PORT.trim()
   : "";
@@ -40,9 +41,9 @@ function resolveLocalRenewalHelperPort(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LOCAL_RENEWAL_HELPER_PORT;
 }
 
-function resolveLocalRenewalHelperTimeoutMs(): number {
+function resolveLocalRenewalHelperTimeoutMs(fallbackMs = DEFAULT_LOCAL_RENEWAL_HELPER_TIMEOUT_MS): number {
   const parsed = Number(configuredLocalRenewalHelperTimeout);
-  return Number.isFinite(parsed) && parsed >= 1000 ? parsed : DEFAULT_LOCAL_RENEWAL_HELPER_TIMEOUT_MS;
+  return Number.isFinite(parsed) && parsed >= 1000 ? parsed : fallbackMs;
 }
 
 export const LOCAL_RENEWAL_HELPER_URL = `http://127.0.0.1:${resolveLocalRenewalHelperPort()}`;
@@ -54,6 +55,8 @@ type LocalRenewalHelperHealthResponse = {
   status: {
     processDetected: boolean;
     bridgeSummary: "ok" | "partial" | "down" | "unknown";
+    bridgeTransportSummary?: "ok" | "partial" | "down" | "unknown";
+    bridgeFunctionalSummary?: "ok" | "partial" | "down" | "unknown";
     notes: string[];
   };
 };
@@ -170,6 +173,10 @@ type LocalNetworkRequestInit = RequestInit & {
   targetAddressSpace?: "local" | "loopback";
 };
 
+type LocalRenewalHelperRequestInit = RequestInit & {
+  timeoutMs?: number;
+};
+
 const LOCAL_RENEWAL_HELPER_OFFLINE_RETRY_MS = 15_000;
 
 let localRenewalHelperStatusInFlight: Promise<LocalRenewalHelperStatus> | null = null;
@@ -184,7 +191,19 @@ function buildHelperUnavailableMessage(): string {
   return "AT 헬퍼가 실행 중이지 않습니다. 고객 PC에서 AT 헬퍼를 먼저 실행하세요.";
 }
 
-async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit): Promise<T> {
+function selectHelperStatusMessage(payload: LocalRenewalHelperHealthResponse): string {
+  const functionalSummary = payload.status.bridgeFunctionalSummary ?? payload.status.bridgeSummary;
+  if (functionalSummary !== "down") {
+    const functionalNote = payload.status.notes.find((note) =>
+      /GetVersion|SignGate|HDD|MagicLine|인증서|라이선스/i.test(note)
+    );
+    return functionalNote ?? "AT 헬퍼가 실행 중입니다.";
+  }
+
+  return payload.status.notes[0] ?? "AT 헬퍼가 실행 중입니다.";
+}
+
+async function localRenewalHelperRequest<T>(pathname: string, init?: LocalRenewalHelperRequestInit): Promise<T> {
   if (!shouldUseLocalRenewalHelperHost()) {
     throw new Error(buildHelperUnavailableMessage());
   }
@@ -196,19 +215,24 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: RequestInit
   }
 
   let response: Response;
-  const timeoutMs = resolveLocalRenewalHelperTimeoutMs();
+  const timeoutMs = init?.timeoutMs ?? resolveLocalRenewalHelperTimeoutMs();
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const requestInit: RequestInit = { ...(init ?? {}) };
+    delete (requestInit as LocalRenewalHelperRequestInit).timeoutMs;
     const fetchOptions: LocalNetworkRequestInit = {
-      ...init,
+      ...requestInit,
       cache: "no-store",
       headers,
-      signal: init?.signal ?? controller.signal,
+      signal: requestInit.signal ?? controller.signal,
       targetAddressSpace: "loopback"
     };
     response = await fetch(`${LOCAL_RENEWAL_HELPER_URL}${pathname}`, fetchOptions);
   } catch {
+    if (controller.signal.aborted) {
+      throw new Error(`AT 헬퍼 요청이 ${Math.round(timeoutMs / 1000)}초 안에 완료되지 않았습니다. 잠시 후 다시 시도하세요.`);
+    }
     throw new Error(buildHelperUnavailableMessage());
   } finally {
     globalThis.clearTimeout(timeout);
@@ -275,7 +299,7 @@ export async function getLocalRenewalHelperStatus(
       return {
         online: true,
         version: payload.version,
-        message: payload.status.notes[0] ?? "AT 헬퍼가 준비되었습니다."
+        message: selectHelperStatusMessage(payload)
       };
     } catch (error) {
       const status = {
@@ -342,14 +366,16 @@ export async function getLocalRenewalHelperReleaseMetadata(): Promise<LocalRenew
 export async function requestLocalRenewalBridgeProbe() {
   return await localRenewalHelperRequest<LocalRenewalHelperProbeResponse>("/api/bridge-probe", {
     method: "POST",
-    body: JSON.stringify({})
+    body: JSON.stringify({}),
+    timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
   });
 }
 
 export async function requestLocalRenewalCertificates() {
   return await localRenewalHelperRequest<LocalRenewalHelperCertificateListResponse>("/api/certificates", {
     method: "POST",
-    body: JSON.stringify({})
+    body: JSON.stringify({}),
+    timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
   });
 }
 
@@ -365,7 +391,8 @@ export async function requestLocalCertificateUploadSession(files: File[]) {
   const payloadFiles = await Promise.all(certificateFiles.map(fileToUploadSessionFile));
   return await localRenewalHelperRequest<LocalCertificateUploadSessionResponse>("/api/certificates/upload-session", {
     method: "POST",
-    body: JSON.stringify({ files: payloadFiles })
+    body: JSON.stringify({ files: payloadFiles }),
+    timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
   });
 }
 
@@ -376,7 +403,8 @@ export async function requestLocalRenewalPreflight(payload: {
 }) {
   return await localRenewalHelperRequest<LocalRenewalHelperProbeResponse>("/api/preflight", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
   });
 }
 
@@ -397,7 +425,8 @@ export async function requestLocalRenewalPreflightBatch(payloads: Array<{
       body: JSON.stringify({
         requests: payloads,
         concurrency: 16
-      })
+      }),
+      timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
     });
     return response.results.map((result) => ({
       ok: true as const,
@@ -425,7 +454,8 @@ export async function requestLocalRenewalPreparePayment(payload: {
 }) {
   return await localRenewalHelperRequest<LocalRenewalHelperProbeResponse>("/api/renewal/prepare-payment", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
   });
 }
 
@@ -438,7 +468,8 @@ export async function requestLocalRenewalOpenPayment(payload: {
 }) {
   return await localRenewalHelperRequest<LocalRenewalPaymentOpenResponse>("/api/renewal/open-payment", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
   });
 }
 
@@ -454,7 +485,8 @@ export async function requestLocalPopbillCertificateRegistration(payload: {
 }) {
   const response = await localRenewalHelperRequest<LocalPopbillCertificateRegistrationResponse>("/api/popbill/certificate-registration", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
   });
   if (!response.ok) {
     throw new Error(response.error || "공동인증서 자동 등록에 실패했습니다.");
