@@ -3046,19 +3046,6 @@ export async function importP12ToSignGateHddStore(input: {
 
     await warmSelectStorageForP12Import(target, signGateConfig).catch(() => undefined);
 
-    const selectedStorageError = await ensureStorageSelectedOnTarget(
-      target,
-      signGateConfig,
-      true,
-    );
-    if (selectedStorageError) {
-      return {
-        ok: false,
-        sourcePort: target.port,
-        error: selectedStorageError,
-      };
-    }
-
     const resolvedFilePath = path.resolve(input.filePath);
     const filePathCandidates = Array.from(
       new Set([
