@@ -1447,6 +1447,23 @@ function isSignGateUnsupportedBusinessInfoDetail(detail: string): boolean {
   );
 }
 
+function isSignGateBridgeMediaUnsupportedDetail(detail: string): boolean {
+  return (
+    detail.includes("미디어(장치) 정보가 없습니다") ||
+    detail.includes("미디어 정보가 없습니다") ||
+    detail.includes("장치 정보가 없습니다") ||
+    detail.includes("356712448") ||
+    /NOTSUPPORTMEDIA/i.test(detail)
+  );
+}
+
+export function isSignGateBusinessInfoFallbackDetail(detail: string): boolean {
+  return (
+    isSignGateUnsupportedBusinessInfoDetail(detail) ||
+    isSignGateBridgeMediaUnsupportedDetail(detail)
+  );
+}
+
 function isLikelyYessignCertificatePayload(payload: LocalHomeTaxBusinessInfoPayload): boolean {
   const haystack = [
     payload.issuerToName,
@@ -1472,7 +1489,7 @@ function classifySignGateBusinessInfoFailureStatus(detail: string): CertificateB
     return "certificate-not-found";
   }
 
-  if (isSignGateUnsupportedBusinessInfoDetail(detail)) {
+  if (isSignGateBusinessInfoFallbackDetail(detail)) {
     return "unsupported";
   }
 
@@ -1567,7 +1584,11 @@ function shouldTryHomeTaxAfterSignGateFailure(
     return false;
   }
 
-  return signGateResult.status === "unsupported" || isLikelyYessignCertificatePayload(payload);
+  return (
+    signGateResult.status === "unsupported" ||
+    isSignGateBridgeMediaUnsupportedDetail(detail) ||
+    isLikelyYessignCertificatePayload(payload)
+  );
 }
 
 function buildCombinedBusinessInfoFailureResult(

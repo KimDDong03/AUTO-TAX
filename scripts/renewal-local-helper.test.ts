@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createCertificateUploadSessionMetadata,
+  isSignGateBusinessInfoFallbackDetail,
   isPfxPasswordMismatchMessage,
   isAllowedLocalRenewalHelperOrigin,
   uploadedCertificateMatchesBridge
@@ -59,6 +60,21 @@ test("isPfxPasswordMismatchMessage classifies Windows P12 password failures", ()
   );
   assert.equal(isPfxPasswordMismatchMessage("AUTO_TAX_P12_PASSWORD_MISMATCH"), true);
   assert.equal(isPfxPasswordMismatchMessage("인증서 가져오기 중에 문제가 발생하였습니다. (375848960)"), false);
+});
+
+test("isSignGateBusinessInfoFallbackDetail treats missing media info as fallback-worthy", () => {
+  assert.equal(
+    isSignGateBusinessInfoFallbackDetail("미디어(장치) 정보가 없습니다. (356712448)"),
+    true
+  );
+  assert.equal(
+    isSignGateBusinessInfoFallbackDetail("홈택스 조회 실패: NOTSUPPORTMEDIA"),
+    true
+  );
+  assert.equal(
+    isSignGateBusinessInfoFallbackDetail("인증서 비밀번호가 맞지 않습니다."),
+    false
+  );
 });
 
 test("uploadedCertificateMatchesBridge matches decimal P12 serial to hexadecimal bridge serial", () => {
