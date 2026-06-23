@@ -166,13 +166,26 @@ function isUploadedNpkiFolderCertificate(certificate: RenewalAgentCertificate): 
   return /(^|\/)signCert\.der$/i.test(relativePath);
 }
 
-function isPreparedBridgeCertificate(certificate: RenewalAgentCertificate): boolean {
-  const listSource =
-    "listSource" in certificate && typeof certificate.listSource === "string"
-      ? certificate.listSource
+function isUploadedPfxCertificate(certificate: RenewalAgentCertificate): boolean {
+  const relativePath = getUploadRelativePath(certificate);
+  return /\.(p12|pfx)$/i.test(relativePath);
+}
+
+function isImportableUploadSessionCertificate(certificate: RenewalAgentCertificate): boolean {
+  const uploadSessionId =
+    "uploadSessionId" in certificate && typeof certificate.uploadSessionId === "string"
+      ? certificate.uploadSessionId.trim()
       : "";
-  const certDirPath = certificate.certDirPath?.trim() ?? "";
-  return certificate.supportsPreflight !== false && listSource === "bridge-hdd" && Boolean(certDirPath);
+  if (!uploadSessionId) {
+    return false;
+  }
+
+  const privateKeyIncluded =
+    "privateKeyIncluded" in certificate ? certificate.privateKeyIncluded : undefined;
+  return (
+    (isUploadedNpkiFolderCertificate(certificate) || isUploadedPfxCertificate(certificate)) &&
+    privateKeyIncluded !== false
+  );
 }
 
 function onboardingCertificatesMatch(
@@ -229,7 +242,7 @@ function selectPreferredOnboardingCertificate(
     return incoming;
   }
   if (!currentIsUpload && incomingIsUpload) {
-    if (isUploadedNpkiFolderCertificate(incoming) && !isPreparedBridgeCertificate(current)) {
+    if (isImportableUploadSessionCertificate(incoming)) {
       return incoming;
     }
     return current;
@@ -287,6 +300,33 @@ function getOnboardingTemplatePlantStableKey(
   ].join(":");
 }
 
+function getOnboardingTemplatePlantCertificateNameKey(
+  plant: CustomerOnboardingTemplateWorkbookInput["plants"][number]
+): string {
+  return normalizeRenewalCertificateKey(plant.certificateName);
+}
+
+function buildUniqueCurrentPlantMap(
+  plants: CustomerOnboardingTemplateWorkbookInput["plants"],
+  getKey: (plant: CustomerOnboardingTemplateWorkbookInput["plants"][number]) => string
+) {
+  const uniquePlants = new Map<string, CustomerOnboardingTemplateWorkbookInput["plants"][number]>();
+  const duplicatedKeys = new Set<string>();
+  for (const plant of plants) {
+    const key = getKey(plant);
+    if (!key || duplicatedKeys.has(key)) {
+      continue;
+    }
+    if (uniquePlants.has(key)) {
+      uniquePlants.delete(key);
+      duplicatedKeys.add(key);
+      continue;
+    }
+    uniquePlants.set(key, plant);
+  }
+  return uniquePlants;
+}
+
 export function getOnboardingCertificateTemplatePlantKey(
   certificate: RenewalAgentCertificate
 ): string {
@@ -314,14 +354,18 @@ export function mergeCustomerOnboardingTemplateWorkbookState(
   }
 
   const preserveSelection = options.preserveSelection ?? true;
-  const currentPlantsByKey = new Map(
-    current.plants.map((plant) => [getOnboardingTemplatePlantStableKey(plant), plant])
+  const currentPlantsByKey = buildUniqueCurrentPlantMap(current.plants, getOnboardingTemplatePlantStableKey);
+  const currentPlantsByName = buildUniqueCurrentPlantMap(
+    current.plants,
+    getOnboardingTemplatePlantCertificateNameKey
   );
 
   return {
     ...next,
     plants: next.plants.map((plant) => {
-      const currentPlant = currentPlantsByKey.get(getOnboardingTemplatePlantStableKey(plant));
+      const currentPlant =
+        currentPlantsByKey.get(getOnboardingTemplatePlantStableKey(plant)) ??
+        currentPlantsByName.get(getOnboardingTemplatePlantCertificateNameKey(plant));
       if (!currentPlant) {
         return plant;
       }

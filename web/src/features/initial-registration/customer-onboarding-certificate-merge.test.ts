@@ -63,7 +63,7 @@ test("mergeOnboardingCertificates keeps bridge and uploaded certificates when th
   );
 });
 
-test("mergeOnboardingCertificates skips uploaded p12 duplicate when the bridge certificate already exists", () => {
+test("mergeOnboardingCertificates keeps uploaded p12 duplicate metadata so stale bridge rows can be prepared again", () => {
   const bridgeCertificate = createCertificate({
     index: "7",
     cn: "유학현()001168920230227111003787",
@@ -92,8 +92,9 @@ test("mergeOnboardingCertificates skips uploaded p12 duplicate when the bridge c
   const merged = mergeOnboardingCertificates([bridgeCertificate], [uploadedCertificate]);
 
   assert.equal(merged.length, 1);
-  assert.equal(merged[0]?.index, "7");
-  assert.notEqual(merged[0]?.index, "upload-1");
+  assert.equal(merged[0]?.index, "upload-1");
+  assert.equal(merged[0]?.supportsPreflight, false);
+  assert.equal("uploadSessionId" in merged[0] ? merged[0].uploadSessionId : null, "upload-session-1");
 });
 
 test("mergeOnboardingCertificates keeps uploaded NPKI folder duplicate until bridge path is prepared", () => {
@@ -132,7 +133,7 @@ test("mergeOnboardingCertificates keeps uploaded NPKI folder duplicate until bri
   assert.equal(merged[0]?.supportsPreflight, false);
 });
 
-test("mergeOnboardingCertificates skips uploaded NPKI folder duplicate when bridge path is already prepared", () => {
+test("mergeOnboardingCertificates keeps uploaded NPKI folder metadata even when a stale prepared bridge row exists", () => {
   const bridgeCertificate = createCertificate({
     index: "7",
     cn: "김수용발전소",
@@ -164,8 +165,9 @@ test("mergeOnboardingCertificates skips uploaded NPKI folder duplicate when brid
   const merged = mergeOnboardingCertificates([bridgeCertificate], [uploadedCertificate]);
 
   assert.equal(merged.length, 1);
-  assert.equal(merged[0]?.index, "7");
-  assert.equal(merged[0]?.supportsPreflight, true);
+  assert.equal(merged[0]?.index, "upload-1");
+  assert.equal(merged[0]?.supportsPreflight, false);
+  assert.equal("uploadSessionId" in merged[0] ? merged[0].uploadSessionId : null, "upload-session-1");
 });
 
 test("mergeOnboardingCertificates replaces an uploaded duplicate when a bridge certificate is read later", () => {
@@ -243,6 +245,40 @@ test("mergeCustomerOnboardingTemplateWorkbookState preserves existing row select
   assert.equal(merged.plants[0]?.selected, true);
   assert.equal(merged.plants[0]?.certificatePassword, "old-password");
   assert.equal(merged.plants[1]?.selected, false);
+});
+
+test("mergeCustomerOnboardingTemplateWorkbookState preserves row state when upload metadata changes the certificate index", () => {
+  const current: CustomerOnboardingTemplateWorkbookInput = {
+    certificates: [],
+    plants: [
+      {
+        rowIndex: 2,
+        certificateIndex: "7",
+        certificateName: "김수용발전소",
+        plantName: "김수용발전소",
+        certificatePassword: "row-password",
+        selected: true
+      }
+    ]
+  };
+  const next: CustomerOnboardingTemplateWorkbookInput = {
+    certificates: [],
+    plants: [
+      {
+        rowIndex: 2,
+        certificateIndex: "upload-abc",
+        certificateName: "김수용발전소",
+        plantName: "김수용발전소",
+        certificatePassword: "",
+        selected: false
+      }
+    ]
+  };
+
+  const merged = mergeCustomerOnboardingTemplateWorkbookState(current, next);
+
+  assert.equal(merged.plants[0]?.selected, true);
+  assert.equal(merged.plants[0]?.certificatePassword, "row-password");
 });
 
 test("mergeCustomerOnboardingTemplateWorkbookState can reset selection while keeping passwords", () => {
