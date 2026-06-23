@@ -96,6 +96,78 @@ test("mergeOnboardingCertificates skips uploaded p12 duplicate when the bridge c
   assert.notEqual(merged[0]?.index, "upload-1");
 });
 
+test("mergeOnboardingCertificates keeps uploaded NPKI folder duplicate until bridge path is prepared", () => {
+  const bridgeLikeCertificate = createCertificate({
+    index: "7",
+    cn: "김수용발전소",
+    issuerToName: "테스트 기관",
+    usageToName: "전자세금용",
+    todate: "2027-03-02",
+    detailValidateTo: "2027-03-02",
+    serial: "36c895b5",
+    userDN: "cn=김수용발전소,ou=xUse4Esero,o=SignGate,c=kr",
+    listSource: "ml4web-hdd",
+    supportsPreflight: true,
+    certDirPath: null
+  } as Partial<RenewalAgentCertificate>);
+  const uploadedCertificate = createCertificate({
+    index: "upload-1",
+    cn: "김수용발전소",
+    issuerToName: "테스트 기관",
+    usageToName: "전자세금용",
+    todate: "2027-03-02",
+    detailValidateTo: "2027-03-02",
+    serial: "36c895b5",
+    userDN: "cn=김수용발전소,ou=xUse4Esero,o=SignGate,c=kr",
+    uploadSessionId: "upload-session-1",
+    relativePath: "NPKI/SignKorea/USER/김수용발전소/signCert.der",
+    listSource: "upload-session",
+    supportsPreflight: false
+  } as Partial<RenewalAgentCertificate>);
+
+  const merged = mergeOnboardingCertificates([bridgeLikeCertificate], [uploadedCertificate]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.index, "upload-1");
+  assert.equal(merged[0]?.supportsPreflight, false);
+});
+
+test("mergeOnboardingCertificates skips uploaded NPKI folder duplicate when bridge path is already prepared", () => {
+  const bridgeCertificate = createCertificate({
+    index: "7",
+    cn: "김수용발전소",
+    issuerToName: "테스트 기관",
+    usageToName: "전자세금용",
+    todate: "2027-03-02",
+    detailValidateTo: "2027-03-02",
+    serial: "36c895b5",
+    userDN: "cn=김수용발전소,ou=xUse4Esero,o=SignGate,c=kr",
+    certDirPath: "C:\\Users\\User\\AppData\\LocalLow\\NPKI\\SignKorea\\USER\\김수용발전소",
+    listSource: "bridge-hdd",
+    supportsPreflight: true
+  } as Partial<RenewalAgentCertificate>);
+  const uploadedCertificate = createCertificate({
+    index: "upload-1",
+    cn: "김수용발전소",
+    issuerToName: "테스트 기관",
+    usageToName: "전자세금용",
+    todate: "2027-03-02",
+    detailValidateTo: "2027-03-02",
+    serial: "36c895b5",
+    userDN: "cn=김수용발전소,ou=xUse4Esero,o=SignGate,c=kr",
+    uploadSessionId: "upload-session-1",
+    relativePath: "NPKI/SignKorea/USER/김수용발전소/signCert.der",
+    listSource: "upload-session",
+    supportsPreflight: false
+  } as Partial<RenewalAgentCertificate>);
+
+  const merged = mergeOnboardingCertificates([bridgeCertificate], [uploadedCertificate]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.index, "7");
+  assert.equal(merged[0]?.supportsPreflight, true);
+});
+
 test("mergeOnboardingCertificates replaces an uploaded duplicate when a bridge certificate is read later", () => {
   const uploadedCertificate = createCertificate({
     index: "upload-1",

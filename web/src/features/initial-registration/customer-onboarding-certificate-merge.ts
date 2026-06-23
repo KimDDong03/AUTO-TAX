@@ -155,6 +155,26 @@ function isUploadSessionOnboardingCertificate(certificate: RenewalAgentCertifica
   );
 }
 
+function getUploadRelativePath(certificate: RenewalAgentCertificate): string {
+  return "relativePath" in certificate && typeof certificate.relativePath === "string"
+    ? certificate.relativePath.trim()
+    : "";
+}
+
+function isUploadedNpkiFolderCertificate(certificate: RenewalAgentCertificate): boolean {
+  const relativePath = getUploadRelativePath(certificate);
+  return /(^|\/)signCert\.der$/i.test(relativePath);
+}
+
+function isPreparedBridgeCertificate(certificate: RenewalAgentCertificate): boolean {
+  const listSource =
+    "listSource" in certificate && typeof certificate.listSource === "string"
+      ? certificate.listSource
+      : "";
+  const certDirPath = certificate.certDirPath?.trim() ?? "";
+  return certificate.supportsPreflight !== false && listSource === "bridge-hdd" && Boolean(certDirPath);
+}
+
 function onboardingCertificatesMatch(
   left: RenewalAgentCertificate,
   right: RenewalAgentCertificate
@@ -209,6 +229,9 @@ function selectPreferredOnboardingCertificate(
     return incoming;
   }
   if (!currentIsUpload && incomingIsUpload) {
+    if (isUploadedNpkiFolderCertificate(incoming) && !isPreparedBridgeCertificate(current)) {
+      return incoming;
+    }
     return current;
   }
   return incoming;
