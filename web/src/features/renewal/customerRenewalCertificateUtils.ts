@@ -18,15 +18,29 @@ export type CustomerRenewalStatusSummary = {
 };
 
 const ELECTRONIC_TAX_CERTIFICATE_OIDS = new Set([
-  "1.2.410.200004.5.2.1.6.257"
+  "1.2.410.200004.5.2.1.6.257",
+  "1.2.410.200004.5.2.1.6.115",
+  "1.2.410.200004.5.5.1.4.2",
+  "1.2.410.200005.1.1.6.8"
 ]);
 
 const GENERAL_PERSONAL_CERTIFICATE_OIDS = new Set([
-  "1.2.410.200004.5.1.1.5"
+  "1.2.410.200004.5.1.1.5",
+  "1.2.410.200004.5.2.1.2",
+  "1.2.410.200004.5.3.1.4",
+  "1.2.410.200004.5.4.1.1",
+  "1.2.410.200005.1.1.1",
+  "1.2.410.200012.1.1.1"
 ]);
 
 const GENERAL_BUSINESS_CERTIFICATE_OIDS = new Set([
-  "1.2.410.200004.5.2.1.2"
+  "1.2.410.200004.5.1.1.7",
+  "1.2.410.200004.5.2.1.1",
+  "1.2.410.200004.5.3.1.1",
+  "1.2.410.200004.5.4.1.2",
+  "1.2.410.200004.5.5.1.1",
+  "1.2.410.200005.1.1.5",
+  "1.2.410.200012.1.1.3"
 ]);
 
 export function isElectronicTaxCertificate(certificate: RenewalAgentCertificate): boolean {
@@ -37,32 +51,50 @@ export function isIssueCapableCustomerCertificateKind(kind: CustomerCertificateK
   return kind === "electronic_tax" || kind === "general_business";
 }
 
-export function isIssueCapableCustomerCertificate(certificate: RenewalAgentCertificate): boolean {
+type CertificateKindInput = Pick<RenewalAgentCertificate, "usageToName"> & { oid?: string | null };
+
+function normalizeCertificateUsageName(value: string): string {
+  return value.replace(/\s+/g, "").trim();
+}
+
+function isPersonalGeneralCertificateUsageName(usageName: string): boolean {
+  return usageName.includes("개인") && usageName.includes("범용");
+}
+
+function isBusinessGeneralCertificateUsageName(usageName: string): boolean {
+  return (
+    (usageName.includes("사업자") || usageName.includes("기업") || usageName.includes("법인")) &&
+    usageName.includes("범용")
+  );
+}
+
+export function isPersonalGeneralCustomerCertificate(certificate: CertificateKindInput): boolean {
+  const usageName = normalizeCertificateUsageName(certificate.usageToName);
+  if (isPersonalGeneralCertificateUsageName(usageName)) {
+    return true;
+  }
+  return GENERAL_PERSONAL_CERTIFICATE_OIDS.has(certificate.oid?.trim() ?? "");
+}
+
+export function isIssueCapableCustomerCertificate(certificate: CertificateKindInput): boolean {
   return isIssueCapableCustomerCertificateKind(deriveCustomerCertificateKind(certificate));
 }
 
 export function deriveCustomerCertificateKind(
-  certificate: Pick<RenewalAgentCertificate, "usageToName"> & { oid?: string | null }
+  certificate: CertificateKindInput
 ): CustomerCertificateKind {
   const oid = certificate.oid?.trim() ?? "";
+  const usageName = normalizeCertificateUsageName(certificate.usageToName);
   if (ELECTRONIC_TAX_CERTIFICATE_OIDS.has(oid)) {
     return "electronic_tax";
   }
-  if (GENERAL_BUSINESS_CERTIFICATE_OIDS.has(oid)) {
-    return "general_business";
-  }
-  if (GENERAL_PERSONAL_CERTIFICATE_OIDS.has(oid)) {
-    return "general_personal";
-  }
-
-  const usageName = certificate.usageToName.trim();
   if (usageName.includes("전자세금")) {
     return "electronic_tax";
   }
-  if (usageName.includes("개인") && usageName.includes("범용")) {
+  if (isPersonalGeneralCertificateUsageName(usageName) || GENERAL_PERSONAL_CERTIFICATE_OIDS.has(oid)) {
     return "general_personal";
   }
-  if ((usageName.includes("사업자") || usageName.includes("기업")) && usageName.includes("범용")) {
+  if (isBusinessGeneralCertificateUsageName(usageName) || GENERAL_BUSINESS_CERTIFICATE_OIDS.has(oid)) {
     return "general_business";
   }
   return "unknown";

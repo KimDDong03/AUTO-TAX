@@ -80,7 +80,7 @@ The product is multi-tenant. A logged-in session always operates against one act
   - mail config, defaults, member management, helper status
   - newer split screen model for settings
 - `web/src/features/initial-registration/`
-  - workbook download/upload
+  - certificate-driven initial registration checklist UI
   - preview and commit flow
   - follow-up automation for certificate registration
 
@@ -88,9 +88,13 @@ The product is multi-tenant. A logged-in session always operates against one act
 
 - `web/src/local-renewal-helper.ts`
   - talks to the Windows helper running on the operator machine
-  - used for certificate listing, browser-selected NPKI/P12/PFX upload-session metadata extraction, local checks, prepare/payment-open support, and local Popbill certificate registration help
+  - used for certificate listing, browser-selected NPKI/P12/PFX upload-session metadata extraction/import, local checks, prepare/payment-open support, and local Popbill certificate registration help
   - keeps helper reachability, certificate-listing readiness, and SignGate/SecuKit renewal bridge diagnostics as separate signals so UI certificate reads do not depend on raw `14315/14319` TCP probe status
-  - certificate listing prefers the HomeTax ML4Web flow: read `ML4Web_Config.js`, follow the configured storage order, and call MagicLine `GetCertList` with the same lowercase `hdd` plus root `hddOpt` option shape that HomeTax uses. It then falls back to SignGate/SecuKit storage probes and only runs the filesystem NPKI scan when bridge-backed listing is unavailable or empty.
+  - certificate listing prefers the HomeTax ML4Web flow: read `ML4Web_Config.js`, follow the configured storage order, and call MagicLine `GetCertList` with the same lowercase `hdd` plus root `hddOpt` option shape that HomeTax uses. It decodes local bridge response bodies from raw bytes so Korean CP949/EUC-KR certificate names stay readable, then falls back to SignGate/SecuKit storage probes when needed. Exported `.p12`/`.pfx` files and arbitrary folders are not auto-scanned; initial registration adds user-selected missing files/folders only through the explicit upload-session action and imports selected candidates into bridge-readable storage only when preview needs HomeTax identity lookup.
+- `scripts/hometax-business-info.ts`
+  - owns the HomeTax business identity lookup flow used by initial registration
+  - keeps the HomeTax browser session, ML4Web signing, HomeTax login/session handoff, taxpayer-basic address lookup, and address parser in one module
+  - receives bridge-readable ML4Web certificate candidates from `scripts/renewal-agent.ts` through a narrow dependency-injected handler, so SignGate renewal diagnostics and HomeTax address lookup do not share orchestration code
 
 ## 4. Backend Map
 
@@ -233,7 +237,22 @@ Important invariant:
 There are two distinct ingestion paths:
 
 1. lightweight CSV/XLSX customer import with column mapping
-2. certificate-driven onboarding workbook with preview and async commit
+2. certificate-driven initial registration with an in-app checklist, preview, and async commit
+
+Initial registration flow:
+
+1. The setup helper step downloads/checks AT helper and exposes the primary "공동인증서 읽기" action next to the helper status check. Its status summary shows only the non-expired issue-capable total to avoid exposing certificate-purpose distinctions to operators; expired and personal-use certificates are excluded from that count.
+2. That read action reads standard bridge-backed NPKI storage through `/api/certificates`, matching the HomeTax-style local certificate list path. It always bypasses the helper's previous certificate-list cache and replaces the in-memory initial-registration candidate set with the freshly read NPKI result.
+3. The customer initial registration step treats the read result only as a candidate list. Rows start unselected, and certificate source refreshes or manual file/folder appends reset checklist selection so the operator must explicitly select managed customers before preview/registration. The checklist supports row-click toggles, Shift range selection, Ctrl/Meta additive selection, and selected-row deletion; deleted candidates are removed from the in-memory candidate set so later manual uploads append to the remaining list instead of reviving removed rows.
+4. Certificates outside the bridge-backed list are an exception path. File/folder selection is hidden behind the collapsed "missing certificate" action, goes through `/api/certificates/upload-session`, and appends issue-capable NPKI `signCert.der`/`signPri.key` pairs or `.p12`/`.pfx` metadata to the in-memory checklist without removing the bridge-read candidates. If the same certificate is already present from the bridge/NPKI read, the upload-session copy is excluded and the bridge-readable row is kept.
+5. The UI keeps the checklist as the primary surface: one compact header shows read/selected counts, shared password, and the target-check action, while each row shows only the target checkbox, read-only customer-facing company name, and optional per-certificate password. Routine status cards and generic success notices are hidden on this selection step.
+6. During target check, file/folder-added candidates are prepared for the bridge-backed lookup path instead of using paid certificate-registration APIs: NPKI pairs are copied into the standard LocalLow NPKI store, while `.p12`/`.pfx` files are imported through SecuKit NXS `CertManagement.importP12` using the entered certificate password. The import path warms SecuKit's normal HDD storage selection before `importP12`, then re-reads the bridge certificate list and swaps the upload-session candidate for the bridge-backed certificate index.
+7. Bridge-supported certificates use the unified certificate business-info lookup route (`/api/certificates/business-info` or batch). The route tries the SignGate renewal information snapshot first because that path can return the business number, company name, representative, industry fields, and address for most issue-capable certificates without requiring a HomeTax account. If SignGate returns a certificate/provider boundary such as "not renewable" or missing SignGate issue information, the helper tries the HomeTax business-info lookup as a secondary path. Password failures, expired certificates, missing bridge certificate indexes, and bridge selection failures do not fall through to HomeTax because those are operator/action errors rather than provider coverage gaps. The older `/api/hometax/business-info` route remains available only as a diagnostic HomeTax-only endpoint.
+8. The HomeTax secondary branch no longer falls back to YESKEY/yessign subscriber-info lookup. The HomeTax branch first uses HomeTax MagicLine4NX directly against the local `127.0.0.1:42235` service: `Sign`, `GetCertString`, and `GetVIDRandom` are called with the bridge HDD/NPKI storage index, the raw `pkcEncSsn$serial$yyyyMMddHHmmss$signature` value is wrapped with the same UTF-8 Base64 layer that HomeTax's ML4Web UI callback returns, and the result is posted to portal `pubcLogin.do`. If the direct path cannot produce login material or HomeTax rejects it, the helper falls back to the HTML5 ML4Web UI path (`ntsCertAuth`, certificate-frame selection, `tranx2PEM`, `getRandomfromPrivateKey`). After login success it reads HomeTax's `/permission.do` session map, using the `/token.do` portal handoff when HomeTax requires that extra session step. When a business number is available, the helper opens HomeTax's common taxpayer-basic WebSquare screen (`/ui/comm/a/b/UTEABHAA19.xml` on `hometax.go.kr`), injects the authenticated session map into the page session store, resolves the screen's live `$p.main().$p` work scope, and runs the taxpayer-basic and business-basic lookup paths (`ATTABZAA001R01`/`ATTABZAA001R02` via `nts_loadBizCd`) used by HomeTax common screens so address fields can be merged from the business profile response.
+9. Certificate business-info lookup uses a bounded pipeline. The initial-registration batch endpoint currently caps lookup concurrency at 5 so SignGate-first lookups can run together while still bounding HomeTax session and taxpayer-basic address lookup pressure for fallback rows. HomeTax certificate login material is normally produced without opening the ML4Web certificate frame; the frame is still treated as single-lane global state when that fallback path is needed. The helper keeps the HomeTax Playwright browser process warm while the helper is running and opens isolated browser contexts only for fallback certificate-frame signing or taxpayer-basic address lookup. If the native certificate dialog does not open at all, only that dialog-open step is retried once with a fresh page; password, signing, login, and taxpayer lookup failures remain fail-closed. If the taxpayer-basic screen returns identity data without address fields, the helper reopens only that screen once with the same authenticated HomeTax session to wait for the address-bearing response.
+10. If business-info lookup returns taxpayer identity but no business or matching address even after the taxpayer-basic lookup path, customer preview stays importable and shows a supplement warning. The address lookup remains required for KEPCO mail matching, so missing-address customers need address completion in customer management before automatic mail matching can work. When the HomeTax taxpayer-basic helper call failed, the target-check review message includes that lookup detail so operators can distinguish a true missing address from a lookup-path problem.
+11. If the unified business-info lookup fails after it was attempted, initial registration surfaces that business-info/manual-information failure and does not fall through to the legacy SignGate renewal preflight path. SignGate preflight remains a renewal diagnostic path for renewal/payment operations. If a selected upload-session certificate cannot be imported or matched back to the bridge list, preview fails that row with an actionable message instead of silently using incomplete data.
+11. Preview and commit still use the server customer-onboarding endpoints and async batch flow.
 
 Main endpoints:
 
@@ -256,7 +275,7 @@ Main files:
 
 Operational invariants:
 
-- Certificate-driven onboarding and one-stop customer add use only non-expired issue-capable certificates: electronic-tax certificates and business/enterprise general certificates. Personal general and unknown certificates are ignored for customer registration. Expired certificates are filtered before template generation/preflight and block customer creation, Popbill join, and Popbill certificate registration.
+- Certificate-driven onboarding and one-stop customer add use only non-expired issue-capable certificates: electronic-tax certificates and business/enterprise/corporate general certificates. Personal general and unknown certificates are hidden from customer registration candidate lists and ignored at the server import boundary. Expired certificates are filtered before checklist generation/preflight and block customer creation, Popbill join, and Popbill certificate registration.
 - Follow-up Popbill certificate registration only targets customers whose Popbill join state is `joined`; pending or failed join customers are skipped until join completes.
 
 ### C-1. Customer report detail
@@ -320,7 +339,7 @@ Main files:
 
 ### E. Local certificate and renewal assistance
 
-1. The browser talks to the local helper for certificate list and local actions.
+1. The browser talks to the local helper for certificate list, certificate business-info lookup, and local actions.
 2. Renewal routes queue `bridge-probe`, `certid-probe`, or `renewal-preflight`.
 3. The Windows renewal agent heartbeats and claims queued jobs.
 4. Results persist in `renewal_automation_jobs`.
@@ -339,8 +358,8 @@ Main files:
 Security boundary for this flow:
 
 - The server must not persist or re-display Hometax credentials, raw certificate files, or certificate passwords.
-- Browser-selected NPKI files for manual customer add are posted only to the `127.0.0.1` helper upload-session endpoint; the app server receives customer fields and certificate metadata only.
-- Onboarding preview and batch persistence strip workbook `certificatePassword` before DB write.
+- Browser-selected NPKI/P12/PFX files for manual customer add and initial-registration missing-certificate selection are posted only to the `127.0.0.1` helper upload-session endpoint; the app server receives customer fields and certificate metadata only. The helper keeps upload-session material in local memory with a short TTL and writes/imports only the operator-selected initial-registration candidates needed for bridge-backed HomeTax lookup.
+- Onboarding preview and batch persistence strip checklist/workbook `certificatePassword` before DB write.
 - `renewal_automation_jobs.submission_profile_json` strips `issuePassword` at rest and only rehydrates it for the agent claim path.
 - `app_logs`, API errors, and helper responses mask password-like values and local certificate paths.
 - `/api/*` and helper responses send `Cache-Control: no-store`.

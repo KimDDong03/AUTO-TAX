@@ -130,7 +130,11 @@ export async function runElectronicTaxOnboardingUploadFlow<TFile>(options: {
     const parsed = await options.parseWorkbook(options.file);
     options.onProgress?.("인증서 확인 중...");
     const resolved = await options.resolveWorkbook(parsed.workbook);
-    const workbookMessages = joinElectronicTaxOnboardingMessages([...parsed.warnings, ...resolved.errors]);
+    const workbookMessages = joinElectronicTaxOnboardingMessages([
+      ...parsed.warnings,
+      ...(resolved.warnings ?? []),
+      ...resolved.errors
+    ]);
     const targetBusinessNumbers = getElectronicTaxOnboardingTargetBusinessNumbers(resolved.workbook);
     const baseSessionState: ElectronicTaxOnboardingSessionState = {
       templateDownloaded: true,

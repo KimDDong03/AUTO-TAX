@@ -187,6 +187,65 @@ test("buildCustomerOnboardingPreview accepts business general certificates as is
   ]);
 });
 
+test("buildCustomerOnboardingPreview allows certificate-driven rows without address as warnings", async () => {
+  const requestStore = {
+    listCustomers: async () => []
+  } as unknown as Pick<AppStore, "listCustomers"> as AppStore;
+
+  const workbook: CustomerOnboardingWorkbookInput = {
+    customers: [
+      {
+        rowIndex: 4,
+        customerName: "유학현",
+        businessNumber: "123-45-67890",
+        corpName: "유학현",
+        addr: "",
+        bizType: "전기업",
+        bizClass: "태양광발전(자가용PPA)",
+        renewalContactMobile: "",
+        memo: ""
+      }
+    ],
+    plants: [
+      {
+        rowIndex: 4,
+        businessNumber: "123-45-67890",
+        plantName: "유학현",
+        matchAddress: ""
+      }
+    ],
+    certificates: [
+      {
+        rowIndex: 4,
+        businessNumber: "123-45-67890",
+        certificateKind: "electronic_tax",
+        certificateName: "유학현()001168920230227111003787",
+        certificateUsageName: "전자세금용",
+        issuerName: "테스트 기관",
+        certificatePassword: "pw-1",
+        isPrimary: true
+      }
+    ]
+  };
+
+  const preview = await buildCustomerOnboardingPreview(requestStore, workbook, {
+    resolveAddress: resolveAddressStub
+  });
+
+  assert.equal(preview.createCount, 1);
+  assert.equal(preview.blockedCount, 0);
+  assert.equal(preview.rows[0]?.status, "create");
+  assert.equal(preview.rows[0]?.canImport, true);
+  assert.equal(preview.rows[0]?.plantCount, 0);
+  assert.equal(preview.rows[0]?.certificateCount, 1);
+  assert.deepEqual(preview.rows[0]?.errors, []);
+  assert.deepEqual(preview.rows[0]?.warnings, [
+    "사업장 주소가 없어 고객 등록 후 고객 관리에서 보완하세요.",
+    "발전소 시트 4행: 매칭 주소가 없어 메일 자동 매칭에는 사용하지 않습니다. 고객 등록 후 보완하세요.",
+    "매칭 주소가 없어 한전 메일 자동 매칭에는 고객 등록 후 주소 보완이 필요합니다."
+  ]);
+});
+
 test("buildCustomerOnboardingPreview still ignores personal general certificates", async () => {
   const requestStore = {
     listCustomers: async () => []

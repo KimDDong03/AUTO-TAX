@@ -397,7 +397,7 @@ export interface RenewalBridgeCertificateSummary {
   validateFrom: string | null;
   detailValidateTo: string | null;
   certDirPath: string | null;
-  listSource?: "bridge-hdd" | "filesystem-hdd" | "ml4web-hdd" | "ml4web-web" | "ml4web-web-kftc" | "upload-session";
+  listSource?: "bridge-hdd" | "ml4web-hdd" | "ml4web-web" | "ml4web-web-kftc" | "upload-session";
   supportsPreflight?: boolean;
 }
 
@@ -435,6 +435,43 @@ export interface RenewalInfoSnapshot {
   contactTel: string | null;
   contactFax: string | null;
   contactMobile: string | null;
+}
+
+export type CertificateBusinessInfoLookupSource = "signgate" | "hometax";
+
+export type CertificateBusinessInfoLookupStatus =
+  | "complete"
+  | "missing-address"
+  | "unsupported"
+  | "password-error"
+  | "certificate-not-found"
+  | "lookup-failed";
+
+export type CertificateBusinessInfoLookupStage =
+  | "signgate-preflight"
+  | "magicline-list"
+  | "certificate-match"
+  | "hometax-challenge"
+  | "magicline-sign"
+  | "hometax-login"
+  | "business-info";
+
+export interface CertificateBusinessInfoLookupResult {
+  ok: boolean;
+  source: CertificateBusinessInfoLookupSource;
+  status?: CertificateBusinessInfoLookupStatus;
+  stage: CertificateBusinessInfoLookupStage;
+  certificateIndex: string | null;
+  certificateCn: string | null;
+  sourcePort: number | null;
+  loginCode: string | null;
+  businessInfoSnapshot: RenewalInfoSnapshot | null;
+  message: string | null;
+  error: string | null;
+}
+
+export interface HomeTaxBusinessInfoLookupResult extends CertificateBusinessInfoLookupResult {
+  source: "hometax";
 }
 
 export interface RenewalPreflightComparisonProfile {

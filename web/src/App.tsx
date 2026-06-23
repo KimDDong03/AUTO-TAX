@@ -41,8 +41,7 @@ import {
   type PublicSignupPhoneVerificationSendResult
 } from "./features/public/PublicLanding";
 import {
-  downloadCustomerOnboardingTemplate,
-  parseCustomerOnboardingWorkbook,
+  buildCustomerOnboardingTemplateWorkbookFromCertificates,
   type CustomerOnboardingCommitStartResponse,
   type CustomerOnboardingCommitResponse,
   type CustomerOnboardingPreviewResponse,
@@ -51,6 +50,7 @@ import {
 } from "./features/initial-registration/customer-onboarding-workbook";
 import {
   buildElectronicTaxOnboardingCommitNotice,
+  buildElectronicTaxOnboardingPreviewNotice,
   buildElectronicTaxOnboardingTemplateNotice,
   buildElectronicTaxRegistrationFollowupNotice
 } from "./features/initial-registration/electronic-tax-onboarding-formatters";
@@ -66,10 +66,15 @@ import {
 } from "./features/initial-registration/electronic-tax-onboarding-orchestration";
 import {
   emptyElectronicTaxOnboardingSessionState as emptyCustomerOnboardingSessionState,
-  runElectronicTaxOnboardingUploadFlow,
-  type ElectronicTaxOnboardingSessionState as CustomerOnboardingSessionState,
-  type ElectronicTaxOnboardingUploadFlowResult
+  type ElectronicTaxOnboardingSessionState as CustomerOnboardingSessionState
 } from "./features/initial-registration/electronic-tax-onboarding-upload-flow";
+import {
+  getActiveIssueCapableOnboardingCertificates,
+  getOnboardingCertificateTemplatePlantKey,
+  getOnboardingTemplatePlantKey,
+  mergeCustomerOnboardingTemplateWorkbookState,
+  mergeOnboardingCertificates
+} from "./features/initial-registration/customer-onboarding-certificate-merge";
 import { useElectronicTaxOnboarding } from "./features/initial-registration/useElectronicTaxOnboarding";
 import { AccountPasswordPanel } from "./features/settings/AccountPasswordPanel";
 import { createSettingsActionAdapters } from "./features/settings/createSettingsActionAdapters";
@@ -82,11 +87,8 @@ import {
   useSettingsScreenState
 } from "./features/settings/useSettingsScreenState";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
+import { SettingsHelperOnboardingStep } from "./features/settings/onboarding/SettingsHelperOnboardingStep";
 import { useSettingsDerivedModel } from "./features/settings/useSettingsDerivedModel";
-import {
-  selectSettingsOnboardingState,
-  useSettingsOnboardingModel
-} from "./features/settings/useSettingsOnboardingModel";
 import type { SettingsCertificateReadProgress } from "./features/settings/settingsSectionModels";
 import {
   deriveCustomerCertificateKind,
@@ -129,8 +131,10 @@ import {
 } from "./features/renewal/renewalDiagnosticsFormatters";
 import {
   requestLocalCertificateUploadSession,
+  requestLocalCertificateUploadSessionImport,
+  requestLocalCertificateBusinessInfoLookup,
+  requestLocalCertificateBusinessInfoLookupBatch,
   requestLocalPopbillCertificateRegistration,
-  requestLocalRenewalCertificates,
   requestLocalRenewalBridgeProbe,
   requestLocalRenewalOpenPayment,
   requestLocalRenewalPreparePayment,
@@ -469,6 +473,7 @@ function getCustomerOnboardingStorageKey(organizationId: string): string {
 
 type PersistedCustomerOnboardingState = {
   fileName: string;
+  templateWorkbook: CustomerOnboardingTemplateWorkbookInput | null;
   workbook: CustomerOnboardingWorkbookInput | null;
   preview: CustomerOnboardingPreviewResponse | null;
   sessionState: CustomerOnboardingSessionState;
@@ -489,6 +494,31 @@ type OnboardingCertificatePasswordOverrideEntry = {
   value: string;
 };
 
+function joinOnboardingMessages(messages: string[]): string {
+  return messages.map((message) => message.trim()).filter(Boolean).join("\n");
+}
+
+function normalizePersistedCustomerOnboardingNotice(
+  notice: string,
+  templateWorkbook: CustomerOnboardingTemplateWorkbookInput | null
+): string {
+  if (
+    templateWorkbook &&
+    (notice.includes("초기 등록 대상 점검표에 담았습니다") ||
+      notice.includes("부족한 고객 정보를 확인한 뒤 대상 점검을 실행하세요") ||
+      notice.includes("부족한 고객 정보를 확인한 뒤 선택 인증서 확인을 실행하세요"))
+  ) {
+    return buildElectronicTaxOnboardingTemplateNotice({
+      certificateCount: templateWorkbook.plants.length
+    });
+  }
+  return notice;
+}
+
+function normalizePersistedCustomerOnboardingFileName(fileName: string): string {
+  return fileName.replace(/^선택 인증서\s+(\d+건)$/u, "읽은 인증서 $1");
+}
+
 function readPersistedCustomerOnboardingState(
   organizationId: string
 ): PersistedCustomerOnboardingState | null {
@@ -507,8 +537,15 @@ function readPersistedCustomerOnboardingState(
       return null;
     }
 
+    const templateWorkbook = parsed.templateWorkbook ?? null;
+    const notice = typeof parsed.notice === "string" ? parsed.notice : "";
+
     return {
-      fileName: typeof parsed.fileName === "string" ? parsed.fileName : "",
+      fileName:
+        typeof parsed.fileName === "string"
+          ? normalizePersistedCustomerOnboardingFileName(parsed.fileName)
+          : "",
+      templateWorkbook,
       workbook: parsed.workbook ?? null,
       preview: parsed.preview ?? null,
       sessionState:
@@ -551,7 +588,7 @@ function readPersistedCustomerOnboardingState(
             }))
             .filter((entry) => entry.key && entry.label)
         : [],
-      notice: typeof parsed.notice === "string" ? parsed.notice : "",
+      notice: normalizePersistedCustomerOnboardingNotice(notice, templateWorkbook),
       error: typeof parsed.error === "string" ? parsed.error : ""
     };
   } catch {
@@ -2161,6 +2198,8 @@ export function App() {
   const [customerImportError, setCustomerImportError] = useState("");
   const [customerImportNotice, setCustomerImportNotice] = useState("");
   const [customerOnboardingFileName, setCustomerOnboardingFileName] = useState("");
+  const [customerOnboardingTemplateWorkbook, setCustomerOnboardingTemplateWorkbook] =
+    useState<CustomerOnboardingTemplateWorkbookInput | null>(null);
   const [customerOnboardingWorkbook, setCustomerOnboardingWorkbook] = useState<CustomerOnboardingWorkbookInput | null>(null);
   const [customerOnboardingPreview, setCustomerOnboardingPreview] = useState<CustomerOnboardingPreviewResponse | null>(null);
   const [customerOnboardingSessionState, setCustomerOnboardingSessionState] =
@@ -2259,6 +2298,7 @@ export function App() {
 
     const persisted = readPersistedCustomerOnboardingState(activeOrganizationId);
     setCustomerOnboardingFileName(persisted?.fileName ?? "");
+    setCustomerOnboardingTemplateWorkbook(persisted?.templateWorkbook ?? null);
     setCustomerOnboardingWorkbook(persisted?.workbook ?? null);
     setCustomerOnboardingPreview(persisted?.preview ?? null);
     setCustomerOnboardingSessionState(
@@ -2288,6 +2328,7 @@ export function App() {
 
     const hasPersistableState =
       customerOnboardingFileName.trim() !== "" ||
+      customerOnboardingTemplateWorkbook !== null ||
       customerOnboardingWorkbook !== null ||
       customerOnboardingPreview !== null ||
       customerOnboardingSessionState.templateDownloaded ||
@@ -2306,6 +2347,7 @@ export function App() {
       hasPersistableState
         ? {
             fileName: customerOnboardingFileName,
+            templateWorkbook: customerOnboardingTemplateWorkbook,
             workbook: customerOnboardingWorkbook,
             preview: customerOnboardingPreview,
             sessionState: customerOnboardingSessionState,
@@ -2324,6 +2366,7 @@ export function App() {
     activeOrganizationId,
     customerOnboardingError,
     customerOnboardingFileName,
+    customerOnboardingTemplateWorkbook,
     customerOnboardingNotice,
     customerOnboardingPreview,
     customerOnboardingCertificatePasswordOverrides,
@@ -2831,14 +2874,18 @@ export function App() {
     showAlert: showAppAlert
   });
   const customerRenewalAssistantElectronicTaxCertificateCount = customerRenewalAssistantAllCertificates.filter(
-    (certificate) =>
-      isIssueCapableCustomerCertificate(certificate) &&
-      !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+    (certificate) => {
+      const kind = deriveCustomerCertificateKind(certificate);
+      return (
+        kind === "electronic_tax" &&
+        !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
+      );
+    }
   ).length;
-  const customerRenewalAssistantGeneralCertificateCount = customerRenewalAssistantAllCertificates.filter((certificate) => {
+  const customerRenewalAssistantBusinessGeneralCertificateCount = customerRenewalAssistantAllCertificates.filter((certificate) => {
     const kind = deriveCustomerCertificateKind(certificate);
     return (
-      kind === "general_personal" &&
+      kind === "general_business" &&
       !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
     );
   }).length;
@@ -2883,65 +2930,247 @@ export function App() {
   const settingsHealth = settingsScreenState.settingsHealth;
   const currentWorkspaceSettings = settingsScreenState.savedSettings ?? data?.settings ?? null;
   const isMailTesting = busyKey === "mail-test";
-  const runSettingsCertificateRead = useCallback(
-    async () =>
+  const applyCustomerOnboardingCertificates = useCallback(
+    (
+      certificates: RenewalAgentCertificate[],
+      options?: {
+        preserveExisting?: boolean;
+        fileNameLabel?: string;
+      }
+    ) => {
+      const incomingCertificates = getActiveIssueCapableOnboardingCertificates(certificates);
+      const activeCertificates = options?.preserveExisting
+        ? mergeOnboardingCertificates(customerOnboardingCertificatesRef.current, incomingCertificates)
+        : incomingCertificates;
+      if (activeCertificates.length === 0) {
+        setCustomerOnboardingTemplateWorkbook(null);
+        setCustomerOnboardingFileName("");
+        setCustomerOnboardingWorkbook(null);
+        setCustomerOnboardingPreview(null);
+        setCustomerOnboardingSessionState({
+          templateDownloaded: false,
+          previewReady: false,
+          commitDone: false,
+          certificateDone: false,
+          targetBusinessNumbers: []
+        });
+        customerOnboardingCertificatesRef.current = null;
+        return activeCertificates;
+      }
+
+      customerOnboardingCertificatesRef.current = activeCertificates;
+      setCustomerOnboardingTemplateWorkbook((current) =>
+        mergeCustomerOnboardingTemplateWorkbookState(
+          current,
+          buildCustomerOnboardingTemplateWorkbookFromCertificates(activeCertificates),
+          { preserveSelection: false }
+        )
+      );
+      setCustomerOnboardingFileName(`${options?.fileNameLabel ?? "읽은 인증서"} ${activeCertificates.length}건`);
+      setCustomerOnboardingWorkbook(null);
+      setCustomerOnboardingPreview(null);
+      setCustomerOnboardingCertificatePasswordOverrides({});
+      setCustomerOnboardingPreflightPasswordFailureEntries([]);
+      setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+      setCustomerOnboardingJoinProgress(null);
+      setCustomerOnboardingCertificateRegistrationProgress(null);
+      customerOnboardingPreflightCacheRef.current.clear();
+      setCustomerOnboardingSessionState({
+        templateDownloaded: true,
+        previewReady: false,
+        commitDone: false,
+        certificateDone: false,
+        targetBusinessNumbers: []
+      });
+      setCustomerOnboardingNotice(
+        buildElectronicTaxOnboardingTemplateNotice({
+          certificateCount: activeCertificates.length
+        })
+      );
+      setCustomerOnboardingError("");
+      return activeCertificates;
+    },
+    []
+  );
+  const prepareCustomerOnboardingCertificateForPreflight = useCallback(
+    async (
+      certificate: RenewalAgentCertificate,
+      certificatePassword: string
+    ): Promise<RenewalAgentCertificate | null> => {
+      if (certificate.supportsPreflight !== false) {
+        return certificate;
+      }
+
+      const uploadSessionId =
+        "uploadSessionId" in certificate && typeof certificate.uploadSessionId === "string"
+          ? certificate.uploadSessionId.trim()
+          : "";
+      const relativePath =
+        "relativePath" in certificate && typeof certificate.relativePath === "string"
+          ? certificate.relativePath.trim()
+          : "";
+      if (!uploadSessionId) {
+        return null;
+      }
+
+      const response = await requestLocalCertificateUploadSessionImport([
+        {
+          uploadSessionId,
+          certificateIndex: String(certificate.index),
+          relativePath: relativePath || null,
+          certificatePassword
+        }
+      ]);
+      const importedCertificate =
+        response.result.importedCertificates.find((candidate) => {
+          const candidateSerial = normalizeRenewalCertificateKey(candidate.serial);
+          const certificateSerial = normalizeRenewalCertificateKey(certificate.serial);
+          if (candidateSerial && certificateSerial && candidateSerial === certificateSerial) {
+            return true;
+          }
+          const candidateUserDn = normalizeRenewalCertificateKey(candidate.userDN);
+          const certificateUserDn = normalizeRenewalCertificateKey(certificate.userDN);
+          if (candidateUserDn && certificateUserDn && candidateUserDn === certificateUserDn) {
+            return true;
+          }
+          return normalizeRenewalCertificateKey(candidate.cn) === normalizeRenewalCertificateKey(certificate.cn);
+        }) ?? response.result.importedCertificates[0] ?? null;
+
+      if (!importedCertificate) {
+        const detail = [
+          ...response.result.rejectedImports.map((item) => item.reason),
+          ...response.result.warnings
+        ].filter(Boolean).join("\n");
+        throw new Error(detail || "선택한 인증서를 브리지 저장소로 가져온 뒤 다시 찾지 못했습니다.");
+      }
+
+      const activeCertificates = mergeOnboardingCertificates(customerOnboardingCertificatesRef.current, [
+        importedCertificate
+      ]);
+      customerOnboardingCertificatesRef.current = activeCertificates;
+      setCustomerOnboardingTemplateWorkbook((current) =>
+        mergeCustomerOnboardingTemplateWorkbookState(
+          current,
+          buildCustomerOnboardingTemplateWorkbookFromCertificates(activeCertificates)
+        )
+      );
+      setCustomerOnboardingFileName(`읽은 인증서 ${activeCertificates.length}건`);
+      customerOnboardingPreflightCacheRef.current.clear();
+      return importedCertificate;
+    },
+    []
+  );
+  const runSettingsCertificateUpload = useCallback(
+    async (files: File[]) =>
       runAction(
-        "customer-renewal-bridge-probe",
+        "customer-onboarding-certificate-upload",
         async () => {
+          ensureLocalRenewalHelperActionAllowed("공동인증서 파일/폴더 추가");
           setCertificateReadProgress({
-            label: "AT 헬퍼 확인 중",
-            detail: "공동인증서를 읽기 전에 헬퍼 연결 상태를 확인하고 있습니다.",
-            percent: 10,
+            label: "인증서 파일 읽는 중",
+            detail: "선택한 파일/폴더에서 공동인증서 정보를 읽고 있습니다. 기존에 읽은 인증서는 유지됩니다.",
+            percent: 25,
             completedCount: 0,
             totalCount: null,
             status: "running"
           });
+          let progressAlreadySet = false;
           try {
+            const response = await requestLocalCertificateUploadSession(files);
+            const uploadResult = response.result;
+            const uploadedCertificates = getActiveIssueCapableOnboardingCertificates(
+              uploadResult.certificates as RenewalAgentCertificate[]
+            );
+            if (uploadedCertificates.length === 0) {
+              const detail = [
+                ...uploadResult.warnings,
+                ...uploadResult.rejectedFiles.map((file) => `${file.relativePath}: ${file.reason}`)
+              ].filter(Boolean).join("\n");
+              throw new Error(
+                detail ||
+                  "추가할 수 있는 발행 가능 공동인증서를 찾지 못했습니다. signCert.der와 signPri.key가 함께 있는 NPKI 폴더나 p12/pfx 파일을 선택하세요."
+              );
+            }
+
             setCertificateReadProgress({
-              label: "공동인증서 저장소 읽는 중",
-              detail: "PC의 공동인증서 저장소에서 공동인증서를 찾고 있습니다.",
-              percent: 25,
-              completedCount: 0,
-              totalCount: null,
+              label: "인증서 목록 합치는 중",
+              detail: "파일/폴더에서 읽은 인증서를 기존 공동인증서 목록에 추가하고 있습니다.",
+              percent: 65,
+              completedCount: uploadedCertificates.length,
+              totalCount: uploadedCertificates.length,
               status: "running"
             });
-            const certificates = await syncCustomerRenewalCertificates({ showAlert: false });
-            const issueCapableCertificateCount = certificates.filter(
-              (certificate) =>
-                isIssueCapableCustomerCertificate(certificate) &&
-                !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
-            ).length;
-            const generalCertificateCount = certificates.filter((certificate) => {
-              const kind = deriveCustomerCertificateKind(certificate);
-              return (
-                kind === "general_personal" &&
-                !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
-              );
-            }).length;
-            const availableCertificateCount = issueCapableCertificateCount + generalCertificateCount;
+
+            const previousCertificateCount = customerOnboardingCertificatesRef.current?.length ?? 0;
+            const activeCertificates = applyCustomerOnboardingCertificates(uploadedCertificates, {
+              preserveExisting: true,
+              fileNameLabel: "선택 인증서"
+            });
+            const addedCertificateCount = Math.max(
+              activeCertificates.length - previousCertificateCount,
+              0
+            );
+            const skippedDuplicateCount = Math.max(
+              uploadedCertificates.length - addedCertificateCount,
+              0
+            );
+            const helperMessage =
+              skippedDuplicateCount > 0
+                ? `파일/폴더 인증서 ${addedCertificateCount}건을 추가했고, 이미 목록에 있는 ${skippedDuplicateCount}건은 제외했습니다.`
+                : `파일/폴더 인증서 ${addedCertificateCount}건을 목록에 추가했습니다.`;
+            setCustomerRenewalAssistant((prev) =>
+              buildCustomerRenewalAssistant({
+                current: prev,
+                status: {
+                  online: true,
+                  version: response.version,
+                  message: helperMessage
+                },
+                helperVersion: response.version,
+                helperMessage,
+                jobs: prev?.jobs ?? [],
+                certificates: prev?.certificates ?? [],
+                releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+                defaultRenewalHelperDownloadUrl
+              })
+            );
+
+            const warningDetail = [
+              ...uploadResult.warnings,
+              ...uploadResult.rejectedFiles.map((file) => `${file.relativePath}: ${file.reason}`)
+            ].filter(Boolean).join("\n");
             setCertificateReadProgress({
-              label: "읽기 완료",
-              detail: `사용 가능한 발행 가능 공동인증서 ${issueCapableCertificateCount}건, 개인 범용 공동인증서 ${generalCertificateCount}건을 확인했습니다.`,
+              label: "추가 완료",
+              detail: `${helperMessage} 등록 대상 목록은 총 ${activeCertificates.length}건입니다.${warningDetail ? `\n${warningDetail}` : ""}`,
               percent: 100,
-              completedCount: availableCertificateCount,
-              totalCount: availableCertificateCount,
+              completedCount: activeCertificates.length,
+              totalCount: activeCertificates.length,
               status: "done"
             });
-          } catch (readError) {
-            setCertificateReadProgress({
-              label: "읽기 실패",
-              detail: getDisplayErrorMessage(readError, "공동인증서를 읽지 못했습니다."),
-              percent: 100,
-              completedCount: 0,
-              totalCount: null,
-              status: "error"
-            });
-            throw readError;
+            progressAlreadySet = true;
+          } catch (uploadError) {
+            if (!progressAlreadySet) {
+              setCertificateReadProgress({
+                label: "추가 실패",
+                detail: getDisplayErrorMessage(uploadError, "선택한 파일/폴더에서 공동인증서를 추가하지 못했습니다."),
+                percent: 100,
+                completedCount: 0,
+                totalCount: null,
+                status: "error"
+              });
+            }
+            throw uploadError;
           }
         },
         { reload: false }
       ),
-    [runAction, syncCustomerRenewalCertificates]
+    [
+      applyCustomerOnboardingCertificates,
+      defaultRenewalHelperDownloadUrl,
+      ensureLocalRenewalHelperActionAllowed,
+      runAction,
+      setCustomerRenewalAssistant
+    ]
   );
   const customerOnboardingSessionActive =
     customerOnboardingSessionState.commitDone ||
@@ -3085,31 +3314,6 @@ export function App() {
       }),
     [revealedFields, runAction, toggleRevealField]
   );
-  const settingsOnboardingState =
-    selectSettingsOnboardingState(settingsScreenState);
-  const settingsOnboardingContent = useSettingsOnboardingModel({
-    settingsState: settingsOnboardingState,
-    onboarding: settingsDerivedModel.onboarding,
-    orchestration: settingsFeatureOrchestration,
-    busyKey,
-    isMailTesting,
-    helper: {
-      ready: helperOnboardingReady,
-      upgradeRequired: helperUpgradeRequired,
-      upgradeAvailable: helperUpgradeAvailable,
-      actionBlockedReason: helperActionBlockedReason,
-      online: customerRenewalAssistant?.agentOnline ?? false,
-      electronicTaxCertificateCount: customerRenewalAssistantElectronicTaxCertificateCount,
-      generalCertificateCount: customerRenewalAssistantGeneralCertificateCount,
-      upgradeMessage: customerRenewalAssistant?.upgradeMessage ?? null,
-      latestVersion: customerRenewalAssistant?.latestVersion ?? null,
-      minSupportedVersion: customerRenewalAssistant?.minSupportedVersion ?? null
-    },
-    certificateReadProgress,
-    renewalHelperDownloadUrl,
-    runReadCertificates: runSettingsCertificateRead
-  });
-
   const certificatesScreenModel = useCertificatesScreenModel({
     customers: data?.customers ?? [],
     customerCertificates: data?.customerCertificates ?? [],
@@ -4032,35 +4236,18 @@ export function App() {
     setCustomerImportPreview(followUpPreview);
   };
 
-  const loadCustomerOnboardingAvailableCertificates = async (options?: { forceRefresh?: boolean }) => {
-    ensureLocalRenewalHelperActionAllowed("발행 가능 공동인증서 읽기");
-    if (!options?.forceRefresh && customerOnboardingCertificatesRef.current) {
-      return customerOnboardingCertificatesRef.current;
+  const loadCustomerOnboardingAvailableCertificates = async () => {
+    ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
+    const selectedCertificates =
+      customerOnboardingCertificatesRef.current ??
+      getActiveIssueCapableOnboardingCertificates(customerRenewalAssistantAllCertificates);
+
+    if (selectedCertificates.length === 0) {
+      throw new Error("AT 헬퍼 준비에서 공동인증서 읽기를 먼저 실행하세요.");
     }
 
-    const response = await requestLocalRenewalCertificates();
-    const certificates = response.result.storageProbe.ok ? response.result.storageProbe.certificates : [];
-    setCustomerRenewalAssistant((prev) =>
-      buildCustomerRenewalAssistant({
-        current: prev,
-        status: {
-          online: true,
-          version: response.version,
-          message: prev?.helperMessage ?? "준비 완료"
-        },
-        helperVersion: response.version,
-        helperMessage: prev?.helperMessage ?? "준비 완료",
-        jobs: prev?.jobs ?? [],
-        certificates: prev?.certificates ?? [],
-        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
-        defaultRenewalHelperDownloadUrl
-      })
-    );
-    const issueCapableCertificates = (certificates as RenewalAgentCertificate[]).filter(
-      (certificate) => isIssueCapableCustomerCertificate(certificate)
-    );
-    customerOnboardingCertificatesRef.current = issueCapableCertificates;
-    return issueCapableCertificates;
+    customerOnboardingCertificatesRef.current = selectedCertificates;
+    return selectedCertificates;
   };
   const { resolveSingleElectronicTaxCertificate } = useElectronicTaxOnboarding({
     loadAvailableCertificates: loadCustomerOnboardingAvailableCertificates
@@ -4078,98 +4265,266 @@ export function App() {
       certificatePasswordOverrides: customerOnboardingCertificatePasswordOverrides,
       requestPreflight: requestLocalRenewalPreflight,
       requestPreflightBatch: requestLocalRenewalPreflightBatch,
+      requestBusinessInfoLookup: requestLocalCertificateBusinessInfoLookup,
+      requestBusinessInfoLookupBatch: requestLocalCertificateBusinessInfoLookupBatch,
+      prepareCertificateForPreflight: prepareCustomerOnboardingCertificateForPreflight,
       preflightCache: customerOnboardingPreflightCacheRef.current,
       onProgress
     });
   };
 
-  const downloadCustomerOnboardingImportTemplate = async () => {
-    const [XLSX, certificates] = await Promise.all([
-      loadXlsxModule(),
-      loadCustomerOnboardingAvailableCertificates({ forceRefresh: true })
-    ]);
-    const activeCertificates = (certificates as RenewalAgentCertificate[]).filter(
-      (certificate) =>
-        isIssueCapableCustomerCertificate(certificate) &&
-        !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
-    );
-    if (activeCertificates.length === 0) {
-      throw new Error("이 PC에서 발행 가능 공동인증서를 찾지 못했습니다.");
-    }
-
-    downloadCustomerOnboardingTemplate(XLSX, activeCertificates);
+  const loadCustomerOnboardingStandardCertificates = async () => {
+    ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
+    setCustomerOnboardingNotice("컴퓨터의 공동인증서를 읽는 중입니다...");
+    setCustomerOnboardingError("");
+    customerOnboardingCertificatesRef.current = null;
+    setCustomerOnboardingTemplateWorkbook(null);
     setCustomerOnboardingFileName("");
     setCustomerOnboardingWorkbook(null);
     setCustomerOnboardingPreview(null);
     setCustomerOnboardingCertificatePasswordOverrides({});
     setCustomerOnboardingPreflightPasswordFailureEntries([]);
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
-    setCustomerOnboardingJoinProgress(null);
-    setCustomerOnboardingCertificateRegistrationProgress(null);
     customerOnboardingPreflightCacheRef.current.clear();
-    setCustomerOnboardingSessionState({
-      templateDownloaded: true,
+    const certificates = await syncCustomerRenewalCertificates({ showAlert: false });
+    const activeCertificates = applyCustomerOnboardingCertificates(certificates as RenewalAgentCertificate[], {
+      preserveExisting: false,
+      fileNameLabel: "읽은 인증서"
+    });
+    if (activeCertificates.length === 0) {
+      throw new Error("컴퓨터에서 발행 가능 공동인증서를 찾지 못했습니다. 찾는 인증서가 없으면 파일 추가 또는 폴더 추가로 직접 선택하세요.");
+    }
+  };
+
+  const updateCustomerOnboardingChecklistRow = (
+    rowIndex: number,
+    patch: Partial<CustomerOnboardingTemplateWorkbookInput["plants"][number]>
+  ) => {
+    setCustomerOnboardingTemplateWorkbook((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        plants: current.plants.map((row) =>
+          row.rowIndex === rowIndex
+            ? {
+                ...row,
+                ...patch
+              }
+            : row
+        )
+      };
+    });
+    setCustomerOnboardingWorkbook(null);
+    setCustomerOnboardingPreview(null);
+    setCustomerOnboardingPreflightPasswordFailureEntries([]);
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+    setCustomerOnboardingSessionState((prev) => ({
+      ...prev,
       previewReady: false,
       commitDone: false,
       certificateDone: false,
       targetBusinessNumbers: []
+    }));
+  };
+
+  const updateCustomerOnboardingChecklistRowsSelection = (
+    rowIndexes: number[],
+    selected: boolean
+  ) => {
+    const targetRowIndexes = new Set(rowIndexes);
+    if (targetRowIndexes.size === 0) {
+      return;
+    }
+    setCustomerOnboardingTemplateWorkbook((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        plants: current.plants.map((row) =>
+          targetRowIndexes.has(row.rowIndex)
+            ? {
+                ...row,
+                selected
+              }
+            : row
+        )
+      };
     });
-    setCustomerOnboardingNotice(
-      buildElectronicTaxOnboardingTemplateNotice({
-        certificateCount: activeCertificates.length
-      })
-    );
-    setCustomerOnboardingError("");
-  };
-
-  const applyElectronicTaxOnboardingUploadFlowResult = (result: ElectronicTaxOnboardingUploadFlowResult) => {
-    setCustomerOnboardingFileName(result.fileName);
-    setCustomerOnboardingWorkbook(result.workbook);
-    setCustomerOnboardingPreview(result.preview);
-    setCustomerOnboardingPreflightPasswordFailureEntries(result.passwordFailureEntries);
+    setCustomerOnboardingWorkbook(null);
+    setCustomerOnboardingPreview(null);
+    setCustomerOnboardingPreflightPasswordFailureEntries([]);
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
-    setCustomerOnboardingJoinProgress(null);
-    setCustomerOnboardingCertificateRegistrationProgress(null);
-    setCustomerOnboardingSessionState(result.sessionState);
-    setCustomerOnboardingNotice(result.notice);
-    setCustomerOnboardingError(result.error);
+    setCustomerOnboardingSessionState((prev) => ({
+      ...prev,
+      previewReady: false,
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: []
+    }));
   };
 
-  const handleCustomerOnboardingFileChange = async (file: File | null) => {
-    if (!customerOnboardingSharedPassword.trim()) {
-      setCustomerOnboardingError("공통 공동인증서 비밀번호를 입력한 뒤 양식을 업로드하세요.");
+  const setCustomerOnboardingChecklistSelection = (selected: boolean) => {
+    setCustomerOnboardingTemplateWorkbook((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        plants: current.plants.map((row) => ({
+          ...row,
+          selected
+        }))
+      };
+    });
+    setCustomerOnboardingWorkbook(null);
+    setCustomerOnboardingPreview(null);
+    setCustomerOnboardingPreflightPasswordFailureEntries([]);
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+    setCustomerOnboardingSessionState((prev) => ({
+      ...prev,
+      previewReady: false,
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: []
+    }));
+  };
+
+  const deleteSelectedCustomerOnboardingChecklistRows = () => {
+    if (!customerOnboardingTemplateWorkbook) {
+      return;
+    }
+    const selectedRows = customerOnboardingTemplateWorkbook.plants.filter((row) => row.selected === true);
+    if (selectedRows.length === 0) {
       return;
     }
 
-    setCustomerOnboardingNotice("업로드 시작...");
-    setCustomerOnboardingError("");
-    const result = await runElectronicTaxOnboardingUploadFlow({
-      file,
-      previousSessionState: customerOnboardingSessionState,
-      onProgress: (message) => {
-        setCustomerOnboardingNotice(message);
-      },
-      parseWorkbook: async (selectedFile) => {
-        assertSafeSpreadsheetFile(selectedFile);
-        const XLSX = await loadXlsxModule();
-        return await parseCustomerOnboardingWorkbook(XLSX, selectedFile);
-      },
-      resolveWorkbook: async (templateWorkbook) =>
-        resolveCustomerOnboardingTemplateWorkbook(templateWorkbook, (message) => {
-          setCustomerOnboardingNotice(message);
-        }),
-      previewWorkbook: async (workbook) =>
-        await api<CustomerOnboardingPreviewResponse>("/api/customer-onboarding/preview", {
-          method: "POST",
-          body: JSON.stringify(workbook)
-        })
+    const selectedKeys = new Set(selectedRows.map(getOnboardingTemplatePlantKey));
+    const nextPlants = customerOnboardingTemplateWorkbook.plants.filter(
+      (row) => !selectedKeys.has(getOnboardingTemplatePlantKey(row))
+    );
+    const remainingKeys = new Set(nextPlants.map(getOnboardingTemplatePlantKey));
+
+    if (customerOnboardingCertificatesRef.current) {
+      customerOnboardingCertificatesRef.current = customerOnboardingCertificatesRef.current.filter((certificate) =>
+        remainingKeys.has(getOnboardingCertificateTemplatePlantKey(certificate))
+      );
+    }
+
+    setCustomerOnboardingTemplateWorkbook({
+      ...customerOnboardingTemplateWorkbook,
+      plants: nextPlants
     });
-    applyElectronicTaxOnboardingUploadFlowResult(result);
+    setCustomerOnboardingFileName(nextPlants.length > 0 ? `읽은 인증서 ${nextPlants.length}건` : "");
+    setCustomerOnboardingWorkbook(null);
+    setCustomerOnboardingPreview(null);
+    setCustomerOnboardingPreflightPasswordFailureEntries([]);
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+    setCustomerOnboardingJoinProgress(null);
+    setCustomerOnboardingCertificateRegistrationProgress(null);
+    customerOnboardingPreflightCacheRef.current.clear();
+    setCustomerOnboardingSessionState((prev) => ({
+      ...prev,
+      templateDownloaded: nextPlants.length > 0,
+      previewReady: false,
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: []
+    }));
+    setCustomerOnboardingError("");
+    setCustomerOnboardingNotice(
+      nextPlants.length > 0
+        ? `선택한 인증서 ${selectedRows.length}건을 목록에서 삭제했습니다.`
+        : "선택한 인증서를 모두 삭제했습니다. 다시 공동인증서를 읽거나 파일/폴더 추가를 실행하세요."
+    );
+  };
+
+  const reviewCustomerOnboardingChecklist = async () => {
+    if (!customerOnboardingTemplateWorkbook || customerOnboardingTemplateWorkbook.plants.length === 0) {
+      setCustomerOnboardingError("AT 헬퍼 준비에서 공동인증서 읽기를 먼저 실행하세요.");
+      return;
+    }
+    const selectedPlants = customerOnboardingTemplateWorkbook.plants.filter((row) => row.selected === true);
+    if (selectedPlants.length === 0) {
+      setCustomerOnboardingError("등록할 고객의 공동인증서를 선택한 뒤 선택 인증서 확인을 진행하세요.");
+      return;
+    }
+    const hasSharedPassword = customerOnboardingSharedPassword.trim() !== "";
+    const hasAllIndividualPasswords = selectedPlants.every(
+      (row) => row.certificatePassword.trim() !== ""
+    );
+    if (!hasSharedPassword && !hasAllIndividualPasswords) {
+      setCustomerOnboardingError("선택한 행에 공통 비밀번호를 입력하거나 각 행의 개별 비밀번호를 입력한 뒤 선택 인증서 확인을 진행하세요.");
+      return;
+    }
+
+    setCustomerOnboardingNotice("선택 인증서 확인 중...");
+    setCustomerOnboardingError("");
+    const selectedTemplateWorkbook: CustomerOnboardingTemplateWorkbookInput = {
+      ...customerOnboardingTemplateWorkbook,
+      plants: selectedPlants
+    };
+    const resolved = await resolveCustomerOnboardingTemplateWorkbook(
+      selectedTemplateWorkbook,
+      (message) => {
+        setCustomerOnboardingNotice(message);
+      }
+    );
+    const workbookMessages = joinOnboardingMessages([
+      ...(resolved.warnings ?? []),
+      ...resolved.errors
+    ]);
+    const targetBusinessNumbers = getOnboardingElectronicTaxBusinessNumbers(resolved.workbook);
+    setCustomerOnboardingWorkbook(resolved.workbook);
+    setCustomerOnboardingPreflightPasswordFailureEntries(resolved.passwordFailureEntries);
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+    setCustomerOnboardingJoinProgress(null);
+    setCustomerOnboardingCertificateRegistrationProgress(null);
+
+    if (resolved.workbook.customers.length === 0) {
+      setCustomerOnboardingPreview(null);
+      setCustomerOnboardingSessionState({
+        templateDownloaded: true,
+        previewReady: false,
+        commitDone: false,
+        certificateDone: false,
+        targetBusinessNumbers
+      });
+      setCustomerOnboardingNotice("확인 가능한 고객이 없습니다. 아래 확인 필요 메시지를 수정한 뒤 다시 확인하세요.");
+      setCustomerOnboardingError(workbookMessages);
+      return;
+    }
+
+    setCustomerOnboardingNotice(`고객 ${resolved.workbook.customers.length}건 검토 중...`);
+    const preview = await api<CustomerOnboardingPreviewResponse>("/api/customer-onboarding/preview", {
+      method: "POST",
+      body: JSON.stringify(resolved.workbook)
+    });
+    setCustomerOnboardingPreview(preview);
+    setCustomerOnboardingSessionState({
+      templateDownloaded: true,
+      previewReady: true,
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers
+    });
+    setCustomerOnboardingNotice(
+      buildElectronicTaxOnboardingPreviewNotice({
+        resolvedCertificateCount: resolved.resolvedCertificateCount,
+        customerCount: resolved.workbook.customers.length,
+        acceptedBeforeWindowCount: resolved.acceptedBeforeWindowCount,
+        skippedCertificateCount: resolved.skippedCertificateCount,
+        workbookWarnings: []
+      })
+    );
+    setCustomerOnboardingError(workbookMessages);
   };
 
   const commitCustomerOnboardingWorkbook = async () => {
     if (!customerOnboardingWorkbook || !customerOnboardingPreview) {
-      setCustomerOnboardingError("먼저 고객 초기 등록 양식을 업로드하세요.");
+      setCustomerOnboardingError("먼저 선택 인증서 확인을 완료하세요.");
       return;
     }
 
@@ -4996,7 +5351,7 @@ export function App() {
       }
 
       if (!certificate) {
-        throw new Error("이 PC에서 저장된 공동인증서를 다시 찾지 못했습니다. 공동인증서 읽기를 다시 실행하세요.");
+        throw new Error("이 PC에서 저장된 공동인증서를 다시 찾지 못했습니다. 공동인증서 확인을 다시 실행하세요.");
       }
 
       return {
@@ -5022,7 +5377,7 @@ export function App() {
   };
 
   const requestCustomerRenewalBridgeProbe = async () => {
-    ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
+    ensureLocalRenewalHelperActionAllowed("공동인증서 확인");
     const response = await requestLocalRenewalBridgeProbe();
     const allCertificates = response.result.bridge.storageProbe.ok ? response.result.bridge.storageProbe.certificates : [];
     const certificates = allCertificates.filter(isIssueCapableCustomerCertificate);
@@ -5035,7 +5390,7 @@ export function App() {
       certificates.length > 0
         ? `발행 가능 공동인증서 ${certificates.length}건을 불러왔습니다.\n원하는 인증서에서 정보 읽기를 누르면 고객 초안을 바로 만들 수 있습니다.`
         : allCertificates.length > 0
-          ? "발행 가능 공동인증서를 찾지 못했습니다.\n고객 초안 만들기에는 전자세금용/기업범용 공동인증서만 표시합니다."
+          ? "발행 가능 공동인증서를 찾지 못했습니다.\n만료되었거나 개인용인 공동인증서는 고객 초안 만들기에서 제외합니다."
           : bridgeJob.error ?? "공동인증서를 불러오지 못했습니다.";
 
     if (certificates.length > 0) {
@@ -5234,7 +5589,7 @@ export function App() {
           );
         }
       } else {
-        alertMessage = `전자세금용 공동인증서 ${certificates.length}건을 불러왔습니다.\n고객 생성이나 정보 읽기를 진행하려면 인증서별 비밀번호가 필요합니다.`;
+        alertMessage = `발행 가능 공동인증서 ${certificates.length}건을 불러왔습니다.\n고객 생성이나 정보 읽기를 진행하려면 인증서별 비밀번호가 필요합니다.`;
       }
     }
 
@@ -6709,8 +7064,16 @@ export function App() {
     };
   };
 
-  const loadCustomerAddElectronicTaxCertificates = async () =>
-    await loadCustomerOnboardingAvailableCertificates({ forceRefresh: true });
+  const loadCustomerAddElectronicTaxCertificates = async () => {
+    ensureLocalRenewalHelperActionAllowed("공동인증서 파일/폴더 선택");
+    const issueCapableCertificates = customerRenewalAssistantAllCertificates.filter(
+      (certificate) => isIssueCapableCustomerCertificate(certificate)
+    );
+    if (issueCapableCertificates.length === 0) {
+      throw new Error("먼저 공동인증서 파일이나 폴더를 선택하세요.");
+    }
+    return issueCapableCertificates;
+  };
 
   const uploadCustomerAddCertificateFiles = async (files: File[]) => {
     ensureLocalRenewalHelperActionAllowed("발행 가능 공동인증서 업로드");
@@ -6961,7 +7324,30 @@ export function App() {
   const onboardingRegistrationPrimaryActionLabel = onboardingRegistrationFlow.primaryActionLabel;
   const onboardingRegistrationBlockedReason = onboardingRegistrationFlow.blockedReason;
   const onboardingFirstSyncBlockedSteps = settingsOnboardingModel.firstSyncBlockedSteps;
-  const onboardingHelperContent = settingsOnboardingContent.helperContent;
+  const onboardingHelperContent = (
+    <SettingsHelperOnboardingStep
+      helperReady={helperOnboardingReady}
+      helperUpgradeRequired={helperUpgradeRequired}
+      helperUpgradeAvailable={helperUpgradeAvailable}
+      helperActionBlockedReason={helperActionBlockedReason}
+      helperStatusLine={settingsDerivedModel.onboarding.helperStatusLine}
+      helperOnline={customerRenewalAssistant?.agentOnline ?? false}
+      electronicTaxCertificateCount={customerRenewalAssistantElectronicTaxCertificateCount}
+      generalCertificateCount={customerRenewalAssistantBusinessGeneralCertificateCount}
+      certificateReadProgress={certificateReadProgress}
+      busy={busyKey !== null}
+      isReadingCertificates={busyKey === "customer-onboarding-template"}
+      onRefreshHelper={settingsScreenState.runRefreshCustomerRenewalAssistant}
+      onReadCertificates={() =>
+        runAction(
+          "customer-onboarding-template",
+          loadCustomerOnboardingStandardCertificates,
+          { reload: false }
+        )
+      }
+      onDownloadHelper={() => window.location.assign(renewalHelperDownloadUrl)}
+    />
+  );
   const onboardingCertificateAutoTargetCount = pendingOnboardingCertificateRegistrationTargets.length;
   const onboardingPendingPopbillJoinCount = pendingOnboardingPopbillJoinCustomers.length;
   const onboardingFailedPopbillJoinCount = failedOnboardingPopbillJoinCustomers.length;
@@ -6970,13 +7356,13 @@ export function App() {
     : onboardingCertificateAutoTargetCount > 0
       ? onboardingCertificateRetryCount > 0 && busyKey !== "customer-onboarding-cert-registration"
         ? "공동인증서 다시 확인"
-        : "공동인증서 반영"
+        : "공동인증서 등록"
       : onboardingPendingPopbillJoinCount > 0
         ? "고객 반영 확인 중"
         : onboardingFailedPopbillJoinCount > 0
           ? "고객 반영 확인 필요"
           : onboardingCertificateReady
-            ? "공동인증서 반영 완료"
+            ? "공동인증서 등록 완료"
             : "반영 대상 없음";
   const onboardingCertificateActionDisabled =
     busyKey !== null ||
@@ -7258,11 +7644,9 @@ export function App() {
       step: 1,
       title: "AT 헬퍼 준비",
       summary: helperOnboardingReady
-        ? customerRenewalAssistantAvailableCertificateCount > 0
-          ? `공동인증서 ${customerRenewalAssistantAvailableCertificateCount}건`
-          : "준비 완료"
+        ? "준비 완료"
         : "확인 필요",
-      primaryActionLabel: helperOnboardingReady ? "공동인증서 읽기 완료" : "공동인증서 읽기",
+      primaryActionLabel: helperOnboardingReady ? "상태확인 완료" : "상태 확인",
       blockedReason: helperVersionMismatch
         ? helperActionBlockedReason
         : customerRenewalAssistant?.agentOnline
@@ -7278,7 +7662,7 @@ export function App() {
       summary: onboardingCertificateReady
         ? `등록 ${data.customers.length}명`
         : onboardingRegistrationStage === "download" || onboardingRegistrationStage === "upload"
-          ? "양식 받기/올리기"
+          ? "대상 선택/확인"
           : onboardingRegistrationStage === "commit"
             ? `반영 ${onboardingImportableCount}건`
             : onboardingRegistrationStage === "certificate"
@@ -7288,8 +7672,8 @@ export function App() {
                   ? "고객 반영 확인 중"
                   : "공동인증서 확인"
             : onboardingRegistrationFlow.needsUploadRetry
-              ? "재업로드"
-              : "양식 업로드",
+              ? "재확인"
+              : "선택 확인",
       primaryActionLabel: onboardingCertificateReady ? "고객 초기 등록 완료" : onboardingRegistrationPrimaryActionLabel,
       blockedReason: onboardingRegistrationBlockedReason,
       done: onboardingCertificateReady,
@@ -7298,6 +7682,7 @@ export function App() {
           mode="registration"
           busyKey={busyKey}
           customerOnboardingFileName={customerOnboardingFileName}
+          customerOnboardingChecklistRows={customerOnboardingTemplateWorkbook?.plants ?? []}
           customerOnboardingPreview={customerOnboardingPreview}
           customerOnboardingNotice={customerOnboardingNotice}
           customerOnboardingError={customerOnboardingError}
@@ -7312,8 +7697,8 @@ export function App() {
           quickRegisterError={quickRegisterError}
           billingMonthSummaries={billingMonthSummaries}
           completedBillingNotice={completedBillingNotice}
-          helperReady={helperReady}
-          helperCertificateCount={customerRenewalAssistantElectronicTaxCertificateCount}
+          helperReady={helperOnboardingReady}
+          helperCertificateCount={customerOnboardingTemplateWorkbook?.plants.length ?? customerRenewalAssistantElectronicTaxCertificateCount}
           registrationReady={onboardingCustomerRegistrationReady}
           certificateReady={onboardingCertificateReady}
           certificateAutoTargetCount={onboardingCertificateAutoTargetCount}
@@ -7333,8 +7718,12 @@ export function App() {
           certificatePasswordOverrideEntries={onboardingCertificatePasswordOverrideEntries}
           onCertificatePasswordOverrideChange={updateCustomerOnboardingCertificatePasswordOverride}
           showBillingMonthCompletion={false}
-          downloadCustomerOnboardingTemplate={downloadCustomerOnboardingImportTemplate}
-          handleCustomerOnboardingFileChange={handleCustomerOnboardingFileChange}
+          uploadCertificateFiles={runSettingsCertificateUpload}
+          reviewCustomerOnboardingChecklist={reviewCustomerOnboardingChecklist}
+          updateCustomerOnboardingChecklistRow={updateCustomerOnboardingChecklistRow}
+          updateCustomerOnboardingChecklistRowsSelection={updateCustomerOnboardingChecklistRowsSelection}
+          setCustomerOnboardingChecklistSelection={setCustomerOnboardingChecklistSelection}
+          deleteSelectedCustomerOnboardingChecklistRows={deleteSelectedCustomerOnboardingChecklistRows}
           commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
           proceedOnboardingCertificateFollowUp={proceedOnboardingCertificateFollowUpAction}
           setQuickRegisterForm={setQuickRegisterForm}
@@ -8057,7 +8446,6 @@ export function App() {
             onLoadCustomerRenewalCertificates={async () => {
               await syncCustomerRenewalCertificates({ showAlert: false, skipReadinessCheck: true });
             }}
-            onLoadCustomerAddCertificates={loadCustomerAddElectronicTaxCertificates}
             onUploadCustomerAddCertificateFiles={uploadCustomerAddCertificateFiles}
             onPreviewCustomerCertificateOnestop={previewCustomerCertificateOnestop}
             onExecuteCustomerCertificateOnestop={executeCustomerCertificateOnestop}
@@ -8133,7 +8521,7 @@ export function App() {
             customerRenewalAssistantCheckedAt={customerRenewalAssistant?.helperCheckedAt ?? null}
             customerRenewalLoadedCertificateCount={customerRenewalAssistantAvailableCertificateCount}
             customerRenewalElectronicTaxCertificateCount={customerRenewalAssistantElectronicTaxCertificateCount}
-            customerRenewalGeneralCertificateCount={customerRenewalAssistantGeneralCertificateCount}
+            customerRenewalGeneralCertificateCount={customerRenewalAssistantBusinessGeneralCertificateCount}
             certificateReadProgress={certificateReadProgress}
             renewalHelperDownloadUrl={renewalHelperDownloadUrl}
             setActiveSettingsSection={setActiveSettingsSection}

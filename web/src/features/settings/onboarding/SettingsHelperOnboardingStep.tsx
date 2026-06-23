@@ -12,9 +12,9 @@ type SettingsHelperOnboardingStepProps = {
   generalCertificateCount: number;
   certificateReadProgress: SettingsCertificateReadProgress;
   busy: boolean;
-  isReadingCertificates: boolean;
-  onReadCertificates: () => Promise<void>;
+  isReadingCertificates?: boolean;
   onRefreshHelper: () => Promise<void>;
+  onReadCertificates?: () => Promise<void>;
   onDownloadHelper: () => void;
 };
 
@@ -29,25 +29,22 @@ export function SettingsHelperOnboardingStep({
   generalCertificateCount,
   certificateReadProgress,
   busy,
-  isReadingCertificates,
-  onReadCertificates,
+  isReadingCertificates = false,
   onRefreshHelper,
+  onReadCertificates,
   onDownloadHelper
 }: SettingsHelperOnboardingStepProps) {
   const helperVersionMismatch = helperUpgradeRequired || helperUpgradeAvailable;
-  const readBlockedReason = helperVersionMismatch
-    ? helperActionBlockedReason
-    : helperOnline
-      ? undefined
-      : "AT 헬퍼 실행 후 상태를 확인하세요.";
+  const issueCapableCertificateCount =
+    electronicTaxCertificateCount + generalCertificateCount;
   const headline = helperReady
-    ? "공동인증서 확인 완료"
+    ? "AT 헬퍼 준비 완료"
       : helperVersionMismatch
         ? helperUpgradeRequired
           ? "AT 헬퍼 재설치 필요"
         : "AT 헬퍼 업데이트 필요"
       : helperOnline
-        ? "공동인증서 읽기"
+        ? "공동인증서 프로그램 확인 완료"
         : "AT 헬퍼 실행 필요";
 
   return (
@@ -63,12 +60,12 @@ export function SettingsHelperOnboardingStep({
             <strong>{helperStatusLine}</strong>
           </div>
           <div>
-            <span>전자세금용 공동인증서</span>
-            <strong>{electronicTaxCertificateCount}건</strong>
+            <span>발행 가능 공동인증서</span>
+            <strong>{issueCapableCertificateCount}건</strong>
           </div>
           <div>
-            <span>범용 공동인증서</span>
-            <strong>{generalCertificateCount}건</strong>
+            <span>집계 기준</span>
+            <strong>만료/개인용 제외</strong>
           </div>
         </div>
 
@@ -95,7 +92,7 @@ export function SettingsHelperOnboardingStep({
             </div>
             <div
               className="certificate-read-progress-track"
-              aria-label="공동인증서 읽기 진행률"
+              aria-label="공동인증서 파일/폴더 선택 진행률"
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={certificateReadProgress.percent}
@@ -123,14 +120,16 @@ export function SettingsHelperOnboardingStep({
           >
             상태 확인
           </button>
-          <button
-            type="button"
-            disabled={busy || !helperOnline || helperVersionMismatch}
-            title={readBlockedReason}
-            onClick={() => void onReadCertificates()}
-          >
-            {isReadingCertificates ? "읽는 중..." : "공동인증서 읽기"}
-          </button>
+          {onReadCertificates ? (
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={busy}
+              onClick={() => void onReadCertificates()}
+            >
+              {isReadingCertificates ? "읽는 중..." : "공동인증서 읽기"}
+            </button>
+          ) : null}
         </div>
       </section>
     </div>

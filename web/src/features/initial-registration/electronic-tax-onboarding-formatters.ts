@@ -4,7 +4,7 @@ export function buildElectronicTaxOnboardingTemplateNotice(options: {
   certificateCount: number;
   unregisteredCustomerCount?: number;
 }): string {
-  return `만료되지 않은 발행 가능 공동인증서 ${options.certificateCount}건으로 양식을 만들었습니다. 등록할 행만 남기고 발전소명을 입력해 주세요.`;
+  return `만료되지 않은 발행 가능 공동인증서 ${options.certificateCount}건을 읽었습니다. 관리 고객만 등록 대상으로 선택한 뒤 비밀번호를 확인하고 선택 인증서 확인을 실행하세요.`;
 }
 
 export function buildElectronicTaxOnboardingPreviewNotice(options: {

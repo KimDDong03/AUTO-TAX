@@ -191,7 +191,7 @@ export function buildSettingsOnboardingModel({
       : helper.upgradeState === "upgrade-available"
         ? "업데이트 필요"
         : helper.online
-          ? "AT 헬퍼 연결됨"
+          ? "공동인증서 프로그램 확인 필요"
           : "상태 미확인";
 
   return {

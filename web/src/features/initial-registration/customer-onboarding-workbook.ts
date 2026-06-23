@@ -1,7 +1,9 @@
 import type { RenewalBridgeCertificateSummary } from "../../types";
 import { assertSafeSpreadsheetWorkbook } from "../../spreadsheet-security";
+import { isIssueCapableCustomerCertificate } from "../renewal/customerRenewalCertificateUtils";
 
 type XlsxModule = typeof import("@e965/xlsx");
+type XlsxWorksheet = ReturnType<XlsxModule["utils"]["aoa_to_sheet"]>;
 
 export type CustomerOnboardingWorkbookInput = {
   customers: Array<{
@@ -52,8 +54,20 @@ export type CustomerOnboardingTemplateWorkbookInput = {
     rowIndex: number;
     certificateIndex: string;
     certificateName: string;
+    usageName?: string;
+    issuerName?: string;
+    expireDate?: string;
+    businessNumber?: string;
+    customerName?: string;
+    corpName?: string;
+    addr?: string;
+    bizType?: string;
+    bizClass?: string;
+    renewalContactMobile?: string;
     plantName: string;
+    matchAddress?: string;
     certificatePassword: string;
+    selected?: boolean;
   }>;
 };
 
@@ -169,27 +183,50 @@ function estimateExcelColumnWidth(value: unknown) {
   return Math.max(10, Math.min(width + 2, 72));
 }
 
-function applySheetColumnWidths(
-  worksheet: Parameters<XlsxModule["utils"]["aoa_to_sheet"]>[0] extends infer _T ? ReturnType<XlsxModule["utils"]["aoa_to_sheet"]> : never,
-  rows: Array<Array<unknown>>
-) {
+function applySheetColumnWidths(worksheet: XlsxWorksheet, rows: Array<Array<unknown>>) {
   const maxColumnCount = rows.reduce((count, row) => Math.max(count, row.length), 0);
   worksheet["!cols"] = Array.from({ length: maxColumnCount }, (_, columnIndex) => ({
     wch: rows.reduce((maxWidth, row) => Math.max(maxWidth, estimateExcelColumnWidth(row[columnIndex])), 10)
   }));
 }
 
-function isIssueCapableCertificate(certificate: Pick<RenewalBridgeCertificateSummary, "usageToName" | "oid">) {
-  if (
-    certificate.oid === "1.2.410.200004.5.2.1.6.257" ||
-    certificate.oid === "1.2.410.200004.5.2.1.2"
-  ) {
-    return true;
+function hideSheetColumns(worksheet: XlsxWorksheet, columnIndexes: number[]) {
+  const existingColumns = worksheet["!cols"] ?? [];
+  for (const columnIndex of columnIndexes) {
+    existingColumns[columnIndex] = {
+      ...(existingColumns[columnIndex] ?? {}),
+      hidden: true
+    };
   }
+  worksheet["!cols"] = existingColumns;
+}
 
-  const usageName = certificate.usageToName;
-  const normalized = usageName.replace(/\s+/g, "");
-  return normalized.includes("전자세금") || ((normalized.includes("사업자") || normalized.includes("기업")) && normalized.includes("범용"));
+export function buildCustomerOnboardingTemplateWorkbookFromCertificates(
+  certificates: RenewalBridgeCertificateSummary[]
+): CustomerOnboardingTemplateWorkbookInput {
+  const issueCapableCertificates = certificates.filter(isIssueCapableCustomerCertificate);
+  return {
+    certificates: [],
+    plants: issueCapableCertificates.map((certificate, index) => ({
+      rowIndex: index + 2,
+      certificateIndex: String(certificate.index),
+      certificateName: certificate.cn,
+      usageName: certificate.usageToName,
+      issuerName: certificate.issuerToName,
+      expireDate: certificate.todate ?? certificate.detailValidateTo ?? "",
+      businessNumber: "",
+      customerName: "",
+      corpName: certificate.cn,
+      addr: "",
+      bizType: "전기업",
+      bizClass: "태양광발전(자가용PPA)",
+      renewalContactMobile: "",
+      plantName: certificate.cn,
+      matchAddress: "",
+      certificatePassword: "",
+      selected: false
+    }))
+  };
 }
 
 export function downloadCustomerOnboardingTemplate(
@@ -197,16 +234,26 @@ export function downloadCustomerOnboardingTemplate(
   certificates: RenewalBridgeCertificateSummary[]
 ) {
   const workbook = XLSX.utils.book_new();
-  const issueCapableCertificates = certificates.filter(isIssueCapableCertificate);
+  const issueCapableCertificates = certificates.filter(isIssueCapableCustomerCertificate);
 
   const guideRows = [
     ["시트", "작성 방법"],
-    ["발전소", "이 시트가 초기 등록 기준입니다. 이 PC에서 읽힌 발행 가능 공동인증서가 자동으로 들어갑니다. 등록할 대상 행만 남기고 발전소명과 필요 시 인증서 비밀번호만 입력하세요. 행이 남아 있으면 등록 대상으로 보고, 완전히 빈 행은 오류 없이 건너뜁니다."],
-    ["업로드 순서", "1) AT 헬퍼 실행 후 발행 가능 공동인증서 읽기 확인 2) 양식 다운로드 3) 발전소 시트에서 등록할 고객 행만 남기고 발전소명과 필요 시 인증서 비밀번호 입력 4) 양식 업로드 후 인증서 확인 결과와 고객 생성/갱신 가능 여부 확인 5) 고객 등록 반영 6) 인증서 등록 마무리"]
+    ["발전소", "이 시트가 초기 등록 기준입니다. 등록할 대상 행만 남기고 상호명과 필요 시 인증서 비밀번호만 입력하세요. 행이 남아 있으면 등록 대상으로 보고, 완전히 빈 행은 오류 없이 건너뜁니다."],
+    ["업로드 순서", "1) AT 헬퍼 실행 후 공동인증서 읽기 2) 등록할 대상만 선택 3) 상호명과 필요 시 인증서 비밀번호 확인 4) 선택 인증서 확인 후 고객 생성/갱신 가능 여부 확인 5) 고객 등록 반영 6) 인증서 등록 마무리"]
   ];
   const plantRows = [
-    ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"],
-    ...issueCapableCertificates.map((certificate) => [String(certificate.index), certificate.cn, "", ""])
+    [
+      "상호명",
+      "인증서 비밀번호",
+      "로컬인증서번호",
+      "인증서명(CN)"
+    ],
+    ...issueCapableCertificates.map((certificate) => [
+      certificate.cn,
+      "",
+      String(certificate.index),
+      certificate.cn
+    ])
   ];
 
   const guideSheet = XLSX.utils.aoa_to_sheet(guideRows);
@@ -214,6 +261,7 @@ export function downloadCustomerOnboardingTemplate(
 
   applySheetColumnWidths(guideSheet, guideRows);
   applySheetColumnWidths(plantSheet, plantRows);
+  hideSheetColumns(plantSheet, [2, 3]);
 
   XLSX.utils.book_append_sheet(workbook, guideSheet, "안내");
   XLSX.utils.book_append_sheet(workbook, plantSheet, "발전소");
@@ -296,22 +344,61 @@ export async function parseCustomerOnboardingWorkbook(
       plants: plantRows.slice(1).flatMap((row, index) => {
         const certificateIndex = getCell(row, plantHeaderMap, "로컬인증서번호", "인증서번호", "인증서 index");
         const certificateName = getCell(row, plantHeaderMap, "인증서명(CN)", "인증서명", "CN");
+        const usageName = getCell(row, plantHeaderMap, "용도", "용도표시명");
+        const issuerName = getCell(row, plantHeaderMap, "발급기관", "기관");
+        const expireDate = getCell(row, plantHeaderMap, "만료일");
+        const businessNumber = getCell(row, plantHeaderMap, "사업자번호", "사업자등록번호");
+        const customerName = getCell(row, plantHeaderMap, "대표자명", "고객명");
+        const corpName = getCell(row, plantHeaderMap, "상호명", "상호", "회사명");
+        const addr = getCell(row, plantHeaderMap, "사업장 주소", "주소");
+        const bizType = getCell(row, plantHeaderMap, "업태");
+        const bizClass = getCell(row, plantHeaderMap, "업종", "종목");
+        const renewalContactMobile = getCell(row, plantHeaderMap, "연락처", "휴대폰", "휴대전화");
         const plantName = getCell(row, plantHeaderMap, "발전소명", "설치명");
+        const matchAddress = getCell(row, plantHeaderMap, "매칭 주소", "매칭주소", "발전소 주소");
         const certificatePassword = getCell(row, plantHeaderMap, "인증서 비밀번호", "비밀번호");
-        if (!certificateIndex && !certificateName && !plantName && !certificatePassword) {
+        if (
+          !certificateIndex &&
+          !certificateName &&
+          !usageName &&
+          !issuerName &&
+          !expireDate &&
+          !businessNumber &&
+          !customerName &&
+          !corpName &&
+          !addr &&
+          !bizType &&
+          !bizClass &&
+          !renewalContactMobile &&
+          !plantName &&
+          !matchAddress &&
+          !certificatePassword
+        ) {
           return [];
         }
 
         return [
           {
-            rowIndex: index + 2,
-            certificateIndex,
-            certificateName,
-            plantName,
-            certificatePassword
-          }
-        ];
-      })
+          rowIndex: index + 2,
+          certificateIndex,
+          certificateName,
+            usageName,
+            issuerName,
+            expireDate,
+            businessNumber,
+            customerName,
+            corpName,
+            addr,
+            bizType,
+            bizClass,
+          renewalContactMobile,
+          plantName: plantName || corpName || certificateName,
+          matchAddress,
+          certificatePassword,
+          selected: true
+        }
+      ];
+    })
     }
   };
 }

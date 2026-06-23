@@ -386,7 +386,7 @@ async function prepareCustomerOnboardingWorkbook(
       entry.errors.add("사업자번호는 숫자 10자리여야 합니다.");
     }
     if (!row.normalizedAddress) {
-      entry.errors.add("사업장 주소를 확인할 수 없습니다.");
+      entry.warnings.add("사업장 주소가 없어 고객 등록 후 고객 관리에서 보완하세요.");
     }
     if (!row.bizType) {
       entry.errors.add("업태가 비어 있습니다.");
@@ -414,7 +414,7 @@ async function prepareCustomerOnboardingWorkbook(
       entry.errors.add(`발전소 시트 ${plant.rowIndex}행: 발전소명이 비어 있습니다.`);
     }
     if (!plant.normalizedMatchAddress) {
-      entry.errors.add(`발전소 시트 ${plant.rowIndex}행: 매칭 주소를 확인할 수 없습니다.`);
+      entry.warnings.add(`발전소 시트 ${plant.rowIndex}행: 매칭 주소가 없어 메일 자동 매칭에는 사용하지 않습니다. 고객 등록 후 보완하세요.`);
       continue;
     }
 
@@ -467,7 +467,11 @@ async function prepareCustomerOnboardingWorkbook(
 
   for (const entry of entriesByKey.values()) {
     if (entry.plants.length === 0) {
-      entry.warnings.add("발전소 정보가 없어 고객 기본 주소를 매칭 주소로 사용합니다.");
+      if (entry.row.normalizedAddress) {
+        entry.warnings.add("발전소 정보가 없어 고객 기본 주소를 매칭 주소로 사용합니다.");
+      } else {
+        entry.warnings.add("매칭 주소가 없어 한전 메일 자동 매칭에는 고객 등록 후 주소 보완이 필요합니다.");
+      }
     }
 
     if (entry.certificates.length === 0) {

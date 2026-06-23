@@ -1,5 +1,4 @@
-import { useRef, useState } from "react";
-import type React from "react";
+import React, { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   AlertTriangle,
@@ -19,7 +18,10 @@ import {
 } from "@/components/console";
 import { Icon, Panel, RevealIcon } from "../../components/ui";
 import type { BootstrapPayload } from "../../types";
-import type { CustomerOnboardingPreviewResponse } from "./customer-onboarding-workbook";
+import type {
+  CustomerOnboardingPreviewResponse,
+  CustomerOnboardingTemplateWorkbookInput
+} from "./customer-onboarding-workbook";
 import type { ElectronicTaxOnboardingCertificateRegistrationProgress } from "./electronic-tax-onboarding-orchestration";
 
 type QuickRegisterFormState = {
@@ -76,6 +78,8 @@ type CertificatePasswordOverrideEntry = {
   value: string;
 };
 
+type CustomerOnboardingChecklistPlantRow = CustomerOnboardingTemplateWorkbookInput["plants"][number];
+
 export type InitialRegistrationJoinProgress = {
   total: number;
   completed: number;
@@ -83,6 +87,33 @@ export type InitialRegistrationJoinProgress = {
   failed: number;
   status: "running" | "complete";
 };
+
+export function getInitialRegistrationChecklistSelectionPatch(
+  rows: CustomerOnboardingChecklistPlantRow[],
+  input: {
+    rowIndex: number;
+    selected: boolean;
+    anchorRowIndex: number | null;
+    shiftKey: boolean;
+  }
+): { rowIndexes: number[]; selected: boolean } {
+  if (!input.shiftKey || input.anchorRowIndex === null) {
+    return { rowIndexes: [input.rowIndex], selected: input.selected };
+  }
+
+  const targetIndex = rows.findIndex((row) => row.rowIndex === input.rowIndex);
+  const anchorIndex = rows.findIndex((row) => row.rowIndex === input.anchorRowIndex);
+  if (targetIndex < 0 || anchorIndex < 0) {
+    return { rowIndexes: [input.rowIndex], selected: input.selected };
+  }
+
+  const startIndex = Math.min(anchorIndex, targetIndex);
+  const endIndex = Math.max(anchorIndex, targetIndex);
+  return {
+    rowIndexes: rows.slice(startIndex, endIndex + 1).map((row) => row.rowIndex),
+    selected: input.selected
+  };
+}
 
 type InitialStatusNoticeTone = "info" | "progress" | "success" | "warn" | "danger";
 
@@ -117,6 +148,76 @@ function InitialStatusNotice(props: {
         {props.message}
       </span>
     </InlineNotice>
+  );
+}
+
+export function buildInitialRegistrationReviewMessages(input: {
+  preview: CustomerOnboardingPreviewResponse | null;
+  error: string;
+}): string[] {
+  const messages: string[] = [];
+  const seen = new Set<string>();
+  const pushMessage = (message: string) => {
+    const normalized = message.replace(/\s+/g, " ").trim();
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    messages.push(message.trim());
+  };
+
+  for (const message of input.error.split(/\r?\n/)) {
+    pushMessage(message);
+  }
+
+  for (const row of input.preview?.rows ?? []) {
+    if (
+      row.status !== "blocked" &&
+      row.errors.length === 0 &&
+      row.warnings.length === 0
+    ) {
+      continue;
+    }
+
+    const rowLabel =
+      row.corpName.trim() ||
+      row.customerName.trim() ||
+      row.businessNumber.trim() ||
+      `${row.rowIndex}행`;
+    for (const error of row.errors) {
+      pushMessage(`${rowLabel}: ${error}`);
+    }
+    for (const warning of row.warnings) {
+      pushMessage(`${rowLabel}: ${warning}`);
+    }
+  }
+
+  return messages;
+}
+
+function InitialRegistrationReviewIssues(props: {
+  messages: string[];
+  blockedCount: number;
+}) {
+  if (props.messages.length === 0) {
+    return null;
+  }
+  const title = props.blockedCount > 0
+    ? `확인 필요 ${props.messages.length}건`
+    : `보완 안내 ${props.messages.length}건`;
+
+  return (
+    <div className="initial-registration-review-issues" role="alert">
+      <div className="initial-registration-review-issues-head">
+        <AlertTriangle aria-hidden="true" />
+        <strong>{title}</strong>
+      </div>
+      <ul>
+        {props.messages.map((message) => (
+          <li key={message}>{message}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -229,11 +330,11 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           : "certificate";
   const blockedReason =
     !input.helperReady && !downloadCompleted
-      ? "먼저 발행 가능 공동인증서를 읽으세요."
-      : !downloadCompleted && input.helperReady && !hasElectronicTaxCertificates
-        ? "이 PC에서 발행 가능 공동인증서를 찾지 못했습니다."
+      ? "먼저 AT 헬퍼 상태확인을 완료하세요."
+    : !downloadCompleted && input.helperReady && !hasElectronicTaxCertificates
+      ? "AT 헬퍼 준비에서 공동인증서 읽기를 실행하세요."
         : needsUploadRetry
-          ? `검토 ${input.blockedCount}건 수정 후 다시 업로드하세요.`
+          ? `검토 ${input.blockedCount}건 수정 후 다시 확인하세요.`
         : stage === "commit" && commitSubmitted && input.certificatePendingJoinCount > 0
           ? `발행 연동 가입 대기 ${input.certificatePendingJoinCount}건`
         : stage === "commit" && commitSubmitted && input.certificateFailedJoinCount > 0
@@ -243,9 +344,14 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           : stage === "certificate" && input.certificateFailedJoinCount > 0
             ? `등록 처리 확인이 필요한 고객 ${input.certificateFailedJoinCount}건이 있습니다.`
               : undefined;
-  const templateStepStatus: InitialRegistrationStepStatus = uploadCompleted
+  const certificateFindStepStatus: InitialRegistrationStepStatus = downloadCompleted
     ? "complete"
-    : stage === "download" || stage === "upload"
+    : stage === "download"
+      ? "current"
+      : "locked";
+  const reviewStepStatus: InitialRegistrationStepStatus = uploadCompleted
+    ? "complete"
+    : stage === "upload"
       ? "current"
       : "locked";
   const certificateStepStatus: InitialRegistrationStepStatus = certificateCompleted
@@ -256,14 +362,14 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
   const headline = certificateCompleted
     ? "고객 등록 완료"
     : stage === "download"
-      ? "지금 할 일 · 양식 다운로드"
+      ? "지금 할 일 · 등록 대상 선택"
       : stage === "upload"
         ? needsUploadRetry
-          ? "지금 할 일 · 다시 업로드"
-          : "지금 할 일 · 양식 업로드"
+          ? "지금 할 일 · 선택 인증서 다시 확인"
+          : "지금 할 일 · 선택 인증서 확인"
         : stage === "commit"
           ? "지금 할 일 · 고객 반영"
-          : "지금 할 일 · 공동인증서 반영";
+          : "지금 할 일 · 공동인증서 등록";
   const description = certificateCompleted
     ? "다음 단계로 이동"
     : stage === "download"
@@ -293,49 +399,62 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           : needsUploadRetry
             ? `검토 ${input.blockedCount}건`
             : input.hasSelectedFile
-              ? "업로드 준비"
-              : "파일 선택";
+              ? "확인 준비"
+              : "대상 선택";
   const primaryActionLabel = certificateCompleted
     ? "등록 완료"
     : stage === "download"
-      ? "양식 다운로드"
+      ? "대상 선택"
       : stage === "commit"
         ? "고객 등록 반영"
         : stage === "certificate"
           ? input.certificateAutoTargetCount > 0
               ? input.certificateRetryCount > 0 && !input.certificateRegistrationRunning
                 ? "공동인증서 다시 확인"
-                : "공동인증서 반영"
+                : "공동인증서 등록"
               : input.certificatePendingJoinCount > 0
                 ? "발행 연동 다시 확인"
                 : input.certificateFailedJoinCount > 0
                   ? "고객 관리에서 확인"
                   : "다음 단계 보기"
           : uploadCompleted || input.hasSelectedFile
-            ? "다시 업로드"
-            : "양식 업로드";
+            ? "다시 확인"
+            : "선택 인증서 확인";
   const stepItems: InitialRegistrationStepItem[] = [
     {
       step: 1,
-      title: "양식 받기/올리기",
-      description: uploadCompleted
-        ? needsUploadRetry
-          ? "재업로드"
+      title: "등록 대상 선택",
+      description: downloadCompleted
+        ? input.hasSelectedFile
+          ? `인증서 ${input.helperCertificateCount}건`
           : "완료"
-        : downloadCompleted
-          ? input.hasSelectedFile
-            ? "선택됨"
-            : "업로드"
-          : input.helperReady
-            ? hasElectronicTaxCertificates
-              ? "다운로드 후 업로드"
-              : "발행 가능 인증서 없음"
-            : "AT 헬퍼 필요",
-      status: templateStepStatus,
-      ...getInitialRegistrationStepMeta(templateStepStatus)
+        : input.helperReady
+          ? hasElectronicTaxCertificates
+            ? "등록 대상 선택"
+            : "헬퍼에서 읽기"
+          : "AT 헬퍼 필요",
+      status: certificateFindStepStatus,
+      ...getInitialRegistrationStepMeta(certificateFindStepStatus)
     },
     {
       step: 2,
+      title: "선택 인증서 확인",
+      description: uploadCompleted
+        ? needsUploadRetry
+          ? "수정 필요"
+          : "완료"
+        : downloadCompleted
+          ? input.hasSelectedFile
+            ? "확인 대기"
+            : "인증서 없음"
+          : input.helperReady
+            ? "인증서 찾기 후 진행"
+            : "대기",
+      status: reviewStepStatus,
+      ...getInitialRegistrationStepMeta(reviewStepStatus)
+    },
+    {
+      step: 3,
       title: "고객 반영",
       description: commitCompleted
         ? "완료"
@@ -352,8 +471,8 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
       ...getInitialRegistrationStepMeta(commitCompleted ? "complete" : stage === "commit" ? "current" : "locked")
     },
     {
-      step: 3,
-      title: "공동인증서 반영",
+      step: 4,
+      title: "공동인증서 등록",
       description: certificateCompleted
         ? "완료"
         : input.certificateAutoTargetCount > 0
@@ -404,6 +523,7 @@ type InitialRegistrationTabProps = {
   mode: InitialRegistrationTabMode;
   busyKey: string | null;
   customerOnboardingFileName: string;
+  customerOnboardingChecklistRows: CustomerOnboardingChecklistPlantRow[];
   customerOnboardingPreview: CustomerOnboardingPreviewResponse | null;
   customerOnboardingNotice: string;
   customerOnboardingError: string;
@@ -439,8 +559,15 @@ type InitialRegistrationTabProps = {
   certificatePasswordOverrideEntries: CertificatePasswordOverrideEntry[];
   onCertificatePasswordOverrideChange: (businessNumber: string, value: string) => void;
   showBillingMonthCompletion?: boolean;
-  downloadCustomerOnboardingTemplate: () => Promise<void>;
-  handleCustomerOnboardingFileChange: (file: File | null) => Promise<void>;
+  uploadCertificateFiles: (files: File[]) => Promise<void>;
+  reviewCustomerOnboardingChecklist: () => Promise<void>;
+  updateCustomerOnboardingChecklistRow: (
+    rowIndex: number,
+    patch: Partial<CustomerOnboardingChecklistPlantRow>
+  ) => void;
+  updateCustomerOnboardingChecklistRowsSelection: (rowIndexes: number[], selected: boolean) => void;
+  setCustomerOnboardingChecklistSelection: (selected: boolean) => void;
+  deleteSelectedCustomerOnboardingChecklistRows: () => void;
   commitCustomerOnboardingWorkbook: () => Promise<void>;
   proceedOnboardingCertificateFollowUp: () => void;
   setQuickRegisterForm: React.Dispatch<React.SetStateAction<QuickRegisterFormState>>;
@@ -456,16 +583,21 @@ type InitialRegistrationTabProps = {
 };
 
 export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
-  const onboardingFileInputRef = useRef<HTMLInputElement | null>(null);
+  const certificateFileInputRef = useRef<HTMLInputElement | null>(null);
+  const certificateFolderInputRef = useRef<HTMLInputElement | null>(null);
   const [sharedPasswordVisible, setSharedPasswordVisible] = useState(false);
   const [selectedRegistrationStep, setSelectedRegistrationStep] = useState<number | null>(null);
+  const [lastChecklistAnchorRowIndex, setLastChecklistAnchorRowIndex] = useState<number | null>(null);
   const onboardingBusyKey = props.busyKey?.startsWith("customer-onboarding-") ? props.busyKey : null;
-  const isDownloadingOnboardingTemplate = onboardingBusyKey === "customer-onboarding-template";
   const isPreviewingOnboarding = onboardingBusyKey === "customer-onboarding-preview";
   const isCommittingOnboarding = onboardingBusyKey === "customer-onboarding-commit";
   const onboardingImportableCount =
     (props.customerOnboardingPreview?.createCount ?? 0) + (props.customerOnboardingPreview?.updateCount ?? 0);
   const onboardingBlockedCount = props.customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
+  const reviewIssueMessages = buildInitialRegistrationReviewMessages({
+    preview: props.customerOnboardingPreview,
+    error: props.customerOnboardingError
+  });
   const showBillingMonthCompletion = props.showBillingMonthCompletion ?? props.mode === "exceptions";
   const hasExceptionMessages = props.quickRegisterMessages.length > 0;
   const registrationReady = props.registrationReady ?? false;
@@ -494,29 +626,36 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     selectedRegistrationStep === 1 &&
     registrationFlow.uploadCompleted &&
     !isTemplateStage;
-  const isCommitStepSelected =
+  const isReviewStepSelected =
     props.mode === "registration" &&
     selectedRegistrationStep === 2 &&
+    registrationFlow.downloadCompleted;
+  const isCommitStepSelected =
+    props.mode === "registration" &&
+    selectedRegistrationStep === 3 &&
     registrationFlow.uploadCompleted;
   const isCertificateStepSelected =
     props.mode === "registration" &&
-    selectedRegistrationStep === 3 &&
+    selectedRegistrationStep === 4 &&
     registrationFlow.commitCompleted;
   const showSharedPasswordField =
     props.mode === "registration" &&
     (isTemplateStage ||
       isTemplateStepSelected ||
+      isReviewStepSelected ||
       registrationStage === "commit" ||
       isCommitStepSelected ||
       registrationStage === "certificate" ||
       isCertificateStepSelected);
   const registrationTaskTitle = isTemplateStage || isTemplateStepSelected
-    ? "양식 받기/올리기"
+    ? "등록 대상 선택"
+    : isReviewStepSelected
+      ? "선택 인증서 확인"
     : isCertificateStepSelected
-      ? "공동인증서 반영"
+      ? "공동인증서 등록"
       : registrationFlow.headline.replace("지금 할 일 · ", "");
   const registrationTaskDescription = isTemplateStepSelected
-    ? "양식을 다시 받거나 올릴 수 있습니다."
+    ? "읽은 공동인증서 중 관리 고객만 선택하세요. 목록에 없으면 인증서를 가져올 수 있습니다."
     : registrationFlow.description;
   const selectedRegistrationTaskTitle = isCommitStepSelected ? "고객 반영" : registrationTaskTitle;
   const selectedRegistrationTaskDescription = isCommitStepSelected
@@ -525,17 +664,56 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
       : registrationFlow.description
     : isCertificateStepSelected
       ? registrationFlow.description
+    : isReviewStepSelected
+      ? "고객 가입과 공동인증서 등록에 필요한 값을 확인하세요."
     : registrationTaskDescription;
   const sharedPasswordReady = props.customerOnboardingSharedPassword.trim() !== "";
-  const canDownloadOnboardingTemplate = props.helperReady && props.helperCertificateCount > 0;
-  const uploadBlockedTitle = !sharedPasswordReady
-    ? "공통 비밀번호 입력 후 업로드하세요."
+  const hasChecklistRows = props.customerOnboardingChecklistRows.length > 0;
+  const selectedChecklistRows = props.customerOnboardingChecklistRows.filter((row) => row.selected === true);
+  const selectedChecklistCount = selectedChecklistRows.length;
+  const checklistPasswordReady =
+    sharedPasswordReady ||
+    (selectedChecklistCount > 0 &&
+      selectedChecklistRows.every((row) => (row.certificatePassword ?? "").trim() !== ""));
+  const canReviewChecklist = props.helperReady && selectedChecklistCount > 0 && checklistPasswordReady;
+  const reviewBlockedTitle = !props.helperReady
+    ? "먼저 AT 헬퍼 상태확인을 완료하세요."
+    : !hasChecklistRows
+    ? "AT 헬퍼 준비에서 공동인증서 읽기를 먼저 실행하세요."
+    : selectedChecklistCount === 0
+    ? "등록할 고객의 공동인증서를 선택하세요."
+    : !checklistPasswordReady
+      ? "선택한 행에 공통 비밀번호를 입력하거나 각 행의 개별 비밀번호를 입력하세요."
     : undefined;
   const downloadBlockedTitle = !props.helperReady
-    ? "먼저 공동인증서를 읽어주세요."
-    : props.helperCertificateCount === 0
-      ? "이 PC에서 발행 가능 공동인증서를 먼저 확인하세요."
-      : undefined;
+    ? "먼저 AT 헬퍼 상태확인을 완료하세요."
+    : undefined;
+  const applyChecklistRowSelection = (
+    row: CustomerOnboardingChecklistPlantRow,
+    selected: boolean,
+    event: { shiftKey: boolean; ctrlKey?: boolean; metaKey?: boolean }
+  ) => {
+    if (event.shiftKey) {
+      window.getSelection()?.removeAllRanges();
+    }
+    const patch = getInitialRegistrationChecklistSelectionPatch(
+      props.customerOnboardingChecklistRows,
+      {
+        rowIndex: row.rowIndex,
+        selected,
+        anchorRowIndex: lastChecklistAnchorRowIndex,
+        shiftKey: event.shiftKey
+      }
+    );
+    props.updateCustomerOnboardingChecklistRowsSelection(patch.rowIndexes, patch.selected);
+    setLastChecklistAnchorRowIndex(row.rowIndex);
+  };
+  const isChecklistRowInteractiveTarget = (target: EventTarget | null) => {
+    return (
+      target instanceof HTMLElement &&
+      Boolean(target.closest("input, button, a, textarea, select, label, summary"))
+    );
+  };
   const billingMonthCompletionList = props.billingMonthSummaries.length > 0 ? (
     <div className="list month-completion-list">
       {props.billingMonthSummaries.map((summary) => (
@@ -615,7 +793,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               ? {
                   label:
                     props.busyKey === "customer-onboarding-cert-registration"
-                      ? "공동인증서 반영 중..."
+                      ? "공동인증서 등록 중..."
                       : props.certificatePrimaryActionLabel ?? registrationFlow.primaryActionLabel,
                   disabled: props.certificateActionDisabled ?? props.busyKey !== null,
                   title: props.certificateActionTitle,
@@ -626,14 +804,25 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     mode: props.mode,
     registrationStage,
     uploadCompleted: registrationFlow.uploadCompleted,
-    templateStepSelected: selectedRegistrationStep === 1
+    templateStepSelected: selectedRegistrationStep === 1 || selectedRegistrationStep === 2
   });
-  const showOnboardingInlineStatus = Boolean(props.customerOnboardingFileName || props.customerOnboardingPreview);
+  const hasActiveRegistrationProgress = Boolean(
+    props.certificateRegistrationProgress || props.joinProgress
+  );
+  const showChecklistWorkspace =
+    props.mode === "registration" &&
+    hasChecklistRows &&
+    showTemplateActions &&
+    !hasActiveRegistrationProgress;
+  const showOnboardingInlineStatus =
+    !showChecklistWorkspace &&
+    Boolean(props.customerOnboardingFileName || props.customerOnboardingPreview);
   const uploadProgressMessage = isPreviewingOnboarding
-    ? props.customerOnboardingNotice || "양식 업로드를 확인하는 중입니다..."
+    ? props.customerOnboardingNotice || "초기 등록 대상을 점검하는 중입니다..."
     : "";
   const showCustomerOnboardingNotice =
     Boolean(props.customerOnboardingNotice) &&
+    !showChecklistWorkspace &&
     !registrationFlow.blockedReason &&
     !uploadProgressMessage &&
     !props.certificateRegistrationProgress &&
@@ -656,7 +845,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const joinProgress = props.joinProgress;
   const activeRegistrationProgress = certificateProgress
     ? {
-        title: "공동인증서 반영 현황",
+        title: "공동인증서 등록 현황",
         statusText: certificateProgressStatusText,
         current: certificateProgress.current,
         total: certificateProgress.total,
@@ -717,9 +906,10 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const visibleRegistrationSteps = registrationFlow.stepItems;
   const isRegistrationStepClickable = (item: InitialRegistrationStepItem) =>
     props.mode === "registration" &&
-    ((item.step === 1 && registrationFlow.uploadCompleted) ||
-      (item.step === 2 && registrationFlow.uploadCompleted) ||
-      (item.step === 3 && registrationFlow.commitCompleted));
+    ((item.step === 1 && registrationFlow.downloadCompleted) ||
+      (item.step === 2 && registrationFlow.downloadCompleted) ||
+      (item.step === 3 && registrationFlow.uploadCompleted) ||
+      (item.step === 4 && registrationFlow.commitCompleted));
   const initialRegistrationStepItems = buildInitialRegistrationStepItems(
     visibleRegistrationSteps,
     { isClickableStep: isRegistrationStepClickable }
@@ -728,136 +918,325 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     selectedRegistrationStep !== null
       ? String(selectedRegistrationStep)
       : String(visibleRegistrationSteps.find((item) => item.status === "current")?.step ?? visibleRegistrationSteps[0]?.step ?? 1);
+  const directoryInputProps = {
+    type: "file",
+    multiple: true,
+    directory: "",
+    webkitdirectory: "",
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.currentTarget.files ?? []);
+      event.currentTarget.value = "";
+      if (files.length > 0) {
+        void props.runAction(
+          "customer-onboarding-certificate-upload",
+          async () => props.uploadCertificateFiles(files),
+          { reload: false }
+        );
+      }
+    }
+  } as React.InputHTMLAttributes<HTMLInputElement> & {
+    directory: string;
+    webkitdirectory: string;
+  };
+  const handleCertificateFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    if (files.length > 0) {
+      void props.runAction(
+        "customer-onboarding-certificate-upload",
+        async () => props.uploadCertificateFiles(files),
+        { reload: false }
+      );
+    }
+  };
+  const sharedPasswordControl = showSharedPasswordField ? (
+    <label className="settings-defaults-cell initial-registration-password-cell">
+      공통 비밀번호
+      <div className="password-field">
+        <input
+          type={sharedPasswordVisible ? "text" : "password"}
+          value={props.customerOnboardingSharedPassword}
+          disabled={props.busyKey !== null}
+          onChange={(event) =>
+            props.onCustomerOnboardingSharedPasswordChange(event.target.value)
+          }
+          placeholder="비워진 행에 사용"
+        />
+        <button
+          type="button"
+          className="password-toggle"
+          aria-label={
+            sharedPasswordVisible
+              ? "공통 비밀번호 숨기기"
+              : "공통 비밀번호 보기"
+          }
+          onClick={() => setSharedPasswordVisible((prev) => !prev)}
+        >
+          <RevealIcon open={sharedPasswordVisible} />
+        </button>
+      </div>
+    </label>
+  ) : null;
+  const reviewChecklistButton = showTemplateActions ? (
+    <Button
+      type="button"
+      size="sm"
+      className="initial-registration-review-button"
+      disabled={props.busyKey !== null || !canReviewChecklist}
+      title={reviewBlockedTitle}
+      onClick={() =>
+        void props.runAction(
+          "customer-onboarding-preview",
+          props.reviewCustomerOnboardingChecklist,
+          { reload: false }
+        )
+      }
+    >
+      {isPreviewingOnboarding
+        ? "확인 중..."
+        : registrationFlow.uploadCompleted
+          ? "다시 확인"
+          : "선택 인증서 확인"}
+    </Button>
+  ) : null;
+  const manualCertificateRegistration = showTemplateActions ? (
+    <details className="initial-registration-manual-source">
+      <summary>목록에 없는 인증서 추가</summary>
+      <div className="initial-registration-manual-source-actions">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={props.busyKey !== null || !props.helperReady}
+          title={downloadBlockedTitle}
+          onClick={() => certificateFileInputRef.current?.click()}
+        >
+          파일 추가
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={props.busyKey !== null || !props.helperReady}
+          title={downloadBlockedTitle}
+          onClick={() => certificateFolderInputRef.current?.click()}
+        >
+          폴더 추가
+        </Button>
+      </div>
+    </details>
+  ) : null;
+  const checklistSelectionActions = hasChecklistRows ? (
+    <div className="initial-onboarding-review-actions">
+      <button
+        type="button"
+        className="btn-secondary"
+        disabled={props.busyKey !== null}
+        onClick={() => props.setCustomerOnboardingChecklistSelection(true)}
+      >
+        전체 선택
+      </button>
+      <button
+        type="button"
+        className="btn-secondary"
+        disabled={props.busyKey !== null}
+        onClick={() => props.setCustomerOnboardingChecklistSelection(false)}
+      >
+        전체 해제
+      </button>
+      <button
+        type="button"
+        className="btn-secondary initial-onboarding-review-delete"
+        disabled={props.busyKey !== null || selectedChecklistCount === 0}
+        onClick={props.deleteSelectedCustomerOnboardingChecklistRows}
+      >
+        선택 삭제
+      </button>
+    </div>
+  ) : null;
+  const checklistTable = hasChecklistRows ? (
+    <div className="initial-onboarding-review-table-wrap">
+      <table className="initial-onboarding-review-table">
+        <thead>
+          <tr>
+            <th>등록</th>
+            <th>상호명</th>
+            <th>개별 비밀번호</th>
+          </tr>
+        </thead>
+        <tbody>
+          {props.customerOnboardingChecklistRows.map((row) => {
+            const rowSelected = row.selected === true;
+            return (
+              <tr
+                key={`${row.rowIndex}:${row.certificateIndex}:${row.certificateName}`}
+                className={rowSelected ? "is-selected" : undefined}
+                aria-selected={rowSelected}
+                onMouseDown={(event) => {
+                  if (props.busyKey !== null || isChecklistRowInteractiveTarget(event.target)) {
+                    return;
+                  }
+                  if (event.shiftKey) {
+                    event.preventDefault();
+                    window.getSelection()?.removeAllRanges();
+                  }
+                }}
+                onClick={(event) => {
+                  if (props.busyKey !== null || isChecklistRowInteractiveTarget(event.target)) {
+                    return;
+                  }
+                  applyChecklistRowSelection(row, !rowSelected, event);
+                }}
+              >
+                <td>
+                  <input
+                    className="initial-onboarding-review-check"
+                    type="checkbox"
+                    checked={rowSelected}
+                    disabled={props.busyKey !== null}
+                    aria-label={`${row.corpName || row.plantName || row.certificateName || "공동인증서"} 등록 대상 선택`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      applyChecklistRowSelection(row, event.currentTarget.checked, event);
+                    }}
+                    onChange={() => undefined}
+                  />
+                </td>
+                <td>
+                  <span className="initial-onboarding-review-readonly">
+                    {row.corpName || row.plantName || "-"}
+                  </span>
+                </td>
+                <td>
+                  <input
+                    className="initial-onboarding-review-password"
+                    type="password"
+                    value={row.certificatePassword ?? ""}
+                    disabled={props.busyKey !== null || !rowSelected}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) =>
+                      props.updateCustomerOnboardingChecklistRow(row.rowIndex, {
+                        certificatePassword: event.target.value
+                      })
+                    }
+                    placeholder="공통 비밀번호 사용"
+                  />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  ) : null;
 
   return (
     <div className="initial-screen">
       {props.mode === "registration" ? (
         <>
           <input
-            ref={onboardingFileInputRef}
+            ref={certificateFileInputRef}
             type="file"
-            accept=".xlsx,.xlsm"
+            accept=".der,.key,.p12,.pfx"
+            multiple
             hidden
-            onChange={(event) => {
-              const file = event.target.files?.[0] ?? null;
-              void props.runAction(
-                "customer-onboarding-preview",
-                async () => props.handleCustomerOnboardingFileChange(file),
-                { reload: false }
-              );
-              event.currentTarget.value = "";
-            }}
+            aria-label="공동인증서 파일 선택"
+            onChange={handleCertificateFileInputChange}
           />
-          <section className="onboarding-main-card panel-initial-onboarding" data-stage={registrationStage}>
-            <div className="onboarding-main-head">
-              <div className="onboarding-main-copy onboarding-main-copy-focal">
-                <strong>{selectedRegistrationTaskTitle}</strong>
-                <p>{selectedRegistrationTaskDescription}</p>
-                {activeRegistrationProgress ? (
-                  <InitialRegistrationProgressCard
-                    title={activeRegistrationProgress.title}
-                    statusText={activeRegistrationProgress.statusText}
-                    current={activeRegistrationProgress.current}
-                    total={activeRegistrationProgress.total}
-                    progressValue={activeRegistrationProgress.progressValue}
-                    metaItems={activeRegistrationProgress.metaItems}
-                  />
+          <input
+            {...directoryInputProps}
+            ref={certificateFolderInputRef}
+            hidden
+            aria-label="공동인증서 폴더 선택"
+          />
+          <section
+            className={[
+              "onboarding-main-card",
+              "panel-initial-onboarding",
+              showChecklistWorkspace ? "is-checklist-workspace" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            data-stage={registrationStage}
+          >
+            {showChecklistWorkspace ? (
+              <>
+                <div className="initial-onboarding-review-head">
+                  <div>
+                    <strong>등록 대상 선택</strong>
+                    <span>
+                      읽은 인증서 {props.customerOnboardingChecklistRows.length}건 · 선택 {selectedChecklistCount}건
+                    </span>
+                  </div>
+                  {checklistSelectionActions}
+                </div>
+                <div className="initial-registration-compact-controls">
+                  {sharedPasswordControl}
+                  {reviewChecklistButton}
+                </div>
+                {uploadProgressMessage ? (
+                  <InitialStatusNotice title="진행 중" message={uploadProgressMessage} tone="progress" />
                 ) : null}
-                <div className="initial-registration-work-row">
-                  <div className="initial-registration-action-stack">
-                    {showSharedPasswordField ? (
-                      <label className="settings-defaults-cell settings-defaults-cell-span-2">
-                        공통 공동인증서 비밀번호 (1회성)
-                        <div className="password-field">
-                          <input
-                            type={sharedPasswordVisible ? "text" : "password"}
-                            value={props.customerOnboardingSharedPassword}
-                            disabled={props.busyKey !== null}
-                            onChange={(event) =>
-                              props.onCustomerOnboardingSharedPasswordChange(event.target.value)
-                            }
-                            placeholder="발전소 시트 비밀번호 칸이 비면 이 값을 사용"
-                          />
-                          <button
-                            type="button"
-                            className="password-toggle"
-                            aria-label={
-                              sharedPasswordVisible
-                                ? "공통 공동인증서 비밀번호 숨기기"
-                                : "공통 공동인증서 비밀번호 보기"
-                            }
-                            onClick={() => setSharedPasswordVisible((prev) => !prev)}
-                          >
-                            <RevealIcon open={sharedPasswordVisible} />
-                          </button>
-                        </div>
-                        <span className="field-hint">
-                          이번 업로드에서만 사용합니다.
-                        </span>
-                      </label>
+                {checklistTable}
+                <InitialRegistrationReviewIssues messages={reviewIssueMessages} blockedCount={onboardingBlockedCount} />
+                {manualCertificateRegistration}
+              </>
+            ) : (
+              <>
+                <div className="onboarding-main-head">
+                  <div className="onboarding-main-copy onboarding-main-copy-focal">
+                    <strong>{selectedRegistrationTaskTitle}</strong>
+                    <p>{selectedRegistrationTaskDescription}</p>
+                    {activeRegistrationProgress ? (
+                      <InitialRegistrationProgressCard
+                        title={activeRegistrationProgress.title}
+                        statusText={activeRegistrationProgress.statusText}
+                        current={activeRegistrationProgress.current}
+                        total={activeRegistrationProgress.total}
+                        progressValue={activeRegistrationProgress.progressValue}
+                        metaItems={activeRegistrationProgress.metaItems}
+                      />
                     ) : null}
-                    {showTemplateActions ? (
-                      <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={props.busyKey !== null || !canDownloadOnboardingTemplate}
-                          title={downloadBlockedTitle}
-                          onClick={() =>
-                            void props.runAction(
-                              "customer-onboarding-template",
-                              props.downloadCustomerOnboardingTemplate,
-                              { reload: false }
-                            )
-                          }
-                        >
-                          {isDownloadingOnboardingTemplate ? "다운로드 중..." : "양식 다운로드"}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={props.busyKey !== null || !sharedPasswordReady}
-                          title={uploadBlockedTitle}
-                          onClick={() => onboardingFileInputRef.current?.click()}
-                        >
-                          {isPreviewingOnboarding
-                            ? "확인 중..."
-                            : registrationFlow.uploadCompleted
-                              ? "다시 업로드"
-                              : "양식 업로드"}
-                        </Button>
+                    <div className="initial-registration-work-row">
+                      <div className="initial-registration-action-stack">
+                        {sharedPasswordControl}
+                        {showTemplateActions ? (
+                          <div className="initial-registration-command-panel">
+                            {manualCertificateRegistration}
+                            {reviewChecklistButton}
+                          </div>
+                        ) : null}
+                        {registrationPrimaryAction ? (
+                          <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={registrationPrimaryAction.disabled}
+                              title={registrationPrimaryAction.title}
+                              onClick={registrationPrimaryAction.onClick}
+                            >
+                              {registrationPrimaryAction.label}
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
-                    {registrationPrimaryAction ? (
-                      <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={registrationPrimaryAction.disabled}
-                          title={registrationPrimaryAction.title}
-                          onClick={registrationPrimaryAction.onClick}
-                        >
-                          {registrationPrimaryAction.label}
-                        </Button>
-                      </div>
-                    ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
 
-            <TaskStepper
-              steps={initialRegistrationStepItems}
-              activeId={activeRegistrationStepId}
-              label="고객 초기 등록 단계"
-              className="onboarding-stage-list initial-registration-stepper"
-              onSelect={(step) => setSelectedRegistrationStep(Number(step.id))}
-            />
+                <TaskStepper
+                  steps={initialRegistrationStepItems}
+                  activeId={activeRegistrationStepId}
+                  label="고객 초기 등록 단계"
+                  className="onboarding-stage-list initial-registration-stepper"
+                  onSelect={(step) => setSelectedRegistrationStep(Number(step.id))}
+                />
+              </>
+            )}
 
             {showOnboardingInlineStatus ? (
               <div className="onboarding-inline-status">
-                <InitialStatusMetric icon="file-text" label="파일" value={props.customerOnboardingFileName || "선택됨"} />
+                <InitialStatusMetric icon="file-text" label="인증서" value={props.customerOnboardingFileName || "읽기 완료"} />
                 <InitialStatusMetric icon="group" label="반영" value={`${onboardingImportableCount}건`} />
                 <InitialStatusMetric icon={onboardingBlockedCount > 0 ? "warning" : "complete"} label="검토" value={`${onboardingBlockedCount}건`} />
               </div>
@@ -865,11 +1244,26 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           </section>
 
           {uploadProgressMessage ? (
-            <InitialStatusNotice title="진행 중" message={uploadProgressMessage} tone="progress" />
+            showChecklistWorkspace ? null : (
+              <InitialStatusNotice title="진행 중" message={uploadProgressMessage} tone="progress" />
+            )
           ) : null}
 
           {showCustomerOnboardingNotice ? (
             <InitialStatusNotice title="안내" message={props.customerOnboardingNotice} tone={registrationFlow.commitCompleted ? "success" : "info"} />
+          ) : null}
+          {props.customerOnboardingChecklistRows.length > 0 && !showChecklistWorkspace ? (
+            <div className="initial-onboarding-review">
+              <div className="initial-onboarding-review-head">
+                <div>
+                  <strong>초기 등록 대상 선택 {selectedChecklistCount}/{props.customerOnboardingChecklistRows.length}건</strong>
+                  <span>관리 고객만 선택하고 필요 시 개별 비밀번호를 입력하세요.</span>
+                </div>
+                {checklistSelectionActions}
+              </div>
+              {checklistTable}
+              <InitialRegistrationReviewIssues messages={reviewIssueMessages} blockedCount={onboardingBlockedCount} />
+            </div>
           ) : null}
           {showCertificatePasswordOverrides ? (
             <div className="helper-box import-helper-box">
@@ -899,7 +1293,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
               </div>
             </div>
           ) : null}
-          {props.customerOnboardingError ? (
+          {props.customerOnboardingError && reviewIssueMessages.length === 0 ? (
             <InitialStatusNotice title="확인 필요" message={props.customerOnboardingError} tone="danger" />
           ) : null}
           {props.customerOnboardingPreview?.fileErrors.length ? (

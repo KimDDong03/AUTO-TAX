@@ -203,7 +203,6 @@ type CustomersTabProps = {
   onCancelCreateCustomer: () => void;
   onRefreshCustomerRenewalAssistant: () => Promise<void>;
   onLoadCustomerRenewalCertificates: () => Promise<void>;
-  onLoadCustomerAddCertificates: () => Promise<RenewalAgentCertificate[]>;
   onUploadCustomerAddCertificateFiles: (files: File[]) => Promise<LocalCertificateUploadSessionResult>;
   onPreviewCustomerCertificateOnestop: (
     certificate: RenewalAgentCertificate,
@@ -893,31 +892,6 @@ export function CustomersTab(props: CustomersTabProps) {
     setCustomerOnestopStep("password");
   };
 
-  const loadCustomerOnestopPcCertificates = () => {
-    void props.runAction(
-      "customer-add-load-certificates",
-      async () => {
-        try {
-          setCustomerOnestopError("");
-          setCustomerOnestopUploadSummary(null);
-          const certificates = await props.onLoadCustomerAddCertificates();
-          const filterResult = filterCustomerOnestopCertificates({
-            certificates,
-            customers: props.customers,
-            customerCertificates: props.customerCertificates,
-            todayDateKey: customerCertificateTodayDateKey
-          });
-          setCustomerOnestopCertificates(certificates);
-          setCustomerOnestopCertificateSearchQuery("");
-          setCustomerOnestopNotice(buildCustomerOnestopCertificateNotice("PC에서", certificates, filterResult));
-        } catch (error) {
-          setCustomerOnestopError(getCustomerOnestopErrorMessage(error, "공동인증서 목록을 읽지 못했습니다."));
-        }
-      },
-      { reload: false }
-    );
-  };
-
   const uploadCustomerOnestopFiles = (files: File[]) => {
     if (files.length === 0) {
       return;
@@ -939,7 +913,7 @@ export function CustomersTab(props: CustomersTabProps) {
           setCustomerOnestopUploadSummary(result);
           setCustomerOnestopCertificates(certificates);
           setCustomerOnestopCertificateSearchQuery("");
-          setCustomerOnestopNotice(buildCustomerOnestopCertificateNotice("업로드한 파일에서", certificates, filterResult));
+          setCustomerOnestopNotice(buildCustomerOnestopCertificateNotice("선택한 파일/폴더에서", certificates, filterResult));
           if (filterResult.availableCertificates.length === 1) {
             selectCustomerOnestopCertificate(filterResult.availableCertificates[0]!);
           }
@@ -1326,7 +1300,7 @@ export function CustomersTab(props: CustomersTabProps) {
     : customerCertificateHelperVersionMismatch
       ? customerCertificateHelperMessage
       : !props.customerRenewalAssistantOnline
-        ? "클릭하면 AT 헬퍼 연결 확인과 공동인증서 읽기를 먼저 시도합니다."
+        ? "클릭하면 AT 헬퍼 연결 확인과 공동인증서 확인을 먼저 시도합니다."
         : selectedCustomerElectronicTaxCertificate?.certificateIndex.startsWith("stored:")
           ? "클릭하면 이 PC의 공동인증서를 다시 읽고 갱신을 진행합니다."
           : undefined;
@@ -1629,7 +1603,7 @@ export function CustomersTab(props: CustomersTabProps) {
                 title={customerCertificateHelperUnavailable ? customerCertificateHelperMessage : undefined}
                 onClick={loadCustomerCertificateCandidates}
               >
-                공동인증서 읽기
+                공동인증서 확인
               </button>
               <button
                 type="button"
@@ -2647,7 +2621,7 @@ export function CustomersTab(props: CustomersTabProps) {
         <EmptyState
           className="context-empty-state customer-onestop-empty"
           title="인증서 없음"
-          body="PC에서 찾기 또는 파일/폴더 올리기를 실행하세요."
+          body="인증서 폴더나 p12/pfx 파일을 선택하세요."
         />
       );
     }
@@ -2714,21 +2688,17 @@ export function CustomersTab(props: CustomersTabProps) {
         <div className="customer-detail-section-head">
           <div>
             <h3>전자세금용 공동인증서 선택</h3>
-            <p>PC에 있는 인증서를 찾거나 NPKI 파일/폴더를 AT 헬퍼로만 보냅니다.</p>
+            <p>NPKI 인증서 폴더나 p12/pfx 파일을 직접 선택합니다.</p>
           </div>
         </div>
         <div className="customer-onestop-source-actions">
-          <button type="button" onClick={loadCustomerOnestopPcCertificates} disabled={props.busyKey !== null}>
-            <Icon name="search" />
-            PC에서 찾기
-          </button>
           <button
             type="button"
             onClick={() => customerOnestopFileInputRef.current?.click()}
             disabled={props.busyKey !== null}
           >
             <Icon name="cert" />
-            로컬 파일 올리기
+            파일 선택
           </button>
           <button
             type="button"
@@ -2736,7 +2706,7 @@ export function CustomersTab(props: CustomersTabProps) {
             disabled={props.busyKey !== null}
           >
             <Icon name="dashboard" />
-            폴더 올리기
+            폴더 선택
           </button>
           <input
             ref={customerOnestopFileInputRef}
@@ -2744,14 +2714,14 @@ export function CustomersTab(props: CustomersTabProps) {
             type="file"
             multiple
             accept=".der,.key,.p12,.pfx"
-            aria-label="로컬 인증서 파일 올리기"
+            aria-label="인증서 파일 선택"
             onChange={handleCustomerOnestopUploadInputChange}
           />
           <input
             {...directoryInputProps}
             ref={customerOnestopFolderInputRef}
             className="customer-onestop-file-input"
-            aria-label="로컬 인증서 폴더 올리기"
+            aria-label="인증서 폴더 선택"
           />
         </div>
         {customerOnestopCertificateFilter.availableCertificates.length > 0 ? (

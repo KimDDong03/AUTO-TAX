@@ -3,6 +3,23 @@ import test from "node:test";
 import * as XLSX from "@e965/xlsx";
 
 type TemplateWorkbookModule = {
+  buildCustomerOnboardingTemplateWorkbookFromCertificates: (
+    certificates: Array<{
+      index: string;
+      cn: string;
+      issuerToName: string;
+      usageToName: string;
+      todate: string | null;
+      oid: string | null;
+      serial: string | null;
+      userDN: string | null;
+      validateFrom: string | null;
+      detailValidateTo: string | null;
+      certDirPath: string | null;
+    }>
+  ) => {
+    plants: Array<Record<string, string | number | boolean>>;
+  };
   downloadCustomerOnboardingTemplate: (
     XLSX: typeof import("@e965/xlsx"),
     certificates: Array<{
@@ -96,11 +113,18 @@ test("downloadCustomerOnboardingTemplate writes issue-capable onboarding sheets"
       usageToName: "개인 범용"
     }),
     createCertificate({
+      index: "4",
+      cn: "개인 범용 OID 인증서",
+      issuerToName: "한국정보인증",
+      usageToName: "범용",
+      oid: "1.2.410.200004.5.2.1.2"
+    }),
+    createCertificate({
       index: "3",
       cn: "사업자 범용 인증서",
       issuerToName: "금융결제원",
       usageToName: "",
-      oid: "1.2.410.200004.5.2.1.2"
+      oid: "1.2.410.200004.5.2.1.1"
     })
   ]);
 
@@ -117,18 +141,36 @@ test("downloadCustomerOnboardingTemplate writes issue-capable onboarding sheets"
     defval: ""
   }) as string[][];
 
-  assert.deepEqual(plantRows[0], ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"]);
+  assert.deepEqual(plantRows[0], ["상호명", "인증서 비밀번호", "로컬인증서번호", "인증서명(CN)"]);
   assert.equal(plantRows.length, 3);
-  assert.deepEqual(plantRows[1], ["1", "전자세금 인증서", "", ""]);
-  assert.deepEqual(plantRows[2], ["3", "사업자 범용 인증서", "", ""]);
+  assert.deepEqual(plantRows[1], ["전자세금 인증서", "", "1", "전자세금 인증서"]);
+  assert.deepEqual(plantRows[2], ["사업자 범용 인증서", "", "3", "사업자 범용 인증서"]);
+  assert.equal(workbookOutput.Sheets["발전소"]["!cols"]?.[2]?.hidden, true);
+  assert.equal(workbookOutput.Sheets["발전소"]["!cols"]?.[3]?.hidden, true);
+});
+
+test("buildCustomerOnboardingTemplateWorkbookFromCertificates keeps read certificates unselected", async () => {
+  const { buildCustomerOnboardingTemplateWorkbookFromCertificates } = await loadTemplateWorkbookModule();
+
+  const workbook = buildCustomerOnboardingTemplateWorkbookFromCertificates([
+    createCertificate({
+      index: "1",
+      cn: "전자세금 인증서",
+      issuerToName: "한국정보인증",
+      usageToName: "전자세금용"
+    })
+  ]);
+
+  assert.equal(workbook.plants.length, 1);
+  assert.equal(workbook.plants[0]?.selected, false);
 });
 
 test("parseCustomerOnboardingWorkbook reads the simplified electronic-tax workbook without requiring a legacy sheet", async () => {
   const { parseCustomerOnboardingWorkbook } = await loadTemplateWorkbookModule();
   const workbook = XLSX.utils.book_new();
   const plantSheet = XLSX.utils.aoa_to_sheet([
-    ["로컬인증서번호", "인증서명(CN)", "발전소명", "인증서 비밀번호"],
-    ["1", "전자세금 인증서", "여주 1호기", "pw-tax"],
+    ["상호명", "인증서 비밀번호", "로컬인증서번호", "인증서명(CN)"],
+    ["여주 1호기", "pw-tax", "1", "전자세금 인증서"],
     ["", "", "", ""]
   ]);
 
@@ -147,8 +189,20 @@ test("parseCustomerOnboardingWorkbook reads the simplified electronic-tax workbo
       rowIndex: 2,
       certificateIndex: "1",
       certificateName: "전자세금 인증서",
+      usageName: "",
+      issuerName: "",
+      expireDate: "",
+      businessNumber: "",
+      customerName: "",
+      corpName: "여주 1호기",
+      addr: "",
+      bizType: "",
+      bizClass: "",
+      renewalContactMobile: "",
       plantName: "여주 1호기",
-      certificatePassword: "pw-tax"
+      matchAddress: "",
+      certificatePassword: "pw-tax",
+      selected: true
     }
   ]);
 });

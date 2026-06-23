@@ -1,4 +1,4 @@
-import type { RenewalBridgePreflightProbe, RenewalInfoSnapshot } from "../../types";
+import type { CertificateBusinessInfoLookupResult, RenewalBridgePreflightProbe, RenewalInfoSnapshot } from "../../types";
 import {
   deriveCustomerCertificateKind,
   isCustomerCertificateExpired,
@@ -21,6 +21,7 @@ export type CustomerOnboardingResolutionResult = {
     key: string;
     label: string;
   }>;
+  warnings?: string[];
   errors: string[];
 };
 
@@ -38,7 +39,22 @@ type OnboardingPreflightPayload = {
   certificatePassword?: string | null;
 };
 
+type OnboardingBusinessInfoLookupPayload = OnboardingPreflightPayload & {
+  serial?: string | null;
+  userDN?: string | null;
+  issuerToName?: string | null;
+  usageToName?: string | null;
+  oid?: string | null;
+  uploadSessionId?: string | null;
+  relativePath?: string | null;
+};
+
 export type OnboardingPreflightCache = Map<string, OnboardingPreflightResponse>;
+export type OnboardingBusinessInfoLookupCache = Map<string, OnboardingBusinessInfoLookupResponse>;
+
+type OnboardingBusinessInfoLookupResponse = {
+  result: CertificateBusinessInfoLookupResult;
+};
 
 type OnboardingPreflightImportDecision =
   | {
@@ -49,6 +65,7 @@ type OnboardingPreflightImportDecision =
   | {
       canImport: false;
       failureMessage: string;
+      allowManualBusinessInfoFallback?: boolean;
     };
 
 type ResolveElectronicTaxOnboardingTemplateWorkbookArgs = {
@@ -63,9 +80,24 @@ type ResolveElectronicTaxOnboardingTemplateWorkbookArgs = {
       onProgress?: (message: string) => void;
     }
   ) => Promise<OnboardingPreflightResponse[]>;
+  requestBusinessInfoLookup?: (
+    payload: OnboardingBusinessInfoLookupPayload
+  ) => Promise<OnboardingBusinessInfoLookupResponse>;
+  requestBusinessInfoLookupBatch?: (
+    payloads: OnboardingBusinessInfoLookupPayload[],
+    options?: {
+      onProgress?: (message: string) => void;
+    }
+  ) => Promise<OnboardingBusinessInfoLookupResponse[]>;
+  prepareCertificateForPreflight?: (
+    certificate: RenewalAgentCertificate,
+    certificatePassword: string
+  ) => Promise<RenewalAgentCertificate | null>;
   preflightCache?: OnboardingPreflightCache;
+  businessInfoLookupCache?: OnboardingBusinessInfoLookupCache;
   onboardingPreflightConcurrency?: number;
   onboardingPreflightBatchSize?: number;
+  onboardingBusinessInfoBatchSize?: number;
   onProgress?: (message: string) => void;
 };
 
@@ -99,6 +131,95 @@ function buildCustomerCreatePayloadFromRenewalSnapshot(
     bizType: snapshot.bizType?.trim() || "전기업",
     bizClass: snapshot.bizClass?.trim() || "태양광발전(자가용PPA)",
     renewalContactMobile: snapshot.contactMobile?.trim() ?? ""
+  };
+}
+
+function uniqueNonEmptyValues(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function getFirstManualPlantValue(
+  plantRows: CustomerOnboardingTemplateWorkbookInput["plants"],
+  key:
+    | "businessNumber"
+    | "customerName"
+    | "corpName"
+    | "addr"
+    | "bizType"
+    | "bizClass"
+    | "renewalContactMobile"
+) {
+  return plantRows.map((row) => row[key]?.trim() ?? "").find(Boolean) ?? "";
+}
+
+function buildManualOnboardingPayload(
+  certificate: RenewalAgentCertificate,
+  plantRows: CustomerOnboardingTemplateWorkbookInput["plants"],
+  certificateLabel: string
+):
+  | {
+      ok: true;
+      businessNumber: string;
+      customerName: string;
+      corpName: string;
+      addr: string;
+      bizType: string;
+      bizClass: string;
+      renewalContactMobile: string;
+    }
+  | {
+      ok: false;
+      message: string;
+    } {
+  const businessNumbers = uniqueNonEmptyValues(
+    plantRows.map((row) => digitsOnly(row.businessNumber ?? ""))
+  );
+  if (businessNumbers.length === 0) {
+    return {
+      ok: false,
+      message: `발전소 시트 (${certificateLabel}): 이 인증서는 자동조회로 사업자번호를 읽을 수 없습니다. 사업자번호와 사업장 주소를 입력한 뒤 다시 진행하세요.`
+    };
+  }
+  if (businessNumbers.length > 1) {
+    return {
+      ok: false,
+      message: `발전소 시트 (${certificateLabel}): 같은 인증서에 서로 다른 사업자번호가 입력되어 있습니다. 고객별로 인증서 행을 나눠 주세요.`
+    };
+  }
+
+  const businessNumber = businessNumbers[0] ?? "";
+  if (businessNumber.length !== 10) {
+    return {
+      ok: false,
+      message: `발전소 시트 (${certificateLabel}): 사업자번호는 숫자 10자리로 입력하세요.`
+    };
+  }
+
+  const customerName = getFirstManualPlantValue(plantRows, "customerName");
+  const corpName = getFirstManualPlantValue(plantRows, "corpName") || customerName || certificate.cn.trim();
+  const addr = getFirstManualPlantValue(plantRows, "addr");
+  if (!customerName && !corpName) {
+    return {
+      ok: false,
+      message: `발전소 시트 (${certificateLabel}): 대표자명 또는 상호명을 입력하세요.`
+    };
+  }
+  if (!addr) {
+    return {
+      ok: false,
+      message: `발전소 시트 (${certificateLabel}): 사업장 주소를 입력하세요.`
+    };
+  }
+
+  return {
+    ok: true,
+    businessNumber,
+    customerName: customerName || corpName || certificate.cn.trim(),
+    corpName,
+    addr,
+    bizType: getFirstManualPlantValue(plantRows, "bizType") || "전기업",
+    bizClass: getFirstManualPlantValue(plantRows, "bizClass") || "태양광발전(자가용PPA)",
+    renewalContactMobile: getFirstManualPlantValue(plantRows, "renewalContactMobile")
   };
 }
 
@@ -203,6 +324,68 @@ function isRenewalPasswordFailureDetail(detail: string): boolean {
   return detail.includes("비밀번호");
 }
 
+function isBusinessInfoPasswordFailureDetail(detail: string): boolean {
+  const normalized = detail.toLowerCase();
+  return (
+    detail.includes("비밀번호") ||
+    detail.includes("암호") ||
+    normalized.includes("password") ||
+    normalized.includes("passwd") ||
+    normalized.includes("pwd") ||
+    normalized.includes("375848960")
+  );
+}
+
+function isUsableBusinessInfoLookupResult(
+  lookup: CertificateBusinessInfoLookupResult | null | undefined
+): lookup is CertificateBusinessInfoLookupResult & { businessInfoSnapshot: RenewalInfoSnapshot } {
+  return Boolean(lookup?.ok && lookup.businessInfoSnapshot?.businessNumber);
+}
+
+function getUploadSessionCertificateReference(certificate: RenewalAgentCertificate): {
+  uploadSessionId: string | null;
+  relativePath: string | null;
+} {
+  const record = certificate as RenewalAgentCertificate & {
+    uploadSessionId?: unknown;
+    relativePath?: unknown;
+  };
+  const uploadSessionId = typeof record.uploadSessionId === "string" ? record.uploadSessionId.trim() : "";
+  const relativePath = typeof record.relativePath === "string" ? record.relativePath.trim() : "";
+  return {
+    uploadSessionId: uploadSessionId || null,
+    relativePath: relativePath || null
+  };
+}
+
+function buildBusinessInfoLookupFailureMessage(
+  lookup: CertificateBusinessInfoLookupResult | null | undefined
+): string {
+  const detail = normalizeRenewalPreflightDetail(lookup?.error ?? lookup?.message ?? "");
+  const label = "사업자정보 조회 실패";
+  if (detail) {
+    return buildRenewalPreflightFailureMessage(label, detail, "사업자 정보를 읽지 못했습니다.");
+  }
+  return `${label}: 사업자 정보를 읽지 못했습니다.`;
+}
+
+function buildBusinessInfoSupplementWarning(options: {
+  certificateLabel: string;
+  lookup: CertificateBusinessInfoLookupResult;
+  addr: string;
+}): string | null {
+  if (options.addr.trim()) {
+    return null;
+  }
+
+  const detail = normalizeRenewalPreflightDetail(options.lookup.error ?? options.lookup.message ?? "");
+  if (!detail.includes("홈택스 세적 기본 조회")) {
+    return null;
+  }
+
+  return `발전소 시트 (${options.certificateLabel}): ${detail}`;
+}
+
 function isRenewalBridgeConnectionFailureDetail(detail: string): boolean {
   const normalized = detail.toLowerCase();
   return (
@@ -211,6 +394,10 @@ function isRenewalBridgeConnectionFailureDetail(detail: string): boolean {
     normalized.includes("connection was reset") ||
     normalized.includes("recv failure")
   );
+}
+
+function isRenewalOnlyUnsupportedDetail(detail: string): boolean {
+  return /갱신\s*가능한\s*(공동)?인증서가\s*아닙니다/.test(detail);
 }
 
 function classifyOnboardingPreflightImportDecision(
@@ -242,6 +429,15 @@ function classifyOnboardingPreflightImportDecision(
     return {
       canImport: false,
       failureMessage: "인증서 만료"
+    };
+  }
+
+  if (isRenewalOnlyUnsupportedDetail(detail)) {
+    return {
+      canImport: false,
+      allowManualBusinessInfoFallback: true,
+      failureMessage:
+        "이 인증서는 갱신 신청 대상이 아니라 SignGate 갱신 조회로 사업자정보를 자동으로 읽을 수 없습니다."
     };
   }
 
@@ -386,9 +582,11 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
 ): Promise<CustomerOnboardingResolutionResult> {
   const onboardingPreflightConcurrency = args.onboardingPreflightConcurrency ?? 16;
   const onboardingPreflightBatchSize = args.onboardingPreflightBatchSize ?? onboardingPreflightConcurrency;
+  const onboardingBusinessInfoBatchSize = args.onboardingBusinessInfoBatchSize ?? 2;
   const sharedPassword = await args.resolveSharedPassword();
   const availableCertificates = await args.loadAvailableCertificates();
   const errors: string[] = [];
+  const warnings: string[] = [];
   const passwordFailureEntries: Array<{ key: string; label: string }> = [];
   let acceptedBeforeWindowCount = 0;
   const customersByBusinessNumber = new Map<
@@ -407,6 +605,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       plantRows: Array<{
         rowIndex: number;
         plantName: string;
+        matchAddress: string;
       }>;
       certificateRows: CustomerOnboardingWorkbookInput["certificates"];
     }
@@ -459,9 +658,12 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     entry: ReturnType<typeof ensureWorkbookCustomerEntry>
   ) => {
     for (const plantRow of plantRows) {
+      const plantName = plantRow.plantName.trim() || fallbackPlantName.trim() || entry.corpName;
+      const matchAddress = plantRow.matchAddress?.trim() || plantRow.addr?.trim() || entry.addr || entry.fallbackAddress;
       entry.plantRows.push({
         rowIndex: plantRow.rowIndex,
-        plantName: plantRow.plantName.trim() || fallbackPlantName.trim() || entry.corpName
+        plantName,
+        matchAddress
       });
     }
   };
@@ -503,7 +705,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       )
       .values()
   );
-  const electronicTaxSelections: Array<{
+  type ElectronicTaxSelection = {
     rowIndex: number;
     certificateIndex: string;
     certificateName: string;
@@ -513,7 +715,11 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     effectivePassword: string;
     plantRows: CustomerOnboardingTemplateWorkbookInput["plants"];
     certificatePassword: string;
-  }> = [];
+  };
+  type PreparedElectronicTaxSelection = ElectronicTaxSelection & {
+    preflightPreparationError?: string;
+  };
+  const electronicTaxSelections: ElectronicTaxSelection[] = [];
 
   for (const plantGroup of plantCertificateGroups) {
     const certificateLabel = getCustomerOnboardingTemplateCertificateLabel({
@@ -581,20 +787,105 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     });
   }
 
+  const preparedElectronicTaxSelections: PreparedElectronicTaxSelection[] = await mapWithConcurrency(
+    electronicTaxSelections,
+    onboardingPreflightConcurrency,
+    async (selection) => {
+      if (selection.matchedCertificate.supportsPreflight !== false || !args.prepareCertificateForPreflight) {
+        return selection;
+      }
+
+      try {
+        args.onProgress?.(`공동인증서 ${selection.certificateLabel} 브리지 저장소 준비 중...`);
+        const preparedCertificate = await args.prepareCertificateForPreflight(
+          selection.matchedCertificate,
+          selection.effectivePassword
+        );
+        const preparedCertificateIndex = Number(preparedCertificate?.index);
+        if (
+          !preparedCertificate ||
+          preparedCertificate.supportsPreflight === false ||
+          !Number.isInteger(preparedCertificateIndex) ||
+          preparedCertificateIndex <= 0
+        ) {
+          return selection;
+        }
+
+        const uploadReference = getUploadSessionCertificateReference(selection.matchedCertificate);
+        return {
+          ...selection,
+          certificateIndex: String(preparedCertificate.index),
+          certificateName: preparedCertificate.cn || selection.certificateName,
+          matchedCertificate: {
+            ...preparedCertificate,
+            ...(uploadReference.uploadSessionId ? { uploadSessionId: uploadReference.uploadSessionId } : {}),
+            ...(uploadReference.relativePath ? { relativePath: uploadReference.relativePath } : {})
+          }
+        };
+      } catch (error) {
+        return {
+          ...selection,
+          preflightPreparationError:
+            error instanceof Error ? error.message : "공동인증서를 브리지 저장소로 준비하지 못했습니다."
+        };
+      }
+    }
+  );
+
   let completedPreflightCount = 0;
-  const totalPreflightCount = electronicTaxSelections.length;
+  const totalPreflightCount = preparedElectronicTaxSelections.length;
   const preflightCache = args.preflightCache ?? new Map<string, OnboardingPreflightResponse>();
-  const requestSelectionPreflight = async (
-    selection: (typeof electronicTaxSelections)[number],
-    trackProgress = true
-  ) => {
+  const businessInfoLookupCache =
+    args.businessInfoLookupCache ?? new Map<string, OnboardingBusinessInfoLookupResponse>();
+  const getSelectionCacheKey = (selection: PreparedElectronicTaxSelection) => {
     const { matchedCertificate, effectivePassword } = selection;
-    const preflightCacheKey = [
+    return [
       matchedCertificate.index,
       matchedCertificate.serial ?? "",
       matchedCertificate.userDN ?? "",
       effectivePassword
     ].join("|");
+  };
+  const buildBusinessInfoLookupPayload = (
+    selection: PreparedElectronicTaxSelection
+  ): OnboardingBusinessInfoLookupPayload => {
+    const uploadReference = getUploadSessionCertificateReference(selection.matchedCertificate);
+    return {
+      certificateIndex: Number(selection.matchedCertificate.index),
+      certificateCn: selection.matchedCertificate.cn || selection.certificateName || null,
+      certificatePassword: selection.effectivePassword,
+      serial: selection.matchedCertificate.serial ?? null,
+      userDN: selection.matchedCertificate.userDN ?? null,
+      issuerToName: selection.matchedCertificate.issuerToName ?? null,
+      usageToName: selection.matchedCertificate.usageToName ?? null,
+      oid: selection.matchedCertificate.oid ?? null,
+      uploadSessionId: uploadReference.uploadSessionId,
+      relativePath: uploadReference.relativePath
+    };
+  };
+  const requestSelectionBusinessInfoLookup = async (
+    selection: PreparedElectronicTaxSelection
+  ): Promise<OnboardingBusinessInfoLookupResponse | null> => {
+    if (!args.requestBusinessInfoLookup) {
+      return null;
+    }
+
+    const cacheKey = getSelectionCacheKey(selection);
+    let response = businessInfoLookupCache.get(cacheKey) ?? null;
+    if (!response) {
+      response = await args.requestBusinessInfoLookup(buildBusinessInfoLookupPayload(selection));
+      businessInfoLookupCache.set(cacheKey, response);
+    }
+    return response;
+  };
+  const getCachedBusinessInfoLookup = (selection: PreparedElectronicTaxSelection) =>
+    businessInfoLookupCache.get(getSelectionCacheKey(selection)) ?? null;
+  const requestSelectionPreflight = async (
+    selection: PreparedElectronicTaxSelection,
+    trackProgress = true
+  ) => {
+    const { matchedCertificate, effectivePassword } = selection;
+    const preflightCacheKey = getSelectionCacheKey(selection);
     let response = preflightCache.get(preflightCacheKey) ?? null;
     const cacheHit = response !== null;
     if (!response) {
@@ -619,25 +910,72 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     return response;
   };
 
-  if (args.requestPreflightBatch) {
+  if (args.requestBusinessInfoLookupBatch) {
+    type BatchBusinessInfoLookupRequest = {
+      cacheKey: string;
+      payload: OnboardingBusinessInfoLookupPayload;
+    };
+    const pendingBusinessInfoRequests = new Map<string, BatchBusinessInfoLookupRequest>();
+
+    for (const selection of preparedElectronicTaxSelections) {
+      if (selection.preflightPreparationError || selection.matchedCertificate.supportsPreflight === false) {
+        continue;
+      }
+
+      const cacheKey = getSelectionCacheKey(selection);
+      if (businessInfoLookupCache.has(cacheKey)) {
+        continue;
+      }
+
+      pendingBusinessInfoRequests.set(cacheKey, {
+        cacheKey,
+        payload: buildBusinessInfoLookupPayload(selection)
+      });
+    }
+
+    const uncachedBusinessInfoRequests = Array.from(pendingBusinessInfoRequests.values());
+    if (uncachedBusinessInfoRequests.length > 0) {
+      args.onProgress?.(`사업자정보 조회 0/${uncachedBusinessInfoRequests.length}건 진행 중...`);
+    }
+    let completedBusinessInfoCount = 0;
+    for (const chunk of chunkItems(uncachedBusinessInfoRequests, onboardingBusinessInfoBatchSize)) {
+      const responses = await args.requestBusinessInfoLookupBatch(chunk.map((request) => request.payload), {
+        onProgress: (message) => {
+          args.onProgress?.(`사업자정보 조회 ${completedBusinessInfoCount}/${uncachedBusinessInfoRequests.length}건 완료 · ${message}`);
+        }
+      });
+      responses.forEach((response, index) => {
+        const request = chunk[index];
+        if (request) {
+          businessInfoLookupCache.set(request.cacheKey, response);
+        }
+      });
+      completedBusinessInfoCount += responses.length;
+      args.onProgress?.(`사업자정보 조회 ${completedBusinessInfoCount}/${uncachedBusinessInfoRequests.length}건 완료`);
+    }
+  }
+
+  const hasBusinessInfoLookupStrategy = Boolean(args.requestBusinessInfoLookup || args.requestBusinessInfoLookupBatch);
+
+  if (args.requestPreflightBatch && !hasBusinessInfoLookupStrategy) {
     type BatchPreflightRequest = {
       cacheKey: string;
       payload: OnboardingPreflightPayload;
     };
     const pendingBatchRequests = new Map<string, BatchPreflightRequest>();
 
-    for (const selection of electronicTaxSelections) {
-      const { matchedCertificate, effectivePassword } = selection;
+    for (const selection of preparedElectronicTaxSelections) {
+      const { matchedCertificate } = selection;
       if (matchedCertificate.supportsPreflight === false) {
         continue;
       }
 
-      const preflightCacheKey = [
-        matchedCertificate.index,
-        matchedCertificate.serial ?? "",
-        matchedCertificate.userDN ?? "",
-        effectivePassword
-      ].join("|");
+      if (isUsableBusinessInfoLookupResult(getCachedBusinessInfoLookup(selection)?.result)) {
+        completedPreflightCount += 1;
+        continue;
+      }
+
+      const preflightCacheKey = getSelectionCacheKey(selection);
 
       if (preflightCache.has(preflightCacheKey)) {
         completedPreflightCount += 1;
@@ -650,7 +988,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
           payload: {
             certificateIndex: Number(matchedCertificate.index),
             certificateCn: matchedCertificate.cn || selection.certificateName || null,
-            certificatePassword: effectivePassword
+            certificatePassword: selection.effectivePassword
           }
         });
       }
@@ -690,23 +1028,172 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     }
   }
 
+  const electronicTaxConcurrency =
+    args.requestBusinessInfoLookupBatch || (args.requestPreflightBatch && !hasBusinessInfoLookupStrategy)
+      ? Number.MAX_SAFE_INTEGER
+      : onboardingPreflightConcurrency;
+
   const electronicTaxResults = await mapWithConcurrency(
-    electronicTaxSelections,
-    args.requestPreflightBatch ? Number.MAX_SAFE_INTEGER : onboardingPreflightConcurrency,
+    preparedElectronicTaxSelections,
+    electronicTaxConcurrency,
     async (selection) => {
       const { matchedCertificate, certificateLabel, certificateOverrideKey } = selection;
-      if (matchedCertificate.supportsPreflight === false) {
+      if (selection.preflightPreparationError) {
         return {
           ok: false as const,
-          message: `발전소 시트 (${certificateLabel}): 이 인증서는 추가 HDD 경로에서만 확인되어 현재 SignGate 사전조회 자동화를 지원하지 않습니다. 표준 HDD 공동인증서 보관 경로로 옮긴 뒤 다시 시도해 주세요.`
+          message: `발전소 시트 (${certificateLabel}): ${selection.preflightPreparationError}`
         };
       }
+
+      const businessInfoLookup =
+        getCachedBusinessInfoLookup(selection) ??
+        (args.requestBusinessInfoLookupBatch
+          ? null
+          : await requestSelectionBusinessInfoLookup(selection));
+      if (isUsableBusinessInfoLookupResult(businessInfoLookup?.result)) {
+        const snapshot = businessInfoLookup.result.businessInfoSnapshot;
+        const basePayload = buildCustomerCreatePayloadFromRenewalSnapshot(
+          {
+            ...matchedCertificate,
+            cn: matchedCertificate.cn || selection.certificateName || certificateLabel
+          },
+          snapshot
+        );
+        const corpNameOverride = getFirstManualPlantValue(selection.plantRows, "corpName");
+        const businessNumber = digitsOnly(basePayload.businessNumber);
+        if (!businessNumber) {
+          return {
+            ok: false as const,
+            message: `발전소 시트 (${certificateLabel}): 사업자정보 조회에서 사업자번호를 읽지 못했습니다.`
+          };
+        }
+
+        return {
+          ok: true as const,
+          selection,
+          matchedCertificate,
+          acceptedBeforeWindow: false,
+          businessNumber,
+          customerName: basePayload.customerName,
+          corpName: corpNameOverride || basePayload.corpName,
+          addr: basePayload.addr,
+          bizType: basePayload.bizType,
+          bizClass: basePayload.bizClass,
+          renewalContactMobile: basePayload.renewalContactMobile,
+          warning: buildBusinessInfoSupplementWarning({
+            certificateLabel,
+            lookup: businessInfoLookup.result,
+            addr: basePayload.addr
+          })
+        };
+      }
+
+      if (matchedCertificate.supportsPreflight === false) {
+        const manualPayload = buildManualOnboardingPayload(
+          matchedCertificate,
+          selection.plantRows,
+          certificateLabel
+        );
+        if (!manualPayload.ok) {
+          return {
+            ok: false as const,
+            message: manualPayload.message
+          };
+        }
+        return {
+          ok: true as const,
+          selection,
+          matchedCertificate,
+          acceptedBeforeWindow: false,
+          businessNumber: manualPayload.businessNumber,
+          customerName: manualPayload.customerName,
+          corpName: manualPayload.corpName,
+          addr: manualPayload.addr,
+          bizType: manualPayload.bizType,
+          bizClass: manualPayload.bizClass,
+          renewalContactMobile: manualPayload.renewalContactMobile
+        };
+      }
+
+      if (businessInfoLookup?.result) {
+        const businessInfoDetail = businessInfoLookup.result.error ?? businessInfoLookup.result.message ?? "";
+        if (businessInfoDetail && isBusinessInfoPasswordFailureDetail(businessInfoDetail)) {
+          passwordFailureEntries.push({
+            key: certificateOverrideKey,
+            label: certificateLabel
+          });
+        }
+
+        const manualPayload = buildManualOnboardingPayload(
+          matchedCertificate,
+          selection.plantRows,
+          certificateLabel
+        );
+        if (manualPayload.ok) {
+          return {
+            ok: true as const,
+            selection,
+            matchedCertificate,
+            acceptedBeforeWindow: false,
+            businessNumber: manualPayload.businessNumber,
+            customerName: manualPayload.customerName,
+            corpName: manualPayload.corpName,
+            addr: manualPayload.addr,
+            bizType: manualPayload.bizType,
+            bizClass: manualPayload.bizClass,
+            renewalContactMobile: manualPayload.renewalContactMobile
+          };
+        }
+
+        return {
+          ok: false as const,
+          message: `발전소 시트 (${certificateLabel}): ${buildBusinessInfoLookupFailureMessage(businessInfoLookup.result)}`
+        };
+      }
+
       const response = await requestSelectionPreflight(selection, !args.requestPreflightBatch);
       const preflightProbe = response.result.bridge.preflightProbe;
       const decision = classifyOnboardingPreflightImportDecision(preflightProbe, {
         certificateExpireDate: getRenewalAgentCertificateExpireDate(matchedCertificate)
       });
       if (!decision.canImport) {
+        const businessInfoDetail = businessInfoLookup?.result?.error ?? businessInfoLookup?.result?.message ?? "";
+        if (businessInfoDetail && isBusinessInfoPasswordFailureDetail(businessInfoDetail)) {
+          passwordFailureEntries.push({
+            key: certificateOverrideKey,
+            label: certificateLabel
+          });
+        }
+        if (decision.allowManualBusinessInfoFallback) {
+          const manualPayload = buildManualOnboardingPayload(
+            matchedCertificate,
+            selection.plantRows,
+            certificateLabel
+          );
+          if (manualPayload.ok) {
+            return {
+              ok: true as const,
+              selection,
+              matchedCertificate,
+              acceptedBeforeWindow: false,
+              businessNumber: manualPayload.businessNumber,
+              customerName: manualPayload.customerName,
+              corpName: manualPayload.corpName,
+              addr: manualPayload.addr,
+              bizType: manualPayload.bizType,
+              bizClass: manualPayload.bizClass,
+              renewalContactMobile: manualPayload.renewalContactMobile
+            };
+          }
+
+          return {
+            ok: false as const,
+            message: businessInfoLookup?.result
+              ? `발전소 시트 (${certificateLabel}): ${buildBusinessInfoLookupFailureMessage(businessInfoLookup.result)}`
+              : manualPayload.message
+          };
+        }
+
         if (decision.failureMessage.includes("비밀번호")) {
           passwordFailureEntries.push({
             key: certificateOverrideKey,
@@ -727,6 +1214,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
         },
         snapshot
       );
+      const corpNameOverride = getFirstManualPlantValue(selection.plantRows, "corpName");
       const businessNumber = digitsOnly(basePayload.businessNumber);
       if (!businessNumber) {
         return {
@@ -742,7 +1230,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
         acceptedBeforeWindow: decision.acceptedBeforeWindow,
         businessNumber,
         customerName: basePayload.customerName,
-        corpName: basePayload.corpName,
+        corpName: corpNameOverride || basePayload.corpName,
         addr: basePayload.addr,
         bizType: basePayload.bizType,
         bizClass: basePayload.bizClass,
@@ -760,6 +1248,9 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
 
     if (result.acceptedBeforeWindow) {
       acceptedBeforeWindowCount += 1;
+    }
+    if (result.warning) {
+      warnings.push(result.warning);
     }
 
     const entry = ensureWorkbookCustomerEntry(result.businessNumber, {
@@ -808,11 +1299,12 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       entry.plantRows.length > 0
         ? entry.plantRows
         : [
-            {
-              rowIndex: entry.rowIndex,
-              plantName: entry.corpName
-            }
-          ];
+          {
+            rowIndex: entry.rowIndex,
+            plantName: entry.corpName,
+            matchAddress: defaultMatchAddress
+          }
+        ];
 
     workbook.customers.push({
       rowIndex: entry.rowIndex,
@@ -830,7 +1322,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
         rowIndex: plantRow.rowIndex || entry.rowIndex * 100 + index,
         businessNumber: entry.businessNumber,
         plantName: plantRow.plantName || entry.corpName,
-        matchAddress: defaultMatchAddress
+        matchAddress: plantRow.matchAddress || defaultMatchAddress
       }))
     );
     workbook.certificates.push(...entry.certificateRows);
@@ -842,6 +1334,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     skippedCertificateCount,
     acceptedBeforeWindowCount,
     passwordFailureEntries,
+    warnings,
     errors
   };
 }

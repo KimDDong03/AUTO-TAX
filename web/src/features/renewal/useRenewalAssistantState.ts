@@ -26,6 +26,7 @@ export type CustomerRenewalAssistantData = {
   agentOnline: boolean;
   helperVersion: string | null;
   helperMessage: string;
+  certificateProgramReady: boolean;
   helperCheckedAt: string | null;
   latestVersion: string | null;
   minSupportedVersion: string | null;
@@ -263,6 +264,7 @@ export function buildCustomerRenewalAssistant(
       online: boolean;
       version: string | null;
       message: string;
+      certificateProgramReady?: boolean;
     };
     helperVersion?: string | null;
     helperMessage?: string;
@@ -284,6 +286,10 @@ export function buildCustomerRenewalAssistant(
   return {
     agentOnline: options.status?.online ?? options.current?.agentOnline ?? false,
     helperVersion,
+    certificateProgramReady:
+      options.status?.certificateProgramReady ??
+      options.current?.certificateProgramReady ??
+      false,
     helperMessage:
       options.helperMessage ??
       options.status?.message ??
@@ -313,6 +319,7 @@ export function buildIdleCustomerRenewalAssistant(
     : {
         agentOnline: false,
         helperVersion: null,
+        certificateProgramReady: false,
         helperMessage: "공동인증서를 읽어 AT 헬퍼 연결을 확인하세요.",
         helperCheckedAt: null,
         latestVersion: null,
@@ -413,13 +420,13 @@ export function useRenewalAssistantState({
   const syncCustomerRenewalCertificates = useCallback(
     async (options?: { showAlert?: boolean; skipReadinessCheck?: boolean }) => {
       if (!options?.skipReadinessCheck) {
-        ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
+        ensureLocalRenewalHelperActionAllowed("공동인증서 확인");
       }
 
       setCustomerRenewalAssistant((prev) =>
         buildCustomerRenewalAssistant({
           current: prev,
-          helperMessage: "공동인증서 저장소를 읽는 중입니다. 완료되면 건수가 표시됩니다...",
+        helperMessage: "공동인증서를 확인하는 중입니다. 완료되면 건수가 표시됩니다...",
           defaultRenewalHelperDownloadUrl
         })
       );
@@ -445,7 +452,8 @@ export function useRenewalAssistantState({
           status: {
             online: true,
             version: response.version,
-            message: helperMessage
+            message: helperMessage,
+            certificateProgramReady: response.result.storageProbe.ok || response.result.licenseProbe.ok
           },
           helperVersion: response.version,
           helperMessage,
@@ -466,7 +474,7 @@ export function useRenewalAssistantState({
         await showAlert(
           alertMessage,
           {
-            title: "공동인증서 읽기",
+            title: "공동인증서 확인",
             tone: availableCertificates.length > 0 ? "success" : response.result.storageProbe.ok ? "warn" : "danger"
           }
         );
@@ -611,9 +619,7 @@ export function useRenewalAssistantState({
     : "지원되지 않는 AT 헬퍼 버전입니다. 새 버전을 설치한 뒤 상태를 확인하세요.";
   const helperReady =
     Boolean(customerRenewalAssistant?.agentOnline) &&
-    customerRenewalAssistantAllCertificates.some(
-      (certificate) => !isCustomerCertificateExpired(certificate.todate || certificate.detailValidateTo || null)
-    ) &&
+    Boolean(customerRenewalAssistant?.certificateProgramReady) &&
     !helperVersionMismatch;
   const renewalHelperDownloadUrl =
     customerRenewalAssistant?.releaseDownloadUrl || defaultRenewalHelperDownloadUrl;

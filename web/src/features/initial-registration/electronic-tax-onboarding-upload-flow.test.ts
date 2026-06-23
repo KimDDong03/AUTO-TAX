@@ -142,6 +142,7 @@ test("runElectronicTaxOnboardingUploadFlow returns preview-ready state after pre
       skippedCertificateCount: 0,
       acceptedBeforeWindowCount: 0,
       passwordFailureEntries: [],
+      warnings: ["홈택스 세적 기본 조회는 실패했습니다: 홈택스 세적 업무 시스템 로그인 실패"],
       errors: []
     }),
     previewWorkbook: async () => ({
@@ -168,7 +169,10 @@ test("runElectronicTaxOnboardingUploadFlow returns preview-ready state after pre
   });
   assert.match(result.notice, /등록 대상 1건을 확인했습니다\./);
   assert.match(result.notice, /확인된 발행 가능 인증서 1건/);
-  assert.equal(result.error, "인증서 비밀번호 공란은 공통 비밀번호를 사용합니다.");
+  assert.equal(
+    result.error,
+    "인증서 비밀번호 공란은 공통 비밀번호를 사용합니다.\n홈택스 세적 기본 조회는 실패했습니다: 홈택스 세적 업무 시스템 로그인 실패"
+  );
 });
 
 test("runElectronicTaxOnboardingUploadFlow tracks only importable customers after preview", async () => {

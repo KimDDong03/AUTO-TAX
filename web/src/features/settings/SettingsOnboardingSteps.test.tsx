@@ -194,8 +194,6 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and action s
     generalCertificateCount: 1,
     certificateReadProgress: null,
     busy: false,
-    isReadingCertificates: false,
-    onReadCertificates: noopAsync,
     onRefreshHelper: noopAsync,
     onDownloadHelper: noop
   });
@@ -210,34 +208,38 @@ test("SettingsHelperOnboardingStep keeps helper headline precedence and action s
     generalCertificateCount: 0,
     certificateReadProgress: null,
     busy: true,
-    isReadingCertificates: false,
-    onReadCertificates: noopAsync,
     onRefreshHelper: noopAsync,
     onDownloadHelper: noop
   });
-  const offlineButton = findElement(
-    offlineTree,
-    (element) =>
-      element.type === "button" &&
-      collectText(element).includes("공동인증서 읽기")
-  );
-  const versionMismatchButton = findElement(
-    readyTree,
-    (element) =>
-      element.type === "button" &&
-      collectText(element).includes("공동인증서 읽기")
-  );
+  const withCertificateReadTree = SettingsHelperOnboardingStep({
+    helperReady: true,
+    helperUpgradeRequired: false,
+    helperUpgradeAvailable: false,
+    helperActionBlockedReason: "",
+    helperStatusLine: "인증서 3건 읽음",
+    helperOnline: true,
+    electronicTaxCertificateCount: 2,
+    generalCertificateCount: 1,
+    certificateReadProgress: null,
+    busy: false,
+    isReadingCertificates: true,
+    onRefreshHelper: noopAsync,
+    onReadCertificates: noopAsync,
+    onDownloadHelper: noop
+  });
 
-  assert.match(collectText(readyTree), /공동인증서 확인 완료/);
+  assert.match(collectText(readyTree), /AT 헬퍼 준비 완료/);
   assert.doesNotMatch(collectText(readyTree), /버전 정보 보기/);
   assert.match(collectText(readyTree), /상태 확인/);
+  assert.doesNotMatch(collectText(readyTree), /공동인증서 읽기/);
   assert.match(collectText(readyTree), /AT 헬퍼 다운로드/);
-  assert.match(collectText(readyTree), /전자세금용 공동인증서\s*2\s*건/);
-  assert.match(collectText(readyTree), /범용 공동인증서\s*1\s*건/);
+  assert.match(collectText(readyTree), /발행 가능 공동인증서\s*3\s*건/);
+  assert.match(collectText(readyTree), /집계 기준\s*만료\/개인용 제외/);
+  assert.doesNotMatch(collectText(readyTree), /전자세금 전용/);
+  assert.doesNotMatch(collectText(readyTree), /기업\/법인 범용/);
   assert.doesNotMatch(collectText(readyTree), /마지막 확인/);
-  assert.ok(versionMismatchButton);
-  assert.equal(versionMismatchButton.props.disabled, true);
-  assert.ok(offlineButton);
-  assert.equal(offlineButton.props.disabled, true);
-  assert.match(String(offlineButton.props.title), /AT 헬퍼 실행 후 상태를 확인/);
+  assert.doesNotMatch(collectText(readyTree), /파일 선택/);
+  assert.doesNotMatch(collectText(readyTree), /폴더 선택/);
+  assert.match(collectText(offlineTree), /AT 헬퍼 실행 필요/);
+  assert.match(collectText(withCertificateReadTree), /읽는 중\.\.\./);
 });

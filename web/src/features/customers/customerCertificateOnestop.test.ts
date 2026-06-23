@@ -147,9 +147,9 @@ test("filterCustomerOnestopCertificates searches available certificates", () => 
 test("filterCustomerOnestopCertificates treats enterprise general certificates as issue-capable", () => {
   const result = filterCustomerOnestopCertificates({
     certificates: [
-      createCertificate({ index: "1", usageToName: "기업 범용" }),
-      createCertificate({ index: "2", usageToName: "범용(기업)" }),
-      createCertificate({ index: "3", usageToName: "은행/보험용" })
+      createCertificate({ index: "1", usageToName: "기업 범용", oid: null }),
+      createCertificate({ index: "2", usageToName: "범용(기업)", oid: null }),
+      createCertificate({ index: "3", usageToName: "은행/보험용", oid: "1.2.410.200005.1.1.4" })
     ],
     customers: [],
     customerCertificates: [],
@@ -157,6 +157,22 @@ test("filterCustomerOnestopCertificates treats enterprise general certificates a
   });
 
   assert.deepEqual(result.availableCertificates.map((certificate) => certificate.index), ["1", "2"]);
+});
+
+test("filterCustomerOnestopCertificates hides personal general certificates from customer registration candidates", () => {
+  const result = filterCustomerOnestopCertificates({
+    certificates: [
+      createCertificate({ index: "1", usageToName: "개인 범용", oid: "1.2.410.200004.5.1.1.5" }),
+      createCertificate({ index: "2", usageToName: "범용", oid: "1.2.410.200004.5.2.1.2" }),
+      createCertificate({ index: "3", usageToName: "법인 범용", oid: "1.2.410.200004.5.2.1.1" })
+    ],
+    customers: [],
+    customerCertificates: [],
+    todayDateKey: "2026-05-05"
+  });
+
+  assert.deepEqual(result.availableCertificates.map((certificate) => certificate.index), ["3"]);
+  assert.deepEqual(result.visibleCertificates.map((certificate) => certificate.index), ["3"]);
 });
 
 test("runCustomerCertificateOnestopRegistration rejects expired certificate before customer creation or Popbill join", async () => {
@@ -286,7 +302,7 @@ test("runCustomerCertificateOnestopRegistration rejects personal general certifi
       runCustomerCertificateOnestopRegistration({
         customers: [],
         draft: createDraft(),
-        certificate: createCertificate({ usageToName: "개인 범용" }),
+        certificate: createCertificate({ usageToName: "개인 범용", oid: "1.2.410.200004.5.1.1.5" }),
         certificatePassword: "pw",
         createCustomer: async () => {
           throw new Error("should not create");

@@ -9,6 +9,8 @@ import {
   findStoredCustomerCertificateForLocalCertificate,
   formatCustomerRenewalStatus,
   isCustomerCertificateExpired,
+  isIssueCapableCustomerCertificate,
+  isPersonalGeneralCustomerCertificate,
   normalizeCustomerCertificateExpireDateKey
 } from "./customerRenewalCertificateUtils";
 
@@ -98,9 +100,43 @@ test("deriveCustomerCertificateKind categorizes renewal certificates", () => {
     "electronic_tax"
   );
   assert.equal(
+    deriveCustomerCertificateKind(createCertificate({ usageToName: "", oid: "1.2.410.200005.1.1.6.8" })),
+    "electronic_tax"
+  );
+  assert.equal(
     deriveCustomerCertificateKind(createCertificate({ usageToName: "", oid: "1.2.410.200004.5.2.1.2" })),
+    "general_personal"
+  );
+  assert.equal(
+    deriveCustomerCertificateKind(createCertificate({ usageToName: "", oid: "1.2.410.200004.5.4.1.1" })),
+    "general_personal"
+  );
+  assert.equal(
+    deriveCustomerCertificateKind(createCertificate({ usageToName: "개인 범용 공동인증서", oid: "1.2.410.200004.5.2.1.1" })),
+    "general_personal"
+  );
+  assert.equal(
+    deriveCustomerCertificateKind(createCertificate({ usageToName: "", oid: "1.2.410.200004.5.2.1.1" })),
     "general_business"
   );
+  assert.equal(
+    deriveCustomerCertificateKind(createCertificate({ usageToName: "법인 범용 공동인증서", oid: null })),
+    "general_business"
+  );
+  assert.equal(
+    deriveCustomerCertificateKind(createCertificate({ usageToName: "", oid: "1.2.410.200012.1.1.3" })),
+    "general_business"
+  );
+});
+
+test("personal general certificates are not issue-capable customer certificates", () => {
+  const personalByName = createCertificate({ usageToName: "개인 범용 공동인증서" });
+  const personalByOid = createCertificate({ usageToName: "범용", oid: "1.2.410.200004.5.2.1.2" });
+
+  assert.equal(isPersonalGeneralCustomerCertificate(personalByName), true);
+  assert.equal(isPersonalGeneralCustomerCertificate(personalByOid), true);
+  assert.equal(isIssueCapableCustomerCertificate(personalByName), false);
+  assert.equal(isIssueCapableCustomerCertificate(personalByOid), false);
 });
 
 test("normalizeCustomerCertificateExpireDateKey accepts dotted dates with spaces", () => {

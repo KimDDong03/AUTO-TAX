@@ -839,6 +839,7 @@ function copyScripts() {
     "start-renewal-local-helper.ps1",
     "stop-renewal-local-helper.ps1",
     "status-renewal-local-helper.ps1",
+    "install-renewal-helper-prerequisites.ps1",
     "install-renewal-local-helper-autostart.ps1",
     "uninstall-renewal-local-helper-autostart.ps1"
   ];

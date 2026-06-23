@@ -3,6 +3,8 @@ import type {
   RenewalBridgeStorageProbe,
   RenewalBridgeProbeResult,
   RenewalBridgeCertificateSummary,
+  CertificateBusinessInfoLookupResult,
+  HomeTaxBusinessInfoLookupResult,
   RenewalPreflightComparisonProfile,
   RenewalPreflightSubmissionProfile
 } from "./types";
@@ -10,6 +12,8 @@ import type {
 const DEFAULT_LOCAL_RENEWAL_HELPER_PORT = 35119;
 const DEFAULT_LOCAL_RENEWAL_HELPER_TIMEOUT_MS = 8_000;
 const DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS = 60_000;
+const DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_TIMEOUT_MS = 240_000;
+const DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_CONCURRENCY = 5;
 const configuredLocalRenewalHelperPort = typeof import.meta.env?.VITE_RENEWAL_HELPER_PORT === "string"
   ? import.meta.env.VITE_RENEWAL_HELPER_PORT.trim()
   : "";
@@ -46,6 +50,14 @@ function resolveLocalRenewalHelperTimeoutMs(fallbackMs = DEFAULT_LOCAL_RENEWAL_H
   return Number.isFinite(parsed) && parsed >= 1000 ? parsed : fallbackMs;
 }
 
+function resolveLocalBusinessInfoLookupTimeoutMs(requestCount = 1): number {
+  const fallbackMs = Math.max(
+    DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_TIMEOUT_MS,
+    60_000 + Math.max(1, requestCount) * 150_000
+  );
+  return Math.max(resolveLocalRenewalHelperTimeoutMs(fallbackMs), fallbackMs);
+}
+
 export const LOCAL_RENEWAL_HELPER_URL = `http://127.0.0.1:${resolveLocalRenewalHelperPort()}`;
 export const LOCAL_RENEWAL_HELPER_RELEASE_METADATA_URL = "/downloads/renewal-local-helper.json";
 
@@ -71,6 +83,43 @@ type LocalRenewalHelperPreflightBatchResponse = {
   ok: true;
   version: string;
   results: RenewalBridgeProbeResult[];
+};
+
+type LocalHomeTaxBusinessInfoLookupResponse = {
+  ok: true;
+  version: string;
+  result: HomeTaxBusinessInfoLookupResult;
+};
+
+type LocalHomeTaxBusinessInfoLookupBatchResponse = {
+  ok: true;
+  version: string;
+  results: HomeTaxBusinessInfoLookupResult[];
+};
+
+type LocalCertificateBusinessInfoLookupResponse = {
+  ok: true;
+  version: string;
+  result: CertificateBusinessInfoLookupResult;
+};
+
+type LocalCertificateBusinessInfoLookupBatchResponse = {
+  ok: true;
+  version: string;
+  results: CertificateBusinessInfoLookupResult[];
+};
+
+type LocalBusinessInfoLookupPayload = {
+  certificateIndex: number | string;
+  certificateCn?: string | null;
+  certificatePassword?: string | null;
+  serial?: string | null;
+  userDN?: string | null;
+  issuerToName?: string | null;
+  usageToName?: string | null;
+  oid?: string | null;
+  uploadSessionId?: string | null;
+  relativePath?: string | null;
 };
 
 type LocalRenewalHelperCertificateListResponse = {
@@ -109,10 +158,34 @@ export type LocalCertificateUploadSessionResult = {
   warnings: string[];
 };
 
+export type LocalCertificateUploadSessionImportRequest = {
+  uploadSessionId: string;
+  certificateIndex: string;
+  relativePath?: string | null;
+  certificatePassword: string;
+};
+
+export type LocalCertificateUploadSessionImportResult = {
+  importedCertificates: RenewalBridgeCertificateSummary[];
+  rejectedImports: Array<{
+    uploadSessionId: string;
+    certificateIndex: string;
+    relativePath: string | null;
+    reason: string;
+  }>;
+  warnings: string[];
+};
+
 type LocalCertificateUploadSessionResponse = {
   ok: true;
   version: string;
   result: LocalCertificateUploadSessionResult;
+};
+
+type LocalCertificateUploadSessionImportResponse = {
+  ok: true;
+  version: string;
+  result: LocalCertificateUploadSessionImportResult;
 };
 
 type LocalRenewalPaymentOpenResponse = {
@@ -155,6 +228,7 @@ export type LocalRenewalHelperStatus = {
   online: boolean;
   version: string | null;
   message: string;
+  certificateProgramReady: boolean;
 };
 
 export type LocalRenewalHelperReleaseMetadata = {
@@ -201,6 +275,11 @@ function selectHelperStatusMessage(payload: LocalRenewalHelperHealthResponse): s
   }
 
   return payload.status.notes[0] ?? "AT 헬퍼가 실행 중입니다.";
+}
+
+function isCertificateProgramReady(payload: LocalRenewalHelperHealthResponse): boolean {
+  const functionalSummary = payload.status.bridgeFunctionalSummary ?? payload.status.bridgeSummary;
+  return functionalSummary === "ok" || functionalSummary === "partial";
 }
 
 async function localRenewalHelperRequest<T>(pathname: string, init?: LocalRenewalHelperRequestInit): Promise<T> {
@@ -299,13 +378,15 @@ export async function getLocalRenewalHelperStatus(
       return {
         online: true,
         version: payload.version,
-        message: selectHelperStatusMessage(payload)
+        message: selectHelperStatusMessage(payload),
+        certificateProgramReady: isCertificateProgramReady(payload)
       };
     } catch (error) {
       const status = {
         online: false,
         version: null,
-        message: error instanceof Error ? error.message : buildHelperUnavailableMessage()
+        message: error instanceof Error ? error.message : buildHelperUnavailableMessage(),
+        certificateProgramReady: false
       } satisfies LocalRenewalHelperStatus;
       cachedOfflineLocalRenewalHelperStatus = {
         status,
@@ -384,8 +465,8 @@ export async function requestLocalCertificateUploadSession(files: File[]) {
   if (certificateFiles.length === 0) {
     throw new Error("인증서 파일(signCert.der, signPri.key, p12, pfx)을 찾지 못했습니다.");
   }
-  if (certificateFiles.length > 80) {
-    throw new Error("한 번에 처리할 수 있는 인증서 파일은 80개까지입니다.");
+  if (certificateFiles.length > 500) {
+    throw new Error("한 번에 처리할 수 있는 인증서 파일은 500개까지입니다.");
   }
 
   const payloadFiles = await Promise.all(certificateFiles.map(fileToUploadSessionFile));
@@ -394,6 +475,19 @@ export async function requestLocalCertificateUploadSession(files: File[]) {
     body: JSON.stringify({ files: payloadFiles }),
     timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
   });
+}
+
+export async function requestLocalCertificateUploadSessionImport(
+  requests: LocalCertificateUploadSessionImportRequest[]
+) {
+  return await localRenewalHelperRequest<LocalCertificateUploadSessionImportResponse>(
+    "/api/certificates/import-upload-session",
+    {
+      method: "POST",
+      body: JSON.stringify({ requests }),
+      timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
+    }
+  );
 }
 
 export async function requestLocalRenewalPreflight(payload: {
@@ -442,6 +536,126 @@ export async function requestLocalRenewalPreflightBatch(payloads: Array<{
     }
     options?.onProgress?.(`${payloads.length}건 개별 재시도 완료`);
     return results;
+  }
+}
+
+export async function requestLocalCertificateBusinessInfoLookup(
+  payload: LocalBusinessInfoLookupPayload
+) {
+  return await localRenewalHelperRequest<LocalCertificateBusinessInfoLookupResponse>("/api/certificates/business-info", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeoutMs: resolveLocalBusinessInfoLookupTimeoutMs(1)
+  });
+}
+
+export async function requestLocalCertificateBusinessInfoLookupBatch(
+  payloads: LocalBusinessInfoLookupPayload[],
+  options?: {
+    onProgress?: (message: string) => void;
+  }
+) {
+  if (payloads.length === 0) {
+    return [];
+  }
+
+  try {
+    const response = await localRenewalHelperRequest<LocalCertificateBusinessInfoLookupBatchResponse>(
+      "/api/certificates/business-info-batch",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requests: payloads,
+          concurrency: Math.min(
+            DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_CONCURRENCY,
+            payloads.length
+          )
+        }),
+        timeoutMs: resolveLocalBusinessInfoLookupTimeoutMs(payloads.length)
+      }
+    );
+    return response.results.map((result) => ({
+      ok: true as const,
+      version: response.version,
+      result
+    }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "사업자정보 조회에 실패했습니다.";
+    options?.onProgress?.(`${payloads.length}건 사업자정보 조회 응답 실패`);
+    return payloads.map((payload) => ({
+      ok: true as const,
+      version: "unknown",
+      result: {
+        ok: false,
+        source: "signgate" as const,
+        status: "lookup-failed" as const,
+        stage: "signgate-preflight" as const,
+        certificateIndex: String(payload.certificateIndex),
+        certificateCn: payload.certificateCn ?? null,
+        sourcePort: null,
+        loginCode: null,
+        businessInfoSnapshot: null,
+        message: null,
+        error: message
+      }
+    }));
+  }
+}
+
+export async function requestLocalHomeTaxBusinessInfoLookup(payload: LocalBusinessInfoLookupPayload) {
+  return await localRenewalHelperRequest<LocalHomeTaxBusinessInfoLookupResponse>("/api/hometax/business-info", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeoutMs: resolveLocalBusinessInfoLookupTimeoutMs(1)
+  });
+}
+
+export async function requestLocalHomeTaxBusinessInfoLookupBatch(payloads: LocalBusinessInfoLookupPayload[], options?: {
+  onProgress?: (message: string) => void;
+}) {
+  if (payloads.length === 0) {
+    return [];
+  }
+
+  try {
+    const response = await localRenewalHelperRequest<LocalHomeTaxBusinessInfoLookupBatchResponse>(
+      "/api/hometax/business-info-batch",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requests: payloads,
+          concurrency: Math.min(
+            DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_CONCURRENCY,
+            payloads.length
+          )
+        }),
+        timeoutMs: resolveLocalBusinessInfoLookupTimeoutMs(payloads.length)
+      }
+    );
+    return response.results.map((result) => ({
+      ok: true as const,
+      version: response.version,
+      result
+    }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "홈택스 사업자정보 조회에 실패했습니다.";
+    options?.onProgress?.(`${payloads.length}건 홈택스 조회 응답 실패`);
+    return payloads.map((payload) => ({
+      ok: true as const,
+      version: "unknown",
+      result: {
+        ok: false,
+        source: "hometax" as const,
+        stage: "business-info" as const,
+        certificateIndex: String(payload.certificateIndex),
+        certificateCn: payload.certificateCn ?? null,
+        sourcePort: null,
+        loginCode: null,
+        businessInfoSnapshot: null,
+        message: null,
+        error: message
+      }
+    }));
   }
 }
 

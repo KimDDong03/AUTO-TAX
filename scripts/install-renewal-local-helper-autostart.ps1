@@ -3,6 +3,7 @@ param(
   [switch]$StartNow,
   [switch]$SkipDesktopShortcuts,
   [switch]$SkipTrayOnStart,
+  [switch]$SkipPrerequisites,
   [string]$InstallRoot = ""
 )
 
@@ -456,6 +457,29 @@ $installRoot = if (-not [string]::IsNullOrWhiteSpace($requestedInstallRoot)) {
 } else {
   $sourceRoot
 }
+
+function Install-LocalRenewalHelperPrerequisites {
+  param(
+    [string]$InstallRoot,
+    [string]$SourceRoot,
+    [string]$PowerShellExe
+  )
+
+  $scriptCandidates = @(
+    (Join-Path $InstallRoot "scripts\\install-renewal-helper-prerequisites.ps1"),
+    (Join-Path $SourceRoot "scripts\\install-renewal-helper-prerequisites.ps1")
+  ) | Select-Object -Unique
+
+  $prerequisiteScript = $scriptCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $prerequisiteScript) {
+    Write-Warning "Prerequisite installer script not found. Skipping external certificate program setup."
+    return
+  }
+
+  if ($PSCmdlet.ShouldProcess("AUTO-TAX helper prerequisites", "Download and install missing certificate programs")) {
+    & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $prerequisiteScript -FailureAction Warn
+  }
+}
 $taskName = "AUTO-TAX Renewal Local Helper"
 $powershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
 $helperPort = Get-HelperPort
@@ -493,6 +517,15 @@ if ($isPackagedInstall -and ($sourceRoot -ne $installRoot)) {
   if ($PSCmdlet.ShouldProcess($installRoot, "Copy packaged renewal helper files to stable install location")) {
     Copy-InstallFilesWithRetry -SourceRoot $sourceRoot -InstallRoot $installRoot -AllowLockedRuntimeNode:$restartRequired
   }
+}
+
+if (-not $SkipPrerequisites) {
+  Install-LocalRenewalHelperPrerequisites `
+    -InstallRoot $installRoot `
+    -SourceRoot $sourceRoot `
+    -PowerShellExe $powershellExe
+} else {
+  Write-Output "prerequisites=skipped"
 }
 
 $launcherScript = Join-Path $installRoot "scripts\\start-renewal-local-helper.ps1"

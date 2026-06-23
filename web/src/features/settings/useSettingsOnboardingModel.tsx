@@ -147,7 +147,6 @@ type UseSettingsOnboardingModelArgs = {
   helper: SettingsOnboardingHelperStatus;
   certificateReadProgress: SettingsCertificateReadProgress;
   renewalHelperDownloadUrl: string;
-  runReadCertificates: () => Promise<void>;
 };
 
 type SettingsOnboardingContentModel = {
@@ -164,11 +163,9 @@ export function useSettingsOnboardingModel({
   isMailTesting,
   helper,
   certificateReadProgress,
-  renewalHelperDownloadUrl,
-  runReadCertificates
+  renewalHelperDownloadUrl
 }: UseSettingsOnboardingModelArgs): SettingsOnboardingContentModel {
   const busy = busyKey !== null;
-  const isReadingCertificates = busyKey === "customer-renewal-bridge-probe";
   const setSettingsField = useCallback(
     <K extends keyof SettingsOnboardingFields,>(
       field: K,
@@ -247,8 +244,6 @@ export function useSettingsOnboardingModel({
           generalCertificateCount={helper.generalCertificateCount}
           certificateReadProgress={certificateReadProgress}
           busy={busy}
-          isReadingCertificates={isReadingCertificates}
-          onReadCertificates={runReadCertificates}
           onRefreshHelper={
             settingsState.actions.runRefreshCustomerRenewalAssistant
           }
@@ -262,13 +257,11 @@ export function useSettingsOnboardingModel({
       downloadHelper,
       helper,
       isMailTesting,
-      isReadingCertificates,
       onboarding,
       orchestration.reveals.mailPassword,
       orchestration.reveals.popbillSharedPassword,
       orchestration.reveals.renewalCertificatePassword,
       orchestration.reveals.renewalIssuePassword,
-      runReadCertificates,
       setSettingsField,
       settingsState
     ]

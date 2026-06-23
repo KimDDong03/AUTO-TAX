@@ -113,6 +113,133 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook groups plant rows and prese
   });
 });
 
+test("resolveElectronicTaxOnboardingTemplateWorkbook uses business-info lookup before legacy preflight", async () => {
+  const workbook = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook(),
+    loadAvailableCertificates: async () => [createCertificate()],
+    resolveSharedPassword: async () => "shared-secret",
+    requestBusinessInfoLookup: async (payload) => {
+      assert.equal(payload.serial, "SERIAL-001");
+      assert.equal(payload.userDN, "USER-DN-001");
+      return {
+        result: {
+          ok: true,
+          source: "hometax",
+          stage: "business-info",
+          certificateIndex: "12",
+          certificateCn: "한빛태양광",
+          sourcePort: 42235,
+          loginCode: "S",
+          businessInfoSnapshot: {
+            companyName: "한빛태양광",
+            businessNumber: "123-45-67890",
+            ceoName: "홍길동",
+            bizType: null,
+            bizClass: null,
+            businessFieldCode: null,
+            postalCode: null,
+            baseAddress: null,
+            detailAddress: null,
+            contactName: null,
+            contactDepartment: null,
+            contactEmail: null,
+            contactTel: null,
+            contactFax: null,
+            contactMobile: null
+          },
+          message: null,
+          error: null
+        }
+      };
+    },
+    requestPreflight: async () => {
+      throw new Error("Legacy preflight should not run after business-info lookup succeeds");
+    }
+  });
+
+  assert.equal(workbook.resolvedCertificateCount, 1);
+  assert.deepEqual(workbook.errors, []);
+  assert.equal(workbook.workbook.customers[0]?.businessNumber, "1234567890");
+  assert.equal(workbook.workbook.certificates[0]?.certificatePassword, "shared-secret");
+});
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook reports HomeTax taxpayer-basic lookup warning without blocking import", async () => {
+  const workbook = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook(),
+    loadAvailableCertificates: async () => [createCertificate()],
+    resolveSharedPassword: async () => "shared-secret",
+    requestBusinessInfoLookup: async () => ({
+      result: {
+        ok: true,
+        source: "hometax",
+        stage: "business-info",
+        certificateIndex: "12",
+        certificateCn: "한빛태양광",
+        sourcePort: 42235,
+        loginCode: "S",
+        businessInfoSnapshot: {
+          companyName: "한빛태양광",
+          businessNumber: "123-45-67890",
+          ceoName: "홍길동",
+          bizType: null,
+          bizClass: null,
+          businessFieldCode: null,
+          postalCode: null,
+          baseAddress: null,
+          detailAddress: null,
+          contactName: null,
+          contactDepartment: null,
+          contactEmail: null,
+          contactTel: null,
+          contactFax: null,
+          contactMobile: null
+        },
+        message:
+          "홈택스 공동인증서 로그인 세션에서 사업자정보를 확인했습니다. 홈택스 세적 기본 조회는 실패했습니다: 홈택스 세적 업무 시스템 로그인 실패",
+        error: null
+      }
+    }),
+    requestPreflight: async () => {
+      throw new Error("Legacy preflight should not run after business-info lookup succeeds");
+    }
+  });
+
+  assert.equal(workbook.resolvedCertificateCount, 1);
+  assert.deepEqual(workbook.errors, []);
+  assert.match(workbook.warnings?.[0] ?? "", /홈택스 세적 기본 조회는 실패했습니다/);
+  assert.equal(workbook.workbook.customers[0]?.addr, "");
+});
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook does not fall back to legacy preflight after business-info lookup fails", async () => {
+  const workbook = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook(),
+    loadAvailableCertificates: async () => [createCertificate()],
+    resolveSharedPassword: async () => "shared-secret",
+    requestBusinessInfoLookup: async () => ({
+      result: {
+        ok: false,
+        source: "hometax",
+        stage: "magicline-sign",
+        certificateIndex: "12",
+        certificateCn: "한빛태양광",
+        sourcePort: 42235,
+        loginCode: null,
+        businessInfoSnapshot: null,
+        message: null,
+        error: "홈택스 인증서 비밀번호가 맞지 않습니다."
+      }
+    }),
+    requestPreflight: async () => {
+      throw new Error("Legacy preflight should not run after business-info lookup fails");
+    }
+  });
+
+  assert.equal(workbook.resolvedCertificateCount, 0);
+  assert.equal(workbook.skippedCertificateCount, 1);
+  assert.match(workbook.errors[0] ?? "", /사업자정보 조회 실패/);
+  assert.match(workbook.errors[0] ?? "", /비밀번호/);
+});
+
 test("resolveElectronicTaxOnboardingTemplateWorkbook preserves business general certificate identity", async () => {
   const workbook = await resolveElectronicTaxOnboardingTemplateWorkbook({
     templateWorkbook: createTemplateWorkbook(),
@@ -244,6 +371,260 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook skips certificates expiring
   assert.equal(result.resolvedCertificateCount, 0);
   assert.equal(result.skippedCertificateCount, 1);
   assert.match(result.errors[0] ?? "", /만료된 발행 가능 공동인증서/);
+});
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook accepts manually completed upload-session certificates", async () => {
+  let preflightCalled = false;
+
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook({
+      plants: [
+        {
+          rowIndex: 2,
+          certificateIndex: "upload-1",
+          certificateName: "김부연()001168820231011111001399",
+          businessNumber: "123-45-67890",
+          customerName: "김부연",
+          corpName: "김부연 태양광",
+          addr: "전라남도 나주시 빛가람로 1",
+          bizType: "전기업",
+          bizClass: "태양광",
+          renewalContactMobile: "010-1111-2222",
+          plantName: "김부연 발전소",
+          matchAddress: "전라남도 나주시 빛가람로 1",
+          certificatePassword: ""
+        }
+      ]
+    }),
+    loadAvailableCertificates: async () => [
+      createCertificate({
+        index: "upload-1",
+        cn: "김부연()001168820231011111001399",
+        serial: "UPLOAD-SERIAL-001",
+        userDN: "CN=김부연()001168820231011111001399",
+        supportsPreflight: false,
+        listSource: "upload-session"
+      } as Partial<RenewalAgentCertificate>)
+    ],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => {
+      preflightCalled = true;
+      throw new Error("upload-session certificates should not request SignGate preflight");
+    }
+  });
+
+  assert.equal(preflightCalled, false);
+  assert.equal(result.resolvedCertificateCount, 1);
+  assert.equal(result.skippedCertificateCount, 0);
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.workbook.customers[0], {
+    rowIndex: 2,
+    customerName: "김부연",
+    businessNumber: "1234567890",
+    corpName: "김부연 태양광",
+    addr: "전라남도 나주시 빛가람로 1",
+    bizType: "전기업",
+    bizClass: "태양광",
+    renewalContactMobile: "010-1111-2222",
+    memo: ""
+  });
+  assert.equal(result.workbook.plants[0]?.matchAddress, "전라남도 나주시 빛가람로 1");
+  assert.equal(result.workbook.certificates[0]?.certificatePassword, "shared-secret");
+});
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook asks for manual business info for upload-session certificates", async () => {
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook({
+      plants: [
+        {
+          rowIndex: 2,
+          certificateIndex: "upload-1",
+          certificateName: "김부연()001168820231011111001399",
+          plantName: "김부연 발전소",
+          certificatePassword: ""
+        }
+      ]
+    }),
+    loadAvailableCertificates: async () => [
+      createCertificate({
+        index: "upload-1",
+        cn: "김부연()001168820231011111001399",
+        supportsPreflight: false,
+        listSource: "upload-session"
+      } as Partial<RenewalAgentCertificate>)
+    ],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => {
+      throw new Error("upload-session certificates should not request SignGate preflight");
+    }
+  });
+
+  assert.equal(result.resolvedCertificateCount, 0);
+  assert.equal(result.skippedCertificateCount, 1);
+  assert.match(result.errors[0] ?? "", /이 인증서는 자동조회로 사업자번호를 읽을 수 없습니다/);
+  assert.doesNotMatch(result.errors[0] ?? "", /추가 HDD 경로/);
+});
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook falls back to manual business info when SignGate renewal lookup is not applicable", async () => {
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook({
+      plants: [
+        {
+          rowIndex: 2,
+          certificateIndex: "12",
+          certificateName: "유학현()001168920230227111003787",
+          businessNumber: "123-45-67890",
+          customerName: "유학현",
+          corpName: "유학현 태양광",
+          addr: "전라남도 나주시 빛가람로 1",
+          bizType: "전기업",
+          bizClass: "태양광",
+          plantName: "유학현 발전소",
+          certificatePassword: ""
+        }
+      ]
+    }),
+    loadAvailableCertificates: async () => [
+      createCertificate({
+        cn: "유학현()001168920230227111003787",
+        serial: "919115189",
+        userDN: "cn=유학현()001168920230227111003787,ou=l,ou=NACF,ou=xUse4Esero,o=yessign,c=kr"
+      })
+    ],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => ({
+      result: {
+        bridge: {
+          preflightProbe: {
+            ok: false,
+            rawCode: "9999",
+            error: "갱신 가능한 공동인증서가 아닙니다. 관련 사항은 고객만족센터(1577-8787)로 문의하여 주시기 바랍니다."
+          } as RenewalBridgePreflightProbe
+        }
+      }
+    })
+  });
+
+  assert.equal(result.resolvedCertificateCount, 1);
+  assert.equal(result.skippedCertificateCount, 0);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.workbook.customers[0]?.businessNumber, "1234567890");
+  assert.equal(result.workbook.customers[0]?.corpName, "유학현 태양광");
+});
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook reports manual business info requirement when renewal lookup is not applicable", async () => {
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook({
+      plants: [
+        {
+          rowIndex: 2,
+          certificateIndex: "12",
+          certificateName: "유학현()001168920230227111003787",
+          plantName: "유학현 발전소",
+          certificatePassword: ""
+        }
+      ]
+    }),
+    loadAvailableCertificates: async () => [
+      createCertificate({
+        cn: "유학현()001168920230227111003787",
+        serial: "919115189",
+        userDN: "cn=유학현()001168920230227111003787,ou=l,ou=NACF,ou=xUse4Esero,o=yessign,c=kr"
+      })
+    ],
+    resolveSharedPassword: async () => "shared-secret",
+    requestPreflight: async () => ({
+      result: {
+        bridge: {
+          preflightProbe: {
+            ok: false,
+            rawCode: "9999",
+            error: "갱신 가능한 공동인증서가 아닙니다. 관련 사항은 고객만족센터(1577-8787)로 문의하여 주시기 바랍니다."
+          } as RenewalBridgePreflightProbe
+        }
+      }
+    })
+  });
+
+  assert.equal(result.resolvedCertificateCount, 0);
+  assert.equal(result.skippedCertificateCount, 1);
+  assert.match(result.errors[0] ?? "", /이 인증서는 자동조회로 사업자번호를 읽을 수 없습니다/);
+  assert.doesNotMatch(result.errors[0] ?? "", /갱신 가능한 공동인증서/);
+});
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook prepares upload-session certificates before preflight when importer is available", async () => {
+  let preparedPassword = "";
+  let preflightCertificateIndex: number | null = null;
+
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook({
+      plants: [
+        {
+          rowIndex: 2,
+          certificateIndex: "upload-1",
+          certificateName: "김부연()001168820231011111001399",
+          plantName: "김부연 발전소",
+          certificatePassword: ""
+        }
+      ]
+    }),
+    loadAvailableCertificates: async () => [
+      createCertificate({
+        index: "upload-1",
+        cn: "김부연()001168820231011111001399",
+        serial: "UPLOAD-SERIAL-001",
+        userDN: "CN=김부연()001168820231011111001399",
+        supportsPreflight: false,
+        listSource: "upload-session"
+      } as Partial<RenewalAgentCertificate>)
+    ],
+    resolveSharedPassword: async () => "shared-secret",
+    prepareCertificateForPreflight: async (certificate, certificatePassword) => {
+      preparedPassword = certificatePassword;
+      return createCertificate({
+        ...certificate,
+        index: "21",
+        supportsPreflight: true,
+        listSource: "bridge-hdd"
+      } as Partial<RenewalAgentCertificate>);
+    },
+    requestPreflight: async (payload) => {
+      preflightCertificateIndex = payload.certificateIndex;
+      return {
+        result: {
+          bridge: {
+            preflightProbe: {
+              ok: true,
+              renewInfoSnapshot: {
+                companyName: "김부연 태양광",
+                businessNumber: "123-45-67890",
+                ceoName: "김부연",
+                bizType: "전기업",
+                bizClass: "태양광",
+                businessFieldCode: null,
+                postalCode: null,
+                baseAddress: "전라남도 나주시 빛가람로 1",
+                detailAddress: null,
+                contactName: null,
+                contactDepartment: null,
+                contactEmail: null,
+                contactTel: null,
+                contactFax: null,
+                contactMobile: "010-1111-2222"
+              }
+            } as RenewalBridgePreflightProbe
+          }
+        }
+      };
+    }
+  });
+
+  assert.equal(preparedPassword, "shared-secret");
+  assert.equal(preflightCertificateIndex, 21);
+  assert.equal(result.resolvedCertificateCount, 1);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.workbook.certificates[0]?.certificateIndex, "21");
+  assert.equal(result.workbook.customers[0]?.businessNumber, "1234567890");
 });
 
 test("resolveElectronicTaxOnboardingTemplateWorkbook includes SignGate preflight detail in skipped row errors", async () => {

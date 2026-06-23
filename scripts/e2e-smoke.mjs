@@ -805,19 +805,14 @@ try {
     const onboardingActiveStep = page.locator("#onboarding-active-step");
     await page.locator(".onboarding-step-chip").filter({ hasText: "로컬 헬퍼 준비" }).first().click();
     await onboardingActiveStep.locator(".onboarding-active-step-copy strong").filter({ hasText: "로컬 헬퍼 준비" }).waitFor();
-    await page.getByRole("button", { name: "공동인증서 읽기", exact: true }).waitFor();
+    await page.getByRole("button", { name: "파일 선택", exact: true }).waitFor();
+    await page.getByRole("button", { name: "폴더 선택", exact: true }).waitFor();
   });
 
-  await recordStep("onboarding helper step reads local certificates", async () => {
-    const helperReadButton = page.locator("#onboarding-active-step").getByRole("button", { name: "공동인증서 읽기", exact: true });
-    await helperReadButton.waitFor({ timeout: 15000 });
-    await helperReadButton.click();
-
-    await page.locator("#onboarding-active-step .onboarding-active-step-copy strong").filter({ hasText: "고객 초기 등록" }).waitFor();
-    const onboardingPanel = page.locator(".panel-initial-onboarding");
-    await onboardingPanel.waitFor();
-    await onboardingPanel.getByText("전자세금용 인증서 1건 기준", { exact: false }).waitFor();
-    await onboardingPanel.getByRole("button", { name: "양식 다운로드", exact: true }).waitFor();
+  await recordStep("onboarding helper step uses certificate file or folder selection", async () => {
+    const onboardingActiveStep = page.locator("#onboarding-active-step");
+    await onboardingActiveStep.getByRole("button", { name: "파일 선택", exact: true }).waitFor({ timeout: 15000 });
+    await onboardingActiveStep.getByRole("button", { name: "폴더 선택", exact: true }).waitFor({ timeout: 15000 });
   });
 
   await recordStep("customers remain reachable before onboarding commit", async () => {
@@ -2036,7 +2031,8 @@ try {
     await detailPanel.waitFor({ timeout: 15000 });
     await detailPanel.getByText("고객 추가", { exact: true }).waitFor();
     await detailPanel.getByText("전자세금용 공동인증서 선택", { exact: true }).waitFor();
-    await detailPanel.getByRole("button", { name: "PC에서 찾기", exact: true }).waitFor();
+    await detailPanel.getByRole("button", { name: "파일 선택", exact: true }).waitFor();
+    await detailPanel.getByRole("button", { name: "폴더 선택", exact: true }).waitFor();
     await detailPanel.getByRole("button", { name: "닫기", exact: true }).click();
     await page.waitForFunction(() => !document.querySelector(".customer-detail-panel"), null, { timeout: 15000 });
     await page.locator(".customer-console-table tbody tr").filter({ hasText: onboardingCorpName }).first().waitFor();

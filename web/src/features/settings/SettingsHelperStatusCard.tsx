@@ -12,12 +12,9 @@ export function SettingsHelperStatusCard({
 }: SettingsHelperStatusCardProps) {
   const isRefreshingHelper = helperStatus.busyKey === "refresh-customer-renewal-helper";
   const isReadingCertificates = helperStatus.busyKey === "customer-renewal-bridge-probe";
-  const electronicTaxCertificateCountText = isReadingCertificates
+  const issueCapableCertificateCountText = isReadingCertificates
     ? "확인 중"
-    : `${helperStatus.loadedElectronicTaxCertificateCount}건`;
-  const generalCertificateCountText = isReadingCertificates
-    ? "확인 중"
-    : `${helperStatus.loadedGeneralCertificateCount}건`;
+    : `${helperStatus.loadedElectronicTaxCertificateCount + helperStatus.loadedGeneralCertificateCount}건`;
 
   return (
     <div className="helper-box-stack settings-helper-status-card">
@@ -89,7 +86,7 @@ export function SettingsHelperStatusCard({
           </div>
           <div
             className="certificate-read-progress-track"
-            aria-label="공동인증서 읽기 진행률"
+            aria-label="공동인증서 확인 진행률"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={helperStatus.certificateReadProgress.percent}
@@ -113,8 +110,8 @@ export function SettingsHelperStatusCard({
         </div>
       ) : null}
       <span>마지막 확인: {helperStatus.formatDateTime(helperStatus.checkedAt)}</span>
-      <span>전자세금용 공동인증서: {electronicTaxCertificateCountText}</span>
-      <span>범용 공동인증서: {generalCertificateCountText}</span>
+      <span>발행 가능 공동인증서: {issueCapableCertificateCountText}</span>
+      <span>집계 기준: 만료/개인용 제외</span>
     </div>
   );
 }
