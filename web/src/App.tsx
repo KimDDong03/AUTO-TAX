@@ -4,7 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApiError, api, setActiveOrganizationId, setApiAccessToken } from "./api";
-import { AppDialog, type AppDialogState, type AppDialogTone, CheckboxControl, Icon, Panel, RevealIcon, StatCard } from "./components/ui";
+import { AppDialog, type AppDialogState, type AppDialogTone, CheckboxControl, Icon, Panel, PasswordField, StatCard } from "./components/ui";
 import { getOrganizationRoleLabel } from "./organizationRole";
 import { useCertificatesScreenModel } from "./features/certificates/useCertificatesScreenModel";
 import { matchesCustomerSearchQuery, type CustomerSearchField } from "./features/customers/customerSearch";
@@ -6416,55 +6416,41 @@ export function App() {
             <form className="auth-form" onSubmit={(event) => void submitRecoveryPassword(event)}>
               <label>
                 <span>새 비밀번호</span>
-                <div className="password-field">
-                  <input
-                    type={revealedFields.recoveryNextPassword ? "text" : "password"}
-                    value={recoveryPasswordForm.nextPassword}
-                    onChange={(event) =>
-                      setRecoveryPasswordForm((prev) => ({
-                        ...prev,
-                        nextPassword: event.target.value
-                      }))
-                    }
-                    placeholder={PASSWORD_POLICY_PLACEHOLDER}
-                    autoComplete="new-password"
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="password-toggle"
-                    aria-label={revealedFields.recoveryNextPassword ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
-                    onClick={() => toggleRevealField("recoveryNextPassword")}
-                  >
-                    <RevealIcon open={Boolean(revealedFields.recoveryNextPassword)} />
-                  </button>
-                </div>
+                <PasswordField
+                  visible={Boolean(revealedFields.recoveryNextPassword)}
+                  onVisibleChange={() => toggleRevealField("recoveryNextPassword")}
+                  value={recoveryPasswordForm.nextPassword}
+                  onChange={(event) =>
+                    setRecoveryPasswordForm((prev) => ({
+                      ...prev,
+                      nextPassword: event.target.value
+                    }))
+                  }
+                  placeholder={PASSWORD_POLICY_PLACEHOLDER}
+                  autoComplete="new-password"
+                  required
+                  revealLabel="새 비밀번호 보기"
+                  hideLabel="새 비밀번호 숨기기"
+                />
               </label>
               <label>
                 <span>새 비밀번호 확인</span>
-                <div className="password-field">
-                  <input
-                    type={revealedFields.recoveryConfirmPassword ? "text" : "password"}
-                    value={recoveryPasswordForm.confirmPassword}
-                    onChange={(event) =>
-                      setRecoveryPasswordForm((prev) => ({
-                        ...prev,
-                        confirmPassword: event.target.value
-                      }))
-                    }
-                    placeholder="한 번 더 입력"
-                    autoComplete="new-password"
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="password-toggle"
-                    aria-label={revealedFields.recoveryConfirmPassword ? "새 비밀번호 확인 숨기기" : "새 비밀번호 확인 보기"}
-                    onClick={() => toggleRevealField("recoveryConfirmPassword")}
-                  >
-                    <RevealIcon open={Boolean(revealedFields.recoveryConfirmPassword)} />
-                  </button>
-                </div>
+                <PasswordField
+                  visible={Boolean(revealedFields.recoveryConfirmPassword)}
+                  onVisibleChange={() => toggleRevealField("recoveryConfirmPassword")}
+                  value={recoveryPasswordForm.confirmPassword}
+                  onChange={(event) =>
+                    setRecoveryPasswordForm((prev) => ({
+                      ...prev,
+                      confirmPassword: event.target.value
+                    }))
+                  }
+                  placeholder="한 번 더 입력"
+                  autoComplete="new-password"
+                  required
+                  revealLabel="새 비밀번호 확인 보기"
+                  hideLabel="새 비밀번호 확인 숨기기"
+                />
               </label>
               {error ? <div className="alert error">{error}</div> : null}
               <div className="auth-actions">
@@ -7710,6 +7696,7 @@ export function App() {
               : "선택 확인",
       primaryActionLabel: onboardingCertificateReady ? "고객 초기 등록 완료" : onboardingRegistrationPrimaryActionLabel,
       blockedReason: onboardingRegistrationBlockedReason,
+      layout: "compact",
       done: onboardingCertificateReady,
       content: (
         <InitialRegistrationTab
@@ -9013,27 +9000,20 @@ export function App() {
                           </label>
                           <label>
                             앱 비밀번호
-                            <div className="password-field">
-                              <input
-                                type={revealedFields.opsMailPassword ? "text" : "password"}
-                                value={opsWorkspaceMailSettingsForm.mailPassword}
-                                onChange={(event) =>
-                                  setOpsWorkspaceMailSettingsForm((prev) => ({
-                                    ...prev,
-                                    mailPassword: event.target.value
-                                  }))
-                                }
-                                placeholder="변경할 때만 입력"
-                              />
-                              <button
-                                type="button"
-                                className="password-toggle"
-                                aria-label={revealedFields.opsMailPassword ? "앱 비밀번호 숨기기" : "앱 비밀번호 보기"}
-                                onClick={() => toggleRevealField("opsMailPassword")}
-                              >
-                                <RevealIcon open={Boolean(revealedFields.opsMailPassword)} />
-                              </button>
-                            </div>
+                            <PasswordField
+                              visible={Boolean(revealedFields.opsMailPassword)}
+                              onVisibleChange={() => toggleRevealField("opsMailPassword")}
+                              value={opsWorkspaceMailSettingsForm.mailPassword}
+                              onChange={(event) =>
+                                setOpsWorkspaceMailSettingsForm((prev) => ({
+                                  ...prev,
+                                  mailPassword: event.target.value
+                                }))
+                              }
+                              placeholder="변경할 때만 입력"
+                              revealLabel="앱 비밀번호 보기"
+                              hideLabel="앱 비밀번호 숨기기"
+                            />
                           </label>
                           <CheckboxControl
                             containerClassName="checkbox-row full"
@@ -9093,51 +9073,37 @@ export function App() {
                           <div className="form-grid">
                             <label>
                               새 임시 비밀번호
-                              <div className="password-field">
-                                <input
-                                  type={revealedFields.ownerResetNextPassword ? "text" : "password"}
-                                  value={ownerPasswordResetForm.nextPassword}
-                                  onChange={(event) =>
-                                    setOwnerPasswordResetForm((prev) => ({
-                                      ...prev,
-                                      nextPassword: event.target.value
-                                    }))
-                                  }
-                                  placeholder={PASSWORD_POLICY_PLACEHOLDER}
-                                />
-                                <button
-                                  type="button"
-                                  className="password-toggle"
-                                  aria-label={revealedFields.ownerResetNextPassword ? "임시 비밀번호 숨기기" : "임시 비밀번호 보기"}
-                                  onClick={() => toggleRevealField("ownerResetNextPassword")}
-                                >
-                                  <RevealIcon open={Boolean(revealedFields.ownerResetNextPassword)} />
-                                </button>
-                              </div>
+                              <PasswordField
+                                visible={Boolean(revealedFields.ownerResetNextPassword)}
+                                onVisibleChange={() => toggleRevealField("ownerResetNextPassword")}
+                                value={ownerPasswordResetForm.nextPassword}
+                                onChange={(event) =>
+                                  setOwnerPasswordResetForm((prev) => ({
+                                    ...prev,
+                                    nextPassword: event.target.value
+                                  }))
+                                }
+                                placeholder={PASSWORD_POLICY_PLACEHOLDER}
+                                revealLabel="임시 비밀번호 보기"
+                                hideLabel="임시 비밀번호 숨기기"
+                              />
                             </label>
                             <label>
                               새 임시 비밀번호 확인
-                              <div className="password-field">
-                                <input
-                                  type={revealedFields.ownerResetConfirmPassword ? "text" : "password"}
-                                  value={ownerPasswordResetForm.confirmPassword}
-                                  onChange={(event) =>
-                                    setOwnerPasswordResetForm((prev) => ({
-                                      ...prev,
-                                      confirmPassword: event.target.value
-                                    }))
-                                  }
-                                  placeholder="한 번 더 입력"
-                                />
-                                <button
-                                  type="button"
-                                  className="password-toggle"
-                                  aria-label={revealedFields.ownerResetConfirmPassword ? "임시 비밀번호 확인 숨기기" : "임시 비밀번호 확인 보기"}
-                                  onClick={() => toggleRevealField("ownerResetConfirmPassword")}
-                                >
-                                  <RevealIcon open={Boolean(revealedFields.ownerResetConfirmPassword)} />
-                                </button>
-                              </div>
+                              <PasswordField
+                                visible={Boolean(revealedFields.ownerResetConfirmPassword)}
+                                onVisibleChange={() => toggleRevealField("ownerResetConfirmPassword")}
+                                value={ownerPasswordResetForm.confirmPassword}
+                                onChange={(event) =>
+                                  setOwnerPasswordResetForm((prev) => ({
+                                    ...prev,
+                                    confirmPassword: event.target.value
+                                  }))
+                                }
+                                placeholder="한 번 더 입력"
+                                revealLabel="임시 비밀번호 확인 보기"
+                                hideLabel="임시 비밀번호 확인 숨기기"
+                              />
                             </label>
                           </div>
                           <div className="button-row">

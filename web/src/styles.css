@@ -106,21 +106,27 @@ textarea {
   font: inherit;
 }
 
-.password-field {
+.password-field,
+.ui-password-field {
   position: relative;
   margin-top: var(--space-2);
 }
 
-.password-field input {
+.password-field input,
+.ui-password-input {
   margin-top: 0;
   padding-right: 3.25rem;
 }
 
-.password-toggle {
+.password-toggle,
+.ui-password-toggle {
   position: absolute;
   top: 50%;
   right: 0.5rem;
   transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   min-width: 28px;
   height: 28px;
@@ -135,7 +141,9 @@ textarea {
 }
 
 .password-toggle:hover,
-.password-toggle:focus-visible {
+.password-toggle:focus-visible,
+.ui-password-toggle:hover,
+.ui-password-toggle:focus-visible {
   transform: translateY(-50%);
   background: transparent;
   box-shadow: none;
@@ -2050,17 +2058,44 @@ textarea {
   min-height: 0;
 }
 
-.panel-initial-onboarding.is-checklist-workspace {
+.panel-initial-onboarding.is-candidate-workspace {
   gap: 10px;
   padding: 0;
 }
 
+.initial-registration-candidate-head,
 .initial-onboarding-review-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 0;
+}
+
+.initial-registration-candidate-head {
+  align-items: flex-end;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.initial-registration-candidate-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.initial-registration-candidate-title strong {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.initial-registration-candidate-title span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .initial-onboarding-review-head strong {
@@ -2098,30 +2133,85 @@ textarea {
   color: #b91c1c;
 }
 
-.initial-registration-compact-controls {
+.initial-registration-candidate-toolbar {
   display: grid;
   grid-template-columns: minmax(260px, 360px) minmax(118px, max-content);
   gap: 8px;
   align-items: end;
 }
 
-.initial-registration-compact-controls .initial-registration-password-cell {
-  max-width: none;
+.initial-registration-candidate-toolbar {
+  grid-template-columns: minmax(260px, 380px) 136px;
+  width: min(100%, 532px);
 }
 
-.initial-registration-compact-controls .initial-registration-review-button {
+.initial-registration-shared-password {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.initial-registration-shared-password > span {
+  color: #111827;
+}
+
+.initial-registration-shared-password .password-field {
+  margin-top: 0;
+}
+
+.initial-registration-shared-password input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  margin: 0;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.initial-registration-candidate-toolbar .initial-registration-review-button {
   min-width: 118px;
-  width: 118px;
+  width: 100%;
   height: 34px;
 }
 
 .initial-onboarding-review-table-wrap {
-  max-height: clamp(18rem, 38vh, 26rem);
+  max-height: clamp(17rem, 34vh, 23rem);
   overflow-x: hidden;
   overflow-y: scroll;
   scrollbar-gutter: stable;
   scrollbar-color: #cbd5e1 #f8fafc;
   scrollbar-width: thin;
+}
+
+.initial-registration-candidate-table-shell {
+  border-top: 1px solid #e2e8f0;
+  border-right: 1px solid #cbd5e1;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: inset -10px 0 0 #f8fafc;
+}
+
+.initial-registration-candidate-empty {
+  display: grid;
+  gap: 4px;
+  padding: 18px 0;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.initial-registration-candidate-empty strong {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .initial-onboarding-review-table-wrap::-webkit-scrollbar {
@@ -22137,6 +22227,40 @@ button.issuance-list-item {
   opacity: 1;
 }
 
+.app-shell-topnav button.ui-password-toggle,
+.app-shell-topnav button.ui-password-toggle:hover:not(:disabled),
+.app-shell-topnav button.ui-password-toggle:focus-visible:not(:disabled),
+.app-shell-topnav button.ui-password-toggle:disabled {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  box-shadow: none;
+}
+
+.app-shell-topnav button.ui-password-toggle:hover:not(:disabled),
+.app-shell-topnav button.ui-password-toggle:focus-visible:not(:disabled) {
+  background: transparent;
+  color: var(--text-subtle);
+}
+
+.app-shell-topnav button.ui-password-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .app-shell-topnav .issuance-filter-row .issuance-filter-chip {
   display: inline-flex;
   align-items: center;
@@ -23200,10 +23324,6 @@ button.issuance-list-item {
   max-width: 460px;
 }
 
-.initial-registration-password-cell {
-  max-width: 460px;
-}
-
 .initial-registration-command-panel {
   display: grid;
   gap: 8px;
@@ -23214,7 +23334,7 @@ button.issuance-list-item {
   background: #f8fafc;
 }
 
-.panel-initial-onboarding.is-checklist-workspace .initial-registration-manual-source {
+.panel-initial-onboarding.is-candidate-workspace .initial-registration-manual-source {
   width: fit-content;
   border-top: 0;
   padding-top: 0;
@@ -23276,12 +23396,13 @@ button.issuance-list-item {
     width: 100%;
   }
 
-  .initial-registration-compact-controls {
+  .initial-registration-candidate-toolbar {
     grid-template-columns: 1fr;
     align-items: stretch;
+    width: 100%;
   }
 
-  .initial-registration-compact-controls .initial-registration-review-button {
+  .initial-registration-candidate-toolbar .initial-registration-review-button {
     width: 100%;
   }
 
@@ -33481,6 +33602,57 @@ button.issuance-list-item {
   letter-spacing: 0 !important;
 }
 
+.app-shell-topnav .content-settings .onboarding-active-step-shell.is-compact .onboarding-active-step-head {
+  padding: 10px 12px !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-active-step-shell.is-compact .onboarding-active-step-copy {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-active-step-shell.is-compact .onboarding-active-step-meta {
+  order: 2 !important;
+  margin-left: auto !important;
+  min-height: 0 !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-active-step-shell.is-compact .onboarding-active-step-title-row {
+  display: grid !important;
+  grid-template-columns: 28px minmax(0, 1fr) !important;
+  gap: 8px !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-active-step-shell.is-compact .onboarding-active-step-title-row > div {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 8px !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-active-step-shell.is-compact .onboarding-active-step-order {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-active-step-shell.is-compact .onboarding-active-step-copy strong {
+  font-size: 13px !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-active-step-shell.is-compact .onboarding-active-step-summary {
+  margin: 0 !important;
+  color: #64748b !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-shell-topnav .content-settings .onboarding-active-step-shell.is-compact .onboarding-active-step-meta .chip {
+  min-height: 24px !important;
+}
+
 .app-shell-topnav .content-settings .onboarding-step-strip-head {
   min-height: calc(var(--settings-control-height) + var(--settings-gap-lg)) !important;
   padding: 0 var(--settings-gap-lg) !important;
@@ -35553,13 +35725,43 @@ b {
   background: #f8fafc !important;
 }
 
+.app-shell-topnav .initial-registration-candidate-toolbar {
+  grid-template-columns: minmax(260px, 380px) 136px !important;
+  width: min(100%, 532px) !important;
+}
+
+.app-shell-topnav .initial-registration-shared-password {
+  display: grid !important;
+  gap: 4px !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .initial-registration-shared-password input {
+  height: 34px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 4px !important;
+  background: #ffffff !important;
+}
+
 .app-shell-topnav .initial-onboarding-review-table-wrap {
+  max-height: clamp(17rem, 34vh, 23rem) !important;
   overflow-x: hidden !important;
   overflow-y: scroll !important;
   scrollbar-color: #94a3b8 #f1f5f9 !important;
   scrollbar-gutter: stable !important;
   scrollbar-width: thin !important;
   -ms-overflow-style: auto !important;
+}
+
+.app-shell-topnav .initial-registration-candidate-table-shell {
+  border-top: 1px solid #e2e8f0 !important;
+  border-right: 1px solid #cbd5e1 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  box-shadow: inset -10px 0 0 #f8fafc !important;
 }
 
 .app-shell-topnav .initial-onboarding-review-table-wrap::-webkit-scrollbar {
@@ -35628,6 +35830,11 @@ b {
 }
 
 @media (max-width: 640px) {
+  .app-shell-topnav .initial-registration-candidate-toolbar {
+    grid-template-columns: 1fr !important;
+    width: 100% !important;
+  }
+
   .app-shell-topnav .initial-onboarding-review-table-wrap {
     max-height: min(60vh, 22rem);
   }

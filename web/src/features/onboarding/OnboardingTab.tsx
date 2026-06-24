@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 type OnboardingStepTone = "default" | "muted";
+type OnboardingStepLayout = "default" | "compact";
 
 export type OnboardingStep = {
   id: string;
@@ -13,6 +14,7 @@ export type OnboardingStep = {
   primaryActionLabel: string;
   blockedReason?: string;
   tone?: OnboardingStepTone;
+  layout?: OnboardingStepLayout;
   done: boolean;
   content: React.ReactNode;
 };
@@ -91,7 +93,13 @@ export function OnboardingTab(props: OnboardingTabProps) {
       {activeStep ? (
         <section
           id="onboarding-active-step"
-          className={activeStep.tone === "muted" ? "onboarding-active-step-shell is-muted" : "onboarding-active-step-shell"}
+          className={[
+            "onboarding-active-step-shell",
+            activeStep.tone === "muted" ? "is-muted" : "",
+            activeStep.layout === "compact" ? "is-compact" : ""
+          ]
+            .filter(Boolean)
+            .join(" ")}
         >
           <header className="onboarding-active-step-head">
             <div className="onboarding-active-step-copy">

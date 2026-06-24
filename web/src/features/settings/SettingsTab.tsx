@@ -16,7 +16,7 @@ import {
   type ConsoleStatus,
   type TaskStepItem
 } from "@/components/console";
-import { RevealIcon } from "../../components/ui";
+import { PasswordField } from "../../components/ui";
 import { SettingsAccountSection } from "./SettingsAccountSection";
 import { SettingsDefaultsSection } from "./SettingsDefaultsSection";
 import { SettingsHelperSection } from "./SettingsHelperSection";
@@ -229,36 +229,25 @@ function SettingsOption1MailDetail({ model }: SettingsTabProps) {
           </label>
           <label className="settings-option1-field">
             앱 비밀번호
-            <div className="password-field">
-              <input
-                type={mail.mailPasswordReveal.visible ? "text" : "password"}
-                value={mailDraft.mailPassword}
-                readOnly={!mailEditing}
-                onChange={(event) =>
-                  setMailDraft((prev) => ({
-                    ...prev,
-                    mailPassword: event.target.value
-                  }))
-                }
-                placeholder={
-                  mail.mailPasswordConfigured
-                    ? "변경할 때만 다시 입력"
-                    : "앱 비밀번호 입력"
-                }
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                aria-label={
-                  mail.mailPasswordReveal.visible
-                    ? "앱 비밀번호 숨기기"
-                    : "앱 비밀번호 보기"
-                }
-                onClick={mail.mailPasswordReveal.toggle}
-              >
-                <RevealIcon open={mail.mailPasswordReveal.visible} />
-              </button>
-            </div>
+            <PasswordField
+              visible={mail.mailPasswordReveal.visible}
+              onVisibleChange={() => mail.mailPasswordReveal.toggle()}
+              value={mailDraft.mailPassword}
+              readOnly={!mailEditing}
+              onChange={(event) =>
+                setMailDraft((prev) => ({
+                  ...prev,
+                  mailPassword: event.target.value
+                }))
+              }
+              placeholder={
+                mail.mailPasswordConfigured
+                  ? "변경할 때만 다시 입력"
+                  : "앱 비밀번호 입력"
+              }
+              revealLabel="앱 비밀번호 보기"
+              hideLabel="앱 비밀번호 숨기기"
+            />
           </label>
         </div>
 

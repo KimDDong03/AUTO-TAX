@@ -1,5 +1,5 @@
 import React from "react";
-import { RevealIcon } from "../../../components/ui";
+import { PasswordField } from "../../../components/ui";
 import type { SettingsFeatureRevealAdapters } from "../createSettingsActionAdapters";
 import type { SettingsOnboardingModel } from "../useSettingsDerivedModel";
 import {
@@ -115,35 +115,25 @@ export function SettingsMailOnboardingStep({
             >
               앱 비밀번호
             </span>
-            <div className={getOnboardingPasswordFieldClassName(onboarding.password.hasError)}>
-              <input
-                className={getOnboardingRequiredInputClassName(
-                  onboarding.password.hasError
-                )}
-                type={mailPasswordReveal.visible ? "text" : "password"}
-                value={mailPassword}
-                aria-invalid={onboarding.password.hasError || undefined}
-                aria-describedby="onboarding-mail-password-hint"
-                onChange={(event) => onMailPasswordChange(event.target.value)}
-                placeholder={
-                  mailPasswordConfigured
-                    ? "변경할 때만 다시 입력"
-                    : "앱 비밀번호 입력"
-                }
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                aria-label={
-                  mailPasswordReveal.visible
-                    ? "앱 비밀번호 숨기기"
-                    : "앱 비밀번호 보기"
-                }
-                onClick={mailPasswordReveal.toggle}
-              >
-                <RevealIcon open={mailPasswordReveal.visible} />
-              </button>
-            </div>
+            <PasswordField
+              visible={mailPasswordReveal.visible}
+              onVisibleChange={() => mailPasswordReveal.toggle()}
+              fieldClassName={getOnboardingPasswordFieldClassName(onboarding.password.hasError)}
+              inputClassName={getOnboardingRequiredInputClassName(
+                onboarding.password.hasError
+              )}
+              value={mailPassword}
+              aria-invalid={onboarding.password.hasError || undefined}
+              aria-describedby="onboarding-mail-password-hint"
+              onChange={(event) => onMailPasswordChange(event.target.value)}
+              placeholder={
+                mailPasswordConfigured
+                  ? "변경할 때만 다시 입력"
+                  : "앱 비밀번호 입력"
+              }
+              revealLabel="앱 비밀번호 보기"
+              hideLabel="앱 비밀번호 숨기기"
+            />
             {renderOnboardingRequiredHint("onboarding-mail-password-hint", {
               missing: onboarding.password.missing,
               defaultText: mailPasswordConfigured

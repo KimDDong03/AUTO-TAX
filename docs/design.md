@@ -219,6 +219,13 @@ Rules:
 - Avoid multiple strong-colored buttons in one row.
 - Avoid pill-shaped buttons except for compact status badges.
 
+Password visibility controls:
+
+- Use the shared `PasswordField` control for password inputs with show/hide behavior.
+- Treat the visibility toggle as an input adornment, not as a normal action button.
+- The toggle must stay 28px square, icon-only, inside the input field, with no hover movement.
+- Do not let broad button hover styles change password toggle position, transform, border, or background.
+
 ## Tables And Lists
 
 AUTO-TAX should lean on tables and lists for operational data.

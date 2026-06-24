@@ -26,8 +26,8 @@ export function getOnboardingRequiredHintClassName(hasError: boolean) {
 
 export function getOnboardingPasswordFieldClassName(hasError: boolean) {
   return hasError
-    ? "password-field onboarding-password-field is-missing"
-    : "password-field onboarding-password-field";
+    ? "onboarding-password-field is-missing"
+    : "onboarding-password-field";
 }
 
 export function renderOnboardingRequiredHint(

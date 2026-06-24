@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { RevealIcon, SetupPanel } from "../../components/ui";
+import { PasswordField, SetupPanel } from "../../components/ui";
 import {
   DEFAULT_ISSUE_COMPLETE_SMS_TEMPLATE,
   POPBILL_XMS_LMS_BYTE_LIMIT,
@@ -80,40 +80,23 @@ export function SettingsDefaultsSection({
           <div className="settings-defaults-grid">
             <label className="settings-defaults-cell settings-defaults-cell-span-2">
               공동인증서 발급용 임시 비밀번호
-              <div className="password-field">
-                <input
-                  type={
-                    model.reveals.renewalIssuePassword.visible
-                      ? "text"
-                      : "password"
-                  }
-                  value={model.fields.renewalIssuePassword}
-                  inputMode="numeric"
-                  maxLength={6}
-                  onChange={(event) =>
-                    model.onRenewalIssuePasswordChange(event.target.value)
-                  }
-                  placeholder={
-                    model.configured.renewalIssuePassword
-                      ? "변경할 때만 다시 입력"
-                      : "숫자 6자리 입력"
-                  }
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  aria-label={
-                    model.reveals.renewalIssuePassword.visible
-                      ? "발급용 임시 비밀번호 숨기기"
-                      : "발급용 임시 비밀번호 보기"
-                  }
-                  onClick={model.reveals.renewalIssuePassword.toggle}
-                >
-                  <RevealIcon
-                    open={model.reveals.renewalIssuePassword.visible}
-                  />
-                </button>
-              </div>
+              <PasswordField
+                visible={model.reveals.renewalIssuePassword.visible}
+                onVisibleChange={() => model.reveals.renewalIssuePassword.toggle()}
+                value={model.fields.renewalIssuePassword}
+                inputMode="numeric"
+                maxLength={6}
+                onChange={(event) =>
+                  model.onRenewalIssuePasswordChange(event.target.value)
+                }
+                placeholder={
+                  model.configured.renewalIssuePassword
+                    ? "변경할 때만 다시 입력"
+                    : "숫자 6자리 입력"
+                }
+                revealLabel="발급용 임시 비밀번호 보기"
+                hideLabel="발급용 임시 비밀번호 숨기기"
+              />
               <div className="field-meta-row">
                 <span className="field-hint">
                   {model.configured.renewalIssuePassword

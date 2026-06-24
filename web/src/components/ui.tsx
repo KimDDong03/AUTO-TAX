@@ -108,6 +108,61 @@ export function RevealIcon(props: { open: boolean }) {
   return <IconComponent className="reveal-icon" size={20} strokeWidth={2} aria-hidden="true" />;
 }
 
+export type PasswordFieldProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  visible: boolean;
+  onVisibleChange: (visible: boolean) => void;
+  fieldClassName?: string;
+  inputClassName?: string;
+  toggleClassName?: string;
+  revealLabel?: string;
+  hideLabel?: string;
+  toggleDisabled?: boolean;
+};
+
+export function PasswordField({
+  visible,
+  onVisibleChange,
+  fieldClassName,
+  inputClassName,
+  toggleClassName,
+  revealLabel = "비밀번호 보기",
+  hideLabel = "비밀번호 숨기기",
+  toggleDisabled,
+  disabled,
+  className,
+  ...inputProps
+}: PasswordFieldProps) {
+  const fieldClassNames = ["ui-password-field", "password-field", fieldClassName]
+    .filter(Boolean)
+    .join(" ");
+  const inputClassNames = ["ui-password-input", className, inputClassName]
+    .filter(Boolean)
+    .join(" ");
+  const toggleClassNames = ["ui-password-toggle", "password-toggle", toggleClassName]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className={fieldClassNames} data-slot="password-field">
+      <input
+        {...inputProps}
+        type={visible ? "text" : "password"}
+        disabled={disabled}
+        className={inputClassNames}
+      />
+      <button
+        type="button"
+        className={toggleClassNames}
+        aria-label={visible ? hideLabel : revealLabel}
+        disabled={toggleDisabled ?? disabled}
+        onClick={() => onVisibleChange(!visible)}
+      >
+        <RevealIcon open={visible} />
+      </button>
+    </div>
+  );
+}
+
 export type CheckboxControlProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> & {
   containerClassName?: string;
   label?: React.ReactNode;

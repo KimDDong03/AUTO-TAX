@@ -1,5 +1,5 @@
 import React from "react";
-import { RevealIcon, SetupPanel } from "../../components/ui";
+import { PasswordField, SetupPanel } from "../../components/ui";
 import type { SettingsMailSectionModel } from "./settingsSectionModels";
 
 type SettingsMailSectionProps = {
@@ -43,30 +43,19 @@ export function SettingsMailSection({ model }: SettingsMailSectionProps) {
         </label>
         <label>
           앱 비밀번호
-          <div className="password-field">
-            <input
-              type={model.mailPasswordReveal.visible ? "text" : "password"}
-              value={model.fields.mailPassword}
-              onChange={(event) => model.onMailPasswordChange(event.target.value)}
-              placeholder={
-                model.mailPasswordConfigured
-                  ? "변경할 때만 다시 입력"
-                  : "앱 비밀번호 입력"
-              }
-            />
-            <button
-              type="button"
-              className="password-toggle"
-              aria-label={
-                model.mailPasswordReveal.visible
-                  ? "앱 비밀번호 숨기기"
-                  : "앱 비밀번호 보기"
-              }
-              onClick={model.mailPasswordReveal.toggle}
-            >
-              <RevealIcon open={model.mailPasswordReveal.visible} />
-            </button>
-          </div>
+          <PasswordField
+            visible={model.mailPasswordReveal.visible}
+            onVisibleChange={() => model.mailPasswordReveal.toggle()}
+            value={model.fields.mailPassword}
+            onChange={(event) => model.onMailPasswordChange(event.target.value)}
+            placeholder={
+              model.mailPasswordConfigured
+                ? "변경할 때만 다시 입력"
+                : "앱 비밀번호 입력"
+            }
+            revealLabel="앱 비밀번호 보기"
+            hideLabel="앱 비밀번호 숨기기"
+          />
           <span className="field-hint">
             {model.mailPasswordConfigured
               ? "변경할 때만 다시 입력하세요."

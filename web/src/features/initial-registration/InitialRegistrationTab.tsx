@@ -16,7 +16,7 @@ import {
   type ConsoleTone,
   type TaskStepItem
 } from "@/components/console";
-import { Icon, Panel, RevealIcon } from "../../components/ui";
+import { Icon, Panel, PasswordField } from "../../components/ui";
 import type { BootstrapPayload } from "../../types";
 import type {
   CustomerOnboardingPreviewResponse,
@@ -365,8 +365,8 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
       ? "지금 할 일 · 등록 대상 선택"
       : stage === "upload"
         ? needsUploadRetry
-          ? "지금 할 일 · 선택 인증서 다시 확인"
-          : "지금 할 일 · 선택 인증서 확인"
+          ? "지금 할 일 · 선택 고객 다시 확인"
+          : "지금 할 일 · 선택 고객 확인"
         : stage === "commit"
           ? "지금 할 일 · 고객 반영"
           : "지금 할 일 · 공동인증서 등록";
@@ -419,7 +419,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
                   : "다음 단계 보기"
           : uploadCompleted || input.hasSelectedFile
             ? "다시 확인"
-            : "선택 인증서 확인";
+            : "선택 고객 확인";
   const stepItems: InitialRegistrationStepItem[] = [
     {
       step: 1,
@@ -438,14 +438,14 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
     },
     {
       step: 2,
-      title: "선택 인증서 확인",
+      title: "선택 고객 확인",
       description: uploadCompleted
         ? needsUploadRetry
           ? "수정 필요"
           : "완료"
         : downloadCompleted
           ? input.hasSelectedFile
-            ? "확인 대기"
+            ? "고객 정보 확인"
             : "인증서 없음"
           : input.helperReady
             ? "인증서 찾기 후 진행"
@@ -687,7 +687,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     : isCertificateStepSelected
       ? registrationFlow.description
     : isReviewStepSelected
-      ? "고객 가입과 공동인증서 등록에 필요한 값을 확인하세요."
+      ? "선택한 고객의 사업자정보와 주소를 확인하세요."
     : registrationTaskDescription;
   const checklistPasswordReady =
     sharedPasswordReady ||
@@ -827,20 +827,19 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const hasActiveRegistrationProgress = Boolean(
     props.certificateRegistrationProgress || props.joinProgress
   );
-  const showChecklistWorkspace =
+  const showCandidateWorkspace =
     props.mode === "registration" &&
-    hasChecklistRows &&
     showTemplateActions &&
     !hasActiveRegistrationProgress;
   const showOnboardingInlineStatus =
-    !showChecklistWorkspace &&
+    !showCandidateWorkspace &&
     Boolean(props.customerOnboardingFileName || props.customerOnboardingPreview);
   const uploadProgressMessage = isPreviewingOnboarding
     ? props.customerOnboardingNotice || "초기 등록 대상을 점검하는 중입니다..."
     : "";
   const showCustomerOnboardingNotice =
     Boolean(props.customerOnboardingNotice) &&
-    !showChecklistWorkspace &&
+    !showCandidateWorkspace &&
     !registrationFlow.blockedReason &&
     !uploadProgressMessage &&
     !props.certificateRegistrationProgress &&
@@ -968,31 +967,20 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     }
   };
   const sharedPasswordControl = showSharedPasswordField ? (
-    <label className="settings-defaults-cell initial-registration-password-cell">
-      공통 비밀번호
-      <div className="password-field">
-        <input
-          type={sharedPasswordVisible ? "text" : "password"}
-          value={props.customerOnboardingSharedPassword}
-          disabled={props.busyKey !== null}
-          onChange={(event) =>
-            props.onCustomerOnboardingSharedPasswordChange(event.target.value)
-          }
-          placeholder="비워진 행에 사용"
-        />
-        <button
-          type="button"
-          className="password-toggle"
-          aria-label={
-            sharedPasswordVisible
-              ? "공통 비밀번호 숨기기"
-              : "공통 비밀번호 보기"
-          }
-          onClick={() => setSharedPasswordVisible((prev) => !prev)}
-        >
-          <RevealIcon open={sharedPasswordVisible} />
-        </button>
-      </div>
+    <label className="initial-registration-shared-password">
+      <span>공통 비밀번호</span>
+      <PasswordField
+        visible={sharedPasswordVisible}
+        onVisibleChange={setSharedPasswordVisible}
+        value={props.customerOnboardingSharedPassword}
+        disabled={props.busyKey !== null}
+        onChange={(event) =>
+          props.onCustomerOnboardingSharedPasswordChange(event.target.value)
+        }
+        placeholder="선택한 고객에 공통 적용"
+        revealLabel="공통 비밀번호 보기"
+        hideLabel="공통 비밀번호 숨기기"
+      />
     </label>
   ) : null;
   const reviewChecklistButton = showTemplateActions ? (
@@ -1014,7 +1002,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
         ? "확인 중..."
         : registrationFlow.uploadCompleted
           ? "다시 확인"
-          : "선택 인증서 확인"}
+          : "선택 고객 확인"}
     </Button>
   ) : null;
   const manualCertificateRegistration = showTemplateActions ? (
@@ -1073,7 +1061,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     </div>
   ) : null;
   const checklistTable = hasChecklistRows ? (
-    <div className="initial-onboarding-review-table-wrap">
+    <div className="initial-registration-candidate-table-shell initial-onboarding-review-table-wrap">
       <table className="initial-onboarding-review-table">
         <thead>
           <tr>
@@ -1147,6 +1135,38 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
       </table>
     </div>
   ) : null;
+  const candidateEmptyState = !hasChecklistRows ? (
+    <div className="initial-registration-candidate-empty">
+      <strong>등록 후보가 없습니다.</strong>
+      <span>
+        AT 헬퍼 준비에서 공동인증서 읽기를 실행하면 발행 가능 인증서가 여기에 표시됩니다.
+      </span>
+    </div>
+  ) : null;
+  const candidateWorkspace = (
+    <>
+      <div className="initial-registration-candidate-head">
+        <div className="initial-registration-candidate-title">
+          <strong>등록 대상 선택</strong>
+          <span>
+            읽은 인증서 {props.customerOnboardingChecklistRows.length}건 · 선택 {selectedChecklistCount}건
+          </span>
+        </div>
+        {checklistSelectionActions}
+      </div>
+      <div className="initial-registration-candidate-toolbar">
+        {sharedPasswordControl}
+        {reviewChecklistButton}
+      </div>
+      {uploadProgressMessage ? (
+        <InitialStatusNotice title="진행 중" message={uploadProgressMessage} tone="progress" />
+      ) : null}
+      {checklistTable}
+      {candidateEmptyState}
+      <InitialRegistrationReviewIssues messages={reviewIssueMessages} blockedCount={onboardingBlockedCount} />
+      {manualCertificateRegistration}
+    </>
+  );
 
   return (
     <div className="initial-screen">
@@ -1171,34 +1191,14 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             className={[
               "onboarding-main-card",
               "panel-initial-onboarding",
-              showChecklistWorkspace ? "is-checklist-workspace" : ""
+              showCandidateWorkspace ? "is-candidate-workspace" : ""
             ]
               .filter(Boolean)
               .join(" ")}
             data-stage={registrationStage}
           >
-            {showChecklistWorkspace ? (
-              <>
-                <div className="initial-onboarding-review-head">
-                  <div>
-                    <strong>등록 대상 선택</strong>
-                    <span>
-                      읽은 인증서 {props.customerOnboardingChecklistRows.length}건 · 선택 {selectedChecklistCount}건
-                    </span>
-                  </div>
-                  {checklistSelectionActions}
-                </div>
-                <div className="initial-registration-compact-controls">
-                  {sharedPasswordControl}
-                  {reviewChecklistButton}
-                </div>
-                {uploadProgressMessage ? (
-                  <InitialStatusNotice title="진행 중" message={uploadProgressMessage} tone="progress" />
-                ) : null}
-                {checklistTable}
-                <InitialRegistrationReviewIssues messages={reviewIssueMessages} blockedCount={onboardingBlockedCount} />
-                {manualCertificateRegistration}
-              </>
+            {showCandidateWorkspace ? (
+              candidateWorkspace
             ) : (
               <>
                 <div className="onboarding-main-head">
@@ -1262,7 +1262,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           </section>
 
           {uploadProgressMessage ? (
-            showChecklistWorkspace ? null : (
+            showCandidateWorkspace ? null : (
               <InitialStatusNotice title="진행 중" message={uploadProgressMessage} tone="progress" />
             )
           ) : null}
@@ -1270,7 +1270,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           {showCustomerOnboardingNotice ? (
             <InitialStatusNotice title="안내" message={props.customerOnboardingNotice} tone={registrationFlow.commitCompleted ? "success" : "info"} />
           ) : null}
-          {props.customerOnboardingChecklistRows.length > 0 && !showChecklistWorkspace ? (
+          {props.customerOnboardingChecklistRows.length > 0 && !showCandidateWorkspace ? (
             <div className="initial-onboarding-review">
               <div className="initial-onboarding-review-head">
                 <div>

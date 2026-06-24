@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
+import { PasswordField } from "../../components/ui";
 import { SettingsDefaultsOnboardingStep } from "./onboarding/SettingsDefaultsOnboardingStep";
 import { SettingsHelperOnboardingStep } from "./onboarding/SettingsHelperOnboardingStep";
 import { SettingsMailOnboardingStep } from "./onboarding/SettingsMailOnboardingStep";
@@ -165,7 +166,7 @@ test("SettingsDefaultsOnboardingStep keeps onboarding focused on renewal issue p
   const renewalIssuePasswordInput = findElement(
     configuredTree,
     (element) =>
-      element.type === "input" &&
+      element.type === PasswordField &&
       element.props["aria-describedby"] === "onboarding-renewal-issue-password-hint"
   );
 

@@ -1,4 +1,4 @@
-import { Panel, RevealIcon } from "../../components/ui";
+import { Panel, PasswordField } from "../../components/ui";
 import { PASSWORD_POLICY_PLACEHOLDER } from "../auth/passwordPolicy";
 import type { SettingsPasswordRevealPair } from "./createSettingsActionAdapters";
 import type { SettingsAccountState } from "./settingsAccountTypes";
@@ -51,41 +51,27 @@ export function AccountPasswordPanel({
       <div className="form-grid">
         <label>
           새 비밀번호
-          <div className="password-field">
-            <input
-              type={reveals.nextPassword.visible ? "text" : "password"}
-              value={account.passwordChangeForm.nextPassword}
-              onChange={(event) => updatePasswordChangeField(account, "nextPassword", event.target.value)}
-              placeholder={PASSWORD_POLICY_PLACEHOLDER}
-            />
-            <button
-              type="button"
-              className="password-toggle"
-              aria-label={reveals.nextPassword.visible ? "새 비밀번호 숨기기" : "새 비밀번호 보기"}
-              onClick={reveals.nextPassword.toggle}
-            >
-              <RevealIcon open={reveals.nextPassword.visible} />
-            </button>
-          </div>
+          <PasswordField
+            visible={reveals.nextPassword.visible}
+            onVisibleChange={() => reveals.nextPassword.toggle()}
+            value={account.passwordChangeForm.nextPassword}
+            onChange={(event) => updatePasswordChangeField(account, "nextPassword", event.target.value)}
+            placeholder={PASSWORD_POLICY_PLACEHOLDER}
+            revealLabel="새 비밀번호 보기"
+            hideLabel="새 비밀번호 숨기기"
+          />
         </label>
         <label>
           새 비밀번호 확인
-          <div className="password-field">
-            <input
-              type={reveals.confirmPassword.visible ? "text" : "password"}
-              value={account.passwordChangeForm.confirmPassword}
-              onChange={(event) => updatePasswordChangeField(account, "confirmPassword", event.target.value)}
-              placeholder="한 번 더 입력"
-            />
-            <button
-              type="button"
-              className="password-toggle"
-              aria-label={reveals.confirmPassword.visible ? "비밀번호 확인 숨기기" : "비밀번호 확인 보기"}
-              onClick={reveals.confirmPassword.toggle}
-            >
-              <RevealIcon open={reveals.confirmPassword.visible} />
-            </button>
-          </div>
+          <PasswordField
+            visible={reveals.confirmPassword.visible}
+            onVisibleChange={() => reveals.confirmPassword.toggle()}
+            value={account.passwordChangeForm.confirmPassword}
+            onChange={(event) => updatePasswordChangeField(account, "confirmPassword", event.target.value)}
+            placeholder="한 번 더 입력"
+            revealLabel="비밀번호 확인 보기"
+            hideLabel="비밀번호 확인 숨기기"
+          />
           <span className="field-hint">{hintText}</span>
         </label>
       </div>

@@ -1,5 +1,5 @@
 import React from "react";
-import { Panel, RevealIcon } from "../../components/ui";
+import { Panel, PasswordField } from "../../components/ui";
 import { PASSWORD_POLICY_PLACEHOLDER } from "../auth/passwordPolicy";
 import type {
   SettingsFeatureActionAdapters,
@@ -108,28 +108,17 @@ export function SettingsOrganizationMembersPanel({
               </label>
               <label>
                 임시 비밀번호
-                <div className="password-field">
-                  <input
-                    type={reveals.organizationMemberPassword.visible ? "text" : "password"}
-                    value={account.organizationMemberForm.password}
-                    onChange={(event) =>
-                      setOrganizationMemberField("password", event.target.value)
-                    }
-                    placeholder={`새 계정이면 ${PASSWORD_POLICY_PLACEHOLDER}`}
-                  />
-                  <button
-                    type="button"
-                    className="password-toggle"
-                    aria-label={
-                      reveals.organizationMemberPassword.visible
-                        ? "임시 비밀번호 숨기기"
-                        : "임시 비밀번호 보기"
-                    }
-                    onClick={reveals.organizationMemberPassword.toggle}
-                  >
-                    <RevealIcon open={reveals.organizationMemberPassword.visible} />
-                  </button>
-                </div>
+                <PasswordField
+                  visible={reveals.organizationMemberPassword.visible}
+                  onVisibleChange={() => reveals.organizationMemberPassword.toggle()}
+                  value={account.organizationMemberForm.password}
+                  onChange={(event) =>
+                    setOrganizationMemberField("password", event.target.value)
+                  }
+                  placeholder={`새 계정이면 ${PASSWORD_POLICY_PLACEHOLDER}`}
+                  revealLabel="임시 비밀번호 보기"
+                  hideLabel="임시 비밀번호 숨기기"
+                />
               </label>
             </div>
             <div className="workspace-member-create-note">
@@ -201,61 +190,31 @@ export function SettingsOrganizationMembersPanel({
                         <div className="form-grid">
                           <label>
                             새 임시 비밀번호
-                            <div className="password-field">
-                              <input
-                                type={
-                                  reveals.memberResetPassword.nextPassword.visible
-                                    ? "text"
-                                    : "password"
-                                }
-                                value={account.passwordResetForm.nextPassword}
-                                onChange={(event) =>
-                                  setPasswordResetField("nextPassword", event.target.value)
-                                }
-                                placeholder={PASSWORD_POLICY_PLACEHOLDER}
-                              />
-                              <button
-                                type="button"
-                                className="password-toggle"
-                                aria-label={
-                                  reveals.memberResetPassword.nextPassword.visible
-                                    ? "임시 비밀번호 숨기기"
-                                    : "임시 비밀번호 보기"
-                                }
-                                onClick={reveals.memberResetPassword.nextPassword.toggle}
-                              >
-                                <RevealIcon open={reveals.memberResetPassword.nextPassword.visible} />
-                              </button>
-                            </div>
+                            <PasswordField
+                              visible={reveals.memberResetPassword.nextPassword.visible}
+                              onVisibleChange={() => reveals.memberResetPassword.nextPassword.toggle()}
+                              value={account.passwordResetForm.nextPassword}
+                              onChange={(event) =>
+                                setPasswordResetField("nextPassword", event.target.value)
+                              }
+                              placeholder={PASSWORD_POLICY_PLACEHOLDER}
+                              revealLabel="임시 비밀번호 보기"
+                              hideLabel="임시 비밀번호 숨기기"
+                            />
                           </label>
                           <label>
                             새 임시 비밀번호 확인
-                            <div className="password-field">
-                              <input
-                                type={
-                                  reveals.memberResetPassword.confirmPassword.visible
-                                    ? "text"
-                                    : "password"
-                                }
-                                value={account.passwordResetForm.confirmPassword}
-                                onChange={(event) =>
-                                  setPasswordResetField("confirmPassword", event.target.value)
-                                }
-                                placeholder="한 번 더 입력"
-                              />
-                              <button
-                                type="button"
-                                className="password-toggle"
-                                aria-label={
-                                  reveals.memberResetPassword.confirmPassword.visible
-                                    ? "임시 비밀번호 확인 숨기기"
-                                    : "임시 비밀번호 확인 보기"
-                                }
-                                onClick={reveals.memberResetPassword.confirmPassword.toggle}
-                              >
-                                <RevealIcon open={reveals.memberResetPassword.confirmPassword.visible} />
-                              </button>
-                            </div>
+                            <PasswordField
+                              visible={reveals.memberResetPassword.confirmPassword.visible}
+                              onVisibleChange={() => reveals.memberResetPassword.confirmPassword.toggle()}
+                              value={account.passwordResetForm.confirmPassword}
+                              onChange={(event) =>
+                                setPasswordResetField("confirmPassword", event.target.value)
+                              }
+                              placeholder="한 번 더 입력"
+                              revealLabel="임시 비밀번호 확인 보기"
+                              hideLabel="임시 비밀번호 확인 숨기기"
+                            />
                           </label>
                         </div>
                         <div className="button-row">

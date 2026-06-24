@@ -1,5 +1,5 @@
 import React from "react";
-import { RevealIcon } from "../../../components/ui";
+import { PasswordField } from "../../../components/ui";
 import type { SettingsFeatureRevealAdapters } from "../createSettingsActionAdapters";
 import type { SettingsOnboardingModel } from "../useSettingsDerivedModel";
 import {
@@ -66,38 +66,28 @@ export function SettingsDefaultsOnboardingStep({
               >
                 공동인증서 발급용 임시 비밀번호
               </span>
-              <div className={getOnboardingPasswordFieldClassName(onboarding.renewalIssuePassword.hasError)}>
-                <input
-                  type={reveals.renewalIssuePassword.visible ? "text" : "password"}
-                  className={getOnboardingRequiredInputClassName(
-                    onboarding.renewalIssuePassword.hasError
-                  )}
-                  value={renewalIssuePassword}
-                  inputMode="numeric"
-                  maxLength={6}
-                  aria-invalid={onboarding.renewalIssuePassword.hasError || undefined}
-                  aria-describedby="onboarding-renewal-issue-password-hint"
-                  onChange={(event) => onRenewalIssuePasswordChange(event.target.value)}
-                  placeholder={
-                    renewalIssuePasswordConfigured
-                      ? "변경할 때만 다시 입력"
-                      : "숫자 6자리 입력"
-                  }
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  aria-label={
-                    reveals.renewalIssuePassword.visible
-                      ? "발급용 임시 비밀번호 숨기기"
-                      : "발급용 임시 비밀번호 보기"
-                  }
-                  onClick={reveals.renewalIssuePassword.toggle}
-                  disabled={busy}
-                >
-                  <RevealIcon open={reveals.renewalIssuePassword.visible} />
-                </button>
-              </div>
+              <PasswordField
+                visible={reveals.renewalIssuePassword.visible}
+                onVisibleChange={() => reveals.renewalIssuePassword.toggle()}
+                fieldClassName={getOnboardingPasswordFieldClassName(onboarding.renewalIssuePassword.hasError)}
+                inputClassName={getOnboardingRequiredInputClassName(
+                  onboarding.renewalIssuePassword.hasError
+                )}
+                value={renewalIssuePassword}
+                inputMode="numeric"
+                maxLength={6}
+                aria-invalid={onboarding.renewalIssuePassword.hasError || undefined}
+                aria-describedby="onboarding-renewal-issue-password-hint"
+                onChange={(event) => onRenewalIssuePasswordChange(event.target.value)}
+                placeholder={
+                  renewalIssuePasswordConfigured
+                    ? "변경할 때만 다시 입력"
+                    : "숫자 6자리 입력"
+                }
+                revealLabel="발급용 임시 비밀번호 보기"
+                hideLabel="발급용 임시 비밀번호 숨기기"
+                toggleDisabled={busy}
+              />
               {renderOnboardingRequiredHint("onboarding-renewal-issue-password-hint", {
                 missing: onboarding.renewalIssuePassword.missing,
                 defaultText: renewalIssuePasswordConfigured
