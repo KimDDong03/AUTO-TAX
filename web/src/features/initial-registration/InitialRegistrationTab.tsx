@@ -525,6 +525,7 @@ type InitialRegistrationTabProps = {
   customerOnboardingFileName: string;
   customerOnboardingChecklistRows: CustomerOnboardingChecklistPlantRow[];
   customerOnboardingPreview: CustomerOnboardingPreviewResponse | null;
+  customerOnboardingConfirmedCertificateCount?: number | null;
   customerOnboardingNotice: string;
   customerOnboardingError: string;
   certificateRegistrationProgress: ElectronicTaxOnboardingCertificateRegistrationProgress | null;
@@ -591,17 +592,38 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const onboardingBusyKey = props.busyKey?.startsWith("customer-onboarding-") ? props.busyKey : null;
   const isPreviewingOnboarding = onboardingBusyKey === "customer-onboarding-preview";
   const isCommittingOnboarding = onboardingBusyKey === "customer-onboarding-commit";
-  const onboardingImportableCount =
-    (props.customerOnboardingPreview?.createCount ?? 0) + (props.customerOnboardingPreview?.updateCount ?? 0);
-  const onboardingBlockedCount = props.customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0;
-  const reviewIssueMessages = buildInitialRegistrationReviewMessages({
-    preview: props.customerOnboardingPreview,
-    error: props.customerOnboardingError
-  });
   const showBillingMonthCompletion = props.showBillingMonthCompletion ?? props.mode === "exceptions";
   const hasExceptionMessages = props.quickRegisterMessages.length > 0;
   const registrationReady = props.registrationReady ?? false;
   const certificateReady = props.certificateReady ?? false;
+  const sharedPasswordReady = props.customerOnboardingSharedPassword.trim() !== "";
+  const hasChecklistRows = props.customerOnboardingChecklistRows.length > 0;
+  const selectedChecklistRows = props.customerOnboardingChecklistRows.filter((row) => row.selected === true);
+  const selectedChecklistCount = selectedChecklistRows.length;
+  const reviewResultMismatched =
+    props.customerOnboardingPreview !== null &&
+    selectedChecklistCount > 0 &&
+    props.customerOnboardingConfirmedCertificateCount !== null &&
+    props.customerOnboardingConfirmedCertificateCount !== undefined &&
+    props.customerOnboardingConfirmedCertificateCount !== selectedChecklistCount;
+  const onboardingImportableCount = reviewResultMismatched
+    ? 0
+    : (props.customerOnboardingPreview?.createCount ?? 0) + (props.customerOnboardingPreview?.updateCount ?? 0);
+  const onboardingBlockedCount =
+    (props.customerOnboardingPreview?.rows.filter((row) => row.status === "blocked").length ?? 0) +
+    (reviewResultMismatched ? 1 : 0);
+  const baseReviewIssueMessages = buildInitialRegistrationReviewMessages({
+    preview: props.customerOnboardingPreview,
+    error: props.customerOnboardingError
+  });
+  const reviewIssueMessages = reviewResultMismatched
+    ? [
+        ...baseReviewIssueMessages,
+        `선택한 인증서 ${selectedChecklistCount}건과 마지막 확인된 인증서 ${props.customerOnboardingConfirmedCertificateCount ?? 0}건이 일치하지 않습니다. 다시 확인하세요.`
+      ]
+    : baseReviewIssueMessages;
+  const hasUsableCustomerOnboardingPreview =
+    props.customerOnboardingPreview !== null && !reviewResultMismatched;
   const registrationFlow = getInitialRegistrationFlowState({
     helperReady: props.helperReady,
     helperCertificateCount: props.helperCertificateCount,
@@ -667,10 +689,6 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     : isReviewStepSelected
       ? "고객 가입과 공동인증서 등록에 필요한 값을 확인하세요."
     : registrationTaskDescription;
-  const sharedPasswordReady = props.customerOnboardingSharedPassword.trim() !== "";
-  const hasChecklistRows = props.customerOnboardingChecklistRows.length > 0;
-  const selectedChecklistRows = props.customerOnboardingChecklistRows.filter((row) => row.selected === true);
-  const selectedChecklistCount = selectedChecklistRows.length;
   const checklistPasswordReady =
     sharedPasswordReady ||
     (selectedChecklistCount > 0 &&
@@ -780,7 +798,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           : registrationStage === "commit" && !registrationFlow.commitCompleted
             ? {
                 label: isCommittingOnboarding ? "반영 중..." : "고객 반영",
-                disabled: props.busyKey !== null || !props.customerOnboardingPreview || onboardingImportableCount === 0,
+                disabled: props.busyKey !== null || !hasUsableCustomerOnboardingPreview || onboardingImportableCount === 0,
                 title: undefined,
                 onClick: () =>
                   void props.runAction(
@@ -1237,7 +1255,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
             {showOnboardingInlineStatus ? (
               <div className="onboarding-inline-status">
                 <InitialStatusMetric icon="file-text" label="인증서" value={props.customerOnboardingFileName || "읽기 완료"} />
-                <InitialStatusMetric icon="group" label="반영" value={`${onboardingImportableCount}건`} />
+                <InitialStatusMetric icon="group" label="반영" value={reviewResultMismatched ? "다시 확인" : `${onboardingImportableCount}건`} />
                 <InitialStatusMetric icon={onboardingBlockedCount > 0 ? "warning" : "complete"} label="검토" value={`${onboardingBlockedCount}건`} />
               </div>
             ) : null}

@@ -94,6 +94,7 @@ export type CertificateBusinessInfoLookupStatus =
   | "unsupported"
   | "password-error"
   | "certificate-not-found"
+  | "hometax-not-registered"
   | "lookup-failed";
 
 export type CertificateBusinessInfoLookupStage =
@@ -225,6 +226,14 @@ function classifyHomeTaxBusinessInfoFailureStatus(
 
   if (stage === "certificate-match") {
     return "certificate-not-found";
+  }
+
+  if (
+    message.includes("ETINFZ0109") ||
+    message.includes("홈택스에 등록된 인증서가 아닙니다") ||
+    message.includes("홈택스에 등록되지 않은 인증서")
+  ) {
+    return "hometax-not-registered";
   }
 
   return "lookup-failed";

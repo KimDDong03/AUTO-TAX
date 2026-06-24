@@ -13,6 +13,7 @@ const DEFAULT_LOCAL_RENEWAL_HELPER_PORT = 35119;
 const DEFAULT_LOCAL_RENEWAL_HELPER_TIMEOUT_MS = 8_000;
 const DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS = 60_000;
 const DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_TIMEOUT_MS = 240_000;
+const DEFAULT_LOCAL_CERTIFICATE_BUSINESS_INFO_SIGNGATE_CONCURRENCY = 16;
 const DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_CONCURRENCY = 5;
 const configuredLocalRenewalHelperPort = typeof import.meta.env?.VITE_RENEWAL_HELPER_PORT === "string"
   ? import.meta.env.VITE_RENEWAL_HELPER_PORT.trim()
@@ -567,6 +568,10 @@ export async function requestLocalCertificateBusinessInfoLookupBatch(
         body: JSON.stringify({
           requests: payloads,
           concurrency: Math.min(
+            DEFAULT_LOCAL_CERTIFICATE_BUSINESS_INFO_SIGNGATE_CONCURRENCY,
+            payloads.length
+          ),
+          homeTaxConcurrency: Math.min(
             DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_CONCURRENCY,
             payloads.length
           )

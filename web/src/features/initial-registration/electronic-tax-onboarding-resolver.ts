@@ -363,6 +363,27 @@ function buildBusinessInfoLookupFailureMessage(
 ): string {
   const detail = normalizeRenewalPreflightDetail(lookup?.error ?? lookup?.message ?? "");
   const label = "사업자정보 조회 실패";
+  if (lookup?.status === "hometax-not-registered") {
+    return buildRenewalPreflightFailureMessage(
+      "홈택스 보조 조회 실패",
+      detail,
+      "홈택스에 등록되지 않은 인증서라 보조 조회도 실패했습니다. 홈택스에 인증서를 등록한 뒤 다시 시도하거나 수동으로 보완하세요."
+    );
+  }
+  if (lookup?.status === "password-error") {
+    return buildRenewalPreflightFailureMessage(
+      "인증서 비밀번호 확인 실패",
+      detail,
+      "인증서 비밀번호가 맞지 않습니다. 공통 비밀번호 또는 개별 비밀번호를 확인하세요."
+    );
+  }
+  if (lookup?.status === "certificate-not-found") {
+    return buildRenewalPreflightFailureMessage(
+      "인증서 선택 확인 실패",
+      detail,
+      "선택한 인증서를 찾지 못했습니다. 공동인증서 읽기 또는 파일/폴더 추가를 다시 실행하세요."
+    );
+  }
   if (detail) {
     return buildRenewalPreflightFailureMessage(label, detail, "사업자 정보를 읽지 못했습니다.");
   }
@@ -582,7 +603,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
 ): Promise<CustomerOnboardingResolutionResult> {
   const onboardingPreflightConcurrency = args.onboardingPreflightConcurrency ?? 16;
   const onboardingPreflightBatchSize = args.onboardingPreflightBatchSize ?? onboardingPreflightConcurrency;
-  const onboardingBusinessInfoBatchSize = args.onboardingBusinessInfoBatchSize ?? 2;
+  const onboardingBusinessInfoBatchSize = args.onboardingBusinessInfoBatchSize ?? 200;
   const sharedPassword = await args.resolveSharedPassword();
   const availableCertificates = await args.loadAvailableCertificates();
   const errors: string[] = [];

@@ -202,8 +202,60 @@ test("requestLocalCertificateBusinessInfoLookupBatch uses unified certificate bu
 
     assert.match(capturedUrl, /\/api\/certificates\/business-info-batch$/);
     assert.equal((capturedBody as { concurrency?: number } | undefined)?.concurrency, 1);
+    assert.equal((capturedBody as { homeTaxConcurrency?: number } | undefined)?.homeTaxConcurrency, 1);
     assert.equal((capturedBody as { requests?: Array<{ issuerToName?: string | null }> } | undefined)?.requests?.[0]?.issuerToName, "SignGate");
     assert.equal(responses[0]?.result.source, "signgate");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("requestLocalCertificateBusinessInfoLookupBatch uses SignGate 16 and HomeTax 5 phase caps", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody: unknown;
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body ?? "{}"));
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        version: "0.1.94",
+        results: Array.from({ length: 20 }, (_, index) => ({
+          ok: true,
+          source: "signgate",
+          status: "complete",
+          stage: "signgate-preflight",
+          certificateIndex: String(index + 1),
+          certificateCn: `테스트${index + 1}`,
+          sourcePort: 14319,
+          loginCode: "0000",
+          businessInfoSnapshot: null,
+          message: "ok",
+          error: null
+        }))
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const responses = await requestLocalCertificateBusinessInfoLookupBatch(
+      Array.from({ length: 20 }, (_, index) => ({
+        certificateIndex: index + 1,
+        certificateCn: `테스트${index + 1}`,
+        certificatePassword: "secret"
+      }))
+    );
+
+    assert.equal((capturedBody as { concurrency?: number } | undefined)?.concurrency, 16);
+    assert.equal((capturedBody as { homeTaxConcurrency?: number } | undefined)?.homeTaxConcurrency, 5);
+    assert.equal((capturedBody as { requests?: unknown[] } | undefined)?.requests?.length, 20);
+    assert.equal(responses.length, 20);
   } finally {
     globalThis.fetch = originalFetch;
   }

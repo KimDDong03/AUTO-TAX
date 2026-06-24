@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  collectCertificateBusinessInfoLookupBatchResults,
   createCertificateUploadSessionMetadata,
   isSignGateBusinessInfoFallbackDetail,
   isPfxPasswordMismatchMessage,
@@ -101,4 +102,183 @@ test("uploadedCertificateMatchesBridge matches decimal P12 serial to hexadecimal
     ),
     true
   );
+});
+
+function makeBusinessInfoResult(overrides: Partial<Awaited<ReturnType<typeof collectCertificateBusinessInfoLookupBatchResults>>[number]> = {}) {
+  return {
+    ok: false,
+    source: "signgate",
+    status: "lookup-failed",
+    stage: "signgate-preflight",
+    certificateIndex: "1",
+    certificateCn: "테스트",
+    sourcePort: null,
+    loginCode: null,
+    businessInfoSnapshot: null,
+    message: null,
+    error: "조회 실패",
+    ...overrides
+  } as Awaited<ReturnType<typeof collectCertificateBusinessInfoLookupBatchResults>>[number];
+}
+
+test("collectCertificateBusinessInfoLookupBatchResults runs SignGate first and sends only fallback-worthy rows to HomeTax", async () => {
+  const homeTaxCalls: string[] = [];
+  const results = await collectCertificateBusinessInfoLookupBatchResults(
+    [
+      { certificateIndex: 1, certificateCn: "signgate-ok", certificatePassword: "secret" },
+      { certificateIndex: 2, certificateCn: "fallback-ok", certificatePassword: "secret", issuerToName: "yessign" },
+      { certificateIndex: 3, certificateCn: "password-error", certificatePassword: "secret" },
+      { certificateIndex: 4, certificateCn: "hometax-not-registered", certificatePassword: "secret", issuerToName: "yessign" }
+    ],
+    {
+      signGateConcurrency: 16,
+      homeTaxConcurrency: 5,
+      lookupSignGate: async (payload) => {
+        if (payload.certificateCn === "signgate-ok") {
+          return makeBusinessInfoResult({
+            ok: true,
+            source: "signgate",
+            status: "complete",
+            businessInfoSnapshot: {
+              companyName: "SignGate",
+              businessNumber: "1111111111",
+              ceoName: null,
+              bizType: null,
+              bizClass: null,
+              businessFieldCode: null,
+              postalCode: null,
+              baseAddress: "서울",
+              detailAddress: null,
+              contactName: null,
+              contactDepartment: null,
+              contactEmail: null,
+              contactTel: null,
+              contactFax: null,
+              contactMobile: null
+            }
+          });
+        }
+        if (payload.certificateCn === "password-error") {
+          return makeBusinessInfoResult({
+            status: "password-error",
+            error: "인증서 비밀번호가 맞지 않습니다."
+          });
+        }
+        return makeBusinessInfoResult({
+          status: "unsupported",
+          error: "갱신 가능한 공동인증서가 아닙니다."
+        });
+      },
+      lookupHomeTax: async (payload) => {
+        homeTaxCalls.push(String(payload.certificateCn));
+        if (payload.certificateCn === "fallback-ok") {
+          return makeBusinessInfoResult({
+            ok: true,
+            source: "hometax",
+            status: "complete",
+            stage: "business-info",
+            businessInfoSnapshot: {
+              companyName: "HomeTax",
+              businessNumber: "2222222222",
+              ceoName: null,
+              bizType: null,
+              bizClass: null,
+              businessFieldCode: null,
+              postalCode: null,
+              baseAddress: "부산",
+              detailAddress: null,
+              contactName: null,
+              contactDepartment: null,
+              contactEmail: null,
+              contactTel: null,
+              contactFax: null,
+              contactMobile: null
+            }
+          }) as never;
+        }
+        return makeBusinessInfoResult({
+          source: "hometax",
+          status: "hometax-not-registered",
+          stage: "hometax-login",
+          error: "[ETINFZ0109]홈택스에 등록된 인증서가 아닙니다."
+        }) as never;
+      }
+    }
+  );
+
+  assert.deepEqual(homeTaxCalls, ["fallback-ok", "hometax-not-registered"]);
+  assert.equal(results[0]?.source, "signgate");
+  assert.equal(results[1]?.source, "hometax");
+  assert.equal(results[1]?.ok, true);
+  assert.equal(results[2]?.status, "password-error");
+  assert.equal(results[2]?.source, "signgate");
+  assert.equal(results[3]?.status, "hometax-not-registered");
+  assert.match(results[3]?.error ?? "", /홈택스에 등록되지 않은 인증서/);
+  assert.match(results[3]?.error ?? "", /SignGate:/);
+});
+
+test("collectCertificateBusinessInfoLookupBatchResults caps SignGate and HomeTax fallback concurrency independently", async () => {
+  let activeSignGate = 0;
+  let maxSignGate = 0;
+  let activeHomeTax = 0;
+  let maxHomeTax = 0;
+  const requests = Array.from({ length: 20 }, (_, index) => ({
+    certificateIndex: index + 1,
+    certificateCn: `테스트${index + 1}`,
+    certificatePassword: "secret",
+    issuerToName: "yessign"
+  }));
+
+  const results = await collectCertificateBusinessInfoLookupBatchResults(requests, {
+    signGateConcurrency: 16,
+    homeTaxConcurrency: 5,
+    lookupSignGate: async (payload) => {
+      activeSignGate += 1;
+      maxSignGate = Math.max(maxSignGate, activeSignGate);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeSignGate -= 1;
+      return makeBusinessInfoResult({
+        certificateIndex: String(payload.certificateIndex),
+        certificateCn: payload.certificateCn ?? null,
+        status: "unsupported",
+        error: "갱신 가능한 공동인증서가 아닙니다."
+      });
+    },
+    lookupHomeTax: async (payload) => {
+      activeHomeTax += 1;
+      maxHomeTax = Math.max(maxHomeTax, activeHomeTax);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeHomeTax -= 1;
+      return makeBusinessInfoResult({
+        ok: true,
+        source: "hometax",
+        status: "complete",
+        stage: "business-info",
+        certificateIndex: String(payload.certificateIndex),
+        certificateCn: payload.certificateCn ?? null,
+        businessInfoSnapshot: {
+          companyName: payload.certificateCn ?? null,
+          businessNumber: String(payload.certificateIndex).padStart(10, "0"),
+          ceoName: null,
+          bizType: null,
+          bizClass: null,
+          businessFieldCode: null,
+          postalCode: null,
+          baseAddress: "서울",
+          detailAddress: null,
+          contactName: null,
+          contactDepartment: null,
+          contactEmail: null,
+          contactTel: null,
+          contactFax: null,
+          contactMobile: null
+        }
+      }) as never;
+    }
+  });
+
+  assert.equal(results.length, 20);
+  assert.equal(results.every((result) => result.ok && result.source === "hometax"), true);
+  assert.equal(maxSignGate, 16);
+  assert.equal(maxHomeTax, 5);
 });

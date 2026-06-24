@@ -445,6 +445,7 @@ export type CertificateBusinessInfoLookupStatus =
   | "unsupported"
   | "password-error"
   | "certificate-not-found"
+  | "hometax-not-registered"
   | "lookup-failed";
 
 export type CertificateBusinessInfoLookupStage =

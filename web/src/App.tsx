@@ -3055,6 +3055,19 @@ export function App() {
         )
       );
       setCustomerOnboardingFileName(`읽은 인증서 ${activeCertificates.length}건`);
+      setCustomerOnboardingWorkbook(null);
+      setCustomerOnboardingPreview(null);
+      setCustomerOnboardingPreflightPasswordFailureEntries([]);
+      setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+      setCustomerOnboardingJoinProgress(null);
+      setCustomerOnboardingCertificateRegistrationProgress(null);
+      setCustomerOnboardingSessionState((prev) => ({
+        ...prev,
+        previewReady: false,
+        commitDone: false,
+        certificateDone: false,
+        targetBusinessNumbers: []
+      }));
       customerOnboardingPreflightCacheRef.current.clear();
       return importedCertificate;
     },
@@ -4462,64 +4475,85 @@ export function App() {
 
     setCustomerOnboardingNotice("선택 인증서 확인 중...");
     setCustomerOnboardingError("");
-    const selectedTemplateWorkbook: CustomerOnboardingTemplateWorkbookInput = {
-      ...customerOnboardingTemplateWorkbook,
-      plants: selectedPlants
-    };
-    const resolved = await resolveCustomerOnboardingTemplateWorkbook(
-      selectedTemplateWorkbook,
-      (message) => {
-        setCustomerOnboardingNotice(message);
-      }
-    );
-    const workbookMessages = joinOnboardingMessages([
-      ...(resolved.warnings ?? []),
-      ...resolved.errors
-    ]);
-    const targetBusinessNumbers = getOnboardingElectronicTaxBusinessNumbers(resolved.workbook);
-    setCustomerOnboardingWorkbook(resolved.workbook);
-    setCustomerOnboardingPreflightPasswordFailureEntries(resolved.passwordFailureEntries);
+    setCustomerOnboardingWorkbook(null);
+    setCustomerOnboardingPreview(null);
+    setCustomerOnboardingPreflightPasswordFailureEntries([]);
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
     setCustomerOnboardingJoinProgress(null);
     setCustomerOnboardingCertificateRegistrationProgress(null);
+    setCustomerOnboardingSessionState((prev) => ({
+      ...prev,
+      previewReady: false,
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: []
+    }));
 
-    if (resolved.workbook.customers.length === 0) {
-      setCustomerOnboardingPreview(null);
+    try {
+      const selectedTemplateWorkbook: CustomerOnboardingTemplateWorkbookInput = {
+        ...customerOnboardingTemplateWorkbook,
+        plants: selectedPlants
+      };
+      const resolved = await resolveCustomerOnboardingTemplateWorkbook(
+        selectedTemplateWorkbook,
+        (message) => {
+          setCustomerOnboardingNotice(message);
+        }
+      );
+      const workbookMessages = joinOnboardingMessages([
+        ...(resolved.warnings ?? []),
+        ...resolved.errors
+      ]);
+      const targetBusinessNumbers = getOnboardingElectronicTaxBusinessNumbers(resolved.workbook);
+      setCustomerOnboardingWorkbook(resolved.workbook);
+      setCustomerOnboardingPreflightPasswordFailureEntries(resolved.passwordFailureEntries);
+      setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+      setCustomerOnboardingJoinProgress(null);
+      setCustomerOnboardingCertificateRegistrationProgress(null);
+
+      if (resolved.workbook.customers.length === 0) {
+        setCustomerOnboardingPreview(null);
+        setCustomerOnboardingSessionState({
+          templateDownloaded: true,
+          previewReady: false,
+          commitDone: false,
+          certificateDone: false,
+          targetBusinessNumbers
+        });
+        setCustomerOnboardingNotice("확인 가능한 고객이 없습니다. 아래 확인 필요 메시지를 수정한 뒤 다시 확인하세요.");
+        setCustomerOnboardingError(workbookMessages);
+        return;
+      }
+
+      setCustomerOnboardingNotice(`고객 ${resolved.workbook.customers.length}건 검토 중...`);
+      const preview = await api<CustomerOnboardingPreviewResponse>("/api/customer-onboarding/preview", {
+        method: "POST",
+        body: JSON.stringify(resolved.workbook)
+      });
+      setCustomerOnboardingPreview(preview);
       setCustomerOnboardingSessionState({
         templateDownloaded: true,
-        previewReady: false,
+        previewReady: true,
         commitDone: false,
         certificateDone: false,
         targetBusinessNumbers
       });
-      setCustomerOnboardingNotice("확인 가능한 고객이 없습니다. 아래 확인 필요 메시지를 수정한 뒤 다시 확인하세요.");
+      setCustomerOnboardingNotice(
+        buildElectronicTaxOnboardingPreviewNotice({
+          resolvedCertificateCount: resolved.resolvedCertificateCount,
+          customerCount: resolved.workbook.customers.length,
+          acceptedBeforeWindowCount: resolved.acceptedBeforeWindowCount,
+          skippedCertificateCount: resolved.skippedCertificateCount,
+          workbookWarnings: []
+        })
+      );
       setCustomerOnboardingError(workbookMessages);
-      return;
+    } catch (reviewError) {
+      const message = getDisplayErrorMessage(reviewError, "선택 인증서 확인을 완료하지 못했습니다.");
+      setCustomerOnboardingNotice("선택 인증서 확인을 완료하지 못했습니다.");
+      setCustomerOnboardingError(message);
+      throw reviewError;
     }
-
-    setCustomerOnboardingNotice(`고객 ${resolved.workbook.customers.length}건 검토 중...`);
-    const preview = await api<CustomerOnboardingPreviewResponse>("/api/customer-onboarding/preview", {
-      method: "POST",
-      body: JSON.stringify(resolved.workbook)
-    });
-    setCustomerOnboardingPreview(preview);
-    setCustomerOnboardingSessionState({
-      templateDownloaded: true,
-      previewReady: true,
-      commitDone: false,
-      certificateDone: false,
-      targetBusinessNumbers
-    });
-    setCustomerOnboardingNotice(
-      buildElectronicTaxOnboardingPreviewNotice({
-        resolvedCertificateCount: resolved.resolvedCertificateCount,
-        customerCount: resolved.workbook.customers.length,
-        acceptedBeforeWindowCount: resolved.acceptedBeforeWindowCount,
-        skippedCertificateCount: resolved.skippedCertificateCount,
-        workbookWarnings: []
-      })
-    );
-    setCustomerOnboardingError(workbookMessages);
   };
 
   const commitCustomerOnboardingWorkbook = async () => {
@@ -7684,6 +7718,7 @@ export function App() {
           customerOnboardingFileName={customerOnboardingFileName}
           customerOnboardingChecklistRows={customerOnboardingTemplateWorkbook?.plants ?? []}
           customerOnboardingPreview={customerOnboardingPreview}
+          customerOnboardingConfirmedCertificateCount={customerOnboardingWorkbook?.certificates.length ?? null}
           customerOnboardingNotice={customerOnboardingNotice}
           customerOnboardingError={customerOnboardingError}
           certificateRegistrationProgress={customerOnboardingCertificateRegistrationProgress}

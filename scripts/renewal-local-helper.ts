@@ -38,8 +38,8 @@ const PREFLIGHT_BATCH_DEFAULT_CONCURRENCY = 16;
 const PREFLIGHT_BATCH_MAX_CONCURRENCY = 32;
 const HOMETAX_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY = 5;
 const HOMETAX_BUSINESS_INFO_BATCH_MAX_CONCURRENCY = 5;
-const CERTIFICATE_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY = 5;
-const CERTIFICATE_BUSINESS_INFO_BATCH_MAX_CONCURRENCY = 5;
+const CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY = 16;
+const CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MAX_CONCURRENCY = 32;
 const UPLOAD_SESSION_MAX_FILE_COUNT = 500;
 const UPLOAD_SESSION_MAX_BASE64_CHARS = 2_500_000;
 const UPLOAD_SESSION_TTL_MS = 30 * 60 * 1000;
@@ -234,7 +234,19 @@ const certificateBusinessInfoBatchRequestSchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(CERTIFICATE_BUSINESS_INFO_BATCH_MAX_CONCURRENCY)
+    .max(CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MAX_CONCURRENCY)
+    .optional(),
+  signGateConcurrency: z
+    .number()
+    .int()
+    .min(1)
+    .max(CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MAX_CONCURRENCY)
+    .optional(),
+  homeTaxConcurrency: z
+    .number()
+    .int()
+    .min(1)
+    .max(HOMETAX_BUSINESS_INFO_BATCH_MAX_CONCURRENCY)
     .optional()
 });
 
@@ -1597,11 +1609,23 @@ function buildCombinedBusinessInfoFailureResult(
 ): CertificateBusinessInfoLookupResult {
   const homeTaxDetail = normalizeBusinessInfoFailureDetail(homeTaxResult.error ?? homeTaxResult.message ?? "");
   const signGateDetail = normalizeBusinessInfoFailureDetail(signGateResult.error ?? signGateResult.message ?? "");
+  let fallbackDetail = homeTaxDetail;
+  if (homeTaxResult.status === "hometax-not-registered") {
+    fallbackDetail =
+      "홈택스에 등록되지 않은 인증서라 보조 조회도 실패했습니다. SignGate 조회가 안 되는 인증서는 홈택스에 인증서를 등록한 뒤 다시 시도하거나 수동으로 보완하세요.";
+  } else if (homeTaxResult.status === "password-error") {
+    fallbackDetail =
+      "인증서 비밀번호가 맞지 않아 홈택스 보조 조회도 실패했습니다. 공통 비밀번호 또는 개별 비밀번호를 확인하세요.";
+  } else if (homeTaxResult.status === "certificate-not-found") {
+    fallbackDetail =
+      "홈택스 보조 조회에서 선택한 인증서를 찾지 못했습니다. 공동인증서 읽기 또는 파일/폴더 추가를 다시 실행하세요.";
+  }
+
   return {
     ...homeTaxResult,
     source: "hometax",
     status: homeTaxResult.status ?? "lookup-failed",
-    error: [homeTaxDetail, signGateDetail ? `SignGate: ${signGateDetail}` : ""]
+    error: [fallbackDetail, signGateDetail ? `SignGate: ${signGateDetail}` : ""]
       .filter(Boolean)
       .join(" / ") || "사업자정보를 읽지 못했습니다.",
   };
@@ -1640,6 +1664,63 @@ async function collectCertificateBusinessInfoLookupResult(
   }
 
   return buildCombinedBusinessInfoFailureResult(signGateResult, homeTaxResult);
+}
+
+export async function collectCertificateBusinessInfoLookupBatchResults(
+  payloads: LocalHomeTaxBusinessInfoPayload[],
+  options?: {
+    signGateConcurrency?: number;
+    homeTaxConcurrency?: number;
+    lookupSignGate?: (payload: LocalHomeTaxBusinessInfoPayload) => Promise<CertificateBusinessInfoLookupResult>;
+    lookupHomeTax?: (payload: LocalHomeTaxBusinessInfoPayload) => Promise<HomeTaxBusinessInfoLookupResult>;
+  },
+): Promise<CertificateBusinessInfoLookupResult[]> {
+  if (payloads.length === 0) {
+    return [];
+  }
+
+  const lookupSignGate = options?.lookupSignGate ?? collectSignGateBusinessInfoLookupResult;
+  const lookupHomeTax = options?.lookupHomeTax ?? collectHomeTaxBusinessInfoLookupResult;
+  const signGateResults = await mapWithConcurrency(
+    payloads,
+    options?.signGateConcurrency ?? CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY,
+    async (payload) => await lookupSignGate(payload)
+  );
+  const results = [...signGateResults];
+  const fallbackRequests = signGateResults
+    .map((signGateResult, index) => ({
+      index,
+      payload: payloads[index] as LocalHomeTaxBusinessInfoPayload,
+      signGateResult
+    }))
+    .filter(({ payload, signGateResult }) =>
+      shouldTryHomeTaxAfterSignGateFailure(payload, signGateResult)
+    );
+
+  if (fallbackRequests.length === 0) {
+    return results;
+  }
+
+  const fallbackResults = await mapWithConcurrency(
+    fallbackRequests,
+    options?.homeTaxConcurrency ?? HOMETAX_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY,
+    async ({ payload }) => await lookupHomeTax(payload)
+  );
+
+  fallbackResults.forEach((homeTaxResult, fallbackIndex) => {
+    const fallbackRequest = fallbackRequests[fallbackIndex];
+    if (!fallbackRequest) {
+      return;
+    }
+    results[fallbackRequest.index] = homeTaxResult.ok
+      ? homeTaxResult
+      : buildCombinedBusinessInfoFailureResult(
+          fallbackRequest.signGateResult,
+          homeTaxResult
+        );
+  });
+
+  return results;
 }
 
 async function mapWithConcurrency<T, TResult>(
@@ -1778,12 +1859,18 @@ export function createRenewalLocalHelperApp() {
   app.post("/api/certificates/business-info-batch", async (req, res, next) => {
     try {
       const payload = certificateBusinessInfoBatchRequestSchema.parse(req.body ?? {});
-      const concurrency =
-        payload.concurrency ?? CERTIFICATE_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY;
-      const results = await mapWithConcurrency(
+      const signGateConcurrency =
+        payload.signGateConcurrency ??
+        payload.concurrency ??
+        CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY;
+      const homeTaxConcurrency =
+        payload.homeTaxConcurrency ?? HOMETAX_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY;
+      const results = await collectCertificateBusinessInfoLookupBatchResults(
         payload.requests,
-        concurrency,
-        async (request) => await collectCertificateBusinessInfoLookupResult(request)
+        {
+          signGateConcurrency,
+          homeTaxConcurrency
+        }
       );
       res.json({ ok: true, version, results });
     } catch (error) {
