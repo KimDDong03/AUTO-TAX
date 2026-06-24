@@ -29,20 +29,72 @@ function Get-LocalRenewalHelperHealth {
   }
 }
 
+function Test-LocalTcpPortOpen {
+  param(
+    [int]$Port,
+    [int]$TimeoutMs = 350
+  )
+
+  $client = [System.Net.Sockets.TcpClient]::new()
+  try {
+    $connectTask = $client.ConnectAsync("127.0.0.1", $Port)
+    if (-not $connectTask.Wait($TimeoutMs)) {
+      return $false
+    }
+
+    return $client.Connected
+  } catch {
+    return $false
+  } finally {
+    $client.Dispose()
+  }
+}
+
+function Get-LocalTcpListeningProcessIds {
+  param(
+    [int]$Port
+  )
+
+  $processIds = New-Object System.Collections.Generic.HashSet[int]
+  try {
+    $netstatLines = & netstat.exe -ano -p tcp 2>$null
+    foreach ($line in @($netstatLines)) {
+      $normalized = ($line -replace "\s+", " ").Trim()
+      if ([string]::IsNullOrWhiteSpace($normalized)) {
+        continue
+      }
+
+      $parts = $normalized.Split(" ")
+      if ($parts.Count -lt 5 -or $parts[0] -ine "TCP" -or $parts[3] -ine "LISTENING") {
+        continue
+      }
+
+      if (-not $parts[1].EndsWith(":$Port", [System.StringComparison]::OrdinalIgnoreCase)) {
+        continue
+      }
+
+      $processId = 0
+      if ([int]::TryParse($parts[4], [ref]$processId) -and $processId -gt 0) {
+        [void]$processIds.Add($processId)
+      }
+    }
+  } catch {
+    # Ignore netstat failures and keep the status command responsive.
+  }
+
+  return @($processIds)
+}
+
 $helperPort = Get-HelperPort
 $taskName = "AUTO-TAX Renewal Local Helper"
 $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 $health = Get-LocalRenewalHelperHealth -Port $helperPort
 
 $owningProcessIds = @()
-try {
-  $owningProcessIds = @(Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $helperPort -State Listen -ErrorAction Stop |
-    Select-Object -ExpandProperty OwningProcess -Unique)
-} catch {
-  $owningProcessIds = @()
-}
+$owningProcessIds = @(Get-LocalTcpListeningProcessIds -Port $helperPort)
+$portOpen = Test-LocalTcpPortOpen -Port $helperPort
 
-$isRunning = $health -or $owningProcessIds.Count -gt 0
+$isRunning = $health -or $owningProcessIds.Count -gt 0 -or $portOpen
 
 Write-Output "status=$(if ($isRunning) { 'running' } else { 'stopped' })"
 Write-Output "port=$helperPort"

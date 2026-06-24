@@ -13,7 +13,6 @@ const DEFAULT_LOCAL_RENEWAL_HELPER_PORT = 35119;
 const DEFAULT_LOCAL_RENEWAL_HELPER_TIMEOUT_MS = 8_000;
 const DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS = 60_000;
 const DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_TIMEOUT_MS = 240_000;
-const DEFAULT_LOCAL_CERTIFICATE_BUSINESS_INFO_SIGNGATE_CONCURRENCY = 16;
 const DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_CONCURRENCY = 5;
 const configuredLocalRenewalHelperPort = typeof import.meta.env?.VITE_RENEWAL_HELPER_PORT === "string"
   ? import.meta.env.VITE_RENEWAL_HELPER_PORT.trim()
@@ -108,6 +107,37 @@ type LocalCertificateBusinessInfoLookupBatchResponse = {
   ok: true;
   version: string;
   results: CertificateBusinessInfoLookupResult[];
+};
+
+type LocalCertificateBusinessInfoJobStatus = "queued" | "running" | "complete" | "failed" | "cancelled";
+type LocalCertificateBusinessInfoJobPhase = "queued" | "signgate" | "hometax" | "complete" | "failed" | "cancelled";
+
+type LocalCertificateBusinessInfoJob = {
+  id: string;
+  status: LocalCertificateBusinessInfoJobStatus;
+  phase: LocalCertificateBusinessInfoJobPhase;
+  total: number;
+  completed: number;
+  createdAt: string;
+  updatedAt: string;
+  error: string | null;
+  signGate: {
+    total: number;
+    completed: number;
+    concurrency: number;
+  };
+  homeTax: {
+    total: number;
+    completed: number;
+    concurrency: number;
+  };
+  results: CertificateBusinessInfoLookupResult[] | null;
+};
+
+type LocalCertificateBusinessInfoJobResponse = {
+  ok: true;
+  version: string;
+  job: LocalCertificateBusinessInfoJob;
 };
 
 type LocalBusinessInfoLookupPayload = {
@@ -326,6 +356,52 @@ async function localRenewalHelperRequest<T>(pathname: string, init?: LocalRenewa
   }
 
   return (await response.json()) as T;
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+function formatCertificateBusinessInfoJobProgress(job: LocalCertificateBusinessInfoJob): string {
+  if (job.status === "complete") {
+    return `사업자정보 조회 ${job.total}/${job.total}건 완료`;
+  }
+  if (job.status === "failed" || job.status === "cancelled") {
+    return job.error ?? "사업자정보 조회 작업이 중단되었습니다.";
+  }
+  if (job.phase === "hometax") {
+    return `SignGate 조회 ${job.signGate.completed}/${job.signGate.total}건 완료 · 홈택스 보조 조회 ${job.homeTax.completed}/${job.homeTax.total}건 완료`;
+  }
+  if (job.phase === "signgate") {
+    return `SignGate 조회 ${job.signGate.completed}/${job.signGate.total}건 완료`;
+  }
+  return `사업자정보 조회 0/${job.total}건 대기 중`;
+}
+
+async function pollLocalCertificateBusinessInfoJob(
+  initialJob: LocalCertificateBusinessInfoJob,
+  options?: {
+    onProgress?: (message: string) => void;
+  }
+): Promise<LocalCertificateBusinessInfoJob> {
+  let job = initialJob;
+  const deadline = Date.now() + resolveLocalBusinessInfoLookupTimeoutMs(job.total);
+  options?.onProgress?.(formatCertificateBusinessInfoJobProgress(job));
+  while (job.status === "queued" || job.status === "running") {
+    if (Date.now() > deadline) {
+      throw new Error(`AT 헬퍼 요청이 ${Math.round(resolveLocalBusinessInfoLookupTimeoutMs(job.total) / 1000)}초 안에 완료되지 않았습니다. 잠시 후 다시 시도하세요.`);
+    }
+    await delay(1_000);
+    const response = await localRenewalHelperRequest<LocalCertificateBusinessInfoJobResponse>(
+      `/api/certificates/business-info-jobs/${encodeURIComponent(job.id)}`,
+      {
+        timeoutMs: DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS
+      }
+    );
+    job = response.job;
+    options?.onProgress?.(formatCertificateBusinessInfoJobProgress(job));
+  }
+  return job;
 }
 
 function isNPKICertificateMaterialFile(file: File): boolean {
@@ -560,21 +636,63 @@ export async function requestLocalCertificateBusinessInfoLookupBatch(
     return [];
   }
 
+  let jobResponse: LocalCertificateBusinessInfoJobResponse | null = null;
+  try {
+    jobResponse = await localRenewalHelperRequest<LocalCertificateBusinessInfoJobResponse>(
+      "/api/certificates/business-info-jobs",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requests: payloads
+        }),
+        timeoutMs: DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS
+      }
+    );
+  } catch {
+    // Older helpers do not expose the job API. Keep the legacy batch route as a compatibility path.
+  }
+
+  if (jobResponse) {
+    try {
+      const job = await pollLocalCertificateBusinessInfoJob(jobResponse.job, options);
+      if (job.status !== "complete" || !job.results || job.results.length !== payloads.length) {
+        throw new Error(job.error ?? "사업자정보 조회 작업이 완료되지 않았습니다.");
+      }
+      return job.results.map((result) => ({
+        ok: true as const,
+        version: jobResponse.version,
+        result
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "사업자정보 조회에 실패했습니다.";
+      options?.onProgress?.(`${payloads.length}건 사업자정보 조회 응답 실패`);
+      return payloads.map((payload) => ({
+        ok: true as const,
+        version: jobResponse.version,
+        result: {
+          ok: false,
+          source: "signgate" as const,
+          status: "lookup-failed" as const,
+          stage: "signgate-preflight" as const,
+          certificateIndex: String(payload.certificateIndex),
+          certificateCn: payload.certificateCn ?? null,
+          sourcePort: null,
+          loginCode: null,
+          businessInfoSnapshot: null,
+          message: null,
+          error: message
+        }
+      }));
+    }
+  }
+
   try {
     const response = await localRenewalHelperRequest<LocalCertificateBusinessInfoLookupBatchResponse>(
       "/api/certificates/business-info-batch",
       {
         method: "POST",
         body: JSON.stringify({
-          requests: payloads,
-          concurrency: Math.min(
-            DEFAULT_LOCAL_CERTIFICATE_BUSINESS_INFO_SIGNGATE_CONCURRENCY,
-            payloads.length
-          ),
-          homeTaxConcurrency: Math.min(
-            DEFAULT_LOCAL_HOMETAX_BUSINESS_INFO_CONCURRENCY,
-            payloads.length
-          )
+          requests: payloads
         }),
         timeoutMs: resolveLocalBusinessInfoLookupTimeoutMs(payloads.length)
       }

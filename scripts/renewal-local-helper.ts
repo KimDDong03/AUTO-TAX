@@ -38,8 +38,14 @@ const PREFLIGHT_BATCH_DEFAULT_CONCURRENCY = 16;
 const PREFLIGHT_BATCH_MAX_CONCURRENCY = 32;
 const HOMETAX_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY = 5;
 const HOMETAX_BUSINESS_INFO_BATCH_MAX_CONCURRENCY = 5;
+const CERTIFICATE_BUSINESS_INFO_BATCH_MAX_COUNT = PREFLIGHT_BATCH_MAX_COUNT;
+const CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MIN_CONCURRENCY = 4;
 const CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY = 16;
 const CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MAX_CONCURRENCY = 32;
+const CERTIFICATE_BUSINESS_INFO_ADAPTIVE_RECOVERY_BATCHES = 2;
+const CERTIFICATE_BUSINESS_INFO_ADAPTIVE_TRANSIENT_RATE = 0.25;
+const CERTIFICATE_BUSINESS_INFO_JOB_TTL_MS = 15 * 60 * 1000;
+const CERTIFICATE_BUSINESS_INFO_JOB_MAX_RETAINED = 30;
 const UPLOAD_SESSION_MAX_FILE_COUNT = 500;
 const UPLOAD_SESSION_MAX_BASE64_CHARS = 2_500_000;
 const UPLOAD_SESSION_TTL_MS = 30 * 60 * 1000;
@@ -219,7 +225,7 @@ const hometaxBusinessInfoRequestSchema = z.object({
 });
 
 const hometaxBusinessInfoBatchRequestSchema = z.object({
-  requests: z.array(hometaxBusinessInfoRequestSchema).min(1).max(PREFLIGHT_BATCH_MAX_COUNT),
+  requests: z.array(hometaxBusinessInfoRequestSchema).min(1).max(CERTIFICATE_BUSINESS_INFO_BATCH_MAX_COUNT),
   concurrency: z
     .number()
     .int()
@@ -229,7 +235,7 @@ const hometaxBusinessInfoBatchRequestSchema = z.object({
 });
 
 const certificateBusinessInfoBatchRequestSchema = z.object({
-  requests: z.array(hometaxBusinessInfoRequestSchema).min(1).max(PREFLIGHT_BATCH_MAX_COUNT),
+  requests: z.array(hometaxBusinessInfoRequestSchema).min(1).max(CERTIFICATE_BUSINESS_INFO_BATCH_MAX_COUNT),
   concurrency: z
     .number()
     .int()
@@ -249,6 +255,69 @@ const certificateBusinessInfoBatchRequestSchema = z.object({
     .max(HOMETAX_BUSINESS_INFO_BATCH_MAX_CONCURRENCY)
     .optional()
 });
+
+type CertificateBusinessInfoJobStatus = "queued" | "running" | "complete" | "failed" | "cancelled";
+type CertificateBusinessInfoJobPhase = "queued" | "signgate" | "hometax" | "complete" | "failed" | "cancelled";
+
+type CertificateBusinessInfoPhaseProgress = {
+  total: number;
+  completed: number;
+  concurrency: number;
+};
+
+type CertificateBusinessInfoJobRecord = {
+  id: string;
+  status: CertificateBusinessInfoJobStatus;
+  phase: CertificateBusinessInfoJobPhase;
+  total: number;
+  completed: number;
+  createdAt: string;
+  updatedAt: string;
+  error: string | null;
+  signGate: CertificateBusinessInfoPhaseProgress;
+  homeTax: CertificateBusinessInfoPhaseProgress;
+  results: Array<CertificateBusinessInfoLookupResult | null>;
+  cancelRequested: boolean;
+};
+
+type CertificateBusinessInfoJobSnapshot = Omit<CertificateBusinessInfoJobRecord, "results" | "cancelRequested"> & {
+  results: CertificateBusinessInfoLookupResult[] | null;
+};
+
+type CertificateBusinessInfoBatchProgressEvent =
+  | {
+      phase: "signgate";
+      total: number;
+      completed: number;
+      concurrency: number;
+      index: number;
+      result: CertificateBusinessInfoLookupResult;
+    }
+  | {
+      phase: "hometax-queued";
+      total: number;
+      completed: number;
+      concurrency: number;
+    }
+  | {
+      phase: "hometax";
+      total: number;
+      completed: number;
+      concurrency: number;
+      index: number;
+      result: CertificateBusinessInfoLookupResult;
+    };
+
+type CertificateBusinessInfoConcurrencyPolicy = {
+  min: number;
+  default: number;
+  max: number;
+  current: number;
+  adaptive: boolean;
+  stableBatchCount: number;
+  lastAdjustmentReason: string | null;
+  lastAdjustedAt: string | null;
+};
 
 const renewalComparisonProfileSchema = z.object({
   corpName: z.string(),
@@ -367,6 +436,121 @@ type CertificateUploadSessionImportResult = {
 };
 
 const certificateUploadSessions = new Map<string, StoredCertificateUploadSession>();
+const certificateBusinessInfoJobs = new Map<string, CertificateBusinessInfoJobRecord>();
+const signGateBusinessInfoConcurrencyPolicy: CertificateBusinessInfoConcurrencyPolicy = {
+  min: CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MIN_CONCURRENCY,
+  default: CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY,
+  max: CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MAX_CONCURRENCY,
+  current: CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY,
+  adaptive: true,
+  stableBatchCount: 0,
+  lastAdjustmentReason: null,
+  lastAdjustedAt: null
+};
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function touchCertificateBusinessInfoJob(job: CertificateBusinessInfoJobRecord): void {
+  job.updatedAt = new Date().toISOString();
+}
+
+function pruneCertificateBusinessInfoJobs(): void {
+  const now = Date.now();
+  for (const [jobId, job] of certificateBusinessInfoJobs) {
+    const updatedAtMs = Date.parse(job.updatedAt);
+    if (Number.isFinite(updatedAtMs) && now - updatedAtMs > CERTIFICATE_BUSINESS_INFO_JOB_TTL_MS) {
+      certificateBusinessInfoJobs.delete(jobId);
+    }
+  }
+
+  const excessCount = certificateBusinessInfoJobs.size - CERTIFICATE_BUSINESS_INFO_JOB_MAX_RETAINED;
+  if (excessCount <= 0) {
+    return;
+  }
+
+  const removableJobs = [...certificateBusinessInfoJobs.values()]
+    .filter((job) => job.status === "complete" || job.status === "failed" || job.status === "cancelled")
+    .sort((left, right) => Date.parse(left.updatedAt) - Date.parse(right.updatedAt))
+    .slice(0, excessCount);
+  for (const job of removableJobs) {
+    certificateBusinessInfoJobs.delete(job.id);
+  }
+}
+
+function snapshotCertificateBusinessInfoJob(job: CertificateBusinessInfoJobRecord): CertificateBusinessInfoJobSnapshot {
+  const finalResults =
+    job.status === "complete" || job.status === "failed" || job.status === "cancelled"
+      ? job.results.filter((result): result is CertificateBusinessInfoLookupResult => result !== null)
+      : null;
+  return {
+    id: job.id,
+    status: job.status,
+    phase: job.phase,
+    total: job.total,
+    completed: job.completed,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    error: job.error,
+    signGate: { ...job.signGate },
+    homeTax: { ...job.homeTax },
+    results: finalResults
+  };
+}
+
+export function getCertificateBusinessInfoCapabilities() {
+  return {
+    maxBatchSize: CERTIFICATE_BUSINESS_INFO_BATCH_MAX_COUNT,
+    supportsJobs: true,
+    providerOrder: ["signgate", "hometax"] as const,
+    signGate: { ...signGateBusinessInfoConcurrencyPolicy },
+    homeTax: {
+      min: 1,
+      default: HOMETAX_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY,
+      max: HOMETAX_BUSINESS_INFO_BATCH_MAX_CONCURRENCY,
+      current: HOMETAX_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY,
+      adaptive: false,
+      stableBatchCount: 0,
+      lastAdjustmentReason: null,
+      lastAdjustedAt: null
+    }
+  };
+}
+
+export function resetCertificateBusinessInfoRuntimePolicyForTest(): void {
+  signGateBusinessInfoConcurrencyPolicy.current = CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY;
+  signGateBusinessInfoConcurrencyPolicy.stableBatchCount = 0;
+  signGateBusinessInfoConcurrencyPolicy.lastAdjustmentReason = null;
+  signGateBusinessInfoConcurrencyPolicy.lastAdjustedAt = null;
+  certificateBusinessInfoJobs.clear();
+}
+
+function resolveSignGateBusinessInfoConcurrency(requestedConcurrency?: number): number {
+  const requested = requestedConcurrency == null
+    ? signGateBusinessInfoConcurrencyPolicy.default
+    : clampInteger(
+        requestedConcurrency,
+        signGateBusinessInfoConcurrencyPolicy.min,
+        signGateBusinessInfoConcurrencyPolicy.max
+      );
+  return clampInteger(
+    Math.min(requested, signGateBusinessInfoConcurrencyPolicy.current),
+    signGateBusinessInfoConcurrencyPolicy.min,
+    signGateBusinessInfoConcurrencyPolicy.max
+  );
+}
+
+function resolveHomeTaxBusinessInfoConcurrency(requestedConcurrency?: number): number {
+  return clampInteger(
+    requestedConcurrency ?? HOMETAX_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY,
+    1,
+    HOMETAX_BUSINESS_INFO_BATCH_MAX_CONCURRENCY
+  );
+}
 
 function isRetryablePreflightFailureDetail(detail: string): boolean {
   if (!detail) {
@@ -1492,6 +1676,78 @@ function isLikelyYessignCertificatePayload(payload: LocalHomeTaxBusinessInfoPayl
   );
 }
 
+function isSignGateAdaptiveTransientFailure(result: CertificateBusinessInfoLookupResult): boolean {
+  if (result.ok) {
+    return false;
+  }
+
+  const detail = normalizeBusinessInfoFailureDetail(`${result.error ?? ""} ${result.message ?? ""}`);
+  if (
+    result.status === "password-error" ||
+    result.status === "certificate-not-found" ||
+    result.status === "unsupported" ||
+    isCertificatePasswordFailureDetail(detail) ||
+    isCertificateSelectionMissingDetail(detail) ||
+    isCertificateExpiredFailureDetail(detail) ||
+    isSignGateBridgeMediaUnsupportedDetail(detail)
+  ) {
+    return false;
+  }
+
+  return /timeout|timed out|econnreset|econnrefused|socket|fetch failed|connection was reset|recv failure|연결|시간|응답 없음|일시|busy/i.test(
+    detail
+  );
+}
+
+function recordSignGateBusinessInfoAdaptiveSample(results: CertificateBusinessInfoLookupResult[]): void {
+  if (results.length === 0 || !signGateBusinessInfoConcurrencyPolicy.adaptive) {
+    return;
+  }
+
+  const transientCount = results.filter(isSignGateAdaptiveTransientFailure).length;
+  const transientRate = transientCount / results.length;
+  const now = new Date().toISOString();
+  if (
+    transientCount >= 2 &&
+    transientRate >= CERTIFICATE_BUSINESS_INFO_ADAPTIVE_TRANSIENT_RATE &&
+    signGateBusinessInfoConcurrencyPolicy.current > signGateBusinessInfoConcurrencyPolicy.min
+  ) {
+    signGateBusinessInfoConcurrencyPolicy.current = Math.max(
+      signGateBusinessInfoConcurrencyPolicy.min,
+      Math.floor(signGateBusinessInfoConcurrencyPolicy.current / 2)
+    );
+    signGateBusinessInfoConcurrencyPolicy.stableBatchCount = 0;
+    signGateBusinessInfoConcurrencyPolicy.lastAdjustmentReason =
+      `SignGate 일시 오류 ${transientCount}/${results.length}건`;
+    signGateBusinessInfoConcurrencyPolicy.lastAdjustedAt = now;
+    return;
+  }
+
+  if (transientCount > 0) {
+    signGateBusinessInfoConcurrencyPolicy.stableBatchCount = 0;
+    return;
+  }
+
+  if (signGateBusinessInfoConcurrencyPolicy.current >= signGateBusinessInfoConcurrencyPolicy.default) {
+    signGateBusinessInfoConcurrencyPolicy.stableBatchCount = 0;
+    return;
+  }
+
+  signGateBusinessInfoConcurrencyPolicy.stableBatchCount += 1;
+  if (
+    signGateBusinessInfoConcurrencyPolicy.stableBatchCount >=
+    CERTIFICATE_BUSINESS_INFO_ADAPTIVE_RECOVERY_BATCHES
+  ) {
+    signGateBusinessInfoConcurrencyPolicy.current = Math.min(
+      signGateBusinessInfoConcurrencyPolicy.default,
+      signGateBusinessInfoConcurrencyPolicy.current * 2
+    );
+    signGateBusinessInfoConcurrencyPolicy.stableBatchCount = 0;
+    signGateBusinessInfoConcurrencyPolicy.lastAdjustmentReason = "SignGate 조회 안정화";
+    signGateBusinessInfoConcurrencyPolicy.lastAdjustedAt = now;
+  }
+}
+
 function classifySignGateBusinessInfoFailureStatus(detail: string): CertificateBusinessInfoLookupStatus {
   if (isCertificatePasswordFailureDetail(detail)) {
     return "password-error";
@@ -1673,6 +1929,8 @@ export async function collectCertificateBusinessInfoLookupBatchResults(
     homeTaxConcurrency?: number;
     lookupSignGate?: (payload: LocalHomeTaxBusinessInfoPayload) => Promise<CertificateBusinessInfoLookupResult>;
     lookupHomeTax?: (payload: LocalHomeTaxBusinessInfoPayload) => Promise<HomeTaxBusinessInfoLookupResult>;
+    onProgress?: (event: CertificateBusinessInfoBatchProgressEvent) => void;
+    recordAdaptivePolicy?: boolean;
   },
 ): Promise<CertificateBusinessInfoLookupResult[]> {
   if (payloads.length === 0) {
@@ -1681,11 +1939,34 @@ export async function collectCertificateBusinessInfoLookupBatchResults(
 
   const lookupSignGate = options?.lookupSignGate ?? collectSignGateBusinessInfoLookupResult;
   const lookupHomeTax = options?.lookupHomeTax ?? collectHomeTaxBusinessInfoLookupResult;
+  const signGateConcurrency = clampInteger(
+    options?.signGateConcurrency ?? CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY,
+    CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MIN_CONCURRENCY,
+    CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MAX_CONCURRENCY
+  );
+  const effectiveSignGateConcurrency = Math.min(payloads.length, signGateConcurrency);
+  const homeTaxConcurrency = resolveHomeTaxBusinessInfoConcurrency(options?.homeTaxConcurrency);
+  let completedSignGateCount = 0;
   const signGateResults = await mapWithConcurrency(
     payloads,
-    options?.signGateConcurrency ?? CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY,
-    async (payload) => await lookupSignGate(payload)
+    effectiveSignGateConcurrency,
+    async (payload, index) => {
+      const result = await lookupSignGate(payload);
+      completedSignGateCount += 1;
+      options?.onProgress?.({
+        phase: "signgate",
+        total: payloads.length,
+        completed: completedSignGateCount,
+        concurrency: effectiveSignGateConcurrency,
+        index,
+        result
+      });
+      return result;
+    }
   );
+  if (options?.recordAdaptivePolicy === true) {
+    recordSignGateBusinessInfoAdaptiveSample(signGateResults);
+  }
   const results = [...signGateResults];
   const fallbackRequests = signGateResults
     .map((signGateResult, index) => ({
@@ -1701,26 +1982,156 @@ export async function collectCertificateBusinessInfoLookupBatchResults(
     return results;
   }
 
+  const effectiveHomeTaxConcurrency = Math.min(fallbackRequests.length, homeTaxConcurrency);
+  options?.onProgress?.({
+    phase: "hometax-queued",
+    total: fallbackRequests.length,
+    completed: 0,
+    concurrency: effectiveHomeTaxConcurrency
+  });
+  let completedHomeTaxCount = 0;
   const fallbackResults = await mapWithConcurrency(
     fallbackRequests,
-    options?.homeTaxConcurrency ?? HOMETAX_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY,
-    async ({ payload }) => await lookupHomeTax(payload)
+    effectiveHomeTaxConcurrency,
+    async (fallbackRequest) => {
+      const homeTaxResult = await lookupHomeTax(fallbackRequest.payload);
+      const result = homeTaxResult.ok
+        ? homeTaxResult
+        : buildCombinedBusinessInfoFailureResult(
+            fallbackRequest.signGateResult,
+            homeTaxResult
+          );
+      completedHomeTaxCount += 1;
+      options?.onProgress?.({
+        phase: "hometax",
+        total: fallbackRequests.length,
+        completed: completedHomeTaxCount,
+        concurrency: effectiveHomeTaxConcurrency,
+        index: fallbackRequest.index,
+        result
+      });
+      return {
+        index: fallbackRequest.index,
+        result
+      };
+    }
   );
 
-  fallbackResults.forEach((homeTaxResult, fallbackIndex) => {
-    const fallbackRequest = fallbackRequests[fallbackIndex];
-    if (!fallbackRequest) {
-      return;
-    }
-    results[fallbackRequest.index] = homeTaxResult.ok
-      ? homeTaxResult
-      : buildCombinedBusinessInfoFailureResult(
-          fallbackRequest.signGateResult,
-          homeTaxResult
-        );
+  fallbackResults.forEach(({ index, result }) => {
+    results[index] = result;
   });
 
   return results;
+}
+
+function createCertificateBusinessInfoJob(
+  requests: LocalHomeTaxBusinessInfoPayload[],
+  options?: {
+    signGateConcurrency?: number;
+    homeTaxConcurrency?: number;
+  }
+): CertificateBusinessInfoJobRecord {
+  pruneCertificateBusinessInfoJobs();
+  const now = new Date().toISOString();
+  const job: CertificateBusinessInfoJobRecord = {
+    id: randomUUID(),
+    status: "queued",
+    phase: "queued",
+    total: requests.length,
+    completed: 0,
+    createdAt: now,
+    updatedAt: now,
+    error: null,
+    signGate: {
+      total: requests.length,
+      completed: 0,
+      concurrency: Math.min(
+        requests.length,
+        resolveSignGateBusinessInfoConcurrency(options?.signGateConcurrency)
+      )
+    },
+    homeTax: {
+      total: 0,
+      completed: 0,
+      concurrency: resolveHomeTaxBusinessInfoConcurrency(options?.homeTaxConcurrency)
+    },
+    results: new Array<CertificateBusinessInfoLookupResult | null>(requests.length).fill(null),
+    cancelRequested: false
+  };
+  certificateBusinessInfoJobs.set(job.id, job);
+  return job;
+}
+
+function applyCertificateBusinessInfoJobProgress(
+  job: CertificateBusinessInfoJobRecord,
+  event: CertificateBusinessInfoBatchProgressEvent
+): void {
+  if (job.status === "cancelled") {
+    return;
+  }
+
+  if (event.phase === "signgate") {
+    job.status = "running";
+    job.phase = "signgate";
+    job.signGate.total = event.total;
+    job.signGate.completed = event.completed;
+    job.signGate.concurrency = event.concurrency;
+    job.completed = Math.max(job.completed, event.completed);
+    job.results[event.index] = event.result;
+  } else if (event.phase === "hometax-queued") {
+    job.status = "running";
+    job.phase = event.total > 0 ? "hometax" : "signgate";
+    job.homeTax.total = event.total;
+    job.homeTax.completed = event.completed;
+    job.homeTax.concurrency = event.concurrency;
+  } else {
+    job.status = "running";
+    job.phase = "hometax";
+    job.homeTax.total = event.total;
+    job.homeTax.completed = event.completed;
+    job.homeTax.concurrency = event.concurrency;
+    job.results[event.index] = event.result;
+  }
+
+  touchCertificateBusinessInfoJob(job);
+}
+
+async function runCertificateBusinessInfoJob(
+  job: CertificateBusinessInfoJobRecord,
+  requests: LocalHomeTaxBusinessInfoPayload[]
+): Promise<void> {
+  try {
+    job.status = "running";
+    job.phase = "signgate";
+    touchCertificateBusinessInfoJob(job);
+    const results = await collectCertificateBusinessInfoLookupBatchResults(requests, {
+      signGateConcurrency: job.signGate.concurrency,
+      homeTaxConcurrency: job.homeTax.concurrency,
+      recordAdaptivePolicy: true,
+      onProgress: (event) => applyCertificateBusinessInfoJobProgress(job, event)
+    });
+    job.results = results;
+    if (job.cancelRequested) {
+      job.status = "cancelled";
+      job.phase = "cancelled";
+      job.error = "작업이 취소되었습니다.";
+    } else {
+      job.status = "complete";
+      job.phase = "complete";
+      job.completed = results.length;
+      job.error = null;
+      job.signGate.completed = job.signGate.total;
+      job.homeTax.completed = job.homeTax.total;
+    }
+    touchCertificateBusinessInfoJob(job);
+  } catch (error) {
+    job.status = job.cancelRequested ? "cancelled" : "failed";
+    job.phase = job.cancelRequested ? "cancelled" : "failed";
+    job.error = sanitizeSensitiveText(error instanceof Error ? error.message : "사업자정보 조회 작업에 실패했습니다.");
+    touchCertificateBusinessInfoJob(job);
+  } finally {
+    pruneCertificateBusinessInfoJobs();
+  }
 }
 
 async function mapWithConcurrency<T, TResult>(
@@ -1796,6 +2207,11 @@ export function createRenewalLocalHelperApp() {
     }
   });
 
+  app.get("/api/certificates/business-info-capabilities", (_req, res) => {
+    pruneCertificateBusinessInfoJobs();
+    res.json({ ok: true, version, capabilities: getCertificateBusinessInfoCapabilities() });
+  });
+
   app.post("/api/bridge-probe", async (_req, res, next) => {
     try {
       const [result, certificateList] = await Promise.all([
@@ -1859,23 +2275,62 @@ export function createRenewalLocalHelperApp() {
   app.post("/api/certificates/business-info-batch", async (req, res, next) => {
     try {
       const payload = certificateBusinessInfoBatchRequestSchema.parse(req.body ?? {});
-      const signGateConcurrency =
-        payload.signGateConcurrency ??
-        payload.concurrency ??
-        CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY;
-      const homeTaxConcurrency =
-        payload.homeTaxConcurrency ?? HOMETAX_BUSINESS_INFO_BATCH_DEFAULT_CONCURRENCY;
+      const signGateConcurrency = resolveSignGateBusinessInfoConcurrency(
+        payload.signGateConcurrency ?? payload.concurrency
+      );
+      const homeTaxConcurrency = resolveHomeTaxBusinessInfoConcurrency(payload.homeTaxConcurrency);
       const results = await collectCertificateBusinessInfoLookupBatchResults(
         payload.requests,
         {
           signGateConcurrency,
-          homeTaxConcurrency
+          homeTaxConcurrency,
+          recordAdaptivePolicy: true
         }
       );
       res.json({ ok: true, version, results });
     } catch (error) {
       next(error);
     }
+  });
+
+  app.post("/api/certificates/business-info-jobs", (req, res, next) => {
+    try {
+      const payload = certificateBusinessInfoBatchRequestSchema.parse(req.body ?? {});
+      const job = createCertificateBusinessInfoJob(payload.requests, {
+        signGateConcurrency: payload.signGateConcurrency ?? payload.concurrency,
+        homeTaxConcurrency: payload.homeTaxConcurrency
+      });
+      void runCertificateBusinessInfoJob(job, payload.requests);
+      res.status(202).json({ ok: true, version, job: snapshotCertificateBusinessInfoJob(job) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/certificates/business-info-jobs/:jobId", (req, res) => {
+    pruneCertificateBusinessInfoJobs();
+    const job = certificateBusinessInfoJobs.get(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ ok: false, version, error: "사업자정보 조회 작업을 찾지 못했습니다." });
+      return;
+    }
+    res.json({ ok: true, version, job: snapshotCertificateBusinessInfoJob(job) });
+  });
+
+  app.post("/api/certificates/business-info-jobs/:jobId/cancel", (req, res) => {
+    const job = certificateBusinessInfoJobs.get(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ ok: false, version, error: "사업자정보 조회 작업을 찾지 못했습니다." });
+      return;
+    }
+    job.cancelRequested = true;
+    if (job.status === "queued" || job.status === "complete" || job.status === "failed") {
+      job.status = "cancelled";
+      job.phase = "cancelled";
+      job.error = "작업이 취소되었습니다.";
+    }
+    touchCertificateBusinessInfoJob(job);
+    res.json({ ok: true, version, job: snapshotCertificateBusinessInfoJob(job) });
   });
 
   app.post("/api/hometax/business-info", async (req, res, next) => {

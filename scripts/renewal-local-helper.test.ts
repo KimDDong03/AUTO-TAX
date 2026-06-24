@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import {
   collectCertificateBusinessInfoLookupBatchResults,
   createCertificateUploadSessionMetadata,
+  getCertificateBusinessInfoCapabilities,
   isSignGateBusinessInfoFallbackDetail,
   isPfxPasswordMismatchMessage,
   isAllowedLocalRenewalHelperOrigin,
+  resetCertificateBusinessInfoRuntimePolicyForTest,
   uploadedCertificateMatchesBridge
 } from "./renewal-local-helper.ts";
 
@@ -281,4 +283,117 @@ test("collectCertificateBusinessInfoLookupBatchResults caps SignGate and HomeTax
   assert.equal(results.every((result) => result.ok && result.source === "hometax"), true);
   assert.equal(maxSignGate, 16);
   assert.equal(maxHomeTax, 5);
+});
+
+test("collectCertificateBusinessInfoLookupBatchResults lowers only transient SignGate concurrency failures", async () => {
+  resetCertificateBusinessInfoRuntimePolicyForTest();
+  const transientRequests = Array.from({ length: 8 }, (_, index) => ({
+    certificateIndex: index + 1,
+    certificateCn: `일시오류${index + 1}`,
+    certificatePassword: "secret"
+  }));
+
+  await collectCertificateBusinessInfoLookupBatchResults(transientRequests, {
+    signGateConcurrency: 16,
+    lookupSignGate: async (payload) =>
+      makeBusinessInfoResult({
+        certificateIndex: String(payload.certificateIndex),
+        certificateCn: payload.certificateCn ?? null,
+        status: "lookup-failed",
+        error: "timeout while connecting to SignGate bridge"
+      }),
+    recordAdaptivePolicy: true
+  });
+
+  let capabilities = getCertificateBusinessInfoCapabilities();
+  assert.equal(capabilities.signGate.current, 8);
+  assert.match(capabilities.signGate.lastAdjustmentReason ?? "", /일시 오류/);
+
+  await collectCertificateBusinessInfoLookupBatchResults(transientRequests.slice(0, 4), {
+    signGateConcurrency: 16,
+    lookupSignGate: async (payload) =>
+      makeBusinessInfoResult({
+        ok: true,
+        source: "signgate",
+        status: "complete",
+        certificateIndex: String(payload.certificateIndex),
+        certificateCn: payload.certificateCn ?? null,
+        businessInfoSnapshot: {
+          companyName: payload.certificateCn ?? null,
+          businessNumber: String(payload.certificateIndex).padStart(10, "0"),
+          ceoName: null,
+          bizType: null,
+          bizClass: null,
+          businessFieldCode: null,
+          postalCode: null,
+          baseAddress: "서울",
+          detailAddress: null,
+          contactName: null,
+          contactDepartment: null,
+          contactEmail: null,
+          contactTel: null,
+          contactFax: null,
+          contactMobile: null
+        }
+      }),
+    recordAdaptivePolicy: true
+  });
+  await collectCertificateBusinessInfoLookupBatchResults(transientRequests.slice(0, 4), {
+    signGateConcurrency: 16,
+    lookupSignGate: async (payload) =>
+      makeBusinessInfoResult({
+        ok: true,
+        source: "signgate",
+        status: "complete",
+        certificateIndex: String(payload.certificateIndex),
+        certificateCn: payload.certificateCn ?? null,
+        businessInfoSnapshot: {
+          companyName: payload.certificateCn ?? null,
+          businessNumber: String(payload.certificateIndex).padStart(10, "0"),
+          ceoName: null,
+          bizType: null,
+          bizClass: null,
+          businessFieldCode: null,
+          postalCode: null,
+          baseAddress: "서울",
+          detailAddress: null,
+          contactName: null,
+          contactDepartment: null,
+          contactEmail: null,
+          contactTel: null,
+          contactFax: null,
+          contactMobile: null
+        }
+      }),
+    recordAdaptivePolicy: true
+  });
+
+  capabilities = getCertificateBusinessInfoCapabilities();
+  assert.equal(capabilities.signGate.current, 16);
+
+  resetCertificateBusinessInfoRuntimePolicyForTest();
+});
+
+test("collectCertificateBusinessInfoLookupBatchResults does not throttle for password failures", async () => {
+  resetCertificateBusinessInfoRuntimePolicyForTest();
+  await collectCertificateBusinessInfoLookupBatchResults(
+    Array.from({ length: 8 }, (_, index) => ({
+      certificateIndex: index + 1,
+      certificateCn: `비밀번호오류${index + 1}`,
+      certificatePassword: "wrong"
+    })),
+    {
+      signGateConcurrency: 16,
+      lookupSignGate: async (payload) =>
+        makeBusinessInfoResult({
+          certificateIndex: String(payload.certificateIndex),
+          certificateCn: payload.certificateCn ?? null,
+          status: "password-error",
+          error: "인증서 비밀번호가 맞지 않습니다."
+        }),
+      recordAdaptivePolicy: true
+    }
+  );
+
+  assert.equal(getCertificateBusinessInfoCapabilities().signGate.current, 16);
 });

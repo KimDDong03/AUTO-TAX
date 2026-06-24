@@ -17,19 +17,69 @@ function Get-HelperPort {
   return 35119
 }
 
+function Test-LocalTcpPortOpen {
+  param(
+    [int]$Port,
+    [int]$TimeoutMs = 350
+  )
+
+  $client = [System.Net.Sockets.TcpClient]::new()
+  try {
+    $connectTask = $client.ConnectAsync("127.0.0.1", $Port)
+    if (-not $connectTask.Wait($TimeoutMs)) {
+      return $false
+    }
+
+    return $client.Connected
+  } catch {
+    return $false
+  } finally {
+    $client.Dispose()
+  }
+}
+
+function Get-LocalTcpListeningProcessIds {
+  param(
+    [int]$Port
+  )
+
+  $processIds = New-Object System.Collections.Generic.HashSet[int]
+  try {
+    $netstatLines = & netstat.exe -ano -p tcp 2>$null
+    foreach ($line in @($netstatLines)) {
+      $normalized = ($line -replace "\s+", " ").Trim()
+      if ([string]::IsNullOrWhiteSpace($normalized)) {
+        continue
+      }
+
+      $parts = $normalized.Split(" ")
+      if ($parts.Count -lt 5 -or $parts[0] -ine "TCP" -or $parts[3] -ine "LISTENING") {
+        continue
+      }
+
+      if (-not $parts[1].EndsWith(":$Port", [System.StringComparison]::OrdinalIgnoreCase)) {
+        continue
+      }
+
+      $processId = 0
+      if ([int]::TryParse($parts[4], [ref]$processId) -and $processId -gt 0) {
+        [void]$processIds.Add($processId)
+      }
+    }
+  } catch {
+    # Ignore netstat failures and let the caller use process-name fallbacks.
+  }
+
+  return @($processIds)
+}
+
 function Test-LocalRenewalHelperRunning {
   param(
     [int]$Port
   )
 
-  try {
-    $listener = Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $Port -State Listen -ErrorAction Stop |
-      Select-Object -First 1
-    if ($listener) {
-      return $true
-    }
-  } catch {
-    # Port listener not found, fall back to health probe.
+  if (Test-LocalTcpPortOpen -Port $Port) {
+    return $true
   }
 
   try {
@@ -158,13 +208,8 @@ if ($gracefulShutdownRequested -and (Wait-LocalRenewalHelperStop -Port $helperPo
   exit 0
 }
 
-try {
-  @(Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $helperPort -State Listen -ErrorAction Stop |
-    Select-Object -ExpandProperty OwningProcess -Unique) | ForEach-Object {
-      [void]$candidateProcessIds.Add([int]$_)
-    }
-} catch {
-  # The helper might not currently be listening.
+@(Get-LocalTcpListeningProcessIds -Port $helperPort) | ForEach-Object {
+  [void]$candidateProcessIds.Add([int]$_)
 }
 
 if ($candidateProcessIds.Count -gt 0) {

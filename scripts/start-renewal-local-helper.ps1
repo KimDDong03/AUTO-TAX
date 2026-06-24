@@ -23,19 +23,34 @@ function Get-HelperPort {
   return 35119
 }
 
+function Test-LocalTcpPortOpen {
+  param(
+    [int]$Port,
+    [int]$TimeoutMs = 350
+  )
+
+  $client = [System.Net.Sockets.TcpClient]::new()
+  try {
+    $connectTask = $client.ConnectAsync("127.0.0.1", $Port)
+    if (-not $connectTask.Wait($TimeoutMs)) {
+      return $false
+    }
+
+    return $client.Connected
+  } catch {
+    return $false
+  } finally {
+    $client.Dispose()
+  }
+}
+
 function Test-LocalRenewalHelperRunning {
   param(
     [int]$Port
   )
 
-  try {
-    $listener = Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $Port -State Listen -ErrorAction Stop |
-      Select-Object -First 1
-    if ($listener) {
-      return $true
-    }
-  } catch {
-    # Port listener not found, fall back to health probe.
+  if (Test-LocalTcpPortOpen -Port $Port) {
+    return $true
   }
 
   try {

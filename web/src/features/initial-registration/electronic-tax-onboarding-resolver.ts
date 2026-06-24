@@ -97,7 +97,7 @@ type ResolveElectronicTaxOnboardingTemplateWorkbookArgs = {
   businessInfoLookupCache?: OnboardingBusinessInfoLookupCache;
   onboardingPreflightConcurrency?: number;
   onboardingPreflightBatchSize?: number;
-  onboardingBusinessInfoBatchSize?: number;
+  onboardingBusinessInfoRequestChunkSize?: number;
   onProgress?: (message: string) => void;
 };
 
@@ -603,7 +603,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
 ): Promise<CustomerOnboardingResolutionResult> {
   const onboardingPreflightConcurrency = args.onboardingPreflightConcurrency ?? 16;
   const onboardingPreflightBatchSize = args.onboardingPreflightBatchSize ?? onboardingPreflightConcurrency;
-  const onboardingBusinessInfoBatchSize = args.onboardingBusinessInfoBatchSize ?? 200;
+  const onboardingBusinessInfoRequestChunkSize = args.onboardingBusinessInfoRequestChunkSize ?? 200;
   const sharedPassword = await args.resolveSharedPassword();
   const availableCertificates = await args.loadAvailableCertificates();
   const errors: string[] = [];
@@ -959,7 +959,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
       args.onProgress?.(`사업자정보 조회 0/${uncachedBusinessInfoRequests.length}건 진행 중...`);
     }
     let completedBusinessInfoCount = 0;
-    for (const chunk of chunkItems(uncachedBusinessInfoRequests, onboardingBusinessInfoBatchSize)) {
+    for (const chunk of chunkItems(uncachedBusinessInfoRequests, onboardingBusinessInfoRequestChunkSize)) {
       const responses = await args.requestBusinessInfoLookupBatch(chunk.map((request) => request.payload), {
         onProgress: (message) => {
           args.onProgress?.(`사업자정보 조회 ${completedBusinessInfoCount}/${uncachedBusinessInfoRequests.length}건 완료 · ${message}`);
