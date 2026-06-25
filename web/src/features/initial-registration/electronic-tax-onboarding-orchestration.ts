@@ -17,7 +17,7 @@ export type ElectronicTaxOnboardingCertificateRegistrationProgress = {
   status: "running" | "success" | "already-registered" | "failed" | "skipped" | "refreshing";
 };
 
-function sanitizeElectronicTaxRegistrationMessage(value: string): string {
+export function sanitizeElectronicTaxRegistrationMessage(value: string): string {
   if (value.includes("공동인증서 비밀번호가 올바르지 않습니다") || value.includes("비밀번호가 올바르지")) {
     return "사전조회 때 확인한 비밀번호로 등록했지만 등록 화면에서 인증서 확인에 실패했습니다. AT 헬퍼에서 공동인증서를 다시 읽고 재시도하세요.";
   }
@@ -45,7 +45,7 @@ function sanitizeElectronicTaxRegistrationMessage(value: string): string {
     .replace(/Popbill|POPBILL/g, "등록 처리");
 }
 
-function getElectronicTaxRegistrationErrorMessage(error: unknown, fallback: string): string {
+export function getElectronicTaxRegistrationErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error
     ? sanitizeElectronicTaxRegistrationMessage(error.message)
     : fallback;

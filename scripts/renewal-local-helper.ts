@@ -19,7 +19,9 @@ import {
   getPopbillChooserDebugReadiness,
   getPopbillDebugArtifactSupport,
   PopbillCertificateRegistrationError,
-  registerPopbillCertificate
+  registerPopbillCertificate,
+  type PopbillCertificateRegistrationResult,
+  type PopbillCertificateRegistrationTiming
 } from "./popbill-cert-registration.ts";
 import { openSignGateRenewPaymentWindow } from "./signgate-fee-payment.ts";
 import type {
@@ -46,6 +48,11 @@ const CERTIFICATE_BUSINESS_INFO_ADAPTIVE_RECOVERY_BATCHES = 2;
 const CERTIFICATE_BUSINESS_INFO_ADAPTIVE_TRANSIENT_RATE = 0.25;
 const CERTIFICATE_BUSINESS_INFO_JOB_TTL_MS = 15 * 60 * 1000;
 const CERTIFICATE_BUSINESS_INFO_JOB_MAX_RETAINED = 30;
+const POPBILL_CERTIFICATE_REGISTRATION_BATCH_MAX_COUNT = 100;
+const POPBILL_CERTIFICATE_REGISTRATION_BATCH_DEFAULT_CONCURRENCY = 5;
+const POPBILL_CERTIFICATE_REGISTRATION_BATCH_MAX_CONCURRENCY = 5;
+const POPBILL_CERTIFICATE_REGISTRATION_JOB_TTL_MS = 15 * 60 * 1000;
+const POPBILL_CERTIFICATE_REGISTRATION_JOB_MAX_RETAINED = 30;
 const UPLOAD_SESSION_MAX_FILE_COUNT = 500;
 const UPLOAD_SESSION_MAX_BASE64_CHARS = 2_500_000;
 const UPLOAD_SESSION_TTL_MS = 30 * 60 * 1000;
@@ -308,6 +315,50 @@ type CertificateBusinessInfoBatchProgressEvent =
       result: CertificateBusinessInfoLookupResult;
     };
 
+type PopbillCertificateRegistrationJobStatus = "queued" | "running" | "complete" | "failed" | "cancelled";
+type PopbillCertificateRegistrationJobPhase = "queued" | "registering" | "complete" | "failed" | "cancelled";
+
+type PopbillCertificateRegistrationJobResult =
+  | {
+      ok: true;
+      result: PopbillCertificateRegistrationResult;
+    }
+  | {
+      ok: false;
+      error: string;
+      stage?: string;
+      timing?: PopbillCertificateRegistrationTiming;
+    };
+
+type PopbillCertificateRegistrationJobRecord = {
+  id: string;
+  status: PopbillCertificateRegistrationJobStatus;
+  phase: PopbillCertificateRegistrationJobPhase;
+  total: number;
+  completed: number;
+  registered: number;
+  alreadyRegistered: number;
+  failed: number;
+  concurrency: number;
+  createdAt: string;
+  updatedAt: string;
+  error: string | null;
+  results: Array<PopbillCertificateRegistrationJobResult | null>;
+  cancelRequested: boolean;
+};
+
+type PopbillCertificateRegistrationJobSnapshot = Omit<PopbillCertificateRegistrationJobRecord, "results" | "cancelRequested"> & {
+  results: PopbillCertificateRegistrationJobResult[] | null;
+};
+
+type PopbillCertificateRegistrationBatchProgressEvent = {
+  total: number;
+  completed: number;
+  concurrency: number;
+  index: number;
+  result: PopbillCertificateRegistrationJobResult;
+};
+
 type CertificateBusinessInfoConcurrencyPolicy = {
   min: number;
   default: number;
@@ -347,13 +398,28 @@ const renewalOpenPaymentSchema = renewalPreparePaymentSchema;
 
 const popbillCertificateRegistrationSchema = z.object({
   certificateRegistrationUrl: z.string().url(),
+  businessNumber: z.string().trim().nullable().optional(),
   certificateIndex: z.number().int().positive(),
   certificateCn: z.string().trim().nullable().optional(),
   certificateKind: z.literal("electronic_tax").default("electronic_tax"),
   serial: z.string().trim().nullable().optional(),
   userDN: z.string().trim().nullable().optional(),
   targetExpireDate: z.string().trim().nullable().optional(),
+  browserMode: z.enum(["auto", "headless", "visible", "direct"]).default("auto").optional(),
   certificatePassword: z.string().trim().min(1)
+});
+
+const popbillCertificateRegistrationBatchSchema = z.object({
+  requests: z
+    .array(popbillCertificateRegistrationSchema)
+    .min(1)
+    .max(POPBILL_CERTIFICATE_REGISTRATION_BATCH_MAX_COUNT),
+  concurrency: z
+    .number()
+    .int()
+    .min(1)
+    .max(POPBILL_CERTIFICATE_REGISTRATION_BATCH_MAX_CONCURRENCY)
+    .optional()
 });
 
 const certificateUploadSessionFileSchema = z.object({
@@ -379,6 +445,7 @@ const certificateUploadSessionImportSchema = z.object({
 
 type LocalPreflightPayload = z.infer<typeof preflightRequestSchema>;
 type LocalHomeTaxBusinessInfoPayload = z.infer<typeof hometaxBusinessInfoRequestSchema>;
+type LocalPopbillCertificateRegistrationPayload = z.infer<typeof popbillCertificateRegistrationSchema>;
 type CertificateUploadSessionFile = z.infer<typeof certificateUploadSessionFileSchema>;
 type CertificateUploadSessionImportRequest = z.infer<typeof certificateUploadSessionImportRequestSchema>;
 
@@ -437,6 +504,7 @@ type CertificateUploadSessionImportResult = {
 
 const certificateUploadSessions = new Map<string, StoredCertificateUploadSession>();
 const certificateBusinessInfoJobs = new Map<string, CertificateBusinessInfoJobRecord>();
+const popbillCertificateRegistrationJobs = new Map<string, PopbillCertificateRegistrationJobRecord>();
 const signGateBusinessInfoConcurrencyPolicy: CertificateBusinessInfoConcurrencyPolicy = {
   min: CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_MIN_CONCURRENCY,
   default: CERTIFICATE_BUSINESS_INFO_SIGNGATE_BATCH_DEFAULT_CONCURRENCY,
@@ -527,6 +595,7 @@ export function resetCertificateBusinessInfoRuntimePolicyForTest(): void {
   signGateBusinessInfoConcurrencyPolicy.lastAdjustmentReason = null;
   signGateBusinessInfoConcurrencyPolicy.lastAdjustedAt = null;
   certificateBusinessInfoJobs.clear();
+  popbillCertificateRegistrationJobs.clear();
 }
 
 function resolveSignGateBusinessInfoConcurrency(requestedConcurrency?: number): number {
@@ -2134,6 +2203,244 @@ async function runCertificateBusinessInfoJob(
   }
 }
 
+function resolvePopbillCertificateRegistrationConcurrency(requestedConcurrency?: number): number {
+  return clampInteger(
+    requestedConcurrency ?? POPBILL_CERTIFICATE_REGISTRATION_BATCH_DEFAULT_CONCURRENCY,
+    1,
+    POPBILL_CERTIFICATE_REGISTRATION_BATCH_MAX_CONCURRENCY
+  );
+}
+
+function touchPopbillCertificateRegistrationJob(job: PopbillCertificateRegistrationJobRecord): void {
+  job.updatedAt = new Date().toISOString();
+}
+
+function prunePopbillCertificateRegistrationJobs(): void {
+  const now = Date.now();
+  for (const [jobId, job] of popbillCertificateRegistrationJobs) {
+    const updatedAtMs = Date.parse(job.updatedAt);
+    if (Number.isFinite(updatedAtMs) && now - updatedAtMs > POPBILL_CERTIFICATE_REGISTRATION_JOB_TTL_MS) {
+      popbillCertificateRegistrationJobs.delete(jobId);
+    }
+  }
+
+  const excessCount = popbillCertificateRegistrationJobs.size - POPBILL_CERTIFICATE_REGISTRATION_JOB_MAX_RETAINED;
+  if (excessCount <= 0) {
+    return;
+  }
+
+  const removableJobs = [...popbillCertificateRegistrationJobs.values()]
+    .filter((job) => job.status === "complete" || job.status === "failed" || job.status === "cancelled")
+    .sort((left, right) => Date.parse(left.updatedAt) - Date.parse(right.updatedAt))
+    .slice(0, excessCount);
+  for (const job of removableJobs) {
+    popbillCertificateRegistrationJobs.delete(job.id);
+  }
+}
+
+function snapshotPopbillCertificateRegistrationJob(
+  job: PopbillCertificateRegistrationJobRecord
+): PopbillCertificateRegistrationJobSnapshot {
+  const completedResults = job.results.filter((result): result is PopbillCertificateRegistrationJobResult => result !== null);
+  const effectivelyComplete =
+    job.status === "complete" ||
+    job.status === "failed" ||
+    job.status === "cancelled" ||
+    (job.total > 0 && completedResults.length >= job.total);
+  const status = effectivelyComplete && job.status === "running" ? "complete" : job.status;
+  const phase = effectivelyComplete && job.phase === "registering" ? "complete" : job.phase;
+  const finalResults =
+    effectivelyComplete ? completedResults : null;
+  return {
+    id: job.id,
+    status,
+    phase,
+    total: job.total,
+    completed: Math.max(job.completed, completedResults.length),
+    registered: job.registered,
+    alreadyRegistered: job.alreadyRegistered,
+    failed: job.failed,
+    concurrency: job.concurrency,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    error: job.error,
+    results: finalResults
+  };
+}
+
+export function getPopbillCertificateRegistrationCapabilities() {
+  return {
+    maxBatchSize: POPBILL_CERTIFICATE_REGISTRATION_BATCH_MAX_COUNT,
+    supportsJobs: true,
+    concurrency: {
+      min: 1,
+      default: POPBILL_CERTIFICATE_REGISTRATION_BATCH_DEFAULT_CONCURRENCY,
+      max: POPBILL_CERTIFICATE_REGISTRATION_BATCH_MAX_CONCURRENCY,
+      current: POPBILL_CERTIFICATE_REGISTRATION_BATCH_DEFAULT_CONCURRENCY,
+      adaptive: false
+    }
+  };
+}
+
+function buildPopbillCertificateRegistrationFailureResult(error: unknown): PopbillCertificateRegistrationJobResult {
+  if (error instanceof PopbillCertificateRegistrationError) {
+    return {
+      ok: false,
+      error: sanitizeSensitiveText(error.message),
+      stage: error.stage,
+      timing: error.timing
+    };
+  }
+
+  return {
+    ok: false,
+    error: sanitizeSensitiveText(
+      error instanceof Error ? error.message : "공동인증서 자동 등록에 실패했습니다."
+    )
+  };
+}
+
+export async function collectPopbillCertificateRegistrationBatchResults(
+  payloads: LocalPopbillCertificateRegistrationPayload[],
+  options?: {
+    concurrency?: number;
+    registerCertificate?: (payload: LocalPopbillCertificateRegistrationPayload) => Promise<PopbillCertificateRegistrationResult>;
+    shouldCancel?: () => boolean;
+    onProgress?: (event: PopbillCertificateRegistrationBatchProgressEvent) => void;
+  }
+): Promise<PopbillCertificateRegistrationJobResult[]> {
+  if (payloads.length === 0) {
+    return [];
+  }
+
+  const registerCertificate = options?.registerCertificate ?? registerPopbillCertificate;
+  const concurrency = resolvePopbillCertificateRegistrationConcurrency(options?.concurrency);
+  let completed = 0;
+  return await mapWithConcurrency(payloads, concurrency, async (payload, index) => {
+    let result: PopbillCertificateRegistrationJobResult;
+    if (options?.shouldCancel?.()) {
+      result = {
+        ok: false,
+        error: "작업이 취소되었습니다."
+      };
+    } else {
+      try {
+        result = {
+          ok: true,
+          result: await registerCertificate(payload)
+        };
+      } catch (error) {
+        result = buildPopbillCertificateRegistrationFailureResult(error);
+      }
+    }
+    completed += 1;
+    options?.onProgress?.({
+      total: payloads.length,
+      completed,
+      concurrency: Math.min(payloads.length, concurrency),
+      index,
+      result
+    });
+    return result;
+  });
+}
+
+function createPopbillCertificateRegistrationJob(
+  requests: LocalPopbillCertificateRegistrationPayload[],
+  options?: {
+    concurrency?: number;
+  }
+): PopbillCertificateRegistrationJobRecord {
+  prunePopbillCertificateRegistrationJobs();
+  const now = new Date().toISOString();
+  const concurrency = Math.min(
+    requests.length,
+    resolvePopbillCertificateRegistrationConcurrency(options?.concurrency)
+  );
+  const job: PopbillCertificateRegistrationJobRecord = {
+    id: randomUUID(),
+    status: "queued",
+    phase: "queued",
+    total: requests.length,
+    completed: 0,
+    registered: 0,
+    alreadyRegistered: 0,
+    failed: 0,
+    concurrency,
+    createdAt: now,
+    updatedAt: now,
+    error: null,
+    results: new Array<PopbillCertificateRegistrationJobResult | null>(requests.length).fill(null),
+    cancelRequested: false
+  };
+  popbillCertificateRegistrationJobs.set(job.id, job);
+  return job;
+}
+
+function applyPopbillCertificateRegistrationJobProgress(
+  job: PopbillCertificateRegistrationJobRecord,
+  event: PopbillCertificateRegistrationBatchProgressEvent
+): void {
+  if (job.status === "cancelled") {
+    return;
+  }
+
+  job.status = "running";
+  job.phase = "registering";
+  job.completed = event.completed;
+  job.concurrency = event.concurrency;
+  job.results[event.index] = event.result;
+  job.registered = job.results.filter((result) => result?.ok === true && result.result.outcome === "registered").length;
+  job.alreadyRegistered = job.results.filter(
+    (result) => result?.ok === true && result.result.outcome === "already-registered"
+  ).length;
+  job.failed = job.results.filter((result) => result?.ok === false).length;
+  if (event.completed >= job.total) {
+    job.status = job.cancelRequested ? "cancelled" : "complete";
+    job.phase = job.cancelRequested ? "cancelled" : "complete";
+    job.error = job.cancelRequested ? "작업이 취소되었습니다." : null;
+  }
+  touchPopbillCertificateRegistrationJob(job);
+}
+
+async function runPopbillCertificateRegistrationJob(
+  job: PopbillCertificateRegistrationJobRecord,
+  requests: LocalPopbillCertificateRegistrationPayload[]
+): Promise<void> {
+  try {
+    job.status = "running";
+    job.phase = "registering";
+    touchPopbillCertificateRegistrationJob(job);
+    const results = await collectPopbillCertificateRegistrationBatchResults(requests, {
+      concurrency: job.concurrency,
+      shouldCancel: () => job.cancelRequested,
+      onProgress: (event) => applyPopbillCertificateRegistrationJobProgress(job, event)
+    });
+    job.results = results;
+    job.completed = results.length;
+    job.registered = results.filter((result) => result.ok && result.result.outcome === "registered").length;
+    job.alreadyRegistered = results.filter((result) => result.ok && result.result.outcome === "already-registered").length;
+    job.failed = results.filter((result) => !result.ok).length;
+    if (job.cancelRequested) {
+      job.status = "cancelled";
+      job.phase = "cancelled";
+      job.error = "작업이 취소되었습니다.";
+    } else {
+      job.status = "complete";
+      job.phase = "complete";
+      job.error = null;
+    }
+    touchPopbillCertificateRegistrationJob(job);
+  } catch (error) {
+    job.status = job.cancelRequested ? "cancelled" : "failed";
+    job.phase = job.cancelRequested ? "cancelled" : "failed";
+    job.error = sanitizeSensitiveText(error instanceof Error ? error.message : "공동인증서 등록 작업에 실패했습니다.");
+    touchPopbillCertificateRegistrationJob(job);
+  } finally {
+    prunePopbillCertificateRegistrationJobs();
+  }
+}
+
 async function mapWithConcurrency<T, TResult>(
   items: T[],
   concurrency: number,
@@ -2210,6 +2517,11 @@ export function createRenewalLocalHelperApp() {
   app.get("/api/certificates/business-info-capabilities", (_req, res) => {
     pruneCertificateBusinessInfoJobs();
     res.json({ ok: true, version, capabilities: getCertificateBusinessInfoCapabilities() });
+  });
+
+  app.get("/api/popbill/certificate-registration-capabilities", (_req, res) => {
+    prunePopbillCertificateRegistrationJobs();
+    res.json({ ok: true, version, capabilities: getPopbillCertificateRegistrationCapabilities() });
   });
 
   app.post("/api/bridge-probe", async (_req, res, next) => {
@@ -2440,6 +2752,45 @@ export function createRenewalLocalHelperApp() {
       }
       next(error);
     }
+  });
+
+  app.post("/api/popbill/certificate-registration-jobs", (req, res, next) => {
+    try {
+      const payload = popbillCertificateRegistrationBatchSchema.parse(req.body ?? {});
+      const job = createPopbillCertificateRegistrationJob(payload.requests, {
+        concurrency: payload.concurrency
+      });
+      void runPopbillCertificateRegistrationJob(job, payload.requests);
+      res.status(202).json({ ok: true, version, job: snapshotPopbillCertificateRegistrationJob(job) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/popbill/certificate-registration-jobs/:jobId", (req, res) => {
+    prunePopbillCertificateRegistrationJobs();
+    const job = popbillCertificateRegistrationJobs.get(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ ok: false, version, error: "공동인증서 등록 작업을 찾지 못했습니다." });
+      return;
+    }
+    res.json({ ok: true, version, job: snapshotPopbillCertificateRegistrationJob(job) });
+  });
+
+  app.post("/api/popbill/certificate-registration-jobs/:jobId/cancel", (req, res) => {
+    const job = popbillCertificateRegistrationJobs.get(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ ok: false, version, error: "공동인증서 등록 작업을 찾지 못했습니다." });
+      return;
+    }
+    job.cancelRequested = true;
+    if (job.status === "queued" || job.status === "complete" || job.status === "failed") {
+      job.status = "cancelled";
+      job.phase = "cancelled";
+      job.error = "작업이 취소되었습니다.";
+    }
+    touchPopbillCertificateRegistrationJob(job);
+    res.json({ ok: true, version, job: snapshotPopbillCertificateRegistrationJob(job) });
   });
 
   app.post("/api/shutdown", (_req, res) => {

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  filterAlreadyRegisteredOnboardingCertificates,
   mergeCustomerOnboardingTemplateWorkbookState,
   mergeOnboardingCertificates
 } from "./customer-onboarding-certificate-merge";
 import type { CustomerOnboardingTemplateWorkbookInput } from "./customer-onboarding-workbook";
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
+import type { CustomerCertificate } from "../../types";
 
 function createCertificate(overrides: Partial<RenewalAgentCertificate> = {}): RenewalAgentCertificate {
   return {
@@ -34,6 +36,30 @@ function createCertificate(overrides: Partial<RenewalAgentCertificate> = {}): Re
     certDirPath: null,
     ...overrides
   } as RenewalAgentCertificate;
+}
+
+function createStoredCustomerCertificate(
+  overrides: Partial<CustomerCertificate> = {}
+): CustomerCertificate {
+  return {
+    id: 1,
+    customerId: 1,
+    certificateKind: "electronic_tax",
+    certificateName: "기존 발전소",
+    certificateUsageName: "전자세금용",
+    issuerName: "테스트 기관",
+    serial: null,
+    userDN: null,
+    oid: "1.2.410.200005.1.1.5",
+    expireDate: "2099-12-31",
+    certDirPath: null,
+    certificatePasswordConfigured: true,
+    isPrimary: true,
+    linkSource: "auto",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
 }
 
 test("mergeOnboardingCertificates keeps bridge and uploaded certificates when their local indexes collide", () => {
@@ -201,6 +227,116 @@ test("mergeOnboardingCertificates replaces an uploaded duplicate when a bridge c
   assert.equal(merged.length, 1);
   assert.equal(merged[0]?.index, "8");
   assert.notEqual(merged[0]?.index, "upload-1");
+});
+
+test("filterAlreadyRegisteredOnboardingCertificates hides certificates already linked by decimal and hex serials", () => {
+  const registeredCertificate = createStoredCustomerCertificate({
+    certificateName: "유학현()001168920230227111003787",
+    issuerName: "cn=yessignCA Class 3,ou=AccreditedCA,o=yessign,c=kr",
+    serial: "36c895b5",
+    userDN: "cn=유학현()001168920230227111003787,ou=l,ou=NACF,ou=xUse4Esero,o=yessign,c=kr",
+    expireDate: "2027-03-02"
+  });
+  const uploadedCertificate = createCertificate({
+    cn: "유학현()001168920230227111003787",
+    issuerToName: "알 수 없음",
+    serial: "919115189",
+    userDN: "CN=유학현()001168920230227111003787",
+    todate: "2027-03-02T14:59:00.000Z",
+    detailValidateTo: "2027-03-02T14:59:00.000Z"
+  });
+  const newCertificate = createCertificate({
+    cn: "신규 발전소",
+    serial: "abc123"
+  });
+
+  const result = filterAlreadyRegisteredOnboardingCertificates(
+    [uploadedCertificate, newCertificate],
+    [registeredCertificate]
+  );
+
+  assert.equal(result.excludedRegisteredCount, 1);
+  assert.deepEqual(
+    result.certificates.map((certificate) => certificate.cn),
+    ["신규 발전소"]
+  );
+});
+
+test("filterAlreadyRegisteredOnboardingCertificates hides certificates already linked by userDN", () => {
+  const certificate = createCertificate({
+    cn: "김수용발전소",
+    serial: null,
+    userDN: "cn=김수용발전소,ou=xUse4Esero,o=SignGate,c=kr"
+  });
+  const registeredCertificate = createStoredCustomerCertificate({
+    certificateName: "김수용발전소",
+    serial: null,
+    userDN: "CN=김수용발전소,OU=xUse4Esero,O=SignGate,C=KR"
+  });
+
+  const result = filterAlreadyRegisteredOnboardingCertificates(
+    [certificate],
+    [registeredCertificate]
+  );
+
+  assert.equal(result.excludedRegisteredCount, 1);
+  assert.equal(result.certificates.length, 0);
+});
+
+test("filterAlreadyRegisteredOnboardingCertificates does not hide by name alone", () => {
+  const certificate = createCertificate({
+    cn: "동명이 발전소",
+    serial: null,
+    userDN: null,
+    issuerToName: "새 기관",
+    oid: "1.2.410.200005.1.1.5",
+    todate: "2099-12-31",
+    detailValidateTo: "2099-12-31"
+  });
+  const registeredCertificate = createStoredCustomerCertificate({
+    certificateName: "동명이 발전소",
+    serial: null,
+    userDN: null,
+    issuerName: "다른 기관",
+    oid: null,
+    expireDate: null
+  });
+
+  const result = filterAlreadyRegisteredOnboardingCertificates(
+    [certificate],
+    [registeredCertificate]
+  );
+
+  assert.equal(result.excludedRegisteredCount, 0);
+  assert.equal(result.certificates.length, 1);
+});
+
+test("filterAlreadyRegisteredOnboardingCertificates can use conservative metadata fallback without serials", () => {
+  const certificate = createCertificate({
+    cn: "메타 발전소",
+    serial: null,
+    userDN: null,
+    issuerToName: "테스트 기관",
+    oid: "1.2.410.200005.1.1.5",
+    todate: "2099-12-31",
+    detailValidateTo: "2099-12-31"
+  });
+  const registeredCertificate = createStoredCustomerCertificate({
+    certificateName: "메타 발전소",
+    serial: null,
+    userDN: null,
+    issuerName: "테스트 기관",
+    oid: "1.2.410.200005.1.1.5",
+    expireDate: "2099-12-31"
+  });
+
+  const result = filterAlreadyRegisteredOnboardingCertificates(
+    [certificate],
+    [registeredCertificate]
+  );
+
+  assert.equal(result.excludedRegisteredCount, 1);
+  assert.equal(result.certificates.length, 0);
 });
 
 test("mergeCustomerOnboardingTemplateWorkbookState preserves existing row selection and passwords", () => {

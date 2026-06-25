@@ -192,6 +192,14 @@ Progress display rules:
 - Prefer an inline status strip inside the current work panel over a separate floating card.
 - Include only the useful facts: title, current item/status, progress bar, completed count, failed count.
 - Do not show progress again as a separate notice below unless it adds new action guidance.
+- Running status icons should visibly animate unless the user has reduced-motion enabled.
+
+Initial registration workflow:
+
+- Keep the active customer-registration step as one work area: shared password, primary action, target table, and manual certificate source.
+- Do not repeat the same certificate count across header copy, status cards, notices, and table headings.
+- Use the right-side progress list for overall step position; avoid rendering a second full stepper inside the work panel.
+- Show progress cards only while an operation is running or needs active failure feedback.
 
 ## Buttons
 
@@ -238,6 +246,14 @@ Rules:
 - Align numeric and status data consistently.
 - Empty states should be short and functional.
 - Avoid decorative empty states unless they clarify the next action.
+
+Editable review grids:
+
+- Use one thin outer border and a sticky light-gray header.
+- Keep editable cells visually quiet at rest; show input borders only on hover or focus.
+- Use a subtle row tint plus a narrow left selection line instead of a heavy full-row highlight.
+- Keep checkbox columns narrow and centered.
+- Keep internal scrollbars visible but thin, with low-contrast gray tracks and thumbs.
 
 ## Customer-Facing Terminology
 

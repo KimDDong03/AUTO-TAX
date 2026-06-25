@@ -1,11 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
+  buildPopbillCookieHeaderFromSetCookies,
   extractRegistrationError,
   getPopbillDebugArtifactSupport,
+  isPopbillHelperHeadlessEnabled,
   matchPopbillCandidateIdentifiers,
+  mergePopbillCookieHeaders,
+  normalizePopbillBusinessNumber,
+  parsePopbillPopupTokenFromUrl,
   pickPopbillCertificateCandidate,
+  pickPopbillDirectMagicLineCandidate,
+  readPopbillBusinessNumberFromApiBody,
+  resolvePopbillBrowserUserDataDir,
   summarizePopbillChooserDebugReadiness,
+  type PopbillDirectMagicLineCandidate,
   type PopbillCertificateIframeCandidate,
   type PopbillCertificateSelectionDetailProbe
 } from "./popbill-cert-registration.ts";
@@ -34,6 +46,24 @@ function createSelectionDetailProbe(
   };
 }
 
+function createDirectCandidate(
+  overrides: Partial<PopbillDirectMagicLineCandidate> = {}
+): PopbillDirectMagicLineCandidate {
+  return {
+    certificateCn: "한빛태양광",
+    serial: "SERIAL-1",
+    userDN: "CN=한빛태양광,O=KICA,C=KR",
+    targetExpireDate: "2027-01-28",
+    validTo: "2027-01-28 23:59:59",
+    storageRawCertIdx: {
+      storageName: "hdd",
+      storageOpt: { hddOpt: { diskname: "fixed" } },
+      storageCertIdx: "subkey-1"
+    },
+    ...overrides
+  };
+}
+
 test("extractRegistrationError classifies expired certificate dialog signals", () => {
   assert.equal(
     extractRegistrationError("확인\n만료된 공동인증서입니다.\n인증서를 다시 선택하세요."),
@@ -41,10 +71,193 @@ test("extractRegistrationError classifies expired certificate dialog signals", (
   );
 });
 
+test("parsePopbillPopupTokenFromUrl reads query and hash popup tokens", () => {
+  assert.equal(
+    parsePopbillPopupTokenFromUrl("https://www.popbill.com/App/Taxinvoice/PopUp/Certificate?T=abc123"),
+    "abc123"
+  );
+  assert.equal(
+    parsePopbillPopupTokenFromUrl("https://www.popbill.com/App/Taxinvoice/PopUp/Certificate#T=hash-token"),
+    "hash-token"
+  );
+  assert.equal(
+    parsePopbillPopupTokenFromUrl("https://www.popbill.com/App/Taxinvoice/PopUp/Certificate?token=lower-token"),
+    "lower-token"
+  );
+  assert.equal(parsePopbillPopupTokenFromUrl("https://www.popbill.com/App/Taxinvoice/PopUp/Certificate"), null);
+});
+
+test("Popbill direct cookie helpers normalize and merge cookie headers", () => {
+  assert.equal(
+    buildPopbillCookieHeaderFromSetCookies([
+      "PB_SESSION=first; Path=/; Secure; HttpOnly",
+      "LANG=ko; Path=/; SameSite=Lax"
+    ]),
+    "PB_SESSION=first; LANG=ko"
+  );
+  assert.equal(
+    mergePopbillCookieHeaders("PB_SESSION=first; LANG=ko", "PB_SESSION=second; POPUP=1"),
+    "PB_SESSION=second; LANG=ko; POPUP=1"
+  );
+});
+
+test("Popbill direct business number helpers normalize explicit and token response values", () => {
+  assert.equal(normalizePopbillBusinessNumber("123-45-67890"), "1234567890");
+  assert.equal(normalizePopbillBusinessNumber("123456789"), null);
+  assert.equal(
+    readPopbillBusinessNumberFromApiBody({
+      result: {
+        member: {
+          CorpNum: "123-45-67890"
+        }
+      }
+    }),
+    "1234567890"
+  );
+});
+
+test("pickPopbillDirectMagicLineCandidate prefers direct serial match", () => {
+  const result = pickPopbillDirectMagicLineCandidate(
+    [
+      createDirectCandidate({ certificateCn: "다른발전소", serial: "SERIAL-OTHER" }),
+      createDirectCandidate({ certificateCn: "한빛태양광", serial: "SERIAL-KEEP" })
+    ],
+    {
+      certificateCn: "한빛태양광",
+      serial: "SERIAL-KEEP"
+    }
+  );
+
+  assert.equal(result.candidate?.serial, "SERIAL-KEEP");
+  assert.equal(result.reason, "serial");
+});
+
+test("pickPopbillDirectMagicLineCandidate resolves duplicate CN with expire date", () => {
+  const result = pickPopbillDirectMagicLineCandidate(
+    [
+      createDirectCandidate({ certificateCn: "한빛태양광", serial: "SERIAL-OLD", targetExpireDate: "2026-01-28" }),
+      createDirectCandidate({ certificateCn: "한빛태양광", serial: "SERIAL-NEW", targetExpireDate: "2027-01-28" })
+    ],
+    {
+      certificateCn: "한빛태양광",
+      targetExpireDate: "2027-01-28"
+    }
+  );
+
+  assert.equal(result.candidate?.serial, "SERIAL-NEW");
+  assert.equal(result.reason, "CN + expire date");
+});
+
+test("pickPopbillDirectMagicLineCandidate fails closed for ambiguous duplicate CN", () => {
+  const result = pickPopbillDirectMagicLineCandidate(
+    [
+      createDirectCandidate({ certificateCn: "한빛태양광", serial: "SERIAL-1" }),
+      createDirectCandidate({ certificateCn: "한빛태양광", serial: "SERIAL-2" })
+    ],
+    {
+      certificateCn: "한빛태양광"
+    }
+  );
+
+  assert.equal(result.candidate, null);
+  assert.equal(result.reason, "unique CN matched 2 candidates");
+});
+
+test("isPopbillHelperHeadlessEnabled defaults to headless and accepts explicit opt-out values", () => {
+  assert.equal(isPopbillHelperHeadlessEnabled("1"), true);
+  assert.equal(isPopbillHelperHeadlessEnabled("true"), true);
+  assert.equal(isPopbillHelperHeadlessEnabled("yes"), true);
+  assert.equal(isPopbillHelperHeadlessEnabled("on"), true);
+  assert.equal(isPopbillHelperHeadlessEnabled("0"), false);
+  assert.equal(isPopbillHelperHeadlessEnabled("false"), false);
+  assert.equal(isPopbillHelperHeadlessEnabled("no"), false);
+  assert.equal(isPopbillHelperHeadlessEnabled("off"), false);
+  assert.equal(isPopbillHelperHeadlessEnabled(""), true);
+  assert.equal(isPopbillHelperHeadlessEnabled(undefined), true);
+});
+
+test("resolvePopbillBrowserUserDataDir isolates headless registration sessions", async () => {
+  const previousLocalAppData = process.env.LOCALAPPDATA;
+  const previousUserDataDir = process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR;
+  const localAppData = fs.mkdtempSync(path.join(os.tmpdir(), "auto-tax-popbill-profile-test-"));
+  process.env.LOCALAPPDATA = localAppData;
+  delete process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR;
+
+  try {
+    const first = resolvePopbillBrowserUserDataDir({ headless: true });
+    const second = resolvePopbillBrowserUserDataDir({ headless: true });
+
+    assert.equal(first.cleanupAfterClose, true);
+    assert.equal(second.cleanupAfterClose, true);
+    assert.notEqual(first.userDataDir, second.userDataDir);
+    assert.match(first.userDataDir, /chrome-sessions[\\/]+profile-/);
+    assert.match(second.userDataDir, /chrome-sessions[\\/]+profile-/);
+  } finally {
+    fs.rmSync(localAppData, { recursive: true, force: true });
+    if (previousLocalAppData === undefined) {
+      delete process.env.LOCALAPPDATA;
+    } else {
+      process.env.LOCALAPPDATA = previousLocalAppData;
+    }
+    if (previousUserDataDir === undefined) {
+      delete process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR;
+    } else {
+      process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR = previousUserDataDir;
+    }
+  }
+});
+
+test("resolvePopbillBrowserUserDataDir keeps explicit or headed profiles persistent", async () => {
+  const previousLocalAppData = process.env.LOCALAPPDATA;
+  const previousUserDataDir = process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR;
+  const configuredDir = fs.mkdtempSync(path.join(os.tmpdir(), "auto-tax-popbill-configured-profile-"));
+  let headedRoot: string | null = null;
+  process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR = configuredDir;
+
+  try {
+    const configured = resolvePopbillBrowserUserDataDir({ headless: true });
+    assert.deepEqual(configured, {
+      userDataDir: configuredDir,
+      cleanupAfterClose: false
+    });
+
+    headedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "auto-tax-popbill-headed-profile-"));
+    delete process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR;
+    process.env.LOCALAPPDATA = headedRoot;
+    const headed = resolvePopbillBrowserUserDataDir({ headless: false });
+    assert.equal(headed.cleanupAfterClose, false);
+    assert.equal(headed.userDataDir, path.join(headedRoot, "AUTO-TAX", "popbill-helper", "chrome-profile"));
+  } finally {
+    fs.rmSync(configuredDir, { recursive: true, force: true });
+    if (headedRoot) {
+      fs.rmSync(headedRoot, { recursive: true, force: true });
+    }
+    if (previousLocalAppData === undefined) {
+      delete process.env.LOCALAPPDATA;
+    } else {
+      process.env.LOCALAPPDATA = previousLocalAppData;
+    }
+    if (previousUserDataDir === undefined) {
+      delete process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR;
+    } else {
+      process.env.AUTO_TAX_POPBILL_HELPER_USER_DATA_DIR = previousUserDataDir;
+    }
+  }
+});
+
 test("extractRegistrationError classifies wrong password signals", () => {
   assert.equal(
     extractRegistrationError("비밀번호를 다시 입력하세요."),
     "공동인증서 비밀번호가 올바르지 않습니다."
+  );
+});
+
+test("extractRegistrationError prefers business-number mismatch over stale password prompt", () => {
+  assert.equal(
+    extractRegistrationError(
+      "비밀번호를 다시 입력하세요.\n공동인증서와 회원의 사업자번호가 일치하지 않아 등록이 불가능 합니다."
+    ),
+    "공동인증서와 회원의 사업자번호가 일치하지 않습니다."
   );
 });
 
@@ -351,7 +564,13 @@ test("getPopbillDebugArtifactSupport exposes the default artifact directory and 
     assert.deepEqual(getPopbillDebugArtifactSupport(), {
       supported: true,
       artifactDir: "C:\\Users\\Fixture\\AppData\\Local\\AUTO-TAX\\popbill-cert-debug",
-      stages: ["no-visible-cn-match", "ambiguous-cn-match", "registration-confirmation-failed"]
+      stages: [
+        "section-open-failed",
+        "frame-ready-failed",
+        "no-visible-cn-match",
+        "ambiguous-cn-match",
+        "registration-confirmation-failed"
+      ]
     });
   } finally {
     if (previousLocalAppData === undefined) {
@@ -376,7 +595,13 @@ test("getPopbillDebugArtifactSupport honors the explicit artifact directory over
     assert.deepEqual(getPopbillDebugArtifactSupport(), {
       supported: true,
       artifactDir: `${process.cwd()}\\tmp\\popbill-artifacts`,
-      stages: ["no-visible-cn-match", "ambiguous-cn-match", "registration-confirmation-failed"]
+      stages: [
+        "section-open-failed",
+        "frame-ready-failed",
+        "no-visible-cn-match",
+        "ambiguous-cn-match",
+        "registration-confirmation-failed"
+      ]
     });
   } finally {
     if (previousArtifactDir === undefined) {

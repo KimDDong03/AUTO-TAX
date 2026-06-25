@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   collectCertificateBusinessInfoLookupBatchResults,
+  collectPopbillCertificateRegistrationBatchResults,
   createCertificateUploadSessionMetadata,
   getCertificateBusinessInfoCapabilities,
+  getPopbillCertificateRegistrationCapabilities,
   isSignGateBusinessInfoFallbackDetail,
   isPfxPasswordMismatchMessage,
   isAllowedLocalRenewalHelperOrigin,
@@ -283,6 +285,66 @@ test("collectCertificateBusinessInfoLookupBatchResults caps SignGate and HomeTax
   assert.equal(results.every((result) => result.ok && result.source === "hometax"), true);
   assert.equal(maxSignGate, 16);
   assert.equal(maxHomeTax, 5);
+});
+
+test("collectPopbillCertificateRegistrationBatchResults caps certificate registration concurrency", async () => {
+  let activeRegistrations = 0;
+  let maxRegistrations = 0;
+  const progressIndexes: number[] = [];
+  const registrationConcurrencyMax = getPopbillCertificateRegistrationCapabilities().concurrency.max;
+  const requests = Array.from({ length: 6 }, (_, index) => ({
+    certificateRegistrationUrl: "https://www.popbill.com/App/Taxinvoice/PopUp/Certificate",
+    certificateIndex: index + 1,
+    certificateCn: `등록${index + 1}`,
+    certificateKind: "electronic_tax" as const,
+    serial: null,
+    userDN: null,
+    targetExpireDate: null,
+    certificatePassword: "secret"
+  }));
+
+  const results = await collectPopbillCertificateRegistrationBatchResults(requests, {
+    concurrency: registrationConcurrencyMax,
+    registerCertificate: async (payload) => {
+      activeRegistrations += 1;
+      maxRegistrations = Math.max(maxRegistrations, activeRegistrations);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeRegistrations -= 1;
+      return {
+        outcome: "registered",
+        browserChannel: "chrome",
+        certificateIndex: payload.certificateIndex,
+        certificateCn: payload.certificateCn ?? "",
+        certificateKind: "electronic_tax",
+        serial: payload.serial ?? null,
+        userDN: payload.userDN ?? null,
+        targetExpireDate: payload.targetExpireDate ?? null,
+        localBridgeBaseUrl: null,
+        message: "등록 완료",
+        timing: {
+          totalMs: 1,
+          browserLaunchMs: 0,
+          permissionMs: 0,
+          pageLoadMs: 0,
+          certificateResolveMs: 0,
+          sectionOpenMs: 0,
+          frameReadyMs: 0,
+          candidateInspectMs: 0,
+          selectionReadyMs: 0,
+          submitMs: 0,
+          completionConfirmMs: 0
+        }
+      };
+    },
+    onProgress: (event) => {
+      progressIndexes.push(event.index);
+    }
+  });
+
+  assert.equal(results.length, 6);
+  assert.equal(results.every((result) => result.ok), true);
+  assert.equal(maxRegistrations, registrationConcurrencyMax);
+  assert.equal(progressIndexes.length, 6);
 });
 
 test("collectCertificateBusinessInfoLookupBatchResults lowers only transient SignGate concurrency failures", async () => {

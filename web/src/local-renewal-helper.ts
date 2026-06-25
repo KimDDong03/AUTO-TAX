@@ -58,6 +58,14 @@ function resolveLocalBusinessInfoLookupTimeoutMs(requestCount = 1): number {
   return Math.max(resolveLocalRenewalHelperTimeoutMs(fallbackMs), fallbackMs);
 }
 
+function resolveLocalPopbillCertificateRegistrationTimeoutMs(requestCount = 1): number {
+  const fallbackMs = Math.max(
+    DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS * 2,
+    90_000 + Math.max(1, requestCount) * 90_000
+  );
+  return Math.max(resolveLocalRenewalHelperTimeoutMs(fallbackMs), fallbackMs);
+}
+
 export const LOCAL_RENEWAL_HELPER_URL = `http://127.0.0.1:${resolveLocalRenewalHelperPort()}`;
 export const LOCAL_RENEWAL_HELPER_RELEASE_METADATA_URL = "/downloads/renewal-local-helper.json";
 
@@ -230,22 +238,37 @@ type LocalRenewalPaymentOpenResponse = {
   };
 };
 
-type LocalPopbillCertificateRegistrationResponse =
+export type LocalPopbillCertificateRegistrationPayload = {
+  certificateRegistrationUrl: string;
+  businessNumber?: string | null;
+  certificateIndex: number;
+  certificateCn?: string | null;
+  certificateKind: "electronic_tax" | "general_business";
+  serial?: string | null;
+  userDN?: string | null;
+  targetExpireDate?: string | null;
+  browserMode?: "auto" | "headless" | "visible" | "direct";
+  certificatePassword: string;
+};
+
+export type LocalPopbillCertificateRegistrationResult = {
+  outcome: "registered" | "already-registered";
+  browserChannel: string;
+  certificateIndex: number;
+  certificateCn: string;
+  certificateKind: "electronic_tax" | "general_business";
+  serial: string | null;
+  userDN: string | null;
+  targetExpireDate: string | null;
+  localBridgeBaseUrl: string | null;
+  message: string;
+};
+
+export type LocalPopbillCertificateRegistrationResponse =
   | {
       ok: true;
       version: string;
-      result: {
-        outcome: "registered" | "already-registered";
-        browserChannel: string;
-        certificateIndex: number;
-        certificateCn: string;
-        certificateKind: "electronic_tax" | "general_business";
-        serial: string | null;
-        userDN: string | null;
-        targetExpireDate: string | null;
-        localBridgeBaseUrl: string | null;
-        message: string;
-      };
+      result: LocalPopbillCertificateRegistrationResult;
     }
   | {
       ok: false;
@@ -254,6 +277,43 @@ type LocalPopbillCertificateRegistrationResponse =
       stage?: string;
       timing?: unknown;
     };
+
+type LocalPopbillCertificateRegistrationJobStatus = "queued" | "running" | "complete" | "failed" | "cancelled";
+type LocalPopbillCertificateRegistrationJobPhase = "queued" | "registering" | "complete" | "failed" | "cancelled";
+
+export type LocalPopbillCertificateRegistrationJobResult =
+  | {
+      ok: true;
+      result: LocalPopbillCertificateRegistrationResult;
+    }
+  | {
+      ok: false;
+      error: string;
+      stage?: string;
+      timing?: unknown;
+    };
+
+export type LocalPopbillCertificateRegistrationJob = {
+  id: string;
+  status: LocalPopbillCertificateRegistrationJobStatus;
+  phase: LocalPopbillCertificateRegistrationJobPhase;
+  total: number;
+  completed: number;
+  registered: number;
+  alreadyRegistered: number;
+  failed: number;
+  concurrency: number;
+  createdAt: string;
+  updatedAt: string;
+  error: string | null;
+  results: LocalPopbillCertificateRegistrationJobResult[] | null;
+};
+
+type LocalPopbillCertificateRegistrationJobResponse = {
+  ok: true;
+  version: string;
+  job: LocalPopbillCertificateRegistrationJob;
+};
 
 export type LocalRenewalHelperStatus = {
   online: boolean;
@@ -400,6 +460,55 @@ async function pollLocalCertificateBusinessInfoJob(
     );
     job = response.job;
     options?.onProgress?.(formatCertificateBusinessInfoJobProgress(job));
+  }
+  return job;
+}
+
+function formatPopbillCertificateRegistrationJobProgress(job: LocalPopbillCertificateRegistrationJob): string {
+  if (job.status === "complete") {
+    return `공동인증서 등록 ${job.completed}/${job.total}건 완료`;
+  }
+  if (job.status === "failed" || job.status === "cancelled") {
+    return job.error ?? "공동인증서 등록 작업이 중단되었습니다.";
+  }
+  return `공동인증서 등록 ${job.completed}/${job.total}건 완료`;
+}
+
+function isPopbillCertificateRegistrationJobEffectivelySettled(
+  job: LocalPopbillCertificateRegistrationJob
+): boolean {
+  if (job.status !== "queued" && job.status !== "running") {
+    return true;
+  }
+  if (job.total <= 0) {
+    return true;
+  }
+  const outcomeCount = job.registered + job.alreadyRegistered + job.failed;
+  return Math.max(job.completed, outcomeCount) >= job.total;
+}
+
+async function pollLocalPopbillCertificateRegistrationJob(
+  initialJob: LocalPopbillCertificateRegistrationJob,
+  options?: {
+    onProgress?: (message: string, job: LocalPopbillCertificateRegistrationJob) => void;
+  }
+): Promise<LocalPopbillCertificateRegistrationJob> {
+  let job = initialJob;
+  const deadline = Date.now() + resolveLocalPopbillCertificateRegistrationTimeoutMs(job.total);
+  options?.onProgress?.(formatPopbillCertificateRegistrationJobProgress(job), job);
+  while (!isPopbillCertificateRegistrationJobEffectivelySettled(job)) {
+    if (Date.now() > deadline) {
+      throw new Error(`AT 헬퍼 요청이 ${Math.round(resolveLocalPopbillCertificateRegistrationTimeoutMs(job.total) / 1000)}초 안에 완료되지 않았습니다. 잠시 후 다시 시도하세요.`);
+    }
+    await delay(1_000);
+    const response = await localRenewalHelperRequest<LocalPopbillCertificateRegistrationJobResponse>(
+      `/api/popbill/certificate-registration-jobs/${encodeURIComponent(job.id)}`,
+      {
+        timeoutMs: DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS
+      }
+    );
+    job = response.job;
+    options?.onProgress?.(formatPopbillCertificateRegistrationJobProgress(job), job);
   }
   return job;
 }
@@ -810,24 +919,116 @@ export async function requestLocalRenewalOpenPayment(payload: {
   });
 }
 
-export async function requestLocalPopbillCertificateRegistration(payload: {
-  certificateRegistrationUrl: string;
-  certificateIndex: number;
-  certificateCn?: string | null;
-  certificateKind: "electronic_tax" | "general_business";
-  serial?: string | null;
-  userDN?: string | null;
-  targetExpireDate?: string | null;
-  certificatePassword: string;
-}) {
-  const response = await localRenewalHelperRequest<LocalPopbillCertificateRegistrationResponse>("/api/popbill/certificate-registration", {
+async function requestLocalPopbillCertificateRegistrationRaw(
+  payload: LocalPopbillCertificateRegistrationPayload
+): Promise<LocalPopbillCertificateRegistrationResponse> {
+  return await localRenewalHelperRequest<LocalPopbillCertificateRegistrationResponse>("/api/popbill/certificate-registration", {
     method: "POST",
     body: JSON.stringify(payload),
-    timeoutMs: resolveLocalRenewalHelperTimeoutMs(DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS)
+    timeoutMs: resolveLocalPopbillCertificateRegistrationTimeoutMs(1)
   });
+}
+
+export async function requestLocalPopbillCertificateRegistration(payload: LocalPopbillCertificateRegistrationPayload) {
+  const response = await requestLocalPopbillCertificateRegistrationRaw(payload);
   if (!response.ok) {
-    throw new Error(response.error || "공동인증서 자동 등록에 실패했습니다.");
+    const error = new Error(response.error || "공동인증서 자동 등록에 실패했습니다.") as Error & {
+      stage?: string;
+      timing?: unknown;
+      version?: string;
+    };
+    error.stage = response.stage;
+    error.timing = response.timing;
+    error.version = response.version;
+    throw error;
   }
 
   return response;
+}
+
+export async function requestLocalPopbillCertificateRegistrationBatch(
+  payloads: LocalPopbillCertificateRegistrationPayload[],
+  options?: {
+    concurrency?: number;
+    onProgress?: (message: string, job?: LocalPopbillCertificateRegistrationJob) => void;
+  }
+): Promise<LocalPopbillCertificateRegistrationResponse[]> {
+  if (payloads.length === 0) {
+    return [];
+  }
+
+  let jobResponse: LocalPopbillCertificateRegistrationJobResponse | null = null;
+  try {
+    jobResponse = await localRenewalHelperRequest<LocalPopbillCertificateRegistrationJobResponse>(
+      "/api/popbill/certificate-registration-jobs",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requests: payloads,
+          concurrency: options?.concurrency
+        }),
+        timeoutMs: DEFAULT_LOCAL_RENEWAL_HELPER_ACTION_TIMEOUT_MS
+      }
+    );
+  } catch {
+    // Older helpers do not expose the job API. Fall back to the legacy single-registration route.
+  }
+
+  if (jobResponse) {
+    try {
+      const job = await pollLocalPopbillCertificateRegistrationJob(jobResponse.job, options);
+      if (!job.results || job.results.length !== payloads.length) {
+        const outcomeCount = job.registered + job.alreadyRegistered + job.failed;
+        if (job.total > 0 && outcomeCount >= job.total) {
+          const message = job.error ?? "공동인증서 등록 작업은 끝났지만 상세 결과가 정리되지 않았습니다. 다시 시도하세요.";
+          return payloads.map(() => ({
+            ok: false as const,
+            version: jobResponse.version,
+            error: message
+          }));
+        }
+        throw new Error(job.error ?? "공동인증서 등록 작업이 완료되지 않았습니다.");
+      }
+      return job.results.map((result) =>
+        result.ok
+          ? {
+              ok: true as const,
+              version: jobResponse.version,
+              result: result.result
+            }
+          : {
+              ok: false as const,
+              version: jobResponse.version,
+              error: result.error,
+              stage: result.stage,
+              timing: result.timing
+            }
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "공동인증서 등록 작업에 실패했습니다.";
+      options?.onProgress?.(`${payloads.length}건 공동인증서 등록 응답 실패`);
+      return payloads.map(() => ({
+        ok: false as const,
+        version: jobResponse.version,
+        error: message
+      }));
+    }
+  }
+
+  const results: LocalPopbillCertificateRegistrationResponse[] = [];
+  options?.onProgress?.(`${payloads.length}건 공동인증서 등록 개별 처리 중`);
+  for (let index = 0; index < payloads.length; index += 1) {
+    options?.onProgress?.(`${index}/${payloads.length}건 완료`);
+    try {
+      results.push(await requestLocalPopbillCertificateRegistrationRaw(payloads[index] as LocalPopbillCertificateRegistrationPayload));
+    } catch (error) {
+      results.push({
+        ok: false,
+        version: "unknown",
+        error: error instanceof Error ? error.message : "공동인증서 자동 등록에 실패했습니다."
+      });
+    }
+  }
+  options?.onProgress?.(`${payloads.length}/${payloads.length}건 완료`);
+  return results;
 }

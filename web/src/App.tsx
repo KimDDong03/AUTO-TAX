@@ -60,7 +60,7 @@ import {
   type OnboardingPreflightCache
 } from "./features/initial-registration/electronic-tax-onboarding-resolver";
 import {
-  processElectronicTaxOnboardingCertificateRegistrations,
+  getElectronicTaxRegistrationErrorMessage,
   type ElectronicTaxOnboardingCertificateRegistrationProgress,
   waitForElectronicTaxOnboardingCommitBatch
 } from "./features/initial-registration/electronic-tax-onboarding-orchestration";
@@ -69,9 +69,11 @@ import {
   type ElectronicTaxOnboardingSessionState as CustomerOnboardingSessionState
 } from "./features/initial-registration/electronic-tax-onboarding-upload-flow";
 import {
+  filterAlreadyRegisteredOnboardingCertificates,
   getActiveIssueCapableOnboardingCertificates,
   getOnboardingCertificateTemplatePlantKey,
   getOnboardingTemplatePlantKey,
+  isOnboardingCertificateAlreadyRegistered,
   mergeCustomerOnboardingTemplateWorkbookState,
   mergeOnboardingCertificates
 } from "./features/initial-registration/customer-onboarding-certificate-merge";
@@ -139,7 +141,8 @@ import {
   requestLocalRenewalOpenPayment,
   requestLocalRenewalPreparePayment,
   requestLocalRenewalPreflight,
-  requestLocalRenewalPreflightBatch
+  requestLocalRenewalPreflightBatch,
+  type LocalPopbillCertificateRegistrationResponse
 } from "./local-renewal-helper";
 import {
   buildOpsSubscriptionMetrics,
@@ -2939,9 +2942,16 @@ export function App() {
       }
     ) => {
       const incomingCertificates = getActiveIssueCapableOnboardingCertificates(certificates);
-      const activeCertificates = options?.preserveExisting
+      const mergedCertificates = options?.preserveExisting
         ? mergeOnboardingCertificates(customerOnboardingCertificatesRef.current, incomingCertificates)
         : incomingCertificates;
+      const {
+        certificates: activeCertificates,
+        excludedRegisteredCount
+      } = filterAlreadyRegisteredOnboardingCertificates(
+        mergedCertificates,
+        data?.customerCertificates ?? []
+      );
       if (activeCertificates.length === 0) {
         setCustomerOnboardingTemplateWorkbook(null);
         setCustomerOnboardingFileName("");
@@ -2955,7 +2965,15 @@ export function App() {
           targetBusinessNumbers: []
         });
         customerOnboardingCertificatesRef.current = null;
-        return activeCertificates;
+        if (excludedRegisteredCount > 0) {
+          setCustomerOnboardingNotice(
+            `읽은 공동인증서 ${excludedRegisteredCount}건은 이미 고객에 등록되어 초기 등록 대상에서 제외했습니다.`
+          );
+        }
+        return {
+          certificates: activeCertificates,
+          excludedRegisteredCount
+        };
       }
 
       customerOnboardingCertificatesRef.current = activeCertificates;
@@ -2988,9 +3006,12 @@ export function App() {
         })
       );
       setCustomerOnboardingError("");
-      return activeCertificates;
+      return {
+        certificates: activeCertificates,
+        excludedRegisteredCount
+      };
     },
-    []
+    [data?.customerCertificates]
   );
   const prepareCustomerOnboardingCertificateForPreflight = useCallback(
     async (
@@ -3044,17 +3065,29 @@ export function App() {
         throw new Error(detail || "선택한 인증서를 브리지 저장소로 가져온 뒤 다시 찾지 못했습니다.");
       }
 
-      const activeCertificates = mergeOnboardingCertificates(customerOnboardingCertificatesRef.current, [
+      const mergedCertificates = mergeOnboardingCertificates(customerOnboardingCertificatesRef.current, [
         importedCertificate
       ]);
-      customerOnboardingCertificatesRef.current = activeCertificates;
-      setCustomerOnboardingTemplateWorkbook((current) =>
-        mergeCustomerOnboardingTemplateWorkbookState(
-          current,
-          buildCustomerOnboardingTemplateWorkbookFromCertificates(activeCertificates)
-        )
+      const {
+        certificates: activeCertificates
+      } = filterAlreadyRegisteredOnboardingCertificates(
+        mergedCertificates,
+        data?.customerCertificates ?? []
       );
-      setCustomerOnboardingFileName(`읽은 인증서 ${activeCertificates.length}건`);
+      const importedCertificateAlreadyRegistered = isOnboardingCertificateAlreadyRegistered(
+        importedCertificate,
+        data?.customerCertificates ?? []
+      );
+      customerOnboardingCertificatesRef.current = activeCertificates.length > 0 ? activeCertificates : null;
+      setCustomerOnboardingTemplateWorkbook((current) =>
+        activeCertificates.length > 0
+          ? mergeCustomerOnboardingTemplateWorkbookState(
+              current,
+              buildCustomerOnboardingTemplateWorkbookFromCertificates(activeCertificates)
+            )
+          : null
+      );
+      setCustomerOnboardingFileName(activeCertificates.length > 0 ? `읽은 인증서 ${activeCertificates.length}건` : "");
       setCustomerOnboardingWorkbook(null);
       setCustomerOnboardingPreview(null);
       setCustomerOnboardingPreflightPasswordFailureEntries([]);
@@ -3069,9 +3102,14 @@ export function App() {
         targetBusinessNumbers: []
       }));
       customerOnboardingPreflightCacheRef.current.clear();
+      if (importedCertificateAlreadyRegistered) {
+        throw new Error(
+          `${importedCertificate.cn || certificate.cn}: 이미 고객에 등록된 공동인증서라 초기 등록 대상에서 제외했습니다.`
+        );
+      }
       return importedCertificate;
     },
-    []
+    [data?.customerCertificates]
   );
   const runSettingsCertificateUpload = useCallback(
     async (files: File[]) =>
@@ -3115,10 +3153,11 @@ export function App() {
             });
 
             const previousCertificateCount = customerOnboardingCertificatesRef.current?.length ?? 0;
-            const activeCertificates = applyCustomerOnboardingCertificates(uploadedCertificates, {
+            const applyResult = applyCustomerOnboardingCertificates(uploadedCertificates, {
               preserveExisting: true,
               fileNameLabel: "선택 인증서"
             });
+            const activeCertificates = applyResult.certificates;
             const addedCertificateCount = Math.max(
               activeCertificates.length - previousCertificateCount,
               0
@@ -3129,7 +3168,7 @@ export function App() {
             );
             const helperMessage =
               skippedDuplicateCount > 0
-                ? `파일/폴더 인증서 ${addedCertificateCount}건을 추가했고, 이미 목록에 있는 ${skippedDuplicateCount}건은 제외했습니다.`
+                ? `파일/폴더 인증서 ${addedCertificateCount}건을 추가했고, 이미 목록에 있거나 고객에 등록된 ${skippedDuplicateCount}건은 제외했습니다.`
                 : `파일/폴더 인증서 ${addedCertificateCount}건을 목록에 추가했습니다.`;
             setCustomerRenewalAssistant((prev) =>
               buildCustomerRenewalAssistant({
@@ -4251,9 +4290,17 @@ export function App() {
 
   const loadCustomerOnboardingAvailableCertificates = async () => {
     ensureLocalRenewalHelperActionAllowed("공동인증서 읽기");
-    const selectedCertificates =
+    let selectedCertificates =
       customerOnboardingCertificatesRef.current ??
       getActiveIssueCapableOnboardingCertificates(customerRenewalAssistantAllCertificates);
+
+    if (selectedCertificates.length === 0) {
+      const refreshedCertificates = await syncCustomerRenewalCertificates({
+        showAlert: false,
+        skipReadinessCheck: true
+      });
+      selectedCertificates = getActiveIssueCapableOnboardingCertificates(refreshedCertificates as RenewalAgentCertificate[]);
+    }
 
     if (selectedCertificates.length === 0) {
       throw new Error("AT 헬퍼 준비에서 공동인증서 읽기를 먼저 실행하세요.");
@@ -4300,11 +4347,17 @@ export function App() {
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
     customerOnboardingPreflightCacheRef.current.clear();
     const certificates = await syncCustomerRenewalCertificates({ showAlert: false });
-    const activeCertificates = applyCustomerOnboardingCertificates(certificates as RenewalAgentCertificate[], {
+    const applyResult = applyCustomerOnboardingCertificates(certificates as RenewalAgentCertificate[], {
       preserveExisting: false,
       fileNameLabel: "읽은 인증서"
     });
+    const activeCertificates = applyResult.certificates;
     if (activeCertificates.length === 0) {
+      if (applyResult.excludedRegisteredCount > 0) {
+        throw new Error(
+          `컴퓨터에서 읽은 발행 가능 공동인증서 ${applyResult.excludedRegisteredCount}건은 이미 고객에 등록되어 초기 등록 대상에서 제외했습니다.`
+        );
+      }
       throw new Error("컴퓨터에서 발행 가능 공동인증서를 찾지 못했습니다. 찾는 인증서가 없으면 파일 추가 또는 폴더 추가로 직접 선택하세요.");
     }
   };
@@ -5269,12 +5322,45 @@ export function App() {
     return /Target\.createTarget|Failed to open a new tab|Target page, context or browser has been closed|browser has been closed|page has been closed/i.test(message);
   };
 
+  const getPopbillCertificateRegistrationErrorStage = (error: unknown) => {
+    if (!error || typeof error !== "object" || !("stage" in error)) {
+      return null;
+    }
+    const stage = (error as { stage?: unknown }).stage;
+    return typeof stage === "string" ? stage : null;
+  };
+
+  const isPopbillCertificateFrameReadyRegistrationError = (error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : typeof error === "string" ? error : String(error ?? "");
+    return (
+      getPopbillCertificateRegistrationErrorStage(error) === "frame-ready" ||
+      message.includes("인증서 선택 화면을 불러오지 못했습니다")
+    );
+  };
+
+  const isOperatorActionPopbillCertificateRegistrationError = (error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : typeof error === "string" ? error : String(error ?? "");
+    return /비밀번호|암호|사업자번호|만료된 공동인증서|공동인증서가 만료|일치하지 않습니다|인증서 비밀번호/.test(
+      message
+    );
+  };
+
+  const isDirectPopbillCertificateRegistrationFallbackError = (error: unknown) => {
+    if (isOperatorActionPopbillCertificateRegistrationError(error)) {
+      return false;
+    }
+    return true;
+  };
+
   const waitForPopbillCertificateBrowserRecovery = async () => {
     await new Promise((resolve) => window.setTimeout(resolve, 1500));
   };
 
   const requestLocalPopbillCertificateRegistrationWithRetry = async (options: {
     customerId: number;
+    businessNumber: string;
     certificateIndex: number;
     certificateCn?: string | null;
     certificateKind: "electronic_tax" | "general_business";
@@ -5283,30 +5369,48 @@ export function App() {
     targetExpireDate?: string | null;
     certificatePassword: string;
   }) => {
-    const runOnce = async () => {
+    type PopbillRegistrationMode = "direct" | "auto" | "headless" | "visible";
+    const runOnce = async (browserMode: PopbillRegistrationMode) => {
       const certificateRegistrationUrl = await getCustomerCertificateRegistrationUrl(options.customerId);
       return await requestLocalPopbillCertificateRegistration({
         certificateRegistrationUrl,
+        businessNumber: options.businessNumber,
         certificateIndex: options.certificateIndex,
         certificateCn: options.certificateCn,
         certificateKind: options.certificateKind,
         serial: options.serial,
         userDN: options.userDN,
         targetExpireDate: options.targetExpireDate,
+        browserMode,
         certificatePassword: options.certificatePassword
       });
     };
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    let browserMode: PopbillRegistrationMode = "direct";
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        return await runOnce();
+        return await runOnce(browserMode);
       } catch (error) {
         const canRetry =
-          attempt === 0 &&
-          (isExpiredPopbillCertificateRegistrationError(error) ||
-            isTransientPopbillCertificateBrowserError(error));
+          (browserMode === "direct" && isDirectPopbillCertificateRegistrationFallbackError(error)) ||
+          (attempt < 2 &&
+            browserMode !== "direct" &&
+            (isExpiredPopbillCertificateRegistrationError(error) ||
+              isPopbillCertificateFrameReadyRegistrationError(error) ||
+              isTransientPopbillCertificateBrowserError(error)));
         if (!canRetry) {
           throw error;
+        }
+        if (browserMode === "direct") {
+          browserMode = "headless";
+          await waitForPopbillCertificateBrowserRecovery();
+          continue;
+        }
+        if (
+          isExpiredPopbillCertificateRegistrationError(error) ||
+          isPopbillCertificateFrameReadyRegistrationError(error)
+        ) {
+          browserMode = "visible";
         }
         await waitForPopbillCertificateBrowserRecovery();
       }
@@ -5513,6 +5617,7 @@ export function App() {
           try {
             const registrationResponse = await requestLocalPopbillCertificateRegistrationWithRetry({
               customerId: createdCustomer.id,
+              businessNumber: createdCustomer.businessNumber,
               certificateIndex: Number(entry.certificate.index),
               certificateCn: entry.certificate.cn || createdCustomer.customerName,
               certificateKind: deriveCustomerCertificateKind(entry.certificate) === "general_business" ? "general_business" : "electronic_tax",
@@ -6969,6 +7074,7 @@ export function App() {
     const linkedCertificate = getPrimaryElectronicTaxCustomerCertificate(customer.id);
     const effectivePassword =
       onboardingCertificateRow?.certificatePassword.trim() ||
+      customerOnboardingSharedPassword.trim() ||
       (await resolveCustomerRenewalPassword({
         promptIfMissing: false,
         linkedCertificateId: linkedCertificate?.id ?? null
@@ -6989,6 +7095,7 @@ export function App() {
     try {
       registrationResponse = await requestLocalPopbillCertificateRegistrationWithRetry({
         customerId: customer.id,
+        businessNumber: customer.businessNumber,
         certificateIndex: Number(selectedLocalCertificate.index),
         certificateCn:
           selectedLocalCertificate?.cn.trim() ||
@@ -7059,6 +7166,223 @@ export function App() {
     return {
       outcome: registrationResponse.result.outcome,
       refreshErrorMessage
+    };
+  };
+
+  const processOnboardingCertificateRegistrationBatch = async (
+    pendingCustomers: Customer[]
+  ): Promise<{
+    completedNames: string[];
+    alreadyRegisteredNames: string[];
+    failedDetails: string[];
+    refreshWarnings: string[];
+  }> => {
+    ensureLocalRenewalHelperActionAllowed("발행 가능 인증서 등록");
+    const completedNames: string[] = [];
+    const alreadyRegisteredNames: string[] = [];
+    const failedDetails: string[] = [];
+    const refreshWarnings: string[] = [];
+    const total = pendingCustomers.length;
+    const registrationTargets: Array<{
+      customer: Customer;
+      certificate: RenewalAgentCertificate;
+      certificatePassword: string;
+      certificateIndex: number;
+      certificateCn?: string | null;
+      serial?: string | null;
+      userDN?: string | null;
+      targetExpireDate?: string | null;
+    }> = [];
+
+    const emitProgress = (
+      current: number,
+      status: ElectronicTaxOnboardingCertificateRegistrationProgress["status"],
+      currentCustomerName = ""
+    ) => {
+      setCustomerOnboardingCertificateRegistrationProgress({
+        total,
+        current: Math.min(current, total),
+        completed: completedNames.length,
+        alreadyRegistered: alreadyRegisteredNames.length,
+        failed: failedDetails.length,
+        currentCustomerName,
+        status
+      });
+    };
+
+    for (let index = 0; index < pendingCustomers.length; index += 1) {
+      const customer = pendingCustomers[index] as Customer;
+      emitProgress(index + 1, "running", customer.customerName);
+
+      try {
+        if (customer.popbillState !== "joined") {
+          throw new Error(`${customer.customerName} 고객은 발행 연동 준비가 완료되지 않아 인증서 등록을 진행할 수 없습니다.`);
+        }
+
+        const businessNumber = digitsOnly(customer.businessNumber);
+        if (customerOnboardingAttemptedCertificateBusinessNumbers.includes(businessNumber)) {
+          const refreshed = await refreshSingleCustomerCertificateStatus(customer.id).catch(() => null);
+          if (refreshed?.popbillCertRegistered) {
+            alreadyRegisteredNames.push(customer.customerName);
+            emitProgress(index + 1, "already-registered", customer.customerName);
+            continue;
+          }
+        }
+
+        const linkedCertificate = getPrimaryElectronicTaxCustomerCertificate(customer.id);
+        const onboardingCertificateRow = getOnboardingElectronicTaxCertificateRow(customer);
+        if (!onboardingCertificateRow && !linkedCertificate) {
+          throw new Error("연결된 발행 가능 공동인증서 정보를 찾지 못했습니다. 공동인증서를 다시 읽고 고객과 인증서를 다시 확인하세요.");
+        }
+        const effectivePassword =
+          onboardingCertificateRow?.certificatePassword.trim() ||
+          customerOnboardingSharedPassword.trim() ||
+          (await resolveCustomerRenewalPassword({
+            promptIfMissing: false,
+            linkedCertificateId: linkedCertificate?.id ?? null
+          }));
+
+        if (!effectivePassword) {
+          throw new Error(
+            "발행 가능 공동인증서 비밀번호가 없습니다. 엑셀의 인증서 비밀번호를 입력하거나 현재 브라우저 탭에서 공통 비밀번호를 다시 입력하세요."
+          );
+        }
+
+        const selectedLocalCertificate = await resolveSingleElectronicTaxCertificate(
+          customer,
+          onboardingCertificateRow,
+          linkedCertificate
+        );
+        registrationTargets.push({
+          customer,
+          certificate: selectedLocalCertificate,
+          certificatePassword: effectivePassword,
+          certificateIndex: Number(selectedLocalCertificate.index),
+          certificateCn:
+            selectedLocalCertificate.cn?.trim() ||
+            onboardingCertificateRow?.certificateName.trim() ||
+            linkedCertificate?.certificateName.trim() ||
+            customer.corpName.trim() ||
+            customer.customerName.trim(),
+          serial: selectedLocalCertificate.serial || onboardingCertificateRow?.serial || linkedCertificate?.serial || null,
+          userDN: selectedLocalCertificate.userDN || onboardingCertificateRow?.userDN || linkedCertificate?.userDN || null,
+          targetExpireDate:
+            selectedLocalCertificate.todate ||
+            selectedLocalCertificate.detailValidateTo ||
+            onboardingCertificateRow?.expireDate ||
+            linkedCertificate?.expireDate ||
+            null
+        });
+      } catch (error) {
+        failedDetails.push(
+          `${customer.customerName}: ${getElectronicTaxRegistrationErrorMessage(error, "자동 등록 준비 실패")}`
+        );
+        emitProgress(index + 1, "failed", customer.customerName);
+      }
+    }
+
+    if (registrationTargets.length > 0) {
+      for (let index = 0; index < registrationTargets.length; index += 1) {
+        const target = registrationTargets[index] as (typeof registrationTargets)[number];
+        setCustomerOnboardingCertificateRegistrationProgress({
+          total,
+          current: Math.min(
+            alreadyRegisteredNames.length + completedNames.length + failedDetails.length + 1,
+            total
+          ),
+          completed: completedNames.length,
+          alreadyRegistered: alreadyRegisteredNames.length,
+          failed: failedDetails.length,
+          currentCustomerName: target.customer.customerName,
+          status: "running"
+        });
+        let response: LocalPopbillCertificateRegistrationResponse | undefined;
+        try {
+          response = await requestLocalPopbillCertificateRegistrationWithRetry({
+            customerId: target.customer.id,
+            businessNumber: target.customer.businessNumber,
+            certificateIndex: target.certificateIndex,
+            certificateCn: target.certificateCn,
+            certificateKind: deriveCustomerCertificateKind(target.certificate) === "general_business" ? "general_business" : "electronic_tax",
+            serial: target.serial,
+            userDN: target.userDN,
+            targetExpireDate: target.targetExpireDate,
+            certificatePassword: target.certificatePassword
+          });
+        } catch (error) {
+          response = {
+            ok: false,
+            version: "unknown",
+            error: getElectronicTaxRegistrationErrorMessage(error, "자동 등록 실패"),
+            stage: getPopbillCertificateRegistrationErrorStage(error) ?? undefined
+          };
+        }
+
+        if (!response) {
+          failedDetails.push(`${target.customer.customerName}: 자동 등록 응답을 받지 못했습니다.`);
+          continue;
+        }
+
+        if (response.ok) {
+          if (response.result.outcome === "already-registered") {
+            alreadyRegisteredNames.push(target.customer.customerName);
+          } else {
+            completedNames.push(target.customer.customerName);
+          }
+          setCustomerRenewalAssistant((prev) =>
+            buildCustomerRenewalAssistant({
+              current: prev,
+              status: {
+                online: true,
+                version: response.version,
+                message: sanitizeSupplierDisplayText(response.result.message)
+              },
+              helperVersion: response.version,
+              helperMessage: sanitizeSupplierDisplayText(response.result.message),
+              jobs: prev?.jobs ?? [],
+              certificates: prev?.certificates ?? [],
+              releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+              defaultRenewalHelperDownloadUrl
+            })
+          );
+
+          try {
+            await refreshSingleCustomerCertificateStatus(target.customer.id);
+          } catch (error) {
+            refreshWarnings.push(
+              `${target.customer.customerName}: ${getDisplayErrorMessage(error, "인증서 상태를 다시 확인하지 못했습니다.")}`
+            );
+          }
+          continue;
+        }
+
+        if (isCertificatePasswordRejectedRegistrationError(response.error)) {
+          const passwordStillValid = await verifyElectronicTaxCertificatePasswordByPreflight(
+            target.certificate,
+            target.certificatePassword
+          ).catch(() => false);
+          if (passwordStillValid) {
+            failedDetails.push(
+              `${target.customer.customerName}: 사전조회에서 비밀번호가 확인됐지만 등록 화면에서 같은 인증서를 확정하지 못했습니다. AT 헬퍼에서 공동인증서를 다시 읽고 재시도하세요.`
+            );
+            continue;
+          }
+        }
+
+        failedDetails.push(
+          `${target.customer.customerName}: ${getElectronicTaxRegistrationErrorMessage(
+            new Error(response.error),
+            "자동 등록 실패"
+          )}`
+        );
+      }
+    }
+
+    return {
+      completedNames,
+      alreadyRegisteredNames,
+      failedDetails,
+      refreshWarnings
     };
   };
 
@@ -7220,6 +7544,7 @@ export function App() {
       registerCertificate: async (customer, certificate, certificatePassword) => {
         const registrationResponse = await requestLocalPopbillCertificateRegistrationWithRetry({
           customerId: customer.id,
+          businessNumber: customer.businessNumber,
           certificateIndex: Number(certificate.index),
           certificateCn: certificate.cn || customer.corpName || customer.customerName,
           certificateKind: deriveCustomerCertificateKind(certificate) === "general_business" ? "general_business" : "electronic_tax",
@@ -7277,15 +7602,7 @@ export function App() {
     );
 
     const { completedNames, alreadyRegisteredNames, failedDetails, refreshWarnings } =
-      await processElectronicTaxOnboardingCertificateRegistrations({
-        pendingCustomers,
-        getOnboardingCertificateRow: getOnboardingElectronicTaxCertificateRow,
-        registerCustomer: registerCustomerElectronicTaxCertificateAutomatically,
-        reloadAll: async () => {
-          await load();
-        },
-        onProgress: setCustomerOnboardingCertificateRegistrationProgress
-      });
+      await processOnboardingCertificateRegistrationBatch(pendingCustomers);
 
     setCustomerOnboardingCertificateRegistrationProgress({
       total: pendingCustomers.length,
@@ -7307,8 +7624,16 @@ export function App() {
       })
     );
 
-    const latestPayload = await load();
-    syncCustomerOnboardingCertificateDone(latestPayload);
+    void load()
+      .then((latestPayload) => {
+        syncCustomerOnboardingCertificateDone(latestPayload);
+      })
+      .catch((error) => {
+        setCustomerOnboardingNotice((previous) => {
+          const refreshWarning = `상태 새로고침 실패: ${getElectronicTaxRegistrationErrorMessage(error, "새로고침 실패")}`;
+          return previous ? `${previous}\n\n${refreshWarning}` : refreshWarning;
+        });
+      });
   };
   const refreshSingleCustomerCertificateStatus = async (customerId: number) =>
     await api<CustomerSaveResponse>(`/api/customers/${customerId}/popbill/cert-status`, { method: "POST" });
@@ -7680,20 +8005,18 @@ export function App() {
       step: 2,
       title: "고객 초기 등록",
       summary: onboardingCertificateReady
-        ? `등록 ${data.customers.length}명`
+        ? "등록 완료"
         : onboardingRegistrationStage === "download" || onboardingRegistrationStage === "upload"
           ? "대상 선택/확인"
           : onboardingRegistrationStage === "commit"
-            ? `반영 ${onboardingImportableCount}건`
-            : onboardingRegistrationStage === "certificate"
-              ? onboardingCertificateAutoTargetCount > 0
-                ? `공동인증서 ${onboardingCertificateAutoTargetCount}건`
-                : onboardingPendingPopbillJoinCount > 0
-                  ? "고객 반영 확인 중"
-                  : "공동인증서 확인"
-            : onboardingRegistrationFlow.needsUploadRetry
-              ? "재확인"
-              : "선택 확인",
+            ? "고객 반영"
+          : onboardingRegistrationStage === "certificate"
+            ? onboardingPendingPopbillJoinCount > 0
+              ? "고객 반영 확인 중"
+              : "공동인증서 등록"
+          : onboardingRegistrationFlow.needsUploadRetry
+            ? "재확인"
+            : "선택 확인",
       primaryActionLabel: onboardingCertificateReady ? "고객 초기 등록 완료" : onboardingRegistrationPrimaryActionLabel,
       blockedReason: onboardingRegistrationBlockedReason,
       layout: "compact",

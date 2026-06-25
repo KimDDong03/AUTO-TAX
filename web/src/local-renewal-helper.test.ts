@@ -4,6 +4,7 @@ import {
   getLocalRenewalHelperStatus,
   requestLocalCertificateBusinessInfoLookupBatch,
   requestLocalHomeTaxBusinessInfoLookupBatch,
+  requestLocalPopbillCertificateRegistrationBatch,
   resetLocalRenewalHelperStatusCacheForTests
 } from "./local-renewal-helper";
 
@@ -380,6 +381,155 @@ test("requestLocalCertificateBusinessInfoLookupBatch keeps legacy batch fallback
     assert.equal((capturedBatchBody as { concurrency?: number } | undefined)?.concurrency, undefined);
     assert.equal((capturedBatchBody as { homeTaxConcurrency?: number } | undefined)?.homeTaxConcurrency, undefined);
     assert.equal(responses[0]?.result.source, "signgate");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("requestLocalPopbillCertificateRegistrationBatch uses helper-owned registration job endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedUrl = "";
+  let capturedBody: unknown;
+  const progressMessages: string[] = [];
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input);
+    capturedBody = JSON.parse(String(init?.body ?? "{}"));
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        version: "0.1.97",
+        job: {
+          id: "popbill-job-1",
+          status: "complete",
+          phase: "complete",
+          total: 1,
+          completed: 1,
+          registered: 1,
+          alreadyRegistered: 0,
+          failed: 0,
+          concurrency: 2,
+          createdAt: "2026-06-24T00:00:00.000Z",
+          updatedAt: "2026-06-24T00:00:01.000Z",
+          error: null,
+          results: [
+            {
+              ok: true,
+              result: {
+                outcome: "registered",
+                browserChannel: "chrome",
+                certificateIndex: 10,
+                certificateCn: "김수용발전소",
+                certificateKind: "electronic_tax",
+                serial: "SERIAL",
+                userDN: null,
+                targetExpireDate: null,
+                localBridgeBaseUrl: "http://127.0.0.1:12345",
+                message: "공동인증서 등록을 완료했습니다."
+              }
+            }
+          ]
+        }
+      }),
+      {
+        status: 202,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const responses = await requestLocalPopbillCertificateRegistrationBatch(
+      [
+        {
+          certificateRegistrationUrl: "https://www.popbill.com/App/Taxinvoice/PopUp/Certificate",
+          certificateIndex: 10,
+          certificateCn: "김수용발전소",
+          certificateKind: "electronic_tax",
+          serial: "SERIAL",
+          userDN: null,
+          targetExpireDate: null,
+          certificatePassword: "secret"
+        }
+      ],
+      {
+        onProgress: (message) => progressMessages.push(message)
+      }
+    );
+
+    assert.match(capturedUrl, /\/api\/popbill\/certificate-registration-jobs$/);
+    assert.equal((capturedBody as { concurrency?: number } | undefined)?.concurrency, undefined);
+    assert.equal((capturedBody as { requests?: unknown[] } | undefined)?.requests?.length, 1);
+    assert.match(progressMessages.join("\n"), /공동인증서 등록 1\/1건 완료/);
+    assert.equal(responses[0]?.ok, true);
+    assert.equal(responses[0]?.ok ? responses[0].result.outcome : "", "registered");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("requestLocalPopbillCertificateRegistrationBatch falls back to legacy single registration route", async () => {
+  const originalFetch = globalThis.fetch;
+  const capturedUrls: string[] = [];
+
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    capturedUrls.push(url);
+    if (url.endsWith("/api/popbill/certificate-registration-jobs")) {
+      return new Response(JSON.stringify({ ok: false, error: "not found" }), {
+        status: 404,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        version: "0.1.96",
+        result: {
+          outcome: "already-registered",
+          browserChannel: "chrome",
+          certificateIndex: 11,
+          certificateCn: "김용달 발전소",
+          certificateKind: "electronic_tax",
+          serial: null,
+          userDN: null,
+          targetExpireDate: null,
+          localBridgeBaseUrl: null,
+          message: "이미 공동인증서가 등록되어 있습니다."
+        }
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const responses = await requestLocalPopbillCertificateRegistrationBatch([
+      {
+        certificateRegistrationUrl: "https://www.popbill.com/App/Taxinvoice/PopUp/Certificate",
+        certificateIndex: 11,
+        certificateCn: "김용달 발전소",
+        certificateKind: "electronic_tax",
+        serial: null,
+        userDN: null,
+        targetExpireDate: null,
+        certificatePassword: "secret"
+      }
+    ]);
+
+    assert.match(capturedUrls[0] ?? "", /\/api\/popbill\/certificate-registration-jobs$/);
+    assert.match(capturedUrls[1] ?? "", /\/api\/popbill\/certificate-registration$/);
+    assert.equal(responses[0]?.ok, true);
+    assert.equal(responses[0]?.ok ? responses[0].result.outcome : "", "already-registered");
   } finally {
     globalThis.fetch = originalFetch;
   }

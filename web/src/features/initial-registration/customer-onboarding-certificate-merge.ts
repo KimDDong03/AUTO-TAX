@@ -1,10 +1,18 @@
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
 import {
+  deriveCustomerCertificateKind,
   isCustomerCertificateExpired,
   isIssueCapableCustomerCertificate,
+  isIssueCapableCustomerCertificateKind,
   normalizeRenewalCertificateKey
 } from "../renewal/customerRenewalCertificateUtils";
 import type { CustomerOnboardingTemplateWorkbookInput } from "./customer-onboarding-workbook";
+import type { CustomerCertificate } from "../../types";
+
+export type OnboardingRegisteredCertificateFilterResult = {
+  certificates: RenewalAgentCertificate[];
+  excludedRegisteredCount: number;
+};
 
 export function getOnboardingCertificateStableKey(certificate: RenewalAgentCertificate): string {
   const serial = certificate.serial?.trim();
@@ -132,6 +140,92 @@ function normalizeOnboardingCertificateDateFingerprint(value: string | null | un
 function normalizeOnboardingIssuerFingerprint(value: string | null | undefined): string {
   const normalized = normalizeOnboardingCertificateFingerprint(value);
   return normalized === normalizeOnboardingCertificateFingerprint("알 수 없음") ? "" : normalized;
+}
+
+function onboardingCertificateMatchesRegisteredCustomerCertificate(
+  certificate: RenewalAgentCertificate,
+  storedCertificate: CustomerCertificate
+): boolean {
+  if (!isIssueCapableCustomerCertificateKind(storedCertificate.certificateKind)) {
+    return false;
+  }
+
+  const certificateSerials = buildOnboardingSerialFingerprints(certificate.serial);
+  const storedSerials = buildOnboardingSerialFingerprints(storedCertificate.serial);
+  if (
+    certificateSerials.size > 0 &&
+    storedSerials.size > 0 &&
+    fingerprintSetsIntersect(certificateSerials, storedSerials)
+  ) {
+    return true;
+  }
+
+  const certificateUserDn = normalizeOnboardingCertificateFingerprint(certificate.userDN);
+  const storedUserDn = normalizeOnboardingCertificateFingerprint(storedCertificate.userDN);
+  if (certificateUserDn && storedUserDn && certificateUserDn === storedUserDn) {
+    return true;
+  }
+
+  if (storedCertificate.certificateKind !== deriveCustomerCertificateKind(certificate)) {
+    return false;
+  }
+
+  const certificateName = normalizeOnboardingCertificateFingerprint(certificate.cn);
+  const storedName = normalizeOnboardingCertificateFingerprint(storedCertificate.certificateName);
+  if (!certificateName || !storedName || certificateName !== storedName) {
+    return false;
+  }
+
+  const certificateExpire = normalizeOnboardingCertificateDateFingerprint(
+    certificate.todate ?? certificate.detailValidateTo
+  );
+  const storedExpire = normalizeOnboardingCertificateDateFingerprint(storedCertificate.expireDate);
+  if (!certificateExpire || !storedExpire || certificateExpire !== storedExpire) {
+    return false;
+  }
+
+  const certificateIssuer = normalizeOnboardingIssuerFingerprint(certificate.issuerToName);
+  const storedIssuer = normalizeOnboardingIssuerFingerprint(storedCertificate.issuerName);
+  const certificateOid = normalizeOnboardingCertificateFingerprint(certificate.oid);
+  const storedOid = normalizeOnboardingCertificateFingerprint(storedCertificate.oid);
+  const certificateUsage = normalizeOnboardingCertificateFingerprint(certificate.usageToName);
+  const storedUsage = normalizeOnboardingCertificateFingerprint(storedCertificate.certificateUsageName);
+
+  return Boolean(
+    ((certificateIssuer && storedIssuer && certificateIssuer === storedIssuer) ||
+      (certificateOid && storedOid && certificateOid === storedOid)) &&
+      (!certificateUsage || !storedUsage || certificateUsage === storedUsage)
+  );
+}
+
+export function isOnboardingCertificateAlreadyRegistered(
+  certificate: RenewalAgentCertificate,
+  customerCertificates: CustomerCertificate[]
+): boolean {
+  return customerCertificates.some((storedCertificate) =>
+    onboardingCertificateMatchesRegisteredCustomerCertificate(certificate, storedCertificate)
+  );
+}
+
+export function filterAlreadyRegisteredOnboardingCertificates(
+  certificates: RenewalAgentCertificate[],
+  customerCertificates: CustomerCertificate[]
+): OnboardingRegisteredCertificateFilterResult {
+  const filteredCertificates: RenewalAgentCertificate[] = [];
+  let excludedRegisteredCount = 0;
+
+  for (const certificate of certificates) {
+    if (isOnboardingCertificateAlreadyRegistered(certificate, customerCertificates)) {
+      excludedRegisteredCount += 1;
+      continue;
+    }
+    filteredCertificates.push(certificate);
+  }
+
+  return {
+    certificates: filteredCertificates,
+    excludedRegisteredCount
+  };
 }
 
 function isUploadSessionOnboardingCertificate(certificate: RenewalAgentCertificate): boolean {
