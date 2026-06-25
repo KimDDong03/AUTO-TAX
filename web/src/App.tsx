@@ -137,11 +137,13 @@ import {
   requestLocalCertificateBusinessInfoLookup,
   requestLocalCertificateBusinessInfoLookupBatch,
   requestLocalPopbillCertificateRegistration,
+  requestLocalPopbillCertificateRegistrationBatch,
   requestLocalRenewalBridgeProbe,
   requestLocalRenewalOpenPayment,
   requestLocalRenewalPreparePayment,
   requestLocalRenewalPreflight,
   requestLocalRenewalPreflightBatch,
+  type LocalPopbillCertificateRegistrationPayload,
   type LocalPopbillCertificateRegistrationResponse
 } from "./local-renewal-helper";
 import {
@@ -215,6 +217,16 @@ type TopnavTaskNotification = {
 };
 
 const LAZY_CHUNK_RELOAD_KEY = "auto-tax.lazy-chunk-reloaded";
+const ONBOARDING_CERTIFICATE_REGISTRATION_BATCH_SIZE = 5;
+
+function chunkItems<T>(items: T[], chunkSize: number): T[][] {
+  const size = Math.max(1, chunkSize);
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
 
 function isLazyChunkLoadError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
@@ -5297,6 +5309,52 @@ export function App() {
     return result.url;
   };
 
+  const getCustomerCertificateRegistrationUrlBatch = async (customerIds: number[]) => {
+    const response = await api<{
+      results: Array<
+        | {
+            ok: true;
+            customerId: number;
+            url: string;
+          }
+        | {
+            ok: false;
+            customerId: number;
+            error: string;
+          }
+      >;
+    }>("/api/customers/popbill/cert-urls", {
+      method: "POST",
+      body: JSON.stringify({ customerIds })
+    });
+    return new Map(response.results.map((result) => [result.customerId, result]));
+  };
+
+  const refreshCustomerCertificateStatusBatch = async (customerIds: number[]) => {
+    if (customerIds.length === 0) {
+      return new Map<number, { ok: true; customerId: number; customer: CustomerSaveResponse } | { ok: false; customerId: number; error: string }>();
+    }
+
+    const response = await api<{
+      results: Array<
+        | {
+            ok: true;
+            customerId: number;
+            customer: CustomerSaveResponse;
+          }
+        | {
+            ok: false;
+            customerId: number;
+            error: string;
+          }
+      >;
+    }>("/api/customers/popbill/cert-status-batch", {
+      method: "POST",
+      body: JSON.stringify({ customerIds })
+    });
+    return new Map(response.results.map((result) => [result.customerId, result]));
+  };
+
   const isExpiredPopbillCertificateRegistrationError = (error: unknown) => {
     const message =
       error instanceof Error ? error.message : typeof error === "string" ? error : String(error ?? "");
@@ -5358,6 +5416,7 @@ export function App() {
     await new Promise((resolve) => window.setTimeout(resolve, 1500));
   };
 
+  type PopbillRegistrationMode = "direct" | "auto" | "headless" | "visible";
   const requestLocalPopbillCertificateRegistrationWithRetry = async (options: {
     customerId: number;
     businessNumber: string;
@@ -5368,8 +5427,7 @@ export function App() {
     userDN?: string | null;
     targetExpireDate?: string | null;
     certificatePassword: string;
-  }) => {
-    type PopbillRegistrationMode = "direct" | "auto" | "headless" | "visible";
+  }, initialBrowserMode: PopbillRegistrationMode = "direct") => {
     const runOnce = async (browserMode: PopbillRegistrationMode) => {
       const certificateRegistrationUrl = await getCustomerCertificateRegistrationUrl(options.customerId);
       return await requestLocalPopbillCertificateRegistration({
@@ -5386,7 +5444,7 @@ export function App() {
       });
     };
 
-    let browserMode: PopbillRegistrationMode = "direct";
+    let browserMode: PopbillRegistrationMode = initialBrowserMode;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         return await runOnce(browserMode);
@@ -7281,100 +7339,238 @@ export function App() {
       }
     }
 
-    if (registrationTargets.length > 0) {
-      for (let index = 0; index < registrationTargets.length; index += 1) {
-        const target = registrationTargets[index] as (typeof registrationTargets)[number];
-        setCustomerOnboardingCertificateRegistrationProgress({
-          total,
-          current: Math.min(
-            alreadyRegisteredNames.length + completedNames.length + failedDetails.length + 1,
-            total
-          ),
-          completed: completedNames.length,
-          alreadyRegistered: alreadyRegisteredNames.length,
-          failed: failedDetails.length,
-          currentCustomerName: target.customer.customerName,
-          status: "running"
-        });
-        let response: LocalPopbillCertificateRegistrationResponse | undefined;
-        try {
-          response = await requestLocalPopbillCertificateRegistrationWithRetry({
-            customerId: target.customer.id,
-            businessNumber: target.customer.businessNumber,
-            certificateIndex: target.certificateIndex,
-            certificateCn: target.certificateCn,
-            certificateKind: deriveCustomerCertificateKind(target.certificate) === "general_business" ? "general_business" : "electronic_tax",
-            serial: target.serial,
-            userDN: target.userDN,
-            targetExpireDate: target.targetExpireDate,
-            certificatePassword: target.certificatePassword
-          });
-        } catch (error) {
-          response = {
-            ok: false,
-            version: "unknown",
-            error: getElectronicTaxRegistrationErrorMessage(error, "자동 등록 실패"),
-            stage: getPopbillCertificateRegistrationErrorStage(error) ?? undefined
-          };
-        }
+    const successfulRegistrationTargets: typeof registrationTargets = [];
+    const successfulRegistrationResponses: Array<Extract<LocalPopbillCertificateRegistrationResponse, { ok: true }>> = [];
+    const buildRegistrationPayloadOptions = (target: (typeof registrationTargets)[number]) => ({
+      businessNumber: target.customer.businessNumber,
+      certificateIndex: target.certificateIndex,
+      certificateCn: target.certificateCn,
+      certificateKind: deriveCustomerCertificateKind(target.certificate) === "general_business"
+        ? "general_business" as const
+        : "electronic_tax" as const,
+      serial: target.serial,
+      userDN: target.userDN,
+      targetExpireDate: target.targetExpireDate,
+      certificatePassword: target.certificatePassword
+    });
+    const buildRegistrationOptions = (target: (typeof registrationTargets)[number]) => ({
+      customerId: target.customer.id,
+      ...buildRegistrationPayloadOptions(target)
+    });
 
-        if (!response) {
-          failedDetails.push(`${target.customer.customerName}: 자동 등록 응답을 받지 못했습니다.`);
-          continue;
-        }
+    const buildResponseError = (response: Extract<LocalPopbillCertificateRegistrationResponse, { ok: false }>) => {
+      const error = new Error(response.error) as Error & { stage?: string };
+      error.stage = response.stage;
+      return error;
+    };
 
-        if (response.ok) {
-          if (response.result.outcome === "already-registered") {
-            alreadyRegisteredNames.push(target.customer.customerName);
-          } else {
-            completedNames.push(target.customer.customerName);
-          }
-          setCustomerRenewalAssistant((prev) =>
-            buildCustomerRenewalAssistant({
-              current: prev,
-              status: {
-                online: true,
-                version: response.version,
-                message: sanitizeSupplierDisplayText(response.result.message)
-              },
-              helperVersion: response.version,
-              helperMessage: sanitizeSupplierDisplayText(response.result.message),
-              jobs: prev?.jobs ?? [],
-              certificates: prev?.certificates ?? [],
-              releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
-              defaultRenewalHelperDownloadUrl
-            })
+    const handleRegistrationResponse = async (
+      target: (typeof registrationTargets)[number],
+      response: LocalPopbillCertificateRegistrationResponse | undefined
+    ) => {
+      if (!response) {
+        failedDetails.push(`${target.customer.customerName}: 자동 등록 응답을 받지 못했습니다.`);
+        return;
+      }
+
+      if (response.ok) {
+        successfulRegistrationResponses.push(response);
+        successfulRegistrationTargets.push(target);
+        if (response.result.outcome === "already-registered") {
+          alreadyRegisteredNames.push(target.customer.customerName);
+        } else {
+          completedNames.push(target.customer.customerName);
+        }
+        return;
+      }
+
+      if (isCertificatePasswordRejectedRegistrationError(response.error)) {
+        const passwordStillValid = await verifyElectronicTaxCertificatePasswordByPreflight(
+          target.certificate,
+          target.certificatePassword
+        ).catch(() => false);
+        if (passwordStillValid) {
+          failedDetails.push(
+            `${target.customer.customerName}: 사전조회에서 비밀번호가 확인됐지만 등록 화면에서 같은 인증서를 확정하지 못했습니다. AT 헬퍼에서 공동인증서를 다시 읽고 재시도하세요.`
           );
+          return;
+        }
+      }
 
-          try {
-            await refreshSingleCustomerCertificateStatus(target.customer.id);
-          } catch (error) {
-            refreshWarnings.push(
-              `${target.customer.customerName}: ${getDisplayErrorMessage(error, "인증서 상태를 다시 확인하지 못했습니다.")}`
-            );
-          }
+      failedDetails.push(
+        `${target.customer.customerName}: ${getElectronicTaxRegistrationErrorMessage(
+          new Error(response.error),
+          "자동 등록 실패"
+        )}`
+      );
+    };
+
+    for (const [batchIndex, targetBatch] of chunkItems(
+      registrationTargets,
+      ONBOARDING_CERTIFICATE_REGISTRATION_BATCH_SIZE
+    ).entries()) {
+      const batchStart = batchIndex * ONBOARDING_CERTIFICATE_REGISTRATION_BATCH_SIZE + 1;
+      const batchEnd = Math.min(batchStart + targetBatch.length - 1, registrationTargets.length);
+      setCustomerOnboardingCertificateRegistrationProgress({
+        total,
+        current: Math.min(alreadyRegisteredNames.length + completedNames.length + failedDetails.length, total),
+        completed: completedNames.length,
+        alreadyRegistered: alreadyRegisteredNames.length,
+        failed: failedDetails.length,
+        currentCustomerName: `${batchStart}-${batchEnd}번 묶음`,
+        status: "running"
+      });
+
+      let urlResults: Awaited<ReturnType<typeof getCustomerCertificateRegistrationUrlBatch>>;
+      try {
+        urlResults = await getCustomerCertificateRegistrationUrlBatch(targetBatch.map((target) => target.customer.id));
+      } catch (error) {
+        for (const target of targetBatch) {
+          failedDetails.push(
+            `${target.customer.customerName}: ${getElectronicTaxRegistrationErrorMessage(error, "인증서 등록 URL 발급 실패")}`
+          );
+        }
+        continue;
+      }
+
+      const batchRequests: Array<{
+        target: (typeof registrationTargets)[number];
+        payload: LocalPopbillCertificateRegistrationPayload;
+      }> = [];
+      for (const target of targetBatch) {
+        const urlResult = urlResults.get(target.customer.id);
+        if (!urlResult || !urlResult.ok) {
+          failedDetails.push(
+            `${target.customer.customerName}: ${urlResult?.error ?? "인증서 등록 URL을 발급하지 못했습니다."}`
+          );
           continue;
         }
 
-        if (isCertificatePasswordRejectedRegistrationError(response.error)) {
-          const passwordStillValid = await verifyElectronicTaxCertificatePasswordByPreflight(
-            target.certificate,
-            target.certificatePassword
-          ).catch(() => false);
-          if (passwordStillValid) {
-            failedDetails.push(
-              `${target.customer.customerName}: 사전조회에서 비밀번호가 확인됐지만 등록 화면에서 같은 인증서를 확정하지 못했습니다. AT 헬퍼에서 공동인증서를 다시 읽고 재시도하세요.`
+        batchRequests.push({
+          target,
+          payload: {
+            ...buildRegistrationPayloadOptions(target),
+            certificateRegistrationUrl: urlResult.url,
+            browserMode: "direct"
+          }
+        });
+      }
+
+      if (batchRequests.length === 0) {
+        continue;
+      }
+
+      let responses: LocalPopbillCertificateRegistrationResponse[];
+      try {
+        responses = await requestLocalPopbillCertificateRegistrationBatch(
+          batchRequests.map((request) => request.payload),
+          {
+            concurrency: ONBOARDING_CERTIFICATE_REGISTRATION_BATCH_SIZE,
+            onProgress: (_message, job) => {
+              setCustomerOnboardingCertificateRegistrationProgress({
+                total,
+                current: Math.min(
+                  alreadyRegisteredNames.length + completedNames.length + failedDetails.length + (job?.completed ?? 0),
+                  total
+                ),
+                completed: completedNames.length,
+                alreadyRegistered: alreadyRegisteredNames.length,
+                failed: failedDetails.length,
+                currentCustomerName: `${batchStart}-${batchEnd}번 묶음`,
+                status: "running"
+              });
+            }
+          }
+        );
+      } catch (error) {
+        responses = batchRequests.map(() => ({
+          ok: false as const,
+          version: "unknown",
+          error: getElectronicTaxRegistrationErrorMessage(error, "자동 등록 묶음 처리 실패")
+        }));
+      }
+
+      for (let index = 0; index < batchRequests.length; index += 1) {
+        const request = batchRequests[index] as (typeof batchRequests)[number];
+        let response = responses[index];
+        if (response && !response.ok) {
+          const responseError = buildResponseError(response);
+          const retryMode = isExpiredPopbillCertificateRegistrationError(responseError)
+            ? "direct"
+            : isDirectPopbillCertificateRegistrationFallbackError(responseError)
+              ? "headless"
+              : null;
+          if (retryMode) {
+            try {
+              response = await requestLocalPopbillCertificateRegistrationWithRetry(
+                buildRegistrationOptions(request.target),
+                retryMode
+              );
+            } catch (error) {
+              response = {
+                ok: false,
+                version: "unknown",
+                error: getElectronicTaxRegistrationErrorMessage(error, "자동 등록 재시도 실패"),
+                stage: getPopbillCertificateRegistrationErrorStage(error) ?? undefined
+              };
+            }
+          }
+        }
+
+        await handleRegistrationResponse(request.target, response);
+      }
+    }
+
+    const latestSuccessfulRegistrationResponse = successfulRegistrationResponses.at(-1);
+    if (latestSuccessfulRegistrationResponse) {
+      setCustomerRenewalAssistant((prev) =>
+        buildCustomerRenewalAssistant({
+          current: prev,
+          status: {
+            online: true,
+            version: latestSuccessfulRegistrationResponse.version,
+            message: sanitizeSupplierDisplayText(latestSuccessfulRegistrationResponse.result.message)
+          },
+          helperVersion: latestSuccessfulRegistrationResponse.version,
+          helperMessage: sanitizeSupplierDisplayText(latestSuccessfulRegistrationResponse.result.message),
+          jobs: prev?.jobs ?? [],
+          certificates: prev?.certificates ?? [],
+          releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
+          defaultRenewalHelperDownloadUrl
+        })
+      );
+    }
+
+    if (successfulRegistrationTargets.length > 0) {
+      setCustomerOnboardingCertificateRegistrationProgress({
+        total,
+        current: Math.min(alreadyRegisteredNames.length + completedNames.length + failedDetails.length, total),
+        completed: completedNames.length,
+        alreadyRegistered: alreadyRegisteredNames.length,
+        failed: failedDetails.length,
+        currentCustomerName: "",
+        status: "refreshing"
+      });
+      try {
+        const statusResults = await refreshCustomerCertificateStatusBatch(
+          successfulRegistrationTargets.map((target) => target.customer.id)
+        );
+        for (const target of successfulRegistrationTargets) {
+          const statusResult = statusResults.get(target.customer.id);
+          if (!statusResult || !statusResult.ok) {
+            refreshWarnings.push(
+              `${target.customer.customerName}: ${statusResult?.error ?? "인증서 상태를 다시 확인하지 못했습니다."}`
             );
             continue;
           }
+          if (!statusResult.customer.popbillCertRegistered) {
+            refreshWarnings.push(
+              `${target.customer.customerName}: 등록은 완료됐지만 상태 확인에는 아직 반영되지 않았습니다. 잠시 후 다시 확인하세요.`
+            );
+          }
         }
-
-        failedDetails.push(
-          `${target.customer.customerName}: ${getElectronicTaxRegistrationErrorMessage(
-            new Error(response.error),
-            "자동 등록 실패"
-          )}`
-        );
+      } catch (error) {
+        refreshWarnings.push(getDisplayErrorMessage(error, "인증서 상태 일괄 확인에 실패했습니다."));
       }
     }
 

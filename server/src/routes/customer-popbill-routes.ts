@@ -40,6 +40,8 @@ type RouteDeps = {
   toClientCustomer: (customer: Customer) => Customer;
   refreshAllCertificateStatuses: (requestStore: AppStore) => Promise<CertificateRefreshResult>;
   renewalAutomation: RenewalAutomationManager;
+  getCustomerTaxCertURL?: typeof getTaxCertURL;
+  getCustomerCertificateExpireDate?: typeof getCertificateExpireDate;
   quitCustomerPopbillMember?: typeof quitMember;
 };
 
@@ -107,8 +109,12 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     toClientCustomer,
     refreshAllCertificateStatuses,
     renewalAutomation,
+    getCustomerTaxCertURL = getTaxCertURL,
+    getCustomerCertificateExpireDate = getCertificateExpireDate,
     quitCustomerPopbillMember = quitMember
   } = deps;
+
+  const CUSTOMER_POPBILL_BATCH_CONCURRENCY = 5;
 
   const customerCertificateSchema = zod.object({
     customerId: zod.number().int().positive(),
@@ -125,6 +131,90 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
     isPrimary: zod.boolean().optional().default(false),
     linkSource: zod.enum(["auto", "manual"]).optional().default("manual")
   });
+
+  const customerIdBatchSchema = zod.object({
+    customerIds: zod.array(zod.number().int().positive()).min(1).max(100)
+  });
+
+  const customerCertUrlBatchSchema = zod.object({
+    customerIds: zod.array(zod.number().int().positive()).min(1).max(CUSTOMER_POPBILL_BATCH_CONCURRENCY)
+  });
+
+  async function mapWithConcurrency<T, TResult>(
+    items: T[],
+    concurrency: number,
+    mapper: (item: T, index: number) => Promise<TResult>
+  ): Promise<TResult[]> {
+    if (items.length === 0) {
+      return [];
+    }
+
+    const limit = Math.max(1, Math.min(concurrency, items.length));
+    const results = new Array<TResult>(items.length);
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (true) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        if (currentIndex >= items.length) {
+          return;
+        }
+
+        results[currentIndex] = await mapper(items[currentIndex] as T, currentIndex);
+      }
+    };
+
+    await Promise.all(Array.from({ length: limit }, () => worker()));
+    return results;
+  }
+
+  async function refreshCustomerCertificateStatus(
+    requestStore: AppStore,
+    settings: AppSettings,
+    customer: Customer
+  ): Promise<Customer> {
+    let expireDate: string | null = null;
+    let certRegistered = true;
+    try {
+      expireDate = await getCustomerCertificateExpireDate(settings, customer);
+    } catch (error) {
+      if (!isPopbillCertificateMissingError(error)) {
+        throw error;
+      }
+      certRegistered = false;
+    }
+
+    const updated = await requestStore.updateCustomerPopbillState(
+      customer.id,
+      customer.popbillState,
+      certRegistered,
+      expireDate
+    );
+    await requestStore.createLog("info", "popbill", "인증서 만료일을 갱신했습니다.", {
+      customerId: customer.id,
+      expireDate
+    });
+
+    if (
+      certRegistered &&
+      !customer.popbillCertRegistered &&
+      updated.popbillCertRegistered &&
+      typeof renewalAutomation.queueBridgeProbe === "function"
+    ) {
+      const job = await renewalAutomation.queueBridgeProbe({
+        customerId: customer.id,
+        customerName: updated.customerName,
+        requestedBy: "cert-status-auto"
+      });
+      await requestStore.createLog("info", "renewal-agent", "인증서 등록 직후 업태/업종 자동 분석 작업을 큐에 추가했습니다.", {
+        customerId: customer.id,
+        jobId: job.id
+      });
+    }
+
+    return updated;
+  }
 
   const customerIssueCompleteSmsTemplateSchema = zod.object({
     issueCompleteSmsTemplate: zod
@@ -671,9 +761,48 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
       return;
     }
 
-    const url = await getTaxCertURL(await getServerManagedSettings(requestStore), customer);
+    const url = await getCustomerTaxCertURL(await getServerManagedSettings(requestStore), customer);
     await requestStore.createLog("info", "popbill", "인증서 등록 URL을 발급했습니다.", { customerId });
     res.json({ url });
+  });
+
+  app.post("/api/customers/popbill/cert-urls", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const payload = customerCertUrlBatchSchema.parse(req.body ?? {});
+    const settings = await getServerManagedSettings(requestStore);
+    const results = await mapWithConcurrency(
+      payload.customerIds,
+      CUSTOMER_POPBILL_BATCH_CONCURRENCY,
+      async (customerId) => {
+        const customer = await requestStore.getCustomer(customerId);
+        if (!customer) {
+          return {
+            ok: false as const,
+            customerId,
+            error: "고객을 찾지 못했습니다."
+          };
+        }
+
+        try {
+          const url = await getCustomerTaxCertURL(settings, customer);
+          await requestStore.createLog("info", "popbill", "인증서 등록 URL을 발급했습니다.", { customerId });
+          return {
+            ok: true as const,
+            customerId,
+            url
+          };
+        } catch (error) {
+          return {
+            ok: false as const,
+            customerId,
+            error: error instanceof Error ? error.message : "인증서 등록 URL을 발급하지 못했습니다."
+          };
+        }
+      }
+    );
+
+    res.json({ results });
   });
 
   app.post("/api/customers/:id/popbill/cert-status", async (req, res) => {
@@ -686,36 +815,50 @@ export function registerCustomerPopbillRoutes(deps: RouteDeps) {
       return;
     }
 
-    let expireDate: string | null = null;
-    let certRegistered = true;
-    try {
-      expireDate = await getCertificateExpireDate(await getServerManagedSettings(requestStore), customer);
-    } catch (error) {
-      if (!isPopbillCertificateMissingError(error)) {
-        throw error;
-      }
-      certRegistered = false;
-    }
-
-    const updated = await requestStore.updateCustomerPopbillState(
-      customerId,
-      customer.popbillState,
-      certRegistered,
-      expireDate
+    const updated = await refreshCustomerCertificateStatus(
+      requestStore,
+      await getServerManagedSettings(requestStore),
+      customer
     );
-    await requestStore.createLog("info", "popbill", "인증서 만료일을 갱신했습니다.", { customerId, expireDate });
-    if (certRegistered && !customer.popbillCertRegistered && updated.popbillCertRegistered) {
-      const job = await renewalAutomation.queueBridgeProbe({
-        customerId,
-        customerName: updated.customerName,
-        requestedBy: "cert-status-auto"
-      });
-      await requestStore.createLog("info", "renewal-agent", "인증서 등록 직후 업태/업종 자동 분석 작업을 큐에 추가했습니다.", {
-        customerId,
-        jobId: job.id
-      });
-    }
     res.json(toClientCustomer(updated));
+  });
+
+  app.post("/api/customers/popbill/cert-status-batch", async (req, res) => {
+    requireWorkspaceEditor(res);
+    const requestStore = getRequestStore(res, store);
+    const payload = customerIdBatchSchema.parse(req.body ?? {});
+    const settings = await getServerManagedSettings(requestStore);
+    const results = await mapWithConcurrency(
+      payload.customerIds,
+      CUSTOMER_POPBILL_BATCH_CONCURRENCY,
+      async (customerId) => {
+        const customer = await requestStore.getCustomer(customerId);
+        if (!customer) {
+          return {
+            ok: false as const,
+            customerId,
+            error: "고객을 찾지 못했습니다."
+          };
+        }
+
+        try {
+          const updated = await refreshCustomerCertificateStatus(requestStore, settings, customer);
+          return {
+            ok: true as const,
+            customerId,
+            customer: toClientCustomer(updated)
+          };
+        } catch (error) {
+          return {
+            ok: false as const,
+            customerId,
+            error: error instanceof Error ? error.message : "인증서 상태를 확인하지 못했습니다."
+          };
+        }
+      }
+    );
+
+    res.json({ results });
   });
 
   app.post("/api/popbill/cert-status/refresh-all", async (_req, res) => {

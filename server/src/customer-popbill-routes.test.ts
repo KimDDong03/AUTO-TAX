@@ -114,6 +114,14 @@ async function withCustomerRoutes(
       customerId: number,
       expectedContractEndMonth: string
     ) => Promise<CustomerContractRenewalCompletion> | CustomerContractRenewalCompletion;
+    updateCustomerPopbillState?: (
+      customerId: number,
+      state: Customer["popbillState"],
+      certRegistered?: boolean,
+      certExpireDate?: string | null
+    ) => Promise<Customer> | Customer;
+    getCustomerTaxCertURL?: (settings: AppSettings, customer: Customer) => Promise<string> | string;
+    getCustomerCertificateExpireDate?: (settings: AppSettings, customer: Customer) => Promise<string | null> | string | null;
     customerSchema?: z.ZodTypeAny;
     normalizeCustomerInput?: (input: unknown) => CustomerInput;
   },
@@ -141,6 +149,24 @@ async function withCustomerRoutes(
       assert.equal(customerId, options.customer.id);
       calls.events.push("reset");
       return (await options.afterReset?.()) ?? buildCustomer({ ...options.customer, popbillState: "pending", popbillCertRegistered: false });
+    },
+    updateCustomerPopbillState: async (
+      customerId: number,
+      state: Customer["popbillState"],
+      certRegistered?: boolean,
+      certExpireDate?: string | null
+    ) => {
+      calls.events.push("update-popbill-state");
+      return (
+        (await options.updateCustomerPopbillState?.(customerId, state, certRegistered, certExpireDate)) ??
+        buildCustomer({
+          ...options.customer,
+          id: customerId,
+          popbillState: state,
+          popbillCertRegistered: certRegistered ?? options.customer.popbillCertRegistered,
+          popbillCertExpireDate: certExpireDate ?? null
+        })
+      );
     },
     saveCustomer: async (input: CustomerInput, customerId?: number) => {
       calls.events.push("save");
@@ -246,7 +272,14 @@ async function withCustomerRoutes(
     refreshAllCertificateStatuses: async () => {
       throw new Error("refreshAllCertificateStatuses should not be used in this test");
     },
-    renewalAutomation: {} as never,
+    renewalAutomation: {
+      queueBridgeProbe: async ({ customerId }: { customerId: number }) => {
+        calls.events.push(`queue-bridge-probe:${customerId}`);
+        return { id: `job-${customerId}` };
+      }
+    } as never,
+    getCustomerTaxCertURL: options.getCustomerTaxCertURL as never,
+    getCustomerCertificateExpireDate: options.getCustomerCertificateExpireDate as never,
     quitCustomerPopbillMember: options.quitCustomerPopbillMember as never
   });
 
@@ -345,6 +378,97 @@ test("customer certificate password endpoint is retired and never returns plaint
         calls.logs.some((entry) => entry.message.includes("공동인증서 비밀번호 재표시 요청을 차단했습니다.")),
         true
       );
+    }
+  );
+});
+
+test("POST customer certificate URL batch issues fresh URLs for selected customers", async () => {
+  const customers = new Map([
+    [1, buildCustomer({ id: 1, customerName: "A" })],
+    [2, buildCustomer({ id: 2, customerName: "B" })]
+  ]);
+  const urlRequests: number[] = [];
+
+  await withCustomerRoutes(
+    {
+      customer: customers.get(1)!,
+      settings: buildSettings(false),
+      getCustomer: (customerId) => customers.get(customerId) ?? null,
+      getCustomerTaxCertURL: (_settings, customer) => {
+        urlRequests.push(customer.id);
+        return `https://certificate.local/${customer.id}`;
+      }
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/popbill/cert-urls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerIds: [1, 2, 404] })
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        results: [
+          { ok: true, customerId: 1, url: "https://certificate.local/1" },
+          { ok: true, customerId: 2, url: "https://certificate.local/2" },
+          { ok: false, customerId: 404, error: "고객을 찾지 못했습니다." }
+        ]
+      });
+      assert.deepEqual(urlRequests.sort((left, right) => left - right), [1, 2]);
+      assert.equal(calls.logs.filter((entry) => entry.message.includes("인증서 등록 URL을 발급")).length, 2);
+    }
+  );
+});
+
+test("POST customer certificate status batch refreshes selected customers and queues follow-up probes", async () => {
+  const customers = new Map([
+    [1, buildCustomer({ id: 1, customerName: "A", popbillCertRegistered: false })],
+    [2, buildCustomer({ id: 2, customerName: "B", popbillCertRegistered: true })]
+  ]);
+  const expireLookups: number[] = [];
+
+  await withCustomerRoutes(
+    {
+      customer: customers.get(1)!,
+      settings: buildSettings(false),
+      getCustomer: (customerId) => customers.get(customerId) ?? null,
+      getCustomerCertificateExpireDate: (_settings, customer) => {
+        expireLookups.push(customer.id);
+        return `2027-01-0${customer.id}`;
+      },
+      updateCustomerPopbillState: (customerId, state, certRegistered, certExpireDate) =>
+        buildCustomer({
+          ...customers.get(customerId),
+          id: customerId,
+          popbillState: state,
+          popbillCertRegistered: certRegistered ?? false,
+          popbillCertExpireDate: certExpireDate ?? null
+        })
+    },
+    async (baseUrl, calls) => {
+      const response = await fetch(`${baseUrl}/api/customers/popbill/cert-status-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerIds: [1, 2, 404] })
+      });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as {
+        results: Array<{ ok: boolean; customerId: number; customer?: Customer; error?: string }>;
+      };
+      assert.equal(body.results.length, 3);
+      assert.equal(body.results[0]?.ok, true);
+      assert.equal(body.results[0]?.customer?.popbillCertRegistered, true);
+      assert.equal(body.results[0]?.customer?.popbillCertExpireDate, "2027-01-01");
+      assert.equal(body.results[1]?.ok, true);
+      assert.equal(body.results[1]?.customer?.popbillCertExpireDate, "2027-01-02");
+      assert.deepEqual(body.results[2], {
+        ok: false,
+        customerId: 404,
+        error: "고객을 찾지 못했습니다."
+      });
+      assert.deepEqual(expireLookups.sort((left, right) => left - right), [1, 2]);
+      assert.equal(calls.events.filter((event) => event === "update-popbill-state").length, 2);
+      assert.equal(calls.events.includes("queue-bridge-probe:1"), true);
+      assert.equal(calls.events.includes("queue-bridge-probe:2"), false);
     }
   );
 });
