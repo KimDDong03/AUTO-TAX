@@ -22,6 +22,7 @@ export type OnboardingStep = {
 type OnboardingTabProps = {
   steps: OnboardingStep[];
   requestedStepId?: string | null;
+  requestedStepRequestKey?: number;
 };
 
 function getOnboardingStepStatusMeta(options: { done: boolean; isRecommended: boolean }) {
@@ -42,7 +43,7 @@ export function OnboardingTab(props: OnboardingTabProps) {
     [props.steps]
   );
   const [activeStepId, setActiveStepId] = useState(recommendedStepId);
-  const previousRequestedStepIdRef = useRef<string | null>(null);
+  const previousRequestedStepRef = useRef<{ id: string; requestKey: number } | null>(null);
 
   useEffect(() => {
     setActiveStepId((current) => {
@@ -56,11 +57,15 @@ export function OnboardingTab(props: OnboardingTabProps) {
 
   useEffect(() => {
     if (!props.requestedStepId) {
-      previousRequestedStepIdRef.current = null;
+      previousRequestedStepRef.current = null;
       return;
     }
 
-    if (previousRequestedStepIdRef.current === props.requestedStepId) {
+    const requestKey = props.requestedStepRequestKey ?? 0;
+    if (
+      previousRequestedStepRef.current?.id === props.requestedStepId &&
+      previousRequestedStepRef.current.requestKey === requestKey
+    ) {
       return;
     }
 
@@ -68,7 +73,7 @@ export function OnboardingTab(props: OnboardingTabProps) {
       return;
     }
 
-    previousRequestedStepIdRef.current = props.requestedStepId;
+    previousRequestedStepRef.current = { id: props.requestedStepId, requestKey };
     setActiveStepId(props.requestedStepId);
     window.requestAnimationFrame(() => {
       document.getElementById("onboarding-active-step")?.scrollIntoView({
@@ -76,7 +81,7 @@ export function OnboardingTab(props: OnboardingTabProps) {
         block: "start"
       });
     });
-  }, [props.requestedStepId, props.steps]);
+  }, [props.requestedStepId, props.requestedStepRequestKey, props.steps]);
 
   const activeStep = props.steps.find((step) => step.id === activeStepId) ?? props.steps[0] ?? null;
   const activeStepStatusMeta = activeStep

@@ -21,12 +21,15 @@ export type CustomerOnboardingResolutionResult = {
   resolvedCertificateCount: number;
   skippedCertificateCount: number;
   acceptedBeforeWindowCount: number;
-  passwordFailureEntries: Array<{
-    key: string;
-    label: string;
-  }>;
+  passwordFailureEntries: CustomerOnboardingPasswordFailureEntry[];
   warnings?: string[];
   errors: string[];
+};
+
+export type CustomerOnboardingPasswordFailureEntry = {
+  key: string;
+  label: string;
+  failedPassword?: string;
 };
 
 type OnboardingPreflightResponse = {
@@ -58,6 +61,16 @@ export type OnboardingBusinessInfoLookupCache = Map<string, OnboardingBusinessIn
 
 type OnboardingBusinessInfoLookupResponse = {
   result: CertificateBusinessInfoLookupResult;
+};
+
+export type OnboardingCertificatePreflightPreparationRequest = {
+  certificate: RenewalAgentCertificate;
+  certificatePassword: string;
+};
+
+export type OnboardingCertificatePreflightPreparationResult = {
+  preparedCertificate: RenewalAgentCertificate | null;
+  error?: string;
 };
 
 type OnboardingPreflightImportDecision =
@@ -97,6 +110,9 @@ type ResolveElectronicTaxOnboardingTemplateWorkbookArgs = {
     certificate: RenewalAgentCertificate,
     certificatePassword: string
   ) => Promise<RenewalAgentCertificate | null>;
+  prepareCertificatesForPreflight?: (
+    requests: OnboardingCertificatePreflightPreparationRequest[]
+  ) => Promise<OnboardingCertificatePreflightPreparationResult[]>;
   preflightCache?: OnboardingPreflightCache;
   businessInfoLookupCache?: OnboardingBusinessInfoLookupCache;
   onboardingPreflightConcurrency?: number;
@@ -593,7 +609,7 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
   const availableCertificates = await args.loadAvailableCertificates();
   const errors: string[] = [];
   const warnings: string[] = [];
-  const passwordFailureEntries: Array<{ key: string; label: string }> = [];
+  const passwordFailureEntries: CustomerOnboardingPasswordFailureEntry[] = [];
   let acceptedBeforeWindowCount = 0;
   const customersByBusinessNumber = new Map<
     string,
@@ -793,50 +809,141 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
     });
   }
 
-  const preparedElectronicTaxSelections: PreparedElectronicTaxSelection[] = await mapWithConcurrency(
-    electronicTaxSelections,
-    onboardingPreflightConcurrency,
-    async (selection) => {
-      if (selection.matchedCertificate.supportsPreflight !== false || !args.prepareCertificateForPreflight) {
+  const buildPreparedSelection = (
+    selection: ElectronicTaxSelection,
+    preparedCertificate: RenewalAgentCertificate | null | undefined,
+    fallbackError?: string
+  ): PreparedElectronicTaxSelection => {
+    const preparedCertificateIndex = Number(preparedCertificate?.index);
+    if (
+      !preparedCertificate ||
+      preparedCertificate.supportsPreflight === false ||
+      !Number.isInteger(preparedCertificateIndex) ||
+      preparedCertificateIndex <= 0
+    ) {
+      return {
+        ...selection,
+        preflightPreparationError:
+          fallbackError?.trim() ||
+          "공동인증서를 NPKI 저장소에 반영한 뒤 사전조회 가능한 인증서로 다시 찾지 못했습니다."
+      };
+    }
+
+    const uploadReference = getUploadSessionCertificateReference(selection.matchedCertificate);
+    return {
+      ...selection,
+      certificateIndex: String(preparedCertificate.index),
+      certificateName: preparedCertificate.cn || selection.certificateName,
+      matchedCertificate: {
+        ...preparedCertificate,
+        ...(uploadReference.uploadSessionId ? { uploadSessionId: uploadReference.uploadSessionId } : {}),
+        ...(uploadReference.relativePath ? { relativePath: uploadReference.relativePath } : {})
+      }
+    };
+  };
+
+  const prepareSelectionForPreflight = async (
+    selection: ElectronicTaxSelection
+  ): Promise<PreparedElectronicTaxSelection> => {
+    if (selection.matchedCertificate.supportsPreflight !== false) {
+      return selection;
+    }
+
+    if (!args.prepareCertificateForPreflight) {
+      return {
+        ...selection,
+        preflightPreparationError:
+          "선택한 파일/폴더 인증서를 NPKI 저장소에 반영할 수 없습니다. 파일/폴더 추가를 다시 실행하세요."
+      };
+    }
+
+    try {
+      args.onProgress?.(`공동인증서 ${selection.certificateLabel} NPKI 저장소 준비 중...`);
+      const preparedCertificate = await args.prepareCertificateForPreflight(
+        selection.matchedCertificate,
+        selection.effectivePassword
+      );
+      return buildPreparedSelection(selection, preparedCertificate);
+    } catch (error) {
+      return {
+        ...selection,
+        preflightPreparationError:
+          error instanceof Error ? error.message : "공동인증서를 NPKI 저장소로 준비하지 못했습니다."
+      };
+    }
+  };
+
+  const selectionsNeedingPreparation = electronicTaxSelections.filter(
+    (selection) => selection.matchedCertificate.supportsPreflight === false
+  );
+  let preparedElectronicTaxSelections: PreparedElectronicTaxSelection[];
+  if (args.prepareCertificatesForPreflight && selectionsNeedingPreparation.length > 0) {
+    args.onProgress?.(`공동인증서 NPKI 저장소 준비 0/${selectionsNeedingPreparation.length}건 진행 중...`);
+    const preparationResponses = await args.prepareCertificatesForPreflight(
+      selectionsNeedingPreparation.map((selection) => ({
+        certificate: selection.matchedCertificate,
+        certificatePassword: selection.effectivePassword
+      }))
+    );
+    const preparedBySelectionKey = new Map<string, PreparedElectronicTaxSelection>();
+    selectionsNeedingPreparation.forEach((selection, index) => {
+      const response = preparationResponses[index] ?? {
+        preparedCertificate: null,
+        error: "공동인증서를 NPKI 저장소로 준비하지 못했습니다."
+      };
+      preparedBySelectionKey.set(
+        selection.certificateOverrideKey,
+        buildPreparedSelection(selection, response.preparedCertificate, response.error)
+      );
+    });
+    preparedElectronicTaxSelections = electronicTaxSelections.map((selection) => {
+      if (selection.matchedCertificate.supportsPreflight !== false) {
         return selection;
       }
+      return preparedBySelectionKey.get(selection.certificateOverrideKey) ?? {
+        ...selection,
+        preflightPreparationError: "공동인증서를 NPKI 저장소로 준비하지 못했습니다."
+      };
+    });
+    args.onProgress?.(`공동인증서 NPKI 저장소 준비 ${selectionsNeedingPreparation.length}/${selectionsNeedingPreparation.length}건 완료`);
+  } else {
+    preparedElectronicTaxSelections = await mapWithConcurrency(
+      electronicTaxSelections,
+      onboardingPreflightConcurrency,
+      prepareSelectionForPreflight
+    );
+  }
 
-      try {
-        args.onProgress?.(`공동인증서 ${selection.certificateLabel} 브리지 저장소 준비 중...`);
-        const preparedCertificate = await args.prepareCertificateForPreflight(
-          selection.matchedCertificate,
-          selection.effectivePassword
-        );
-        const preparedCertificateIndex = Number(preparedCertificate?.index);
-        if (
-          !preparedCertificate ||
-          preparedCertificate.supportsPreflight === false ||
-          !Number.isInteger(preparedCertificateIndex) ||
-          preparedCertificateIndex <= 0
-        ) {
-          return selection;
-        }
-
-        const uploadReference = getUploadSessionCertificateReference(selection.matchedCertificate);
-        return {
-          ...selection,
-          certificateIndex: String(preparedCertificate.index),
-          certificateName: preparedCertificate.cn || selection.certificateName,
-          matchedCertificate: {
-            ...preparedCertificate,
-            ...(uploadReference.uploadSessionId ? { uploadSessionId: uploadReference.uploadSessionId } : {}),
-            ...(uploadReference.relativePath ? { relativePath: uploadReference.relativePath } : {})
-          }
-        };
-      } catch (error) {
-        return {
-          ...selection,
-          preflightPreparationError:
-            error instanceof Error ? error.message : "공동인증서를 브리지 저장소로 준비하지 못했습니다."
-        };
-      }
-    }
+  const preflightPreparationFailures = preparedElectronicTaxSelections.filter(
+    (selection) => selection.preflightPreparationError
   );
+  if (preflightPreparationFailures.length > 0) {
+    for (const selection of preflightPreparationFailures) {
+      const preparationError = selection.preflightPreparationError ?? "공동인증서를 NPKI 저장소로 준비하지 못했습니다.";
+      if (isBusinessInfoPasswordFailureDetail(preparationError)) {
+        passwordFailureEntries.push({
+          key: selection.certificateOverrideKey,
+          label: selection.certificateLabel,
+          failedPassword: selection.effectivePassword
+        });
+      }
+      errors.push(`발전소 시트 (${selection.certificateLabel}): ${preparationError}`);
+      skippedCertificateCount += 1;
+    }
+    return {
+      workbook: {
+        customers: [],
+        plants: [],
+        certificates: []
+      },
+      resolvedCertificateCount,
+      skippedCertificateCount,
+      acceptedBeforeWindowCount,
+      passwordFailureEntries,
+      warnings,
+      errors
+    };
+  }
 
   let completedPreflightCount = 0;
   const totalPreflightCount = preparedElectronicTaxSelections.length;
@@ -1126,7 +1233,8 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
         if (businessInfoDetail && isBusinessInfoPasswordFailureDetail(businessInfoDetail)) {
           passwordFailureEntries.push({
             key: certificateOverrideKey,
-            label: certificateLabel
+            label: certificateLabel,
+            failedPassword: selection.effectivePassword
           });
         }
 
@@ -1167,7 +1275,8 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
         if (businessInfoDetail && isBusinessInfoPasswordFailureDetail(businessInfoDetail)) {
           passwordFailureEntries.push({
             key: certificateOverrideKey,
-            label: certificateLabel
+            label: certificateLabel,
+            failedPassword: selection.effectivePassword
           });
         }
         if (decision.allowManualBusinessInfoFallback) {
@@ -1203,7 +1312,8 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
         if (decision.failureMessage.includes("비밀번호")) {
           passwordFailureEntries.push({
             key: certificateOverrideKey,
-            label: certificateLabel
+            label: certificateLabel,
+            failedPassword: selection.effectivePassword
           });
         }
         return {

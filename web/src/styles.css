@@ -2057,15 +2057,12 @@ textarea {
 }
 
 .initial-registration-candidate-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  gap: 2px;
   padding: 0;
 }
 
 .initial-registration-candidate-head {
-  align-items: flex-end;
   padding-bottom: 8px;
   border-bottom: 1px solid #e2e8f0;
 }
@@ -2090,13 +2087,26 @@ textarea {
   line-height: 1.35;
 }
 
+.initial-onboarding-review-viewbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) max-content;
+  gap: 8px;
+  align-items: center;
+}
+
 .initial-onboarding-review-actions {
   display: flex;
-  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .initial-onboarding-review-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   height: 28px;
   padding: 0 8px;
   border-radius: 4px;
@@ -2104,21 +2114,157 @@ textarea {
   font-weight: 700;
 }
 
+.initial-onboarding-review-actions button svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.initial-onboarding-review-search {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #dbe3ee;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #64748b;
+}
+
+.initial-onboarding-review-search:focus-within {
+  border-color: #bfdbfe;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.08);
+}
+
+.initial-onboarding-review-search > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.initial-onboarding-review-search input {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 6px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.initial-onboarding-review-search input::placeholder {
+  color: #94a3b8;
+}
+
+.initial-onboarding-review-search button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #64748b;
+}
+
+.initial-onboarding-review-search button:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #111827;
+}
+
+.initial-onboarding-review-search button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.initial-onboarding-review-filter {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #dbe3ee;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.initial-onboarding-review-filter button {
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-right: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
+  color: #475569;
+}
+
+.initial-onboarding-review-filter button:last-child {
+  border-right: 0;
+}
+
+.initial-onboarding-review-filter button.is-active {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.initial-onboarding-review-filter button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.initial-onboarding-review-actions .initial-onboarding-review-clear-password:not(:disabled) {
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
 .initial-onboarding-review-actions .initial-onboarding-review-delete:not(:disabled) {
   border-color: #fecaca;
   color: #b91c1c;
 }
 
-.initial-registration-candidate-toolbar {
+.initial-onboarding-selected-actionbar {
   display: grid;
-  grid-template-columns: minmax(260px, 360px) minmax(118px, max-content);
+  grid-template-columns: minmax(120px, 180px) minmax(280px, 532px) max-content;
   gap: 8px;
   align-items: end;
+  padding: 8px 0;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.initial-onboarding-selected-actionbar-head {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-bottom: 2px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.initial-onboarding-selected-actionbar-head strong {
+  color: #111827;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.initial-onboarding-selected-actionbar-head span {
+  overflow: hidden;
+  color: #64748b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .initial-registration-candidate-toolbar {
-  grid-template-columns: minmax(260px, 380px) 136px;
-  width: min(100%, 532px);
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 136px;
+  gap: 8px;
+  align-items: end;
+  width: 100%;
+  min-width: 0;
 }
 
 .initial-registration-shared-password {
@@ -2149,6 +2295,10 @@ textarea {
   font-weight: 700;
 }
 
+.initial-registration-password-fix-field > span {
+  color: #b45309;
+}
+
 .initial-registration-candidate-toolbar .initial-registration-review-button {
   min-width: 118px;
   width: 100%;
@@ -2162,6 +2312,15 @@ textarea {
   scrollbar-gutter: stable;
   scrollbar-color: #cbd5e1 #f8fafc;
   scrollbar-width: thin;
+}
+
+.initial-onboarding-review-table-wrap:focus {
+  outline: 0;
+}
+
+.initial-onboarding-review-table-wrap.is-drag-selecting,
+.initial-onboarding-review-table-wrap.is-drag-selecting .initial-onboarding-review-table tbody tr {
+  cursor: cell;
 }
 
 .initial-registration-candidate-table-shell {
@@ -2266,6 +2425,26 @@ textarea {
 
 .initial-onboarding-review-table tbody tr:last-child td {
   border-bottom: 0;
+}
+
+.initial-onboarding-review-table tbody tr.initial-onboarding-review-empty-row {
+  cursor: default;
+}
+
+.initial-onboarding-review-table tbody tr.initial-onboarding-review-empty-row td {
+  height: 76px;
+  text-align: center;
+  color: #64748b;
+  background: #ffffff;
+}
+
+.initial-onboarding-review-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .initial-onboarding-review-table th:first-child,
@@ -2375,6 +2554,11 @@ textarea {
   background: #fef2f2;
 }
 
+.initial-onboarding-review-table input.initial-onboarding-review-password.needs-recheck {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
 .initial-onboarding-row-status {
   display: inline-flex;
   align-items: center;
@@ -2397,6 +2581,7 @@ textarea {
   color: #15803d;
 }
 
+.initial-onboarding-row-status.status-needs_recheck,
 .initial-onboarding-row-status.status-needs_fix,
 .initial-onboarding-row-status.status-manual_required {
   border-color: #fde68a;
@@ -2492,8 +2677,8 @@ textarea {
 
 .initial-registration-review-issues {
   display: grid;
-  gap: 6px;
-  padding: 8px 0 0;
+  gap: 8px;
+  padding: 10px 0 0;
   border-top: 1px solid #fee2e2;
   color: #7f1d1d;
   font-size: 12px;
@@ -2510,6 +2695,42 @@ textarea {
 .initial-registration-review-issues-head svg {
   width: 14px;
   height: 14px;
+}
+
+.initial-registration-review-issue-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.initial-registration-review-issue-summary span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid #fecaca;
+  border-radius: 3px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.initial-registration-review-issue-details {
+  display: grid;
+  gap: 6px;
+}
+
+.initial-registration-review-issue-details summary {
+  width: max-content;
+  max-width: 100%;
+  color: #b91c1c;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  user-select: none;
 }
 
 .initial-registration-review-issues ul {
@@ -9150,10 +9371,10 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 0.38rem;
-  min-height: 2.55rem;
+  min-height: 34px;
   padding: 0 0.7rem;
   border: 1px solid rgba(32, 55, 94, 0.12);
-  border-radius: 8px;
+  border-radius: 4px;
   background: #ffffff;
   color: var(--text);
   font-size: 0.78rem;
@@ -9167,28 +9388,144 @@ textarea {
 
 .customer-onestop-certificate-search {
   position: relative;
-  display: block;
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 2.45rem !important;
+  min-height: 2.45rem !important;
+  padding: 0 0.74rem !important;
+  border: 1px solid rgba(203, 213, 225, 0.98) !important;
+  border-radius: 4px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
 }
 
 .customer-onestop-certificate-search-icon {
   position: absolute;
-  left: 0.78rem;
+  left: 0.75rem !important;
   top: 50%;
+  width: 1rem !important;
+  height: 1rem !important;
   transform: translateY(-50%);
-  color: var(--text-faint);
+  color: #64748b !important;
   pointer-events: none;
 }
 
-.customer-onestop-certificate-search input {
-  width: 100%;
-  min-height: 2.55rem;
-  padding: 0 0.75rem 0 2.3rem;
-  border: 1px solid rgba(32, 55, 94, 0.12);
-  border-radius: 8px;
+.customer-onestop-certificate-search input,
+.app-shell-topnav .content-customers .customer-onestop-certificate-search input[type="search"]:not([type="checkbox"]):not([type="radio"]) {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 0.2rem 0 1.55rem !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  color: #111827 !important;
+  font-size: 0.78rem !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+
+.customer-onestop-certificate-search input::placeholder {
+  color: #94a3b8;
+}
+
+.customer-onestop-certificate-table-shell {
+  overflow: auto;
+  max-height: min(28rem, 48vh);
+  border: 1px solid #dbe3ee;
+  border-radius: 4px;
   background: #ffffff;
-  color: var(--text);
-  font-size: 0.78rem;
+}
+
+.customer-onestop-certificate-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.customer-onestop-certificate-table th,
+.customer-onestop-certificate-table td {
+  min-height: 2.55rem;
+  padding: 0.54rem 0.64rem;
+  border-bottom: 1px solid #e2e8f0;
+  color: #334155;
+  font-size: 0.76rem;
   font-weight: 700;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.customer-onestop-certificate-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.customer-onestop-certificate-table th:first-child,
+.customer-onestop-certificate-table td:first-child {
+  width: 3.4rem;
+  text-align: center;
+}
+
+.customer-onestop-certificate-table th:last-child,
+.customer-onestop-certificate-table td:last-child {
+  width: 8.5rem;
+}
+
+.customer-onestop-certificate-table tbody tr {
+  cursor: pointer;
+}
+
+.customer-onestop-certificate-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.customer-onestop-certificate-table tbody tr.is-selected {
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.customer-onestop-certificate-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.customer-onestop-certificate-table input[type="radio"] {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  accent-color: #2563eb;
+}
+
+.customer-onestop-certificate-name {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.customer-onestop-certificate-name strong,
+.customer-onestop-certificate-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customer-onestop-certificate-name strong {
+  color: #111827;
+  font-size: 0.8rem;
+}
+
+.customer-onestop-certificate-name small {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .customer-onestop-certificate {
@@ -20174,8 +20511,9 @@ button.issuance-list-item {
   }
 
   .customer-onestop-source-actions,
+  .app-shell-topnav .customer-detail-panel.is-create .customer-onestop-source-actions,
   .customer-onestop-form-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
   }
 
   .app-shell-topnav .customer-report-history-section {
@@ -23540,6 +23878,24 @@ button.issuance-list-item {
   .initial-registration-work-row,
   .initial-registration-command-panel {
     width: 100%;
+  }
+
+  .initial-onboarding-review-viewbar,
+  .initial-onboarding-selected-actionbar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .initial-onboarding-review-filter {
+    width: 100%;
+  }
+
+  .initial-onboarding-review-filter button {
+    flex: 1 1 0;
+  }
+
+  .initial-onboarding-review-actions {
+    justify-content: flex-start;
   }
 
   .initial-registration-candidate-toolbar {
@@ -32151,7 +32507,7 @@ button.issuance-list-item {
 }
 
 .app-shell-topnav .customer-detail-panel.is-create .customer-onestop-source-actions {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 }
 
 .app-shell-topnav .customer-detail-panel.is-create .customer-onestop-certificate-list {
@@ -35871,9 +36227,141 @@ b {
   background: #f8fafc !important;
 }
 
+.app-shell-topnav .initial-onboarding-review-viewbar {
+  display: grid !important;
+  grid-template-columns: minmax(260px, 1fr) max-content !important;
+  gap: 8px !important;
+  align-items: center !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-search {
+  display: inline-flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 32px !important;
+  padding: 0 8px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 4px !important;
+  background: #ffffff !important;
+  color: #64748b !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-search input {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 0 4px 0 6px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  font-size: 12px !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-search input[type="search"]::-webkit-search-decoration,
+.app-shell-topnav .initial-onboarding-review-search input[type="search"]::-webkit-search-cancel-button,
+.app-shell-topnav .initial-onboarding-review-search input[type="search"]::-webkit-search-results-button,
+.app-shell-topnav .initial-onboarding-review-search input[type="search"]::-webkit-search-results-decoration {
+  display: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-search input:hover,
+.app-shell-topnav .initial-onboarding-review-search input:focus,
+.app-shell-topnav .initial-onboarding-review-search input:focus-visible {
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav :is(.content-customers, .content-settings) .initial-onboarding-review-search input[type="search"]:not([type="checkbox"]):not([type="radio"]),
+.app-shell-topnav :is(.content-customers, .content-settings) .initial-onboarding-review-search input[type="search"]:not([type="checkbox"]):not([type="radio"]):hover,
+.app-shell-topnav :is(.content-customers, .content-settings) .initial-onboarding-review-search input[type="search"]:not([type="checkbox"]):not([type="radio"]):focus,
+.app-shell-topnav :is(.content-customers, .content-settings) .initial-onboarding-review-search input[type="search"]:not([type="checkbox"]):not([type="radio"]):focus-visible {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 4px 0 6px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-search button {
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  color: #64748b !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-filter {
+  display: inline-flex !important;
+  align-items: center !important;
+  overflow: hidden !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 4px !important;
+  background: #ffffff !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-filter button {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  border: 0 !important;
+  border-right: 1px solid #e2e8f0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-filter button:last-child {
+  border-right: 0 !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-filter button.is-active {
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+}
+
+.app-shell-topnav .initial-onboarding-selected-actionbar {
+  display: grid !important;
+  grid-template-columns: minmax(120px, 180px) minmax(280px, 532px) max-content !important;
+  gap: 8px !important;
+  align-items: end !important;
+  padding: 8px 0 !important;
+  border-top: 1px solid #e2e8f0 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
 .app-shell-topnav .initial-registration-candidate-toolbar {
-  grid-template-columns: minmax(260px, 380px) 136px !important;
-  width: min(100%, 532px) !important;
+  grid-template-columns: minmax(220px, 1fr) 136px !important;
+  width: 100% !important;
+  min-width: 0 !important;
 }
 
 .app-shell-topnav .initial-registration-shared-password {
@@ -35893,6 +36381,10 @@ b {
   background: #ffffff !important;
 }
 
+.app-shell-topnav .initial-registration-password-fix-field > span {
+  color: #b45309 !important;
+}
+
 .app-shell-topnav .initial-onboarding-review-table-wrap {
   max-height: clamp(17rem, 34vh, 23rem) !important;
   overflow-x: hidden !important;
@@ -35901,6 +36393,15 @@ b {
   scrollbar-gutter: stable !important;
   scrollbar-width: thin !important;
   -ms-overflow-style: auto !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-table-wrap:focus {
+  outline: 0 !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-table-wrap.is-drag-selecting,
+.app-shell-topnav .initial-onboarding-review-table-wrap.is-drag-selecting .initial-onboarding-review-table tbody tr {
+  cursor: cell !important;
 }
 
 .app-shell-topnav .initial-registration-candidate-table-shell {
@@ -36002,6 +36503,11 @@ b {
   background: #fef2f2 !important;
 }
 
+.app-shell-topnav .initial-onboarding-review-table input.initial-onboarding-review-password.needs-recheck {
+  border-color: #fde68a !important;
+  background: #fffbeb !important;
+}
+
 .app-shell-topnav .initial-onboarding-review-table .initial-onboarding-manual-grid input,
 .app-shell-topnav .initial-onboarding-review-table .initial-onboarding-manual-grid input:not(:hover):not(:focus):not(:focus-visible) {
   height: 30px !important;
@@ -36031,7 +36537,31 @@ b {
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12) !important;
 }
 
+.app-shell-topnav .content-settings .initial-registration-candidate-table-shell .initial-onboarding-review-table tbody input.initial-onboarding-review-password.has-error:not(:focus):not(:focus-visible) {
+  border-color: #fecaca !important;
+  background-color: #fef2f2 !important;
+}
+
+.app-shell-topnav .content-settings .initial-registration-candidate-table-shell .initial-onboarding-review-table tbody input.initial-onboarding-review-password.needs-recheck:not(:focus):not(:focus-visible) {
+  border-color: #fde68a !important;
+  background-color: #fffbeb !important;
+}
+
 @media (max-width: 640px) {
+  .app-shell-topnav .initial-onboarding-review-viewbar,
+  .app-shell-topnav .initial-onboarding-selected-actionbar {
+    grid-template-columns: 1fr !important;
+    align-items: stretch !important;
+  }
+
+  .app-shell-topnav .initial-onboarding-review-filter {
+    width: 100% !important;
+  }
+
+  .app-shell-topnav .initial-onboarding-review-filter button {
+    flex: 1 1 0 !important;
+  }
+
   .app-shell-topnav .initial-registration-candidate-toolbar {
     grid-template-columns: 1fr !important;
     width: 100% !important;

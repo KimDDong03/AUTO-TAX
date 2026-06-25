@@ -9,12 +9,14 @@ export type InitialRegistrationRowStatus =
   | "checking"
   | "ready"
   | "warning"
+  | "needs_recheck"
   | "needs_fix"
   | "manual_required"
   | "blocked";
 
 export type InitialRegistrationIssueCode =
   | "password_invalid"
+  | "password_needs_recheck"
   | "certificate_not_found"
   | "certificate_expired"
   | "certificate_not_issue_capable"
@@ -60,6 +62,22 @@ export type InitialRegistrationCandidateReviewState = {
 
 type ChecklistRow = CustomerOnboardingTemplateWorkbookInput["plants"][number];
 
+export type InitialRegistrationChecklistRowLike = {
+  rowIndex: number;
+  selected?: boolean;
+  certificatePassword?: string | null;
+  certificateName?: string | null;
+  corpName?: string | null;
+  plantName?: string | null;
+  customerName?: string | null;
+  businessNumber?: string | null;
+};
+
+export type InitialRegistrationPasswordPasteUpdate = {
+  rowIndex: number;
+  value: string;
+};
+
 type PasswordFailureEntry = {
   businessNumber?: string;
   key?: string;
@@ -67,6 +85,7 @@ type PasswordFailureEntry = {
   label?: string;
   corpName?: string;
   value?: string;
+  failedPassword?: string;
 };
 
 function normalizeKey(value: string | null | undefined): string {
@@ -81,6 +100,159 @@ function normalizeBusinessNumber(value: string | null | undefined): string {
 
 function uniqueValues(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
+}
+
+export function getInitialRegistrationChecklistSelectionPatch<Row extends InitialRegistrationChecklistRowLike>(
+  rows: Row[],
+  input: {
+    rowIndex: number;
+    selected: boolean;
+    anchorRowIndex: number | null;
+    shiftKey: boolean;
+  }
+): { rowIndexes: number[]; selected: boolean } {
+  if (!input.shiftKey || input.anchorRowIndex === null) {
+    return { rowIndexes: [input.rowIndex], selected: input.selected };
+  }
+
+  const targetIndex = rows.findIndex((row) => row.rowIndex === input.rowIndex);
+  const anchorIndex = rows.findIndex((row) => row.rowIndex === input.anchorRowIndex);
+  if (targetIndex < 0 || anchorIndex < 0) {
+    return { rowIndexes: [input.rowIndex], selected: input.selected };
+  }
+
+  const startIndex = Math.min(anchorIndex, targetIndex);
+  const endIndex = Math.max(anchorIndex, targetIndex);
+  return {
+    rowIndexes: rows.slice(startIndex, endIndex + 1).map((row) => row.rowIndex),
+    selected: input.selected
+  };
+}
+
+export function getInitialRegistrationChecklistDragSelectionPatch<Row extends InitialRegistrationChecklistRowLike>(
+  rows: Row[],
+  input: {
+    anchorRowIndex: number;
+    currentRowIndex: number;
+    selected: boolean;
+    initialSelectedRowIndexes: number[];
+  }
+): { selectedRowIndexes: number[]; deselectedRowIndexes: number[] } {
+  const anchorIndex = rows.findIndex((row) => row.rowIndex === input.anchorRowIndex);
+  const currentIndex = rows.findIndex((row) => row.rowIndex === input.currentRowIndex);
+  if (anchorIndex < 0 || currentIndex < 0) {
+    return { selectedRowIndexes: [], deselectedRowIndexes: [] };
+  }
+
+  const startIndex = Math.min(anchorIndex, currentIndex);
+  const endIndex = Math.max(anchorIndex, currentIndex);
+  const initialSelectedRowIndexes = new Set(input.initialSelectedRowIndexes);
+  const selectedRowIndexes: number[] = [];
+  const deselectedRowIndexes: number[] = [];
+
+  rows.forEach((row, index) => {
+    const inDragRange = index >= startIndex && index <= endIndex;
+    const shouldBeSelected = inDragRange ? input.selected : initialSelectedRowIndexes.has(row.rowIndex);
+    const isSelected = row.selected === true;
+    if (shouldBeSelected === isSelected) {
+      return;
+    }
+    if (shouldBeSelected) {
+      selectedRowIndexes.push(row.rowIndex);
+    } else {
+      deselectedRowIndexes.push(row.rowIndex);
+    }
+  });
+
+  return { selectedRowIndexes, deselectedRowIndexes };
+}
+
+export function getInitialRegistrationPasswordClearRowIndexes<Row extends InitialRegistrationChecklistRowLike>(
+  rows: Row[]
+): number[] {
+  return rows
+    .filter((row) => row.selected === true && (row.certificatePassword ?? "").trim() !== "")
+    .map((row) => row.rowIndex);
+}
+
+function normalizeInitialRegistrationSearchText(value: string): string {
+  return value.trim().toLocaleLowerCase("ko-KR");
+}
+
+function compactInitialRegistrationSearchText(value: string): string {
+  return normalizeInitialRegistrationSearchText(value).replace(/[\s-]+/g, "");
+}
+
+export function getInitialRegistrationChecklistSearchMatches<Row extends InitialRegistrationChecklistRowLike>(
+  rows: Row[],
+  searchTerm: string
+): Row[] {
+  const query = normalizeInitialRegistrationSearchText(searchTerm);
+  if (query === "") {
+    return rows;
+  }
+
+  const compactQuery = compactInitialRegistrationSearchText(searchTerm);
+  return rows.filter((row) => {
+    const searchableText = [
+      row.corpName,
+      row.plantName,
+      row.certificateName,
+      row.customerName,
+      row.businessNumber
+    ].filter(Boolean).join(" ");
+    const normalizedText = normalizeInitialRegistrationSearchText(searchableText);
+    if (normalizedText.includes(query)) {
+      return true;
+    }
+
+    return compactQuery !== "" && compactInitialRegistrationSearchText(searchableText).includes(compactQuery);
+  });
+}
+
+export function parseInitialRegistrationPasswordPasteText(text: string): string[] {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => line.split("\t")[0] ?? "")
+    .filter((value) => value !== "");
+}
+
+export function buildInitialRegistrationPasswordPasteUpdates<Row extends InitialRegistrationChecklistRowLike>(input: {
+  rows: Row[];
+  selectedRowIndexes: number[];
+  startRowIndex: number | null;
+  text: string;
+}): InitialRegistrationPasswordPasteUpdate[] {
+  const values = parseInitialRegistrationPasswordPasteText(input.text);
+  if (values.length === 0 || input.rows.length === 0) {
+    return [];
+  }
+
+  const selectedRowIndexes = new Set(input.selectedRowIndexes);
+  const selectedRows = input.rows.filter((row) => selectedRowIndexes.has(row.rowIndex));
+  const startIndex = input.startRowIndex === null
+    ? -1
+    : input.rows.findIndex((row) => row.rowIndex === input.startRowIndex);
+  const targetRows = selectedRows.length > 0
+    ? selectedRows
+    : startIndex >= 0
+      ? input.rows.slice(startIndex)
+      : [];
+
+  if (targetRows.length === 0) {
+    return [];
+  }
+
+  if (values.length === 1) {
+    return targetRows.map((row) => ({ rowIndex: row.rowIndex, value: values[0] ?? "" }));
+  }
+
+  return targetRows.slice(0, values.length).map((row, index) => ({
+    rowIndex: row.rowIndex,
+    value: values[index] ?? ""
+  }));
 }
 
 export function getInitialRegistrationCertificateLabel(row: {
@@ -134,7 +306,7 @@ function parseReviewMessage(rawMessage: string): {
   fullMessage: string;
 } {
   const fullMessage = rawMessage.replace(/\s+/g, " ").trim();
-  const sheetMatch = fullMessage.match(/^발전소\s*시트\s*\(([^)]+)\):\s*(.+)$/);
+  const sheetMatch = fullMessage.match(/^발전소\s*시트\s*\((.+)\)[:：]\s*(.+)$/);
   if (sheetMatch) {
     return {
       label: sheetMatch[1]?.trim() || null,
@@ -340,12 +512,28 @@ function classifyInitialRegistrationIssue(rawMessage: string): InitialRegistrati
   };
 }
 
+function buildPasswordNeedsRecheckIssue(label: string): InitialRegistrationReviewIssue {
+  const normalizedLabel = label.trim() || "공동인증서";
+  return {
+    code: "password_needs_recheck",
+    message: "비밀번호를 수정했습니다. 다시 확인해야 합니다.",
+    action: "선택 고객 확인을 다시 실행하세요.",
+    blocking: true,
+    needsPassword: true,
+    needsManualInfo: false,
+    status: "needs_recheck",
+    sourceMessage: `${normalizedLabel}: 비밀번호를 수정했습니다. 다시 확인해야 합니다.`
+  };
+}
+
 function statusPriority(status: InitialRegistrationRowStatus): number {
   switch (status) {
     case "blocked":
       return 70;
     case "manual_required":
       return 60;
+    case "needs_recheck":
+      return 55;
     case "needs_fix":
       return 50;
     case "warning":
@@ -373,6 +561,8 @@ function getStatusLabel(status: InitialRegistrationRowStatus): string {
       return "통과";
     case "warning":
       return "보완 권장";
+    case "needs_recheck":
+      return "재확인 필요";
     case "needs_fix":
       return "수정 필요";
     case "manual_required":
@@ -459,7 +649,13 @@ export function buildInitialRegistrationCandidateReviewState(input: {
     for (const entry of input.passwordFailureEntries ?? []) {
       if (hasSharedKey(rowMatchKeys, getPasswordFailureMatchKeys(entry))) {
         const label = entry.label ?? entry.customerName ?? getInitialRegistrationCertificateLabel(row);
-        issues.push(classifyInitialRegistrationIssue(`${label}: 공동인증서 비밀번호가 올바르지 않습니다.`));
+        const failedPassword = entry.failedPassword?.trim() ?? "";
+        const currentPassword = (entry.value?.trim() || row.certificatePassword?.trim() || "");
+        issues.push(
+          failedPassword && currentPassword && currentPassword !== failedPassword
+            ? buildPasswordNeedsRecheckIssue(label)
+            : classifyInitialRegistrationIssue(`${label}: 공동인증서 비밀번호가 올바르지 않습니다.`)
+        );
       }
     }
 

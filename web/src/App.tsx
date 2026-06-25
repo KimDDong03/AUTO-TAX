@@ -16,9 +16,15 @@ import {
   type CustomerListFilter
 } from "./features/customers/customerListFilters";
 import {
-  buildCustomerCertificateOnestopDraftFromCertificate,
+  buildCustomerCertificateOnestopDraftFromWorkbookCustomer,
+  buildCustomerCertificateOnestopTemplateWorkbook,
+  findExistingCustomerByBusinessNumber,
+  getCustomerCertificateOnestopReviewOverrideKey,
   runCustomerCertificateOnestopRegistration,
   type CustomerCertificateOnestopDraft,
+  type CustomerCertificateOnestopReviewInput,
+  type CustomerCertificateOnestopReviewResult,
+  type CustomerCertificateOnestopReviewTarget,
   type CustomerCertificateOnestopResult
 } from "./features/customers/customerCertificateOnestop";
 import { normalizeCustomerReportDetail } from "./features/customers/customerReportDetail";
@@ -31,6 +37,10 @@ import {
   getInitialRegistrationFlowState,
   type InitialRegistrationJoinProgress
 } from "./features/initial-registration/InitialRegistrationTab";
+import {
+  getInitialRegistrationCertificateLabel,
+  getInitialRegistrationCertificateOverrideKey
+} from "./features/initial-registration/initial-registration-review-model";
 import type { OnboardingStep } from "./features/onboarding/OnboardingTab";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_PLACEHOLDER } from "./features/auth/passwordPolicy";
 import {
@@ -56,7 +66,11 @@ import {
 } from "./features/initial-registration/electronic-tax-onboarding-formatters";
 import {
   resolveElectronicTaxOnboardingTemplateWorkbook,
+  type CustomerOnboardingPasswordFailureEntry,
   type CustomerOnboardingResolutionResult,
+  type OnboardingBusinessInfoLookupCache,
+  type OnboardingCertificatePreflightPreparationRequest,
+  type OnboardingCertificatePreflightPreparationResult,
   type OnboardingPreflightCache
 } from "./features/initial-registration/electronic-tax-onboarding-resolver";
 import {
@@ -496,10 +510,7 @@ type PersistedCustomerOnboardingState = {
   sessionState: CustomerOnboardingSessionState;
   attemptedCertificateBusinessNumbers: string[];
   certificatePasswordOverrides: Record<string, string>;
-  preflightPasswordFailureEntries: Array<{
-    key: string;
-    label: string;
-  }>;
+  preflightPasswordFailureEntries: CustomerOnboardingPasswordFailureEntry[];
   notice: string;
   error: string;
 };
@@ -509,6 +520,7 @@ type OnboardingCertificatePasswordOverrideEntry = {
   customerName: string;
   corpName: string;
   value: string;
+  failedPassword?: string;
 };
 
 function joinOnboardingMessages(messages: string[]): string {
@@ -601,7 +613,8 @@ function readPersistedCustomerOnboardingState(
         ? parsed.preflightPasswordFailureEntries
             .map((entry) => ({
               key: typeof entry?.key === "string" ? entry.key.trim() : "",
-              label: typeof entry?.label === "string" ? entry.label.trim() : ""
+              label: typeof entry?.label === "string" ? entry.label.trim() : "",
+              failedPassword: typeof entry?.failedPassword === "string" ? entry.failedPassword : undefined
             }))
             .filter((entry) => entry.key && entry.label)
         : [],
@@ -2166,6 +2179,7 @@ export function App() {
   const [consultationStatusFilter, setConsultationStatusFilter] =
     useState<ConsultationStatusFilter>("all");
   const [requestedOnboardingStepId, setRequestedOnboardingStepId] = useState<string | null>(null);
+  const [requestedOnboardingStepRequestKey, setRequestedOnboardingStepRequestKey] = useState(0);
   const [requestedIssuanceFilter, setRequestedIssuanceFilter] = useState<"unmatched" | null>(null);
   const [customerForm, setCustomerForm] = useState<CustomerFormState>(createCustomerFormDefaults());
   const [creatingCustomer, setCreatingCustomer] = useState(false);
@@ -2226,7 +2240,7 @@ export function App() {
   const [customerOnboardingCertificatePasswordOverrides, setCustomerOnboardingCertificatePasswordOverrides] =
     useState<Record<string, string>>({});
   const [customerOnboardingPreflightPasswordFailureEntries, setCustomerOnboardingPreflightPasswordFailureEntries] =
-    useState<Array<{ key: string; label: string }>>([]);
+    useState<CustomerOnboardingPasswordFailureEntry[]>([]);
   const [customerOnboardingAttemptedCertificateBusinessNumbers, setCustomerOnboardingAttemptedCertificateBusinessNumbers] =
     useState<string[]>([]);
   const [customerOnboardingNotice, setCustomerOnboardingNotice] = useState("");
@@ -2260,6 +2274,8 @@ export function App() {
   const customerCertificatePasswordCacheRef = useRef<Record<number, string>>({});
   const customerOnboardingCertificatesRef = useRef<RenewalAgentCertificate[] | null>(null);
   const customerOnboardingPreflightCacheRef = useRef<OnboardingPreflightCache>(new Map());
+  const customerCertificateOnestopPreflightCacheRef = useRef<OnboardingPreflightCache>(new Map());
+  const customerCertificateOnestopBusinessInfoCacheRef = useRef<OnboardingBusinessInfoLookupCache>(new Map());
   const customerOnboardingStorageHydratedOrganizationRef = useRef<string | null>(null);
   const customerNameInputRef = useRef<HTMLInputElement | null>(null);
   const certSyncInFlightRef = useRef(false);
@@ -2307,6 +2323,8 @@ export function App() {
   useEffect(() => {
     setCustomerOnboardingSharedPassword("");
     customerOnboardingPreflightCacheRef.current.clear();
+    customerCertificateOnestopPreflightCacheRef.current.clear();
+    customerCertificateOnestopBusinessInfoCacheRef.current.clear();
   }, [activeOrganizationId]);
   useEffect(() => {
     if (!activeOrganizationId) {
@@ -3123,6 +3141,215 @@ export function App() {
         );
       }
       return importedCertificate;
+    },
+    [data?.customerCertificates]
+  );
+  const prepareCustomerOnboardingCertificatesForPreflight = useCallback(
+    async (
+      requests: OnboardingCertificatePreflightPreparationRequest[]
+    ): Promise<OnboardingCertificatePreflightPreparationResult[]> => {
+      if (requests.length === 0) {
+        return [];
+      }
+
+      const matchImportedCertificate = (
+        importedCertificates: RenewalAgentCertificate[],
+        certificate: RenewalAgentCertificate,
+        usedIndexes: Set<string>
+      ): RenewalAgentCertificate | null => {
+        const match = importedCertificates.find((candidate) => {
+          const candidateIndex = String(candidate.index ?? "");
+          if (candidateIndex && usedIndexes.has(candidateIndex)) {
+            return false;
+          }
+          const candidateSerial = normalizeRenewalCertificateKey(candidate.serial);
+          const certificateSerial = normalizeRenewalCertificateKey(certificate.serial);
+          if (candidateSerial && certificateSerial && candidateSerial === certificateSerial) {
+            return true;
+          }
+          const candidateUserDn = normalizeRenewalCertificateKey(candidate.userDN);
+          const certificateUserDn = normalizeRenewalCertificateKey(certificate.userDN);
+          if (candidateUserDn && certificateUserDn && candidateUserDn === certificateUserDn) {
+            return true;
+          }
+          return normalizeRenewalCertificateKey(candidate.cn) === normalizeRenewalCertificateKey(certificate.cn);
+        }) ?? null;
+        if (match?.index !== undefined && match.index !== null) {
+          usedIndexes.add(String(match.index));
+        }
+        return match;
+      };
+
+      const bridgeReadyResults = requests.map<OnboardingCertificatePreflightPreparationResult | null>((request) =>
+        request.certificate.supportsPreflight !== false
+          ? { preparedCertificate: request.certificate }
+          : null
+      );
+      const uploadRequests = requests
+        .map((request, index) => ({ request, index }))
+        .filter(({ request }) => request.certificate.supportsPreflight === false);
+
+      if (uploadRequests.length === 0) {
+        return bridgeReadyResults.map((result) => result ?? { preparedCertificate: null });
+      }
+
+      const importRequests = uploadRequests.map(({ request }) => {
+        const certificate = request.certificate;
+        const uploadSessionId =
+          "uploadSessionId" in certificate && typeof certificate.uploadSessionId === "string"
+            ? certificate.uploadSessionId.trim()
+            : "";
+        const relativePath =
+          "relativePath" in certificate && typeof certificate.relativePath === "string"
+            ? certificate.relativePath.trim()
+            : "";
+        if (!uploadSessionId) {
+          return null;
+        }
+        return {
+          uploadSessionId,
+          certificateIndex: String(certificate.index),
+          relativePath: relativePath || null,
+          certificatePassword: request.certificatePassword
+        };
+      });
+
+      const missingSessionResults = new Map<number, string>();
+      importRequests.forEach((request, index) => {
+        if (!request) {
+          missingSessionResults.set(uploadRequests[index]?.index ?? -1, "업로드 세션 정보를 찾지 못했습니다. 파일/폴더 추가를 다시 실행하세요.");
+        }
+      });
+
+      type ValidImportRequest = NonNullable<(typeof importRequests)[number]>;
+      const validImportRequests = importRequests.filter((request): request is ValidImportRequest => request !== null);
+      const importResults: Array<Awaited<ReturnType<typeof requestLocalCertificateUploadSessionImport>>["result"]> = [];
+      if (validImportRequests.length > 0) {
+        for (const importRequestChunk of chunkItems(validImportRequests, 50)) {
+          const importResponse = await requestLocalCertificateUploadSessionImport(importRequestChunk);
+          importResults.push(importResponse.result);
+        }
+      }
+
+      const rejectedByRequest = new Map<string, string>();
+      for (const rejected of importResults.flatMap((result) => result.rejectedImports)) {
+        rejectedByRequest.set(
+          [
+            rejected.uploadSessionId,
+            rejected.certificateIndex,
+            normalizeRenewalCertificateKey(rejected.relativePath)
+          ].join("|"),
+          rejected.reason
+        );
+      }
+
+      const importWarnings = importResults.flatMap((result) => result.warnings);
+      const importedCertificates = importResults.flatMap((result) => result.importedCertificates) as RenewalAgentCertificate[];
+      const usedImportedIndexes = new Set<string>();
+      const batchResults = [...bridgeReadyResults];
+      uploadRequests.forEach(({ request, index }, uploadIndex) => {
+        const missingSessionReason = missingSessionResults.get(index);
+        if (missingSessionReason) {
+          batchResults[index] = {
+            preparedCertificate: null,
+            error: missingSessionReason
+          };
+          return;
+        }
+
+        const importRequest = importRequests[uploadIndex];
+        if (!importRequest) {
+          batchResults[index] = {
+            preparedCertificate: null,
+            error: "업로드 세션 정보를 찾지 못했습니다. 파일/폴더 추가를 다시 실행하세요."
+          };
+          return;
+        }
+
+        const rejectedReason = rejectedByRequest.get(
+          [
+            importRequest.uploadSessionId,
+            importRequest.certificateIndex,
+            normalizeRenewalCertificateKey(importRequest.relativePath)
+          ].join("|")
+        );
+        if (rejectedReason) {
+          batchResults[index] = {
+            preparedCertificate: null,
+            error: rejectedReason
+          };
+          return;
+        }
+
+        const importedCertificate = matchImportedCertificate(
+          importedCertificates,
+          request.certificate,
+          usedImportedIndexes
+        );
+        if (!importedCertificate) {
+          const detail = importWarnings.filter(Boolean).join("\n");
+          batchResults[index] = {
+            preparedCertificate: null,
+            error: detail || "브리지 저장소로 가져온 뒤 목록에서 다시 찾지 못했습니다."
+          };
+          return;
+        }
+
+        if (isOnboardingCertificateAlreadyRegistered(importedCertificate, data?.customerCertificates ?? [])) {
+          batchResults[index] = {
+            preparedCertificate: null,
+            error: `${importedCertificate.cn || request.certificate.cn}: 이미 고객에 등록된 공동인증서라 초기 등록 대상에서 제외했습니다.`
+          };
+          return;
+        }
+
+        batchResults[index] = {
+          preparedCertificate: importedCertificate
+        };
+      });
+
+      const successfullyImportedCertificates = batchResults
+        .map((result) => result?.preparedCertificate ?? null)
+        .filter((certificate): certificate is RenewalAgentCertificate => Boolean(certificate));
+      if (successfullyImportedCertificates.length > 0) {
+        const mergedCertificates = mergeOnboardingCertificates(
+          customerOnboardingCertificatesRef.current,
+          successfullyImportedCertificates
+        );
+        const { certificates: activeCertificates } = filterAlreadyRegisteredOnboardingCertificates(
+          mergedCertificates,
+          data?.customerCertificates ?? []
+        );
+        customerOnboardingCertificatesRef.current = activeCertificates.length > 0 ? activeCertificates : null;
+        setCustomerOnboardingTemplateWorkbook((current) =>
+          activeCertificates.length > 0
+            ? mergeCustomerOnboardingTemplateWorkbookState(
+                current,
+                buildCustomerOnboardingTemplateWorkbookFromCertificates(activeCertificates)
+              )
+            : null
+        );
+        setCustomerOnboardingFileName(activeCertificates.length > 0 ? `읽은 인증서 ${activeCertificates.length}건` : "");
+        setCustomerOnboardingWorkbook(null);
+        setCustomerOnboardingPreview(null);
+        setCustomerOnboardingPreflightPasswordFailureEntries([]);
+        setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+        setCustomerOnboardingJoinProgress(null);
+        setCustomerOnboardingCertificateRegistrationProgress(null);
+        setCustomerOnboardingSessionState((prev) => ({
+          ...prev,
+          previewReady: false,
+          commitDone: false,
+          certificateDone: false,
+          targetBusinessNumbers: []
+        }));
+        customerOnboardingPreflightCacheRef.current.clear();
+      }
+
+      return batchResults.map((result) => result ?? {
+        preparedCertificate: null,
+        error: "공동인증서를 NPKI 저장소로 준비하지 못했습니다."
+      });
     },
     [data?.customerCertificates]
   );
@@ -4343,6 +4570,7 @@ export function App() {
       requestBusinessInfoLookup: requestLocalCertificateBusinessInfoLookup,
       requestBusinessInfoLookupBatch: requestLocalCertificateBusinessInfoLookupBatch,
       prepareCertificateForPreflight: prepareCustomerOnboardingCertificateForPreflight,
+      prepareCertificatesForPreflight: prepareCustomerOnboardingCertificatesForPreflight,
       preflightCache: customerOnboardingPreflightCacheRef.current,
       onProgress
     });
@@ -4409,6 +4637,74 @@ export function App() {
     }));
   };
 
+  const applyCustomerOnboardingChecklistPasswordValues = (
+    updates: Array<{ rowIndex: number; value: string }>
+  ) => {
+    const updateByRowIndex = new Map<number, string>();
+    for (const update of updates) {
+      updateByRowIndex.set(update.rowIndex, update.value);
+    }
+    if (!customerOnboardingTemplateWorkbook || updateByRowIndex.size === 0) {
+      return;
+    }
+
+    const overrideEntries = customerOnboardingTemplateWorkbook.plants
+      .filter((row) => updateByRowIndex.has(row.rowIndex))
+      .map((row) => ({
+        key: getInitialRegistrationCertificateOverrideKey(row),
+        value: updateByRowIndex.get(row.rowIndex) ?? ""
+      }));
+
+    setCustomerOnboardingTemplateWorkbook((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        plants: current.plants.map((row) =>
+          updateByRowIndex.has(row.rowIndex)
+            ? {
+                ...row,
+                certificatePassword: updateByRowIndex.get(row.rowIndex) ?? ""
+              }
+            : row
+        )
+      };
+    });
+    setCustomerOnboardingCertificatePasswordOverrides((current) => {
+      const next = { ...current };
+      for (const { key, value } of overrideEntries) {
+        const trimmedValue = value.trim();
+        if (trimmedValue) {
+          next[key] = value;
+        } else {
+          delete next[key];
+        }
+      }
+      return next;
+    });
+    setCustomerOnboardingWorkbook(null);
+    setCustomerOnboardingPreview(null);
+    setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
+    setCustomerOnboardingSessionState((prev) => ({
+      ...prev,
+      previewReady: false,
+      commitDone: false,
+      certificateDone: false,
+      targetBusinessNumbers: []
+    }));
+  };
+
+  const applyCustomerOnboardingChecklistPassword = (
+    rowIndexes: number[],
+    value: string
+  ) => {
+    applyCustomerOnboardingChecklistPasswordValues(
+      rowIndexes.map((rowIndex) => ({ rowIndex, value }))
+    );
+  };
+
   const updateCustomerOnboardingChecklistRowsSelection = (
     rowIndexes: number[],
     selected: boolean
@@ -4431,32 +4727,6 @@ export function App() {
               }
             : row
         )
-      };
-    });
-    setCustomerOnboardingWorkbook(null);
-    setCustomerOnboardingPreview(null);
-    setCustomerOnboardingPreflightPasswordFailureEntries([]);
-    setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
-    setCustomerOnboardingSessionState((prev) => ({
-      ...prev,
-      previewReady: false,
-      commitDone: false,
-      certificateDone: false,
-      targetBusinessNumbers: []
-    }));
-  };
-
-  const setCustomerOnboardingChecklistSelection = (selected: boolean) => {
-    setCustomerOnboardingTemplateWorkbook((current) => {
-      if (!current) {
-        return current;
-      }
-      return {
-        ...current,
-        plants: current.plants.map((row) => ({
-          ...row,
-          selected
-        }))
       };
     });
     setCustomerOnboardingWorkbook(null);
@@ -6843,7 +7113,8 @@ export function App() {
           businessNumber: entry.key,
           customerName: entry.label,
           corpName: "사전조회 비밀번호 오류",
-          value: customerOnboardingCertificatePasswordOverrides[entry.key] ?? ""
+          value: customerOnboardingCertificatePasswordOverrides[entry.key] ?? "",
+          failedPassword: entry.failedPassword
         }))
       : [];
   const hasRegisteredCustomers = data.customers.length > 0;
@@ -7584,28 +7855,6 @@ export function App() {
     };
   };
 
-  const buildCustomerCertificateOnestopDraftFromSnapshot = (
-    certificate: RenewalAgentCertificate,
-    snapshot: RenewalInfoSnapshot | null
-  ): CustomerCertificateOnestopDraft => {
-    if (!snapshot) {
-      return buildCustomerCertificateOnestopDraftFromCertificate(certificate);
-    }
-
-    const draft = buildCustomerDraftFromRenewalSnapshot(certificate, snapshot);
-    return {
-      customerName: draft.customerName,
-      businessNumber: draft.businessNumber,
-      corpName: draft.corpName,
-      addr: draft.addr,
-      bizType: draft.bizType,
-      bizClass: draft.bizClass,
-      renewalContactMobile: draft.renewalContactMobile,
-      issueCompleteSmsTemplate: draft.issueCompleteSmsTemplate,
-      memo: draft.memo
-    };
-  };
-
   const loadCustomerAddElectronicTaxCertificates = async () => {
     ensureLocalRenewalHelperActionAllowed("공동인증서 파일/폴더 선택");
     const issueCapableCertificates = customerRenewalAssistantAllCertificates.filter(
@@ -7620,6 +7869,7 @@ export function App() {
   const uploadCustomerAddCertificateFiles = async (files: File[]) => {
     ensureLocalRenewalHelperActionAllowed("발행 가능 공동인증서 업로드");
     const response = await requestLocalCertificateUploadSession(files);
+    const uploadedCertificates = response.result.certificates as RenewalAgentCertificate[];
     setCustomerRenewalAssistant((prev) =>
       buildCustomerRenewalAssistant({
         current: prev,
@@ -7637,7 +7887,10 @@ export function App() {
             ? `업로드 인증서 ${response.result.certificates.length}건을 읽었습니다.`
             : "업로드한 파일에서 발행 가능 공동인증서를 찾지 못했습니다.",
         jobs: prev?.jobs ?? [],
-        certificates: prev?.certificates ?? [],
+        certificates:
+          uploadedCertificates.length > 0
+            ? mergeOnboardingCertificates(prev?.certificates ?? [], uploadedCertificates)
+            : prev?.certificates ?? [],
         releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
         defaultRenewalHelperDownloadUrl
       })
@@ -7645,64 +7898,140 @@ export function App() {
     return response.result;
   };
 
-  const previewCustomerCertificateOnestop = async (
-    certificate: RenewalAgentCertificate,
-    certificatePassword: string
-  ): Promise<{
-    draft: CustomerCertificateOnestopDraft;
-    message: string;
-  }> => {
-    ensureLocalRenewalHelperActionAllowed("발행 가능 공동인증서 정보 확인");
-    const certificateIndex = Number(certificate.index);
-    const canRunPreflight =
-      Number.isInteger(certificateIndex) &&
-      certificateIndex > 0 &&
-      certificate.supportsPreflight !== false;
-
-    if (!canRunPreflight) {
-      return {
-        draft: buildCustomerCertificateOnestopDraftFromSnapshot(certificate, null),
-        message: "파일 기반 인증서는 고객 기본값 자동 조회를 건너뜁니다. 확인 화면에서 사업자 정보를 입력하세요."
-      };
+  const buildPreparedCustomerOnestopCertificate = (
+    target: CustomerCertificateOnestopReviewTarget,
+    certificateRow: CustomerOnboardingWorkbookInput["certificates"][number] | undefined
+  ): RenewalAgentCertificate => {
+    if (!certificateRow) {
+      return target.certificate;
     }
 
-    if (!certificatePassword.trim()) {
-      throw new Error("공동인증서 비밀번호를 입력하세요.");
-    }
-
-    const response = await requestLocalRenewalPreflight({
-      certificateIndex,
-      certificateCn: certificate.cn || null,
-      certificatePassword
-    });
-    const preflightJob = buildLocalRenewalPreflightJob(certificate, response.result);
-    setCustomerRenewalAssistant((prev) =>
-      buildCustomerRenewalAssistant({
-        current: prev,
-        status: {
-          online: true,
-          version: response.version,
-          message: preflightJob.error ?? preflightJob.summary
-        },
-        helperVersion: response.version,
-        helperMessage: preflightJob.error ?? preflightJob.summary,
-        jobs: [preflightJob, ...(prev?.jobs ?? [])],
-        certificates: prev?.certificates ?? [],
-        releaseMetadata: getCustomerRenewalAssistantReleaseMetadata(prev),
-        defaultRenewalHelperDownloadUrl
-      })
-    );
-
-    if (preflightJob.error) {
-      throw new Error(preflightJob.error);
-    }
-
-    const snapshot = response.result.bridge.preflightProbe.renewInfoSnapshot;
     return {
-      draft: buildCustomerCertificateOnestopDraftFromSnapshot(certificate, snapshot),
-      message: snapshot
-        ? "공동인증서에서 사업자 정보를 읽었습니다. 저장 전 확인하세요."
-        : "공동인증서 메타데이터만 확인했습니다. 사업자 정보를 직접 입력하세요."
+      ...target.certificate,
+      index: certificateRow.certificateIndex || target.certificate.index,
+      cn: certificateRow.certificateName || target.certificate.cn,
+      usageToName: certificateRow.certificateUsageName || target.certificate.usageToName,
+      issuerToName: certificateRow.issuerName || target.certificate.issuerToName,
+      serial: certificateRow.serial || target.certificate.serial,
+      userDN: certificateRow.userDN || target.certificate.userDN,
+      todate: certificateRow.expireDate || target.certificate.todate,
+      supportsPreflight: certificateRow.certificateIndex ? true : target.certificate.supportsPreflight
+    };
+  };
+
+  const getCustomerOnestopResolutionError = (
+    target: CustomerCertificateOnestopReviewTarget,
+    resolved: CustomerOnboardingResolutionResult
+  ): string => {
+    const overrideKey = getCustomerCertificateOnestopReviewOverrideKey(target);
+    const passwordFailure = resolved.passwordFailureEntries.find((entry) => entry.key === overrideKey);
+    if (passwordFailure) {
+      return `${passwordFailure.label || target.certificateName}: 공동인증서 비밀번호가 올바르지 않습니다.`;
+    }
+
+    const label = getInitialRegistrationCertificateLabel({
+      certificateIndex: target.certificateIndex,
+      certificateName: target.certificateName
+    });
+    const matchedError = resolved.errors.find(
+      (message) =>
+        message.includes(`(${label})`) ||
+        message.includes(target.certificateName) ||
+        (target.certificateIndex.trim() && message.includes(target.certificateIndex.trim()))
+    );
+    if (matchedError) {
+      return matchedError.replace(/^발전소 시트\s*\([^)]+\):\s*/u, "").trim() || matchedError;
+    }
+
+    return "사업자정보를 확인하지 못했습니다. 비밀번호를 확인한 뒤 다시 시도하세요.";
+  };
+
+  const reviewCustomerCertificateOnestopTargets = async (
+    input: CustomerCertificateOnestopReviewInput
+  ): Promise<CustomerCertificateOnestopReviewResult> => {
+    ensureLocalRenewalHelperActionAllowed("고객 추가 공동인증서 확인");
+    const targets = input.targets.filter((target) => target.certificatePassword.trim() || input.sharedPassword.trim());
+    if (targets.length === 0) {
+      throw new Error("선택한 행에 공동인증서 비밀번호를 입력하세요.");
+    }
+
+    const targetsWithPasswords = targets.map((target) => ({
+      ...target,
+      certificatePassword: target.certificatePassword.trim() || input.sharedPassword.trim()
+    }));
+    const passwordOverrides = targetsWithPasswords.reduce<Record<string, string>>((overrides, target) => {
+      const password = target.certificatePassword.trim();
+      if (password) {
+        overrides[getCustomerCertificateOnestopReviewOverrideKey(target)] = password;
+      }
+      return overrides;
+    }, {});
+    const selectedCertificates = targetsWithPasswords.map((target) => target.certificate);
+    const templateWorkbook = buildCustomerCertificateOnestopTemplateWorkbook(targetsWithPasswords);
+    const loadCustomerOnestopAvailableCertificates = async () => {
+      const currentIssueCapableCertificates = getActiveIssueCapableOnboardingCertificates(customerRenewalAssistantAllCertificates);
+      return mergeOnboardingCertificates(currentIssueCapableCertificates, selectedCertificates);
+    };
+
+    const resolved = await resolveElectronicTaxOnboardingTemplateWorkbook({
+      templateWorkbook,
+      loadAvailableCertificates: loadCustomerOnestopAvailableCertificates,
+      resolveSharedPassword: async () => input.sharedPassword.trim(),
+      certificatePasswordOverrides: passwordOverrides,
+      requestPreflight: requestLocalRenewalPreflight,
+      requestPreflightBatch: requestLocalRenewalPreflightBatch,
+      requestBusinessInfoLookup: requestLocalCertificateBusinessInfoLookup,
+      requestBusinessInfoLookupBatch: requestLocalCertificateBusinessInfoLookupBatch,
+      prepareCertificateForPreflight: prepareCustomerOnboardingCertificateForPreflight,
+      prepareCertificatesForPreflight: prepareCustomerOnboardingCertificatesForPreflight,
+      preflightCache: customerCertificateOnestopPreflightCacheRef.current,
+      businessInfoLookupCache: customerCertificateOnestopBusinessInfoCacheRef.current,
+      onProgress: input.onProgress
+    });
+
+    const customersByRowIndex = new Map(resolved.workbook.customers.map((customer) => [customer.rowIndex, customer]));
+    const customersByBusinessNumber = new Map(
+      resolved.workbook.customers.map((customer) => [customer.businessNumber, customer])
+    );
+    const certificatesByRowIndex = new Map(resolved.workbook.certificates.map((certificate) => [certificate.rowIndex, certificate]));
+    const rows = targetsWithPasswords.map<CustomerCertificateOnestopReviewResult["rows"][number]>((target) => {
+      const certificateRow = certificatesByRowIndex.get(target.rowIndex);
+      const customer =
+        customersByRowIndex.get(target.rowIndex) ??
+        (certificateRow ? customersByBusinessNumber.get(certificateRow.businessNumber) : undefined);
+      if (!customer) {
+        return {
+          rowIndex: target.rowIndex,
+          status: "needs_fix",
+          message: getCustomerOnestopResolutionError(target, resolved)
+        };
+      }
+
+      const existingCustomer = findExistingCustomerByBusinessNumber(data?.customers ?? [], customer.businessNumber);
+      if (existingCustomer) {
+        return {
+          rowIndex: target.rowIndex,
+          status: "needs_fix",
+          message: `이미 등록된 고객입니다: ${existingCustomer.corpName || existingCustomer.customerName}`
+        };
+      }
+
+      return {
+        rowIndex: target.rowIndex,
+        status: "ready",
+        message: "공동인증서 비밀번호와 사업자정보를 확인했습니다.",
+        certificate: buildPreparedCustomerOnestopCertificate(target, certificateRow),
+        draft: buildCustomerCertificateOnestopDraftFromWorkbookCustomer(customer)
+      };
+    });
+
+    const failedCount = rows.filter((row) => row.status === "needs_fix").length;
+    return {
+      rows,
+      resolvedCount: rows.length - failedCount,
+      failedCount,
+      errors: resolved.errors,
+      warnings: resolved.warnings ?? []
     };
   };
 
@@ -8274,6 +8603,18 @@ export function App() {
       </section>
     </div>
   );
+  const openOnboardingStep = (stepId?: string | null) => {
+    setRequestedOnboardingStepId(stepId ?? null);
+    if (stepId) {
+      setRequestedOnboardingStepRequestKey((current) => current + 1);
+    }
+    if (!hasActiveWorkspace) {
+      setActiveTab("onboarding");
+      return;
+    }
+    setActiveSettingsSection("onboarding");
+    setActiveTab("settings");
+  };
   const onboardingSteps: OnboardingStep[] = [
     {
       id: "helper",
@@ -8353,11 +8694,13 @@ export function App() {
           certificatePasswordOverrideEntries={onboardingCertificatePasswordOverrideEntries}
           onCertificatePasswordOverrideChange={updateCustomerOnboardingCertificatePasswordOverride}
           showBillingMonthCompletion={false}
+          onOpenFirstMailSync={() => openOnboardingStep("first-sync")}
           uploadCertificateFiles={runSettingsCertificateUpload}
           reviewCustomerOnboardingChecklist={reviewCustomerOnboardingChecklist}
           updateCustomerOnboardingChecklistRow={updateCustomerOnboardingChecklistRow}
+          applyCustomerOnboardingChecklistPassword={applyCustomerOnboardingChecklistPassword}
+          applyCustomerOnboardingChecklistPasswordValues={applyCustomerOnboardingChecklistPasswordValues}
           updateCustomerOnboardingChecklistRowsSelection={updateCustomerOnboardingChecklistRowsSelection}
-          setCustomerOnboardingChecklistSelection={setCustomerOnboardingChecklistSelection}
           deleteSelectedCustomerOnboardingChecklistRows={deleteSelectedCustomerOnboardingChecklistRows}
           proceedOnboardingInitialRegistration={proceedOnboardingInitialRegistration}
           setQuickRegisterForm={setQuickRegisterForm}
@@ -8419,15 +8762,6 @@ export function App() {
     onboardingPendingStepCount === 0
       ? `${onboardingSetupCompletedCount}/${onboardingSetupSteps.length} 완료`
       : `${onboardingSetupCompletedCount}/${onboardingSetupSteps.length} 완료 · 남음 ${onboardingPendingStepCount}`;
-  const openOnboardingStep = (stepId?: string | null) => {
-    setRequestedOnboardingStepId(stepId ?? null);
-    if (!hasActiveWorkspace) {
-      setActiveTab("onboarding");
-      return;
-    }
-    setActiveSettingsSection("onboarding");
-    setActiveTab("settings");
-  };
   const reopenOnboarding = () => {
     openOnboardingStep(firstPendingOnboardingStep?.id ?? onboardingCompletionSteps[0]?.id ?? null);
   };
@@ -8908,6 +9242,7 @@ export function App() {
                 <OnboardingTab
                   steps={onboardingSetupSteps}
                   requestedStepId={requestedOnboardingStepId}
+                  requestedStepRequestKey={requestedOnboardingStepRequestKey}
                 />
               </section>
             </div>
@@ -9078,10 +9413,10 @@ export function App() {
             onCancelCreateCustomer={cancelCreatingCustomer}
             onRefreshCustomerRenewalAssistant={refreshCustomerRenewalAssistant}
             onLoadCustomerRenewalCertificates={async () => {
-              await syncCustomerRenewalCertificates({ showAlert: false, skipReadinessCheck: true });
+              return await syncCustomerRenewalCertificates({ showAlert: false, skipReadinessCheck: true });
             }}
             onUploadCustomerAddCertificateFiles={uploadCustomerAddCertificateFiles}
-            onPreviewCustomerCertificateOnestop={previewCustomerCertificateOnestop}
+            onReviewCustomerCertificateOnestopTargets={reviewCustomerCertificateOnestopTargets}
             onExecuteCustomerCertificateOnestop={executeCustomerCertificateOnestop}
             onStartCustomerRenewal={startCustomerRenewal}
             onSelectCustomer={selectCustomerForEdit}
@@ -9141,6 +9476,7 @@ export function App() {
               <OnboardingTab
                 steps={onboardingSetupSteps}
                 requestedStepId={requestedOnboardingStepId}
+                requestedStepRequestKey={requestedOnboardingStepRequestKey}
               />
             }
             openOnboarding={reopenOnboarding}

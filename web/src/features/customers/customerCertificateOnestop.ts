@@ -1,5 +1,12 @@
 import type { Customer, CustomerCertificate } from "../../types";
 import { matchesAnySearchText } from "../../lib/searchMatch";
+import type {
+  CustomerOnboardingTemplateWorkbookInput,
+  CustomerOnboardingWorkbookInput
+} from "../initial-registration/customer-onboarding-workbook";
+import {
+  getInitialRegistrationCertificateOverrideKey
+} from "../initial-registration/initial-registration-review-model";
 import {
   deriveCustomerCertificateKind,
   findCandidateCustomersForCertificate,
@@ -10,6 +17,7 @@ import {
   isIssueCapableCustomerCertificate
 } from "../renewal/customerRenewalCertificateUtils";
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
+import { mergeOnboardingCertificates } from "../initial-registration/customer-onboarding-certificate-merge";
 
 export type CustomerCertificateOnestopDraft = {
   customerName: string;
@@ -21,6 +29,40 @@ export type CustomerCertificateOnestopDraft = {
   renewalContactMobile: string;
   issueCompleteSmsTemplate: string;
   memo: string;
+};
+
+export type CustomerCertificateOnestopReviewTarget = {
+  rowIndex: number;
+  certificate: RenewalAgentCertificate;
+  certificateIndex: string;
+  certificateName: string;
+  certificatePassword: string;
+  corpName: string;
+  plantName: string;
+  customerName: string;
+  businessNumber: string;
+};
+
+export type CustomerCertificateOnestopReviewInput = {
+  targets: CustomerCertificateOnestopReviewTarget[];
+  sharedPassword: string;
+  onProgress?: (message: string) => void;
+};
+
+export type CustomerCertificateOnestopReviewRowResult = {
+  rowIndex: number;
+  status: "ready" | "needs_fix";
+  message: string;
+  certificate?: RenewalAgentCertificate;
+  draft?: CustomerCertificateOnestopDraft;
+};
+
+export type CustomerCertificateOnestopReviewResult = {
+  rows: CustomerCertificateOnestopReviewRowResult[];
+  resolvedCount: number;
+  failedCount: number;
+  errors: string[];
+  warnings: string[];
 };
 
 export type CustomerCertificateOnestopCreatePayload = CustomerCertificateOnestopDraft & {
@@ -174,6 +216,136 @@ export function filterCustomerOnestopCertificates(options: {
     ),
     hiddenExpiredCount,
     hiddenRegisteredCount
+  };
+}
+
+function areCustomerOnestopCertificatesEquivalent(
+  left: RenewalAgentCertificate,
+  right: RenewalAgentCertificate
+): boolean {
+  return mergeOnboardingCertificates([left], [right]).length === 1;
+}
+
+function preferCustomerOnestopCertificate(
+  current: RenewalAgentCertificate,
+  incoming: RenewalAgentCertificate
+): RenewalAgentCertificate {
+  if (current.supportsPreflight === false && incoming.supportsPreflight !== false) {
+    return incoming;
+  }
+  return current;
+}
+
+export function mergeCustomerOnestopCertificates(
+  current: RenewalAgentCertificate[],
+  incoming: RenewalAgentCertificate[]
+): RenewalAgentCertificate[] {
+  const merged = [...current];
+
+  for (const certificate of incoming) {
+    const matchedIndex = merged.findIndex((existingCertificate) =>
+      areCustomerOnestopCertificatesEquivalent(existingCertificate, certificate)
+    );
+    if (matchedIndex === -1) {
+      merged.push(certificate);
+      continue;
+    }
+
+    const existingCertificate = merged[matchedIndex];
+    if (existingCertificate) {
+      merged[matchedIndex] = preferCustomerOnestopCertificate(existingCertificate, certificate);
+    }
+  }
+
+  return merged;
+}
+
+export function getCustomerCertificateOnestopReviewOverrideKey(
+  target: Pick<CustomerCertificateOnestopReviewTarget, "certificateIndex" | "certificateName">
+): string {
+  return getInitialRegistrationCertificateOverrideKey({
+    certificateIndex: target.certificateIndex,
+    certificateName: target.certificateName
+  });
+}
+
+function getCustomerCertificateKindLabel(certificate: RenewalAgentCertificate): string {
+  const kind = deriveCustomerCertificateKind(certificate);
+  if (kind === "electronic_tax") return "전자세금용";
+  if (kind === "general_business") return "기업범용";
+  if (kind === "general_personal") return "개인범용";
+  return "알 수 없음";
+}
+
+function getCustomerOnestopCertificateTemplateName(target: CustomerCertificateOnestopReviewTarget): string {
+  return target.certificateName.trim() || target.certificate.cn?.trim() || `인증서 #${target.certificateIndex}`;
+}
+
+export function buildCustomerCertificateOnestopTemplateWorkbook(
+  targets: CustomerCertificateOnestopReviewTarget[]
+): CustomerOnboardingTemplateWorkbookInput {
+  const certificates: CustomerOnboardingTemplateWorkbookInput["certificates"] = [];
+  const seenCertificateKeys = new Set<string>();
+
+  for (const target of targets) {
+    const certificateName = getCustomerOnestopCertificateTemplateName(target);
+    const certificateIndex = target.certificateIndex.trim();
+    const certificateKey = getCustomerCertificateOnestopReviewOverrideKey({
+      certificateIndex,
+      certificateName
+    });
+    if (!seenCertificateKeys.has(certificateKey)) {
+      seenCertificateKeys.add(certificateKey);
+      certificates.push({
+        rowIndex: target.rowIndex,
+        certificateIndex,
+        certificateKindLabel: getCustomerCertificateKindLabel(target.certificate),
+        certificateName,
+        usageName: target.certificate.usageToName?.trim() ?? "",
+        issuerName: target.certificate.issuerToName?.trim() ?? "",
+        expireDate: target.certificate.todate ?? target.certificate.detailValidateTo ?? "",
+        certificatePassword: target.certificatePassword.trim()
+      });
+    }
+  }
+
+  return {
+    certificates,
+    plants: targets.map((target) => {
+      const certificateName = getCustomerOnestopCertificateTemplateName(target);
+      const fallbackName = target.corpName.trim() || target.plantName.trim() || certificateName;
+      return {
+        rowIndex: target.rowIndex,
+        certificateIndex: target.certificateIndex.trim(),
+        certificateName,
+        usageName: target.certificate.usageToName?.trim() ?? "",
+        issuerName: target.certificate.issuerToName?.trim() ?? "",
+        expireDate: target.certificate.todate ?? target.certificate.detailValidateTo ?? "",
+        businessNumber: target.businessNumber.trim(),
+        customerName: target.customerName.trim(),
+        corpName: target.corpName.trim(),
+        plantName: target.plantName.trim() || fallbackName,
+        matchAddress: "",
+        certificatePassword: target.certificatePassword.trim(),
+        selected: true
+      };
+    })
+  };
+}
+
+export function buildCustomerCertificateOnestopDraftFromWorkbookCustomer(
+  customer: CustomerOnboardingWorkbookInput["customers"][number]
+): CustomerCertificateOnestopDraft {
+  return {
+    customerName: customer.customerName.trim(),
+    businessNumber: customer.businessNumber.trim(),
+    corpName: customer.corpName.trim(),
+    addr: customer.addr.trim(),
+    bizType: customer.bizType.trim(),
+    bizClass: customer.bizClass.trim(),
+    renewalContactMobile: customer.renewalContactMobile.trim(),
+    issueCompleteSmsTemplate: "",
+    memo: customer.memo.trim()
   };
 }
 

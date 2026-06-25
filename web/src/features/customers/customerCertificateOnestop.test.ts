@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import type { Customer, CustomerCertificate } from "../../types";
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
 import {
+  buildCustomerCertificateOnestopDraftFromWorkbookCustomer,
+  buildCustomerCertificateOnestopTemplateWorkbook,
   buildCustomerCertificateOnestopCreatePayload,
   CUSTOMER_POPBILL_JOIN_SUPPORT_MESSAGE,
   filterCustomerOnestopCertificates,
   findExistingCustomerByBusinessNumber,
+  mergeCustomerOnestopCertificates,
   resolveExecutableCertificateForOnestopRegistration,
   runCustomerCertificateOnestopRegistration,
   type CustomerCertificateOnestopDraft
@@ -173,6 +176,108 @@ test("filterCustomerOnestopCertificates hides personal general certificates from
 
   assert.deepEqual(result.availableCertificates.map((certificate) => certificate.index), ["3"]);
   assert.deepEqual(result.visibleCertificates.map((certificate) => certificate.index), ["3"]);
+});
+
+test("mergeCustomerOnestopCertificates keeps one row for the same NPKI and uploaded certificate", () => {
+  const bridgeCertificate = createCertificate({
+    index: "11",
+    serial: "SERIAL-SAME",
+    userDN: "USER-DN-SAME",
+    listSource: "bridge-hdd",
+    supportsPreflight: true
+  });
+  const uploadedCertificate = createCertificate({
+    index: "-42",
+    serial: "SERIAL-SAME",
+    userDN: "USER-DN-SAME",
+    listSource: "upload-session",
+    supportsPreflight: false
+  });
+
+  const merged = mergeCustomerOnestopCertificates([bridgeCertificate], [uploadedCertificate]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.index, "11");
+});
+
+test("mergeCustomerOnestopCertificates upgrades an uploaded row when the bridge-readable certificate is later found", () => {
+  const uploadedCertificate = createCertificate({
+    index: "-42",
+    serial: "SERIAL-SAME",
+    userDN: "USER-DN-SAME",
+    listSource: "upload-session",
+    supportsPreflight: false
+  });
+  const bridgeCertificate = createCertificate({
+    index: "11",
+    serial: "SERIAL-SAME",
+    userDN: "USER-DN-SAME",
+    listSource: "bridge-hdd",
+    supportsPreflight: true
+  });
+
+  const merged = mergeCustomerOnestopCertificates([uploadedCertificate], [bridgeCertificate]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.index, "11");
+});
+
+test("buildCustomerCertificateOnestopTemplateWorkbook preserves selected certificate rows for onboarding resolver", () => {
+  const certificate = createCertificate({
+    index: "-42",
+    cn: "김부연()001168820231011111001399",
+    listSource: "upload-session",
+    supportsPreflight: false
+  });
+
+  const workbook = buildCustomerCertificateOnestopTemplateWorkbook([
+    {
+      rowIndex: 7,
+      certificate,
+      certificateIndex: String(certificate.index),
+      certificateName: certificate.cn,
+      certificatePassword: "pw",
+      corpName: "",
+      plantName: "",
+      customerName: "",
+      businessNumber: ""
+    }
+  ]);
+
+  assert.equal(workbook.certificates.length, 1);
+  assert.equal(workbook.certificates[0]?.certificateIndex, "-42");
+  assert.equal(workbook.certificates[0]?.certificatePassword, "pw");
+  assert.equal(workbook.plants.length, 1);
+  assert.equal(workbook.plants[0]?.rowIndex, 7);
+  assert.equal(workbook.plants[0]?.certificateIndex, "-42");
+  assert.equal(workbook.plants[0]?.plantName, "김부연()001168820231011111001399");
+  assert.equal(workbook.plants[0]?.selected, true);
+});
+
+test("buildCustomerCertificateOnestopDraftFromWorkbookCustomer maps resolver customer output to one-stop draft", () => {
+  const draft = buildCustomerCertificateOnestopDraftFromWorkbookCustomer({
+    rowIndex: 7,
+    customerName: "김부연",
+    businessNumber: "1234567890",
+    corpName: "김부연 발전소",
+    addr: "전북 군산시",
+    bizType: "전기업",
+    bizClass: "태양광발전",
+    renewalContactMobile: "010-0000-0000",
+    memo: "메모"
+  });
+
+  assert.deepEqual(draft, {
+    customerName: "김부연",
+    businessNumber: "1234567890",
+    corpName: "김부연 발전소",
+    addr: "전북 군산시",
+    bizType: "전기업",
+    bizClass: "태양광발전",
+    renewalContactMobile: "010-0000-0000",
+    issueCompleteSmsTemplate: "",
+    memo: "메모"
+  });
 });
 
 test("runCustomerCertificateOnestopRegistration rejects expired certificate before customer creation or Popbill join", async () => {

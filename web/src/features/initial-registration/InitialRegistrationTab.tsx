@@ -4,7 +4,10 @@ import {
   AlertTriangle,
   Bell,
   CheckCircle2,
+  Eraser,
   LoaderCircle,
+  Search,
+  X,
   type LucideIcon
 } from "lucide-react";
 import {
@@ -21,9 +24,24 @@ import type {
 } from "./customer-onboarding-workbook";
 import type { ElectronicTaxOnboardingCertificateRegistrationProgress } from "./electronic-tax-onboarding-orchestration";
 import {
+  buildInitialRegistrationPasswordPasteUpdates,
   buildInitialRegistrationCandidateReviewState,
+  getInitialRegistrationChecklistDragSelectionPatch,
+  getInitialRegistrationChecklistSearchMatches,
+  getInitialRegistrationChecklistSelectionPatch,
+  getInitialRegistrationPasswordClearRowIndexes,
   type InitialRegistrationCandidateReview,
+  type InitialRegistrationPasswordPasteUpdate,
   type InitialRegistrationReviewIssue
+} from "./initial-registration-review-model";
+
+export {
+  buildInitialRegistrationPasswordPasteUpdates,
+  getInitialRegistrationChecklistDragSelectionPatch,
+  getInitialRegistrationChecklistSearchMatches,
+  getInitialRegistrationChecklistSelectionPatch,
+  getInitialRegistrationPasswordClearRowIndexes,
+  parseInitialRegistrationPasswordPasteText
 } from "./initial-registration-review-model";
 
 type QuickRegisterFormState = {
@@ -78,9 +96,11 @@ type CertificatePasswordOverrideEntry = {
   customerName: string;
   corpName: string;
   value: string;
+  failedPassword?: string;
 };
 
 type CustomerOnboardingChecklistPlantRow = CustomerOnboardingTemplateWorkbookInput["plants"][number];
+type InitialRegistrationChecklistFilter = "all" | "issues" | "password";
 
 export type InitialRegistrationJoinProgress = {
   total: number;
@@ -89,33 +109,6 @@ export type InitialRegistrationJoinProgress = {
   failed: number;
   status: "running" | "complete";
 };
-
-export function getInitialRegistrationChecklistSelectionPatch(
-  rows: CustomerOnboardingChecklistPlantRow[],
-  input: {
-    rowIndex: number;
-    selected: boolean;
-    anchorRowIndex: number | null;
-    shiftKey: boolean;
-  }
-): { rowIndexes: number[]; selected: boolean } {
-  if (!input.shiftKey || input.anchorRowIndex === null) {
-    return { rowIndexes: [input.rowIndex], selected: input.selected };
-  }
-
-  const targetIndex = rows.findIndex((row) => row.rowIndex === input.rowIndex);
-  const anchorIndex = rows.findIndex((row) => row.rowIndex === input.anchorRowIndex);
-  if (targetIndex < 0 || anchorIndex < 0) {
-    return { rowIndexes: [input.rowIndex], selected: input.selected };
-  }
-
-  const startIndex = Math.min(anchorIndex, targetIndex);
-  const endIndex = Math.max(anchorIndex, targetIndex);
-  return {
-    rowIndexes: rows.slice(startIndex, endIndex + 1).map((row) => row.rowIndex),
-    selected: input.selected
-  };
-}
 
 type InitialStatusNoticeTone = "info" | "progress" | "success" | "warn" | "danger";
 
@@ -200,13 +193,15 @@ export function buildInitialRegistrationReviewMessages(input: {
 function InitialRegistrationReviewIssues(props: {
   messages: string[];
   blockedCount: number;
+  summaryItems: string[];
 }) {
-  if (props.messages.length === 0) {
+  if (props.messages.length === 0 && props.blockedCount === 0 && props.summaryItems.length === 0) {
     return null;
   }
   const title = props.blockedCount > 0
-    ? `확인 필요 ${props.messages.length}건`
+    ? `확인 필요 ${props.blockedCount}건`
     : `보완 안내 ${props.messages.length}건`;
+  const extraMessageCount = Math.max(props.messages.length - 5, 0);
 
   return (
     <div className="initial-registration-review-issues" role="alert">
@@ -214,11 +209,24 @@ function InitialRegistrationReviewIssues(props: {
         <AlertTriangle aria-hidden="true" />
         <strong>{title}</strong>
       </div>
-      <ul>
-        {props.messages.map((message) => (
-          <li key={message}>{message}</li>
-        ))}
-      </ul>
+      {props.summaryItems.length > 0 ? (
+        <div className="initial-registration-review-issue-summary">
+          {props.summaryItems.map((item) => (
+            <span key={item}>{item}</span>
+          ))}
+        </div>
+      ) : null}
+      {props.messages.length > 0 ? (
+        <details className="initial-registration-review-issue-details">
+          <summary>상세 메시지 {props.messages.length}건</summary>
+          <ul>
+            {props.messages.slice(0, 5).map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+            {extraMessageCount > 0 ? <li>외 {extraMessageCount}건</li> : null}
+          </ul>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -337,7 +345,7 @@ export function getInitialRegistrationFlowState(input: InitialRegistrationFlowSt
           ? "지금 할 일 · 초기 등록 실행"
           : "지금 할 일 · 공동인증서 등록";
   const description = certificateCompleted
-    ? "다음 단계로 이동"
+    ? "고객 등록과 공동인증서 등록이 완료되었습니다."
     : stage === "download"
       ? input.helperReady
         ? hasElectronicTaxCertificates
@@ -610,14 +618,16 @@ type InitialRegistrationTabProps = {
   certificatePasswordOverrideEntries: CertificatePasswordOverrideEntry[];
   onCertificatePasswordOverrideChange: (businessNumber: string, value: string) => void;
   showBillingMonthCompletion?: boolean;
+  onOpenFirstMailSync?: () => void;
   uploadCertificateFiles: (files: File[]) => Promise<void>;
   reviewCustomerOnboardingChecklist: () => Promise<void>;
   updateCustomerOnboardingChecklistRow: (
     rowIndex: number,
     patch: Partial<CustomerOnboardingChecklistPlantRow>
   ) => void;
+  applyCustomerOnboardingChecklistPassword: (rowIndexes: number[], value: string) => void;
+  applyCustomerOnboardingChecklistPasswordValues: (updates: InitialRegistrationPasswordPasteUpdate[]) => void;
   updateCustomerOnboardingChecklistRowsSelection: (rowIndexes: number[], selected: boolean) => void;
-  setCustomerOnboardingChecklistSelection: (selected: boolean) => void;
   deleteSelectedCustomerOnboardingChecklistRows: () => void;
   proceedOnboardingInitialRegistration: () => Promise<void>;
   setQuickRegisterForm: React.Dispatch<React.SetStateAction<QuickRegisterFormState>>;
@@ -636,8 +646,20 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const certificateFileInputRef = useRef<HTMLInputElement | null>(null);
   const certificateFolderInputRef = useRef<HTMLInputElement | null>(null);
   const checklistSelectAllInputRef = useRef<HTMLInputElement | null>(null);
+  const checklistTableRef = useRef<HTMLDivElement | null>(null);
+  const rowMouseSelectionHandledRef = useRef(false);
   const [sharedPasswordVisible, setSharedPasswordVisible] = useState(false);
   const [lastChecklistAnchorRowIndex, setLastChecklistAnchorRowIndex] = useState<number | null>(null);
+  const [checklistFilter, setChecklistFilter] = useState<InitialRegistrationChecklistFilter>("all");
+  const [checklistSearchTerm, setChecklistSearchTerm] = useState("");
+  const [bulkPasswordValue, setBulkPasswordValue] = useState("");
+  const [bulkPasswordVisible, setBulkPasswordVisible] = useState(false);
+  const [dragSelection, setDragSelection] = useState<{
+    selected: boolean;
+    anchorRowIndex: number;
+    lastRowIndex: number;
+    initialSelectedRowIndexes: number[];
+  } | null>(null);
   const onboardingBusyKey = props.busyKey?.startsWith("customer-onboarding-") ? props.busyKey : null;
   const isPreviewingOnboarding = onboardingBusyKey === "customer-onboarding-preview";
   const isRunningInitialRegistration = onboardingBusyKey === "customer-onboarding-initial-registration";
@@ -650,13 +672,6 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
   const hasChecklistRows = props.customerOnboardingChecklistRows.length > 0;
   const selectedChecklistRows = props.customerOnboardingChecklistRows.filter((row) => row.selected === true);
   const selectedChecklistCount = selectedChecklistRows.length;
-  const allChecklistRowsSelected = hasChecklistRows && selectedChecklistCount === props.customerOnboardingChecklistRows.length;
-  const hasPartialChecklistSelection = selectedChecklistCount > 0 && !allChecklistRowsSelected;
-  useEffect(() => {
-    if (checklistSelectAllInputRef.current) {
-      checklistSelectAllInputRef.current.indeterminate = hasPartialChecklistSelection;
-    }
-  }, [hasPartialChecklistSelection]);
   const reviewResultMismatched =
     props.customerOnboardingPreview !== null &&
     selectedChecklistCount > 0 &&
@@ -676,7 +691,87 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
         `선택한 인증서 ${selectedChecklistCount}건과 마지막 확인된 인증서 ${props.customerOnboardingConfirmedCertificateCount ?? 0}건이 일치하지 않습니다. 다시 확인하세요.`
       ]
     : candidateReviewState.unmatchedMessages;
+  const activeReviewRows = candidateReviewState.rows.filter((row) => row.status !== "excluded");
+  const issueReviewRows = activeReviewRows.filter((row) => row.issues.length > 0 || row.blocking);
+  const issueReviewRowIndexes = new Set(issueReviewRows.map((row) => row.rowIndex));
+  const reviewIssueRowCount = issueReviewRows.length;
+  const passwordReviewRows = activeReviewRows.filter((row) =>
+    row.issues.some((issue) => issue.code === "password_invalid" || issue.code === "password_needs_recheck")
+  );
+  const passwordReviewRowIndexes = new Set(passwordReviewRows.map((row) => row.rowIndex));
+  const passwordReviewRowCount = passwordReviewRows.length;
+  const filterMatchedChecklistRows = checklistFilter === "password"
+    ? props.customerOnboardingChecklistRows.filter((row) => passwordReviewRowIndexes.has(row.rowIndex))
+    : checklistFilter === "issues"
+      ? props.customerOnboardingChecklistRows.filter((row) => issueReviewRowIndexes.has(row.rowIndex))
+      : props.customerOnboardingChecklistRows;
+  const checklistSearchQuery = checklistSearchTerm.trim();
+  const visibleChecklistRows = getInitialRegistrationChecklistSearchMatches(
+    filterMatchedChecklistRows,
+    checklistSearchTerm
+  );
+  const visibleChecklistRowIndexes = visibleChecklistRows.map((row) => row.rowIndex);
+  const visibleSelectedChecklistRows = visibleChecklistRows.filter((row) => row.selected === true);
+  const visibleSelectedChecklistRowIndexes = visibleSelectedChecklistRows.map((row) => row.rowIndex);
+  const visibleSelectedChecklistCount = visibleSelectedChecklistRows.length;
+  const visibleSelectedPasswordRowIndexes = getInitialRegistrationPasswordClearRowIndexes(visibleChecklistRows);
+  const canClearVisibleSelectedPasswords = props.busyKey === null && visibleSelectedPasswordRowIndexes.length > 0;
+  const allVisibleChecklistRowsSelected =
+    visibleChecklistRows.length > 0 && visibleSelectedChecklistCount === visibleChecklistRows.length;
+  const hasPartialVisibleChecklistSelection =
+    visibleSelectedChecklistCount > 0 && !allVisibleChecklistRowsSelected;
+  useEffect(() => {
+    if (checklistSelectAllInputRef.current) {
+      checklistSelectAllInputRef.current.indeterminate = hasPartialVisibleChecklistSelection;
+    }
+  }, [hasPartialVisibleChecklistSelection]);
+  useEffect(() => {
+    if (!dragSelection) {
+      return undefined;
+    }
+    const endDragSelection = () => setDragSelection(null);
+    window.addEventListener("mouseup", endDragSelection);
+    return () => window.removeEventListener("mouseup", endDragSelection);
+  }, [dragSelection]);
+  useEffect(() => {
+    if (checklistFilter === "password" && passwordReviewRowCount === 0) {
+      setChecklistFilter(reviewIssueRowCount > 0 ? "issues" : "all");
+      return;
+    }
+    if (checklistFilter === "issues" && reviewIssueRowCount === 0) {
+      setChecklistFilter("all");
+    }
+  }, [checklistFilter, passwordReviewRowCount, reviewIssueRowCount]);
+  const passwordIssueCount = activeReviewRows.filter((row) =>
+    row.issues.some((issue) => issue.code === "password_invalid")
+  ).length;
+  const passwordRecheckCount = activeReviewRows.filter((row) =>
+    row.issues.some((issue) => issue.code === "password_needs_recheck")
+  ).length;
+  const selectedPasswordReviewRows = selectedChecklistRows.filter((row) => passwordReviewRowIndexes.has(row.rowIndex));
+  const canApplyBulkPassword =
+    props.busyKey === null &&
+    selectedPasswordReviewRows.length > 0 &&
+    bulkPasswordValue.trim() !== "";
+  const manualInfoIssueCount = activeReviewRows.filter((row) =>
+    row.issues.some((issue) => issue.needsManualInfo)
+  ).length;
+  const blockedCertificateIssueCount = activeReviewRows.filter((row) =>
+    row.issues.some((issue) =>
+      issue.code === "certificate_expired" ||
+      issue.code === "certificate_not_found" ||
+      issue.code === "certificate_not_issue_capable"
+    )
+  ).length;
   const onboardingBlockedCount = candidateReviewState.blockingCount + (reviewResultMismatched ? 1 : 0);
+  const reviewIssueSummaryItems = [
+    passwordIssueCount > 0 ? `비밀번호 오류 ${passwordIssueCount}건` : null,
+    passwordRecheckCount > 0 ? `재확인 ${passwordRecheckCount}건` : null,
+    manualInfoIssueCount > 0 ? `정보 입력 ${manualInfoIssueCount}건` : null,
+    blockedCertificateIssueCount > 0 ? `인증서 확인 ${blockedCertificateIssueCount}건` : null,
+    reviewResultMismatched ? "선택 불일치 1건" : null,
+    candidateReviewState.unmatchedMessages.length > 0 ? `기타 ${candidateReviewState.unmatchedMessages.length}건` : null
+  ].filter(Boolean) as string[];
   const onboardingImportableCount =
     reviewResultMismatched || candidateReviewState.blockingCount > 0
       ? 0
@@ -768,10 +863,170 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     setLastChecklistAnchorRowIndex(row.rowIndex);
   };
   const isChecklistRowInteractiveTarget = (target: EventTarget | null) => {
+    if (
+      target instanceof HTMLElement &&
+      target.closest("input.initial-onboarding-review-password:disabled")
+    ) {
+      return false;
+    }
     return (
       target instanceof HTMLElement &&
       Boolean(target.closest("input, button, a, textarea, select, label, summary"))
     );
+  };
+  const applyPasswordFromChecklistCell = (
+    row: CustomerOnboardingChecklistPlantRow,
+    value: string
+  ) => {
+    const rowInVisibleSelection =
+      row.selected === true &&
+      visibleSelectedChecklistRowIndexes.includes(row.rowIndex) &&
+      visibleSelectedChecklistRowIndexes.length > 1;
+    props.applyCustomerOnboardingChecklistPassword(
+      rowInVisibleSelection ? visibleSelectedChecklistRowIndexes : [row.rowIndex],
+      value
+    );
+  };
+  const applyPasswordPaste = (
+    text: string,
+    startRowIndex: number | null,
+    selectedRowIndexes: number[]
+  ) => {
+    const updates = buildInitialRegistrationPasswordPasteUpdates({
+      rows: visibleChecklistRows,
+      selectedRowIndexes,
+      startRowIndex,
+      text
+    });
+    if (updates.length === 0) {
+      return false;
+    }
+
+    props.applyCustomerOnboardingChecklistPasswordValues(updates);
+    return true;
+  };
+  const handleChecklistTablePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    if (props.busyKey !== null || visibleSelectedChecklistRowIndexes.length === 0) {
+      return;
+    }
+    if (isChecklistRowInteractiveTarget(event.target)) {
+      return;
+    }
+    const text = event.clipboardData.getData("text");
+    if (!applyPasswordPaste(text, null, visibleSelectedChecklistRowIndexes)) {
+      return;
+    }
+    event.preventDefault();
+  };
+  const handleChecklistPasswordPaste = (
+    event: React.ClipboardEvent<HTMLInputElement>,
+    row: CustomerOnboardingChecklistPlantRow
+  ) => {
+    if (props.busyKey !== null) {
+      return;
+    }
+    const selectedTargets =
+      row.selected === true && visibleSelectedChecklistRowIndexes.length > 1
+        ? visibleSelectedChecklistRowIndexes
+        : [];
+    const text = event.clipboardData.getData("text");
+    if (!applyPasswordPaste(text, row.rowIndex, selectedTargets)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  const clearVisibleSelectedPasswords = () => {
+    if (!canClearVisibleSelectedPasswords) {
+      return;
+    }
+
+    props.applyCustomerOnboardingChecklistPassword(visibleSelectedPasswordRowIndexes, "");
+    checklistTableRef.current?.focus({ preventScroll: true });
+  };
+  const handleChecklistTableKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Delete" || props.busyKey !== null || isChecklistRowInteractiveTarget(event.target)) {
+      return;
+    }
+    if (!canClearVisibleSelectedPasswords) {
+      return;
+    }
+
+    event.preventDefault();
+    clearVisibleSelectedPasswords();
+  };
+  const beginChecklistRowMouseSelection = (
+    row: CustomerOnboardingChecklistPlantRow,
+    rowSelected: boolean,
+    event: React.MouseEvent<HTMLTableRowElement>
+  ) => {
+    if (
+      props.busyKey !== null ||
+      event.button !== 0 ||
+      isChecklistRowInteractiveTarget(event.target)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    checklistTableRef.current?.focus({ preventScroll: true });
+    rowMouseSelectionHandledRef.current = true;
+    const nextSelected = !rowSelected;
+    if (event.shiftKey) {
+      applyChecklistRowSelection(row, nextSelected, event);
+      setDragSelection(null);
+      return;
+    }
+
+    const initialSelectedRowIndexes = visibleChecklistRows
+      .filter((visibleRow) => visibleRow.selected === true)
+      .map((visibleRow) => visibleRow.rowIndex);
+    props.updateCustomerOnboardingChecklistRowsSelection([row.rowIndex], nextSelected);
+    setLastChecklistAnchorRowIndex(row.rowIndex);
+    setDragSelection({
+      selected: nextSelected,
+      anchorRowIndex: row.rowIndex,
+      lastRowIndex: row.rowIndex,
+      initialSelectedRowIndexes
+    });
+  };
+  const extendChecklistRowMouseSelection = (row: CustomerOnboardingChecklistPlantRow) => {
+    if (!dragSelection || props.busyKey !== null || dragSelection.lastRowIndex === row.rowIndex) {
+      return;
+    }
+
+    const patch = getInitialRegistrationChecklistDragSelectionPatch(visibleChecklistRows, {
+      anchorRowIndex: dragSelection.anchorRowIndex,
+      currentRowIndex: row.rowIndex,
+      selected: dragSelection.selected,
+      initialSelectedRowIndexes: dragSelection.initialSelectedRowIndexes
+    });
+    if (patch.selectedRowIndexes.length > 0) {
+      props.updateCustomerOnboardingChecklistRowsSelection(patch.selectedRowIndexes, true);
+    }
+    if (patch.deselectedRowIndexes.length > 0) {
+      props.updateCustomerOnboardingChecklistRowsSelection(patch.deselectedRowIndexes, false);
+    }
+    setLastChecklistAnchorRowIndex(row.rowIndex);
+    setDragSelection({ ...dragSelection, lastRowIndex: row.rowIndex });
+  };
+  const runChecklistReview = () =>
+    void props.runAction(
+      "customer-onboarding-preview",
+      props.reviewCustomerOnboardingChecklist,
+      { reload: false }
+    );
+  const applyBulkPasswordToSelectedRows = () => {
+    if (!canApplyBulkPassword) {
+      return;
+    }
+
+    props.applyCustomerOnboardingChecklistPassword(
+      selectedPasswordReviewRows.map((row) => row.rowIndex),
+      bulkPasswordValue
+    );
+    setBulkPasswordValue("");
+    setChecklistFilter("password");
   };
   const billingMonthCompletionList = props.billingMonthSummaries.length > 0 ? (
     <div className="list month-completion-list">
@@ -862,6 +1117,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
     Boolean(props.customerOnboardingNotice) &&
     !showChecklistWorkspace &&
     !registrationFlow.blockedReason &&
+    !isRunningInitialRegistration &&
     !uploadProgressMessage &&
     (!certificateProgress || certificateProgressSettled) &&
     !props.joinProgress;
@@ -1009,13 +1265,7 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
       className="initial-registration-review-button"
       disabled={props.busyKey !== null || !canReviewChecklist}
       title={reviewBlockedTitle}
-      onClick={() =>
-        void props.runAction(
-          "customer-onboarding-preview",
-          props.reviewCustomerOnboardingChecklist,
-          { reload: false }
-        )
-      }
+      onClick={runChecklistReview}
     >
       {reviewChecklistLabel}
     </Button>
@@ -1032,6 +1282,17 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
       {registrationPrimaryAction.label}
     </Button>
   ) : null;
+  const nextStepButton =
+    props.mode === "registration" && registrationStage === "done" && props.onOpenFirstMailSync ? (
+      <Button
+        type="button"
+        size="sm"
+        className="initial-registration-review-button"
+        onClick={props.onOpenFirstMailSync}
+      >
+        다음 단계: 첫 메일 동기화
+      </Button>
+    ) : null;
   const manualCertificateRegistration = showCertificateSourceActions ? (
     <details className="initial-registration-manual-source">
       <summary>목록에 없는 인증서 추가</summary>
@@ -1069,27 +1330,173 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
         : "등록 대상 선택";
   const checklistWorkspaceSummary = hasChecklistRows
     ? [
-        `등록 대상 ${props.customerOnboardingChecklistRows.length}건`,
-        `선택 ${selectedChecklistCount}건`,
-        candidateReviewState.readyCount > 0 ? `통과 ${candidateReviewState.readyCount}건` : null,
-        candidateReviewState.blockingCount > 0 ? `수정 필요 ${candidateReviewState.blockingCount}건` : null
+        `선택 ${selectedChecklistCount}/${props.customerOnboardingChecklistRows.length}건`,
+        checklistSearchQuery !== "" || checklistFilter !== "all" ? `표시 ${visibleChecklistRows.length}건` : null,
+        candidateReviewState.blockingCount > 0 ? `확인 필요 ${candidateReviewState.blockingCount}건` : null
       ].filter(Boolean).join(" · ")
     : "등록 대상 없음";
   const checklistToolbarAction = reviewChecklistButton ?? primaryRegistrationButton;
-  const checklistSelectionActions = hasChecklistRows ? (
-    <div className="initial-onboarding-review-actions">
-      <button
-        type="button"
-        className="btn-secondary initial-onboarding-review-delete"
-        disabled={props.busyKey !== null || selectedChecklistCount === 0}
-        onClick={props.deleteSelectedCustomerOnboardingChecklistRows}
+  const checklistViewControls = hasChecklistRows ? (
+    <div className="initial-onboarding-review-viewbar">
+      <label className="initial-onboarding-review-search">
+        <Search aria-hidden="true" />
+        <input
+          type="search"
+          value={checklistSearchTerm}
+          disabled={props.busyKey !== null}
+          aria-label="선택 고객 검색"
+          placeholder="상호명, 인증서명, 사업자번호 검색"
+          onChange={(event) => setChecklistSearchTerm(event.target.value)}
+        />
+        {checklistSearchQuery !== "" ? (
+          <button
+            type="button"
+            aria-label="검색어 지우기"
+            disabled={props.busyKey !== null}
+            onClick={() => setChecklistSearchTerm("")}
+          >
+            <X aria-hidden="true" />
+          </button>
+        ) : null}
+      </label>
+      <div className="initial-onboarding-review-filter" role="group" aria-label="등록 대상 보기 필터">
+        <button
+          type="button"
+          className={checklistFilter === "all" ? "is-active" : undefined}
+          disabled={props.busyKey !== null}
+          aria-pressed={checklistFilter === "all"}
+          onClick={() => setChecklistFilter("all")}
+        >
+          전체 {props.customerOnboardingChecklistRows.length}
+        </button>
+        <button
+          type="button"
+          className={checklistFilter === "issues" ? "is-active" : undefined}
+          disabled={props.busyKey !== null || reviewIssueRowCount === 0}
+          aria-pressed={checklistFilter === "issues"}
+          onClick={() => setChecklistFilter("issues")}
+        >
+          확인 필요 {reviewIssueRowCount}
+        </button>
+        <button
+          type="button"
+          className={checklistFilter === "password" ? "is-active" : undefined}
+          disabled={props.busyKey !== null || passwordReviewRowCount === 0}
+          aria-pressed={checklistFilter === "password"}
+          onClick={() => setChecklistFilter("password")}
+        >
+          비밀번호 {passwordReviewRowCount}
+        </button>
+      </div>
+    </div>
+  ) : null;
+  const passwordCorrectionToolbarActive = showTemplateActions && passwordReviewRowCount > 0;
+  const passwordCorrectionTitle = [
+    passwordIssueCount > 0 ? `오류 ${passwordIssueCount}건` : null,
+    passwordRecheckCount > 0 ? `재확인 ${passwordRecheckCount}건` : null
+  ].filter(Boolean).join(" · ");
+  const passwordCorrectionActionLabel = isPreviewingOnboarding
+    ? "확인 중..."
+    : canApplyBulkPassword
+      ? "적용"
+      : "다시 확인";
+  const canRunPasswordCorrectionAction = canApplyBulkPassword || canReviewChecklist;
+  const passwordCorrectionControl = passwordCorrectionToolbarActive ? (
+    <label className="initial-registration-shared-password initial-registration-password-fix-field">
+      <span>비밀번호 {passwordCorrectionTitle}</span>
+      <PasswordField
+        visible={bulkPasswordVisible}
+        onVisibleChange={setBulkPasswordVisible}
+        value={bulkPasswordValue}
+        disabled={props.busyKey !== null || selectedPasswordReviewRows.length === 0}
+        onChange={(event) => setBulkPasswordValue(event.target.value)}
+        placeholder="같은 비밀번호 행 선택 후 입력"
+        revealLabel="선택 행 비밀번호 보기"
+        hideLabel="선택 행 비밀번호 숨기기"
+      />
+    </label>
+  ) : null;
+  const passwordCorrectionAction = passwordCorrectionToolbarActive ? (
+    <Button
+      type="button"
+      size="sm"
+      className="initial-registration-review-button"
+      disabled={props.busyKey !== null || !canRunPasswordCorrectionAction}
+      title={
+        !canRunPasswordCorrectionAction
+          ? reviewBlockedTitle ?? "비밀번호를 적용할 행을 선택하거나 개별 비밀번호를 입력하세요."
+          : canApplyBulkPassword
+            ? "선택한 비밀번호 오류 행에 입력값을 적용합니다."
+            : "수정한 내용으로 다시 확인합니다."
+      }
+      onClick={() => {
+        if (canApplyBulkPassword) {
+          applyBulkPasswordToSelectedRows();
+          return;
+        }
+        runChecklistReview();
+      }}
+    >
+      {passwordCorrectionActionLabel}
+    </Button>
+  ) : null;
+  const selectedActionSummary = checklistSearchQuery !== "" || checklistFilter !== "all"
+    ? `선택 ${selectedChecklistCount}건 · 현재 보기 ${visibleSelectedChecklistCount}건`
+    : `선택 ${selectedChecklistCount}건`;
+  const checklistSelectedActions = hasChecklistRows && selectedChecklistCount > 0 ? (
+    <div className="initial-onboarding-selected-actionbar">
+      <div className="initial-onboarding-selected-actionbar-head">
+        <strong>{selectedActionSummary}</strong>
+        <span>선택한 고객에만 적용됩니다.</span>
+      </div>
+      <div
+        className={[
+          "initial-registration-candidate-toolbar",
+          passwordCorrectionToolbarActive ? "is-password-fix" : ""
+        ].filter(Boolean).join(" ")}
       >
-        선택 삭제
-      </button>
+        {passwordCorrectionControl ?? sharedPasswordControl}
+        {passwordCorrectionAction ?? checklistToolbarAction}
+      </div>
+      <div className="initial-onboarding-review-actions">
+        <button
+          type="button"
+          className="btn-secondary initial-onboarding-review-clear-password"
+          disabled={!canClearVisibleSelectedPasswords}
+          title={
+            canClearVisibleSelectedPasswords
+              ? "선택한 행의 개별 비밀번호를 비웁니다."
+              : "개별 비밀번호가 입력된 행을 선택하세요."
+          }
+          onClick={clearVisibleSelectedPasswords}
+        >
+          <Eraser aria-hidden="true" />
+          <span>비밀번호 지우기</span>
+        </button>
+        <button
+          type="button"
+          className="btn-secondary initial-onboarding-review-delete"
+          disabled={props.busyKey !== null || selectedChecklistCount === 0}
+          onClick={props.deleteSelectedCustomerOnboardingChecklistRows}
+        >
+          선택 삭제
+        </button>
+      </div>
     </div>
   ) : null;
   const checklistTable = hasChecklistRows ? (
-    <div className="initial-registration-candidate-table-shell initial-onboarding-review-table-wrap">
+    <div
+      ref={checklistTableRef}
+      className={[
+        "initial-registration-candidate-table-shell",
+        "initial-onboarding-review-table-wrap",
+        dragSelection ? "is-drag-selecting" : ""
+      ].filter(Boolean).join(" ")}
+      tabIndex={-1}
+      aria-label="초기 등록 대상 표"
+      onKeyDown={handleChecklistTableKeyDown}
+      onPaste={handleChecklistTablePaste}
+    >
       <table className="initial-onboarding-review-table">
         <thead>
           <tr>
@@ -1098,11 +1505,18 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                 ref={checklistSelectAllInputRef}
                 className="initial-onboarding-review-check initial-onboarding-review-check-all"
                 type="checkbox"
-                checked={allChecklistRowsSelected}
-                disabled={props.busyKey !== null || !hasChecklistRows}
-                aria-label={allChecklistRowsSelected ? "등록 대상 전체 해제" : "등록 대상 전체 선택"}
+                checked={allVisibleChecklistRowsSelected}
+                disabled={props.busyKey !== null || visibleChecklistRows.length === 0}
+                aria-label={allVisibleChecklistRowsSelected ? "현재 보기 등록 대상 전체 해제" : "현재 보기 등록 대상 전체 선택"}
                 onClick={(event) => event.stopPropagation()}
-                onChange={() => props.setCustomerOnboardingChecklistSelection(!allChecklistRowsSelected)}
+                onChange={() => {
+                  if (visibleChecklistRowIndexes.length > 0) {
+                    props.updateCustomerOnboardingChecklistRowsSelection(
+                      visibleChecklistRowIndexes,
+                      !allVisibleChecklistRowsSelected
+                    );
+                  }
+                }}
               />
             </th>
             <th>상호명</th>
@@ -1111,11 +1525,27 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           </tr>
         </thead>
         <tbody>
-          {props.customerOnboardingChecklistRows.map((row) => {
+          {visibleChecklistRows.length === 0 ? (
+            <tr className="initial-onboarding-review-empty-row">
+              <td colSpan={4}>
+                <span className="initial-onboarding-review-empty">
+                  검색 결과가 없습니다.
+                </span>
+              </td>
+            </tr>
+          ) : visibleChecklistRows.map((row) => {
             const rowSelected = row.selected === true;
-            const review = candidateReviewState.byRowIndex.get(row.rowIndex);
+            const review = rowSelected ? candidateReviewState.byRowIndex.get(row.rowIndex) : undefined;
             const statusClassName = review ? `status-${review.status}` : "";
             const hasReviewIssues = Boolean(review && review.issues.length > 0);
+            const passwordIssue = review?.issues.find((issue) =>
+              issue.code === "password_invalid" || issue.code === "password_needs_recheck"
+            );
+            const hasPasswordInvalid = passwordIssue?.code === "password_invalid";
+            const hasPasswordNeedsRecheck = passwordIssue?.code === "password_needs_recheck";
+            const showReviewDetail = Boolean(
+              review?.issues.some((issue) => issue.needsManualInfo || !issue.needsPassword)
+            );
             return (
               <React.Fragment key={`${row.rowIndex}:${row.certificateIndex}:${row.certificateName}`}>
                 <tr
@@ -1126,16 +1556,20 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                   ].filter(Boolean).join(" ") || undefined}
                   aria-selected={rowSelected}
                   onMouseDown={(event) => {
-                    if (props.busyKey !== null || isChecklistRowInteractiveTarget(event.target)) {
-                      return;
-                    }
-                    if (event.shiftKey) {
-                      event.preventDefault();
-                      window.getSelection()?.removeAllRanges();
-                    }
+                    beginChecklistRowMouseSelection(row, rowSelected, event);
+                  }}
+                  onMouseEnter={() => {
+                    extendChecklistRowMouseSelection(row);
+                  }}
+                  onMouseUp={() => {
+                    setDragSelection(null);
                   }}
                   onClick={(event) => {
                     if (props.busyKey !== null || isChecklistRowInteractiveTarget(event.target)) {
+                      return;
+                    }
+                    if (rowMouseSelectionHandledRef.current) {
+                      rowMouseSelectionHandledRef.current = false;
                       return;
                     }
                     applyChecklistRowSelection(row, !rowSelected, event);
@@ -1164,27 +1598,37 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                     <input
                       className={[
                         "initial-onboarding-review-password",
-                        review?.issues.some((issue) => issue.needsPassword) ? "has-error" : ""
+                        hasPasswordInvalid ? "has-error" : "",
+                        hasPasswordNeedsRecheck ? "needs-recheck" : ""
                       ].filter(Boolean).join(" ")}
                       type="password"
                       value={row.certificatePassword ?? ""}
                       disabled={props.busyKey !== null || !rowSelected}
+                      aria-invalid={hasPasswordInvalid || undefined}
+                      title={
+                        hasPasswordInvalid
+                          ? "비밀번호가 올바르지 않습니다. 개별 비밀번호를 입력한 뒤 다시 확인하세요."
+                          : hasPasswordNeedsRecheck
+                            ? "비밀번호를 수정했습니다. 선택 고객 확인을 다시 실행하세요."
+                            : undefined
+                      }
                       onClick={(event) => event.stopPropagation()}
+                      onPaste={(event) => handleChecklistPasswordPaste(event, row)}
                       onChange={(event) =>
-                        props.updateCustomerOnboardingChecklistRow(row.rowIndex, {
-                          certificatePassword: event.target.value
-                        })
+                        applyPasswordFromChecklistCell(row, event.target.value)
                       }
                       placeholder="공통 비밀번호 사용"
                     />
                   </td>
                   <td>
-                    <span className={`initial-onboarding-row-status ${statusClassName}`}>
-                      {review?.statusLabel ?? (rowSelected ? "확인 전" : "제외")}
-                    </span>
+                    {rowSelected ? (
+                      <span className={`initial-onboarding-row-status ${statusClassName}`}>
+                        {review?.statusLabel ?? "확인 전"}
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
-                {hasReviewIssues && review ? (
+                {showReviewDetail && review ? (
                   <InitialRegistrationCandidateReviewDetail
                     row={row}
                     review={review}
@@ -1214,18 +1658,19 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
           <strong>{checklistWorkspaceTitle}</strong>
           <span>{checklistWorkspaceSummary}</span>
         </div>
-        {checklistSelectionActions}
       </div>
-      <div className="initial-registration-candidate-toolbar">
-        {sharedPasswordControl}
-        {checklistToolbarAction}
-      </div>
+      {checklistViewControls}
+      {checklistSelectedActions}
       {uploadProgressMessage ? (
         <InitialStatusNotice title="진행 중" message={uploadProgressMessage} tone="progress" />
       ) : null}
       {checklistTable}
       {candidateEmptyState}
-      <InitialRegistrationReviewIssues messages={reviewIssueMessages} blockedCount={onboardingBlockedCount} />
+      <InitialRegistrationReviewIssues
+        messages={reviewIssueMessages}
+        blockedCount={onboardingBlockedCount}
+        summaryItems={reviewIssueSummaryItems}
+      />
       {manualCertificateRegistration}
     </>
   );
@@ -1289,6 +1734,11 @@ export function InitialRegistrationTab(props: InitialRegistrationTabProps) {
                         {primaryRegistrationButton ? (
                           <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
                             {primaryRegistrationButton}
+                          </div>
+                        ) : null}
+                        {nextStepButton ? (
+                          <div className="button-row onboarding-primary-row onboarding-primary-row-focal">
+                            {nextStepButton}
                           </div>
                         ) : null}
                       </div>

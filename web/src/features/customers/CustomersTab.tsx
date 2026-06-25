@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { CheckboxControl, Icon } from "../../components/ui";
+import { Eraser, Search, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { CheckboxControl, Icon, PasswordField } from "../../components/ui";
 import {
   EmptyState,
   InlineNotice,
@@ -36,11 +38,18 @@ import {
 } from "../renewal/customerRenewalCertificateUtils";
 import type { RenewalAgentCertificate } from "../renewal/useRenewalAssistantState";
 import {
-  buildCustomerCertificateOnestopDraftFromCertificate,
+  buildInitialRegistrationPasswordPasteUpdates,
+  getInitialRegistrationChecklistDragSelectionPatch,
+  getInitialRegistrationChecklistSearchMatches,
+  getInitialRegistrationChecklistSelectionPatch,
+  getInitialRegistrationPasswordClearRowIndexes
+} from "../initial-registration/initial-registration-review-model";
+import {
   filterCustomerOnestopCertificates,
-  findExistingCustomerByBusinessNumber,
-  validateCustomerCertificateOnestopDraft,
+  mergeCustomerOnestopCertificates,
   type CustomerCertificateOnestopDraft,
+  type CustomerCertificateOnestopReviewResult,
+  type CustomerCertificateOnestopReviewTarget,
   type CustomerCertificateOnestopResult
 } from "./customerCertificateOnestop";
 import {
@@ -138,13 +147,56 @@ type CustomerCertificatePasswordDialog = {
   expireLabel: string;
 };
 
-type CustomerOnestopStepId = "source" | "password" | "confirm" | "result";
+type CustomerOnestopStepId = "source" | "result";
 type CustomerRenewalAssistantUpgradeState = "unknown" | "up-to-date" | "upgrade-available" | "upgrade-required";
+type CustomerOnestopChecklistFilter = "all" | "issues" | "password";
+type CustomerOnestopRowStatus =
+  | "unchecked"
+  | "checking"
+  | "ready"
+  | "needs_fix"
+  | "registered"
+  | "failed";
+
+type CustomerOnestopCertificateRow = {
+  rowIndex: number;
+  certificate: RenewalAgentCertificate;
+  certificateIndex: string;
+  certificateName: string;
+  corpName: string;
+  plantName: string;
+  customerName: string;
+  businessNumber: string;
+  certificatePassword: string;
+  selected: boolean;
+  status: CustomerOnestopRowStatus;
+  statusMessage: string;
+  draft: CustomerCertificateOnestopDraft | null;
+  result: CustomerCertificateOnestopResult | null;
+};
+
+type CustomerOnestopDragSelection = {
+  selected: boolean;
+  anchorRowIndex: number;
+  lastRowIndex: number;
+  initialSelectedRowIndexes: number[];
+};
+
+type CustomerOnestopBatchResult = {
+  total: number;
+  completed: number;
+  failed: number;
+  items: Array<{
+    rowIndex: number;
+    label: string;
+    status: "success" | "failed";
+    message: string;
+    result?: CustomerCertificateOnestopResult;
+  }>;
+};
 
 const CUSTOMER_ONESTOP_STEP_ORDER: Array<{ id: CustomerOnestopStepId; label: string }> = [
-  { id: "source", label: "인증서 선택" },
-  { id: "password", label: "비밀번호" },
-  { id: "confirm", label: "정보 확인" },
+  { id: "source", label: "대상 선택/확인" },
   { id: "result", label: "결과" }
 ];
 
@@ -202,15 +254,13 @@ type CustomersTabProps = {
   onCreateCustomer: () => void;
   onCancelCreateCustomer: () => void;
   onRefreshCustomerRenewalAssistant: () => Promise<void>;
-  onLoadCustomerRenewalCertificates: () => Promise<void>;
+  onLoadCustomerRenewalCertificates: () => Promise<RenewalAgentCertificate[]>;
   onUploadCustomerAddCertificateFiles: (files: File[]) => Promise<LocalCertificateUploadSessionResult>;
-  onPreviewCustomerCertificateOnestop: (
-    certificate: RenewalAgentCertificate,
-    certificatePassword: string
-  ) => Promise<{
-    draft: CustomerCertificateOnestopDraft;
-    message: string;
-  }>;
+  onReviewCustomerCertificateOnestopTargets: (input: {
+    targets: CustomerCertificateOnestopReviewTarget[];
+    sharedPassword: string;
+    onProgress?: (message: string) => void;
+  }) => Promise<CustomerCertificateOnestopReviewResult>;
   onExecuteCustomerCertificateOnestop: (input: {
     certificate: RenewalAgentCertificate;
     draft: CustomerCertificateOnestopDraft;
@@ -381,20 +431,6 @@ function getCustomerReportIssuedDraftSyncKey(
   return `${customerId}|${customerReportYear}|${issueDraftSignature}`;
 }
 
-function createEmptyCustomerOnestopDraft(): CustomerCertificateOnestopDraft {
-  return {
-    customerName: "",
-    businessNumber: "",
-    corpName: "",
-    addr: "",
-    bizType: "전기업",
-    bizClass: "태양광발전(자가용PPA)",
-    renewalContactMobile: "",
-    issueCompleteSmsTemplate: "",
-    memo: ""
-  };
-}
-
 function getCustomerOnestopErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
@@ -413,6 +449,120 @@ function getCustomerOnestopCertificateKey(certificate: RenewalAgentCertificate):
     certificate.userDN ?? "",
     certificate.cn
   ].join("|");
+}
+
+function getCustomerOnestopCertificateLabel(certificate: RenewalAgentCertificate): string {
+  return certificate.cn?.trim() || "이름 없는 인증서";
+}
+
+function buildCustomerOnestopCertificateRow(
+  certificate: RenewalAgentCertificate,
+  rowIndex: number,
+  selected = true
+): CustomerOnestopCertificateRow {
+  const label = getCustomerOnestopCertificateLabel(certificate);
+  return {
+    rowIndex,
+    certificate,
+    certificateIndex: String(certificate.index ?? ""),
+    certificateName: label,
+    corpName: label,
+    plantName: label,
+    customerName: label,
+    businessNumber: "",
+    certificatePassword: "",
+    selected,
+    status: "unchecked",
+    statusMessage: "",
+    draft: null,
+    result: null
+  };
+}
+
+function mergeCustomerOnestopCertificateRows(
+  rows: CustomerOnestopCertificateRow[],
+  certificates: RenewalAgentCertificate[]
+): CustomerOnestopCertificateRow[] {
+  const mergedCertificates = mergeCustomerOnestopCertificates(
+    rows.map((row) => row.certificate),
+    certificates
+  );
+  let nextRowIndex = rows.reduce((max, row) => Math.max(max, row.rowIndex), 0) + 1;
+
+  return mergedCertificates.map((certificate) => {
+    const existingRow = rows.find(
+      (row) => mergeCustomerOnestopCertificates([row.certificate], [certificate]).length === 1
+    );
+    if (!existingRow) {
+      return buildCustomerOnestopCertificateRow(certificate, nextRowIndex++);
+    }
+
+    const currentKey = getCustomerOnestopCertificateKey(existingRow.certificate);
+    const nextKey = getCustomerOnestopCertificateKey(certificate);
+    if (currentKey === nextKey) {
+      return existingRow;
+    }
+
+    const nextLabel = getCustomerOnestopCertificateLabel(certificate);
+    const shouldResetReview = existingRow.status !== "registered";
+    return {
+      ...existingRow,
+      certificate,
+      certificateIndex: String(certificate.index ?? ""),
+      certificateName: nextLabel,
+      corpName: existingRow.corpName.trim() || nextLabel,
+      plantName: existingRow.plantName.trim() || nextLabel,
+      customerName: existingRow.customerName.trim() || nextLabel,
+      status: shouldResetReview ? "unchecked" : existingRow.status,
+      statusMessage: shouldResetReview ? "" : existingRow.statusMessage,
+      draft: shouldResetReview ? null : existingRow.draft,
+      result: shouldResetReview ? null : existingRow.result
+    };
+  });
+}
+
+function getCustomerOnestopRowLabel(row: CustomerOnestopCertificateRow): string {
+  return row.draft?.corpName.trim() || row.corpName.trim() || row.certificateName.trim() || "공동인증서";
+}
+
+function getCustomerOnestopRowStatusLabel(row: CustomerOnestopCertificateRow): string {
+  if (!row.selected) return "";
+  switch (row.status) {
+    case "checking":
+      return "확인 중";
+    case "ready":
+      return "통과";
+    case "needs_fix":
+      return "수정 필요";
+    case "registered":
+      return "완료";
+    case "failed":
+      return "실패";
+    case "unchecked":
+    default:
+      return "확인 전";
+  }
+}
+
+function getCustomerOnestopRowStatusClass(row: CustomerOnestopCertificateRow): string {
+  switch (row.status) {
+    case "checking":
+      return "status-checking";
+    case "ready":
+    case "registered":
+      return "status-ready";
+    case "needs_fix":
+    case "failed":
+      return "status-needs_fix";
+    case "unchecked":
+    default:
+      return "status-unchecked";
+  }
+}
+
+function isCustomerOnestopPasswordIssue(message: string): boolean {
+  const normalized = message.replace(/\s+/g, "").toLowerCase();
+  return normalized.includes("비밀번호") || normalized.includes("암호") || normalized.includes("password");
 }
 
 function formatCustomerOnestopHiddenCertificateSummary(
@@ -561,16 +711,21 @@ export function CustomersTab(props: CustomersTabProps) {
   const customerTableWrapRef = useRef<HTMLDivElement | null>(null);
   const customerOnestopFileInputRef = useRef<HTMLInputElement | null>(null);
   const customerOnestopFolderInputRef = useRef<HTMLInputElement | null>(null);
+  const customerOnestopTableRef = useRef<HTMLDivElement | null>(null);
+  const customerOnestopSelectAllInputRef = useRef<HTMLInputElement | null>(null);
   const [customerOnestopStep, setCustomerOnestopStep] = useState<CustomerOnestopStepId>("source");
-  const [customerOnestopCertificates, setCustomerOnestopCertificates] = useState<RenewalAgentCertificate[]>([]);
+  const [customerOnestopRows, setCustomerOnestopRows] = useState<CustomerOnestopCertificateRow[]>([]);
   const [customerOnestopCertificateSearchQuery, setCustomerOnestopCertificateSearchQuery] = useState("");
-  const [customerOnestopSelectedCertificate, setCustomerOnestopSelectedCertificate] = useState<RenewalAgentCertificate | null>(null);
-  const [customerOnestopPassword, setCustomerOnestopPassword] = useState("");
-  const [customerOnestopDraft, setCustomerOnestopDraft] = useState<CustomerCertificateOnestopDraft>(createEmptyCustomerOnestopDraft);
+  const [customerOnestopFilter, setCustomerOnestopFilter] = useState<CustomerOnestopChecklistFilter>("all");
+  const [customerOnestopBulkPassword, setCustomerOnestopBulkPassword] = useState("");
+  const [customerOnestopBulkPasswordVisible, setCustomerOnestopBulkPasswordVisible] = useState(false);
+  const [customerOnestopLastAnchorRowIndex, setCustomerOnestopLastAnchorRowIndex] = useState<number | null>(null);
+  const [customerOnestopDragSelection, setCustomerOnestopDragSelection] = useState<CustomerOnestopDragSelection | null>(null);
+  const customerOnestopRowMouseSelectionHandledRef = useRef(false);
   const [customerOnestopNotice, setCustomerOnestopNotice] = useState("");
   const [customerOnestopError, setCustomerOnestopError] = useState("");
   const [customerOnestopUploadSummary, setCustomerOnestopUploadSummary] = useState<LocalCertificateUploadSessionResult | null>(null);
-  const [customerOnestopResult, setCustomerOnestopResult] = useState<CustomerCertificateOnestopResult | null>(null);
+  const [customerOnestopResult, setCustomerOnestopResult] = useState<CustomerOnestopBatchResult | null>(null);
   const [customerCertificateSelectorOpen, setCustomerCertificateSelectorOpen] = useState(false);
   const [customerCertificateSearchQuery, setCustomerCertificateSearchQuery] = useState("");
   const [customerCertificateSelectedKey, setCustomerCertificateSelectedKey] = useState<string | null>(null);
@@ -591,11 +746,13 @@ export function CustomersTab(props: CustomersTabProps) {
     }
 
     setCustomerOnestopStep("source");
-    setCustomerOnestopCertificates([]);
+    setCustomerOnestopRows([]);
     setCustomerOnestopCertificateSearchQuery("");
-    setCustomerOnestopSelectedCertificate(null);
-    setCustomerOnestopPassword("");
-    setCustomerOnestopDraft(createEmptyCustomerOnestopDraft());
+    setCustomerOnestopFilter("all");
+    setCustomerOnestopBulkPassword("");
+    setCustomerOnestopBulkPasswordVisible(false);
+    setCustomerOnestopLastAnchorRowIndex(null);
+    setCustomerOnestopDragSelection(null);
     setCustomerOnestopNotice("");
     setCustomerOnestopError("");
     setCustomerOnestopUploadSummary(null);
@@ -818,41 +975,89 @@ export function CustomersTab(props: CustomersTabProps) {
   })();
   const selectedCustomerPrimaryIssue = visibleCustomerIssues.find((issue) => Boolean(issue.actionLabel)) ?? visibleCustomerIssues[0] ?? null;
   const hiddenResolvedIssueCount = props.selectedCustomerIssues.filter((issue) => issue.tone === "success" && !issue.actionLabel).length;
-  const customerOnestopRequiredFieldChecks = [
-    { label: "대표자명", done: customerOnestopDraft.customerName.trim() !== "" },
-    { label: "사업자번호", done: customerOnestopDraft.businessNumber.trim() !== "" },
-    { label: "상호", done: customerOnestopDraft.corpName.trim() !== "" },
-    { label: "주소", done: customerOnestopDraft.addr.trim() !== "" },
-    { label: "업태", done: customerOnestopDraft.bizType.trim() !== "" },
-    { label: "업종", done: customerOnestopDraft.bizClass.trim() !== "" }
-  ];
-  const customerOnestopMissingFieldLabels = validateCustomerCertificateOnestopDraft(customerOnestopDraft);
-  const customerOnestopRequiredCompletedCount = customerOnestopRequiredFieldChecks.filter((field) => field.done).length;
-  const customerOnestopExistingCustomer = findExistingCustomerByBusinessNumber(props.customers, customerOnestopDraft.businessNumber);
   const customerCertificateTodayDateKey = getCustomerCertificateTodayDateKey();
-  const customerOnestopCertificateFilter = useMemo(
-    () =>
-      filterCustomerOnestopCertificates({
-        certificates: customerOnestopCertificates,
-        customers: props.customers,
-        customerCertificates: props.customerCertificates,
-        searchQuery: customerOnestopCertificateSearchQuery,
-        todayDateKey: customerCertificateTodayDateKey
-      }),
-    [
-      customerOnestopCertificates,
-      props.customers,
-      props.customerCertificates,
-      customerOnestopCertificateSearchQuery,
-      customerCertificateTodayDateKey
-    ]
+  const customerOnestopSearchMatchedRows = useMemo(
+    () => getInitialRegistrationChecklistSearchMatches(customerOnestopRows, customerOnestopCertificateSearchQuery),
+    [customerOnestopRows, customerOnestopCertificateSearchQuery]
   );
+  const customerOnestopIssueRowIndexes = new Set(
+    customerOnestopRows
+      .filter((row) => row.selected && (row.status === "needs_fix" || row.status === "failed"))
+      .map((row) => row.rowIndex)
+  );
+  const customerOnestopPasswordRowIndexes = new Set(
+    customerOnestopRows
+      .filter((row) => row.selected && (row.certificatePassword.trim() !== "" || row.status === "needs_fix"))
+      .map((row) => row.rowIndex)
+  );
+  const customerOnestopVisibleRows = customerOnestopSearchMatchedRows.filter((row) => {
+    if (customerOnestopFilter === "issues") {
+      return customerOnestopIssueRowIndexes.has(row.rowIndex);
+    }
+    if (customerOnestopFilter === "password") {
+      return customerOnestopPasswordRowIndexes.has(row.rowIndex);
+    }
+    return true;
+  });
+  const customerOnestopVisibleRowIndexes = customerOnestopVisibleRows.map((row) => row.rowIndex);
+  const customerOnestopSelectedRows = customerOnestopRows.filter((row) => row.selected);
+  const customerOnestopVisibleSelectedRows = customerOnestopVisibleRows.filter((row) => row.selected);
+  const customerOnestopSelectedCount = customerOnestopSelectedRows.length;
+  const customerOnestopVisibleSelectedCount = customerOnestopVisibleSelectedRows.length;
+  const customerOnestopReadyRows = customerOnestopSelectedRows.filter((row) => row.status === "ready" && row.draft);
+  const customerOnestopIssueCount = customerOnestopSelectedRows.filter((row) => row.status === "needs_fix" || row.status === "failed").length;
+  const customerOnestopPasswordCount = customerOnestopRows.filter((row) => row.certificatePassword.trim() !== "").length;
+  const allCustomerOnestopVisibleRowsSelected =
+    customerOnestopVisibleRows.length > 0 &&
+    customerOnestopVisibleRows.every((row) => row.selected);
+  const customerOnestopVisibleSelectedPasswordRowIndexes = getInitialRegistrationPasswordClearRowIndexes(customerOnestopVisibleRows);
+  const canClearCustomerOnestopVisibleSelectedPasswords =
+    props.busyKey === null && customerOnestopVisibleSelectedPasswordRowIndexes.length > 0;
+  const customerOnestopBulkPasswordReady = customerOnestopBulkPassword.trim() !== "";
+  const customerOnestopSelectedRowsPasswordReady =
+    customerOnestopSelectedCount > 0 &&
+    (customerOnestopBulkPasswordReady ||
+      customerOnestopSelectedRows.every((row) => row.certificatePassword.trim() !== ""));
+  const customerOnestopCanReview =
+    props.busyKey === null &&
+    customerOnestopSelectedRowsPasswordReady;
   const customerOnestopCanExecute =
-    Boolean(customerOnestopSelectedCertificate) &&
-    customerOnestopPassword.trim() !== "" &&
-    customerOnestopMissingFieldLabels.length === 0 &&
-    !customerOnestopExistingCustomer &&
-    props.busyKey === null;
+    props.busyKey === null &&
+    customerOnestopSelectedCount > 0 &&
+    customerOnestopReadyRows.length === customerOnestopSelectedCount &&
+    customerOnestopIssueCount === 0;
+  const customerOnestopPrimaryActionLabel =
+    customerOnestopCanExecute
+      ? "선택 고객 등록"
+      : props.busyKey === "customer-add-preflight"
+        ? "확인 중..."
+        : "선택 고객 확인";
+  const customerOnestopPrimaryActionTitle =
+    customerOnestopSelectedCount === 0
+      ? "등록할 인증서를 선택하세요."
+      : !customerOnestopSelectedRowsPasswordReady
+        ? "선택한 행에 비밀번호를 입력하세요."
+        : customerOnestopIssueCount > 0
+          ? "수정 필요 행을 고친 뒤 다시 확인하세요."
+          : undefined;
+
+  useEffect(() => {
+    if (!customerOnestopSelectAllInputRef.current) {
+      return;
+    }
+    customerOnestopSelectAllInputRef.current.indeterminate =
+      customerOnestopVisibleSelectedCount > 0 &&
+      customerOnestopVisibleSelectedCount < customerOnestopVisibleRows.length;
+  }, [customerOnestopVisibleRows.length, customerOnestopVisibleSelectedCount]);
+
+  useEffect(() => {
+    if (customerOnestopFilter === "issues" && customerOnestopIssueRowIndexes.size === 0) {
+      setCustomerOnestopFilter("all");
+    }
+    if (customerOnestopFilter === "password" && customerOnestopPasswordRowIndexes.size === 0) {
+      setCustomerOnestopFilter("all");
+    }
+  }, [customerOnestopFilter, customerOnestopIssueRowIndexes.size, customerOnestopPasswordRowIndexes.size]);
   const getCustomerIssueHelpText = (issue: CustomerIssueChecklistItem) => {
     switch (issue.actionKind) {
       case "join-popbill":
@@ -882,14 +1087,263 @@ export function CustomersTab(props: CustomersTabProps) {
     props.onCreateCustomer();
   };
 
-  const selectCustomerOnestopCertificate = (certificate: RenewalAgentCertificate) => {
-    setCustomerOnestopSelectedCertificate(certificate);
-    setCustomerOnestopPassword("");
-    setCustomerOnestopDraft(buildCustomerCertificateOnestopDraftFromCertificate(certificate));
-    setCustomerOnestopResult(null);
-    setCustomerOnestopError("");
-    setCustomerOnestopNotice("공동인증서 비밀번호를 입력하면 고객 정보 확인으로 넘어갑니다.");
-    setCustomerOnestopStep("password");
+  const patchCustomerOnestopRows = (
+    rowIndexes: number[],
+    updater: (row: CustomerOnestopCertificateRow) => CustomerOnestopCertificateRow
+  ) => {
+    const rowIndexSet = new Set(rowIndexes);
+    setCustomerOnestopRows((prev) => prev.map((row) => (rowIndexSet.has(row.rowIndex) ? updater(row) : row)));
+  };
+
+  const updateCustomerOnestopRowsSelection = (rowIndexes: number[], selected: boolean) => {
+    patchCustomerOnestopRows(rowIndexes, (row) => ({
+      ...row,
+      selected
+    }));
+  };
+
+  const applyCustomerOnestopRowsPassword = (rowIndexes: number[], value: string) => {
+    patchCustomerOnestopRows(rowIndexes, (row) => ({
+      ...row,
+      certificatePassword: value,
+      status: row.status === "registered" ? row.status : "unchecked",
+      statusMessage: "",
+      draft: row.status === "registered" ? row.draft : null,
+      result: row.status === "registered" ? row.result : null
+    }));
+  };
+
+  const applyCustomerOnestopPasswordValues = (updates: Array<{ rowIndex: number; value: string }>) => {
+    const valuesByRowIndex = new Map(updates.map((update) => [update.rowIndex, update.value]));
+    setCustomerOnestopRows((prev) =>
+      prev.map((row) => {
+        if (!valuesByRowIndex.has(row.rowIndex)) {
+          return row;
+        }
+        return {
+          ...row,
+          certificatePassword: valuesByRowIndex.get(row.rowIndex) ?? "",
+          status: row.status === "registered" ? row.status : "unchecked",
+          statusMessage: "",
+          draft: row.status === "registered" ? row.draft : null,
+          result: row.status === "registered" ? row.result : null
+        };
+      })
+    );
+  };
+
+  const applyCustomerOnestopRowSelection = (
+    row: CustomerOnestopCertificateRow,
+    selected: boolean,
+    event: { shiftKey: boolean }
+  ) => {
+    if (event.shiftKey) {
+      window.getSelection()?.removeAllRanges();
+    }
+    const patch = getInitialRegistrationChecklistSelectionPatch(customerOnestopRows, {
+      rowIndex: row.rowIndex,
+      selected,
+      anchorRowIndex: customerOnestopLastAnchorRowIndex,
+      shiftKey: event.shiftKey
+    });
+    updateCustomerOnestopRowsSelection(patch.rowIndexes, patch.selected);
+    setCustomerOnestopLastAnchorRowIndex(row.rowIndex);
+  };
+
+  const isCustomerOnestopRowInteractiveTarget = (target: EventTarget | null) => {
+    return (
+      target instanceof HTMLElement &&
+      Boolean(target.closest("input, button, a, textarea, select, label, summary"))
+    );
+  };
+
+  const applyPasswordFromCustomerOnestopCell = (row: CustomerOnestopCertificateRow, value: string) => {
+    const rowInVisibleSelection =
+      row.selected === true &&
+      customerOnestopVisibleSelectedRows.some((visibleRow) => visibleRow.rowIndex === row.rowIndex) &&
+      customerOnestopVisibleSelectedRows.length > 1;
+    applyCustomerOnestopRowsPassword(
+      rowInVisibleSelection ? customerOnestopVisibleSelectedRows.map((visibleRow) => visibleRow.rowIndex) : [row.rowIndex],
+      value
+    );
+  };
+
+  const applyCustomerOnestopPasswordPaste = (
+    text: string,
+    startRowIndex: number | null,
+    selectedRowIndexes: number[]
+  ) => {
+    const updates = buildInitialRegistrationPasswordPasteUpdates({
+      rows: customerOnestopVisibleRows,
+      selectedRowIndexes,
+      startRowIndex,
+      text
+    });
+    if (updates.length === 0) {
+      return false;
+    }
+
+    applyCustomerOnestopPasswordValues(updates);
+    return true;
+  };
+
+  const handleCustomerOnestopTablePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    if (props.busyKey !== null || customerOnestopVisibleSelectedRows.length === 0) {
+      return;
+    }
+    if (isCustomerOnestopRowInteractiveTarget(event.target)) {
+      return;
+    }
+    const text = event.clipboardData.getData("text");
+    if (!applyCustomerOnestopPasswordPaste(
+      text,
+      null,
+      customerOnestopVisibleSelectedRows.map((row) => row.rowIndex)
+    )) {
+      return;
+    }
+    event.preventDefault();
+  };
+
+  const handleCustomerOnestopPasswordPaste = (
+    event: React.ClipboardEvent<HTMLInputElement>,
+    row: CustomerOnestopCertificateRow
+  ) => {
+    if (props.busyKey !== null) {
+      return;
+    }
+    const selectedTargets =
+      row.selected === true && customerOnestopVisibleSelectedRows.length > 1
+        ? customerOnestopVisibleSelectedRows.map((visibleRow) => visibleRow.rowIndex)
+        : [];
+    const text = event.clipboardData.getData("text");
+    if (!applyCustomerOnestopPasswordPaste(text, row.rowIndex, selectedTargets)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const clearCustomerOnestopVisibleSelectedPasswords = () => {
+    if (!canClearCustomerOnestopVisibleSelectedPasswords) {
+      return;
+    }
+    applyCustomerOnestopRowsPassword(customerOnestopVisibleSelectedPasswordRowIndexes, "");
+    customerOnestopTableRef.current?.focus({ preventScroll: true });
+  };
+
+  const handleCustomerOnestopTableKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Delete" || props.busyKey !== null || isCustomerOnestopRowInteractiveTarget(event.target)) {
+      return;
+    }
+    if (!canClearCustomerOnestopVisibleSelectedPasswords) {
+      return;
+    }
+
+    event.preventDefault();
+    clearCustomerOnestopVisibleSelectedPasswords();
+  };
+
+  const beginCustomerOnestopRowMouseSelection = (
+    row: CustomerOnestopCertificateRow,
+    rowSelected: boolean,
+    event: React.MouseEvent<HTMLTableRowElement>
+  ) => {
+    if (
+      props.busyKey !== null ||
+      event.button !== 0 ||
+      isCustomerOnestopRowInteractiveTarget(event.target)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    customerOnestopTableRef.current?.focus({ preventScroll: true });
+    customerOnestopRowMouseSelectionHandledRef.current = true;
+    const nextSelected = !rowSelected;
+    if (event.shiftKey) {
+      applyCustomerOnestopRowSelection(row, nextSelected, event);
+      setCustomerOnestopDragSelection(null);
+      return;
+    }
+
+    const initialSelectedRowIndexes = customerOnestopVisibleRows
+      .filter((visibleRow) => visibleRow.selected === true)
+      .map((visibleRow) => visibleRow.rowIndex);
+    updateCustomerOnestopRowsSelection([row.rowIndex], nextSelected);
+    setCustomerOnestopLastAnchorRowIndex(row.rowIndex);
+    setCustomerOnestopDragSelection({
+      selected: nextSelected,
+      anchorRowIndex: row.rowIndex,
+      lastRowIndex: row.rowIndex,
+      initialSelectedRowIndexes
+    });
+  };
+
+  const extendCustomerOnestopRowMouseSelection = (row: CustomerOnestopCertificateRow) => {
+    if (
+      !customerOnestopDragSelection ||
+      props.busyKey !== null ||
+      customerOnestopDragSelection.lastRowIndex === row.rowIndex
+    ) {
+      return;
+    }
+
+    const patch = getInitialRegistrationChecklistDragSelectionPatch(customerOnestopVisibleRows, {
+      anchorRowIndex: customerOnestopDragSelection.anchorRowIndex,
+      currentRowIndex: row.rowIndex,
+      selected: customerOnestopDragSelection.selected,
+      initialSelectedRowIndexes: customerOnestopDragSelection.initialSelectedRowIndexes
+    });
+    if (patch.selectedRowIndexes.length > 0) {
+      updateCustomerOnestopRowsSelection(patch.selectedRowIndexes, true);
+    }
+    if (patch.deselectedRowIndexes.length > 0) {
+      updateCustomerOnestopRowsSelection(patch.deselectedRowIndexes, false);
+    }
+    setCustomerOnestopLastAnchorRowIndex(row.rowIndex);
+    setCustomerOnestopDragSelection({ ...customerOnestopDragSelection, lastRowIndex: row.rowIndex });
+  };
+
+  const deleteSelectedCustomerOnestopRows = () => {
+    if (customerOnestopSelectedCount === 0 || props.busyKey !== null) {
+      return;
+    }
+    setCustomerOnestopRows((prev) => prev.filter((row) => !row.selected));
+    setCustomerOnestopNotice(`선택한 인증서 ${customerOnestopSelectedCount}건을 목록에서 삭제했습니다.`);
+  };
+
+  const appendCustomerOnestopCertificates = (
+    sourceLabel: string,
+    certificates: RenewalAgentCertificate[],
+    options?: { uploadSummary?: LocalCertificateUploadSessionResult | null }
+  ) => {
+    const filterResult = filterCustomerOnestopCertificates({
+      certificates,
+      customers: props.customers,
+      customerCertificates: props.customerCertificates,
+      todayDateKey: customerCertificateTodayDateKey
+    });
+    setCustomerOnestopRows((prev) => mergeCustomerOnestopCertificateRows(prev, filterResult.availableCertificates));
+    setCustomerOnestopCertificateSearchQuery("");
+    setCustomerOnestopUploadSummary(options?.uploadSummary ?? null);
+    setCustomerOnestopNotice(buildCustomerOnestopCertificateNotice(sourceLabel, certificates, filterResult));
+  };
+
+  const readCustomerOnestopCertificates = () => {
+    void props.runAction(
+      "customer-add-read-certificates",
+      async () => {
+        try {
+          setCustomerOnestopError("");
+          const certificates = await props.onLoadCustomerRenewalCertificates();
+          appendCustomerOnestopCertificates("공동인증서 저장소에서", certificates);
+        } catch (error) {
+          setCustomerOnestopError(getCustomerOnestopErrorMessage(error, "공동인증서를 읽지 못했습니다."));
+        }
+      },
+      { reload: false }
+    );
   };
 
   const uploadCustomerOnestopFiles = (files: File[]) => {
@@ -904,19 +1358,7 @@ export function CustomersTab(props: CustomersTabProps) {
           setCustomerOnestopError("");
           const result = await props.onUploadCustomerAddCertificateFiles(files);
           const certificates = result.certificates as RenewalAgentCertificate[];
-          const filterResult = filterCustomerOnestopCertificates({
-            certificates,
-            customers: props.customers,
-            customerCertificates: props.customerCertificates,
-            todayDateKey: customerCertificateTodayDateKey
-          });
-          setCustomerOnestopUploadSummary(result);
-          setCustomerOnestopCertificates(certificates);
-          setCustomerOnestopCertificateSearchQuery("");
-          setCustomerOnestopNotice(buildCustomerOnestopCertificateNotice("선택한 파일/폴더에서", certificates, filterResult));
-          if (filterResult.availableCertificates.length === 1) {
-            selectCustomerOnestopCertificate(filterResult.availableCertificates[0]!);
-          }
+          appendCustomerOnestopCertificates("선택한 파일/폴더에서", certificates, { uploadSummary: result });
         } catch (error) {
           setCustomerOnestopError(getCustomerOnestopErrorMessage(error, "인증서 파일을 읽지 못했습니다."));
         }
@@ -931,9 +1373,9 @@ export function CustomersTab(props: CustomersTabProps) {
     uploadCustomerOnestopFiles(files);
   };
 
-  const confirmCustomerOnestopPassword = () => {
-    if (!customerOnestopSelectedCertificate) {
-      setCustomerOnestopError("먼저 발행 가능 공동인증서를 선택하세요.");
+  const reviewSelectedCustomerOnestopRows = () => {
+    if (!customerOnestopCanReview) {
+      setCustomerOnestopError(customerOnestopPrimaryActionTitle || "선택한 행을 확인할 수 없습니다.");
       return;
     }
 
@@ -942,27 +1384,79 @@ export function CustomersTab(props: CustomersTabProps) {
       async () => {
         try {
           setCustomerOnestopError("");
-          const result = await props.onPreviewCustomerCertificateOnestop(
-            customerOnestopSelectedCertificate,
-            customerOnestopPassword
+          const targets = customerOnestopRows.filter((row) => row.selected);
+          const targetRowIndexes = targets.map((row) => row.rowIndex);
+          const sharedPassword = customerOnestopBulkPassword.trim();
+          patchCustomerOnestopRows(targetRowIndexes, (current) => ({
+            ...current,
+            certificatePassword: current.certificatePassword.trim() || sharedPassword,
+            status: "checking",
+            statusMessage: "확인 중",
+            draft: null,
+            result: null
+          }));
+
+          const reviewResult = await props.onReviewCustomerCertificateOnestopTargets({
+            sharedPassword,
+            targets: targets.map((row) => ({
+              rowIndex: row.rowIndex,
+              certificate: row.certificate,
+              certificateIndex: row.certificateIndex,
+              certificateName: row.certificateName,
+              certificatePassword: row.certificatePassword.trim(),
+              corpName: row.corpName,
+              plantName: row.plantName,
+              customerName: row.customerName,
+              businessNumber: row.businessNumber
+            })),
+            onProgress: (message) => {
+              setCustomerOnestopNotice(message);
+            }
+          });
+          const reviewedRowsByIndex = new Map(reviewResult.rows.map((row) => [row.rowIndex, row]));
+          setCustomerOnestopRows((currentRows) =>
+            currentRows.map((row) => {
+              if (!targetRowIndexes.includes(row.rowIndex)) {
+                return row;
+              }
+              const reviewedRow = reviewedRowsByIndex.get(row.rowIndex);
+              const certificatePassword = row.certificatePassword.trim() || sharedPassword;
+              if (!reviewedRow || reviewedRow.status !== "ready" || !reviewedRow.draft) {
+                return {
+                  ...row,
+                  certificatePassword,
+                  status: "needs_fix",
+                  statusMessage: reviewedRow?.message ?? "사업자정보를 확인하지 못했습니다.",
+                  draft: null,
+                  result: null
+                };
+              }
+
+              const certificate = reviewedRow.certificate ?? row.certificate;
+              const draft = reviewedRow.draft;
+              return {
+                ...row,
+                certificate,
+                certificateIndex: String(certificate.index ?? row.certificateIndex),
+                certificateName: getCustomerOnestopCertificateLabel(certificate),
+                corpName: draft.corpName || getCustomerOnestopCertificateLabel(certificate),
+                plantName: draft.corpName || row.plantName,
+                customerName: draft.customerName || row.customerName,
+                businessNumber: draft.businessNumber || row.businessNumber,
+                certificatePassword,
+                status: "ready",
+                statusMessage: reviewedRow.message,
+                draft,
+                result: null
+              };
+            })
           );
-          const existingCustomer = findExistingCustomerByBusinessNumber(props.customers, result.draft.businessNumber);
-          if (existingCustomer) {
-            const selectedCertificateKey = getCustomerOnestopCertificateKey(customerOnestopSelectedCertificate);
-            setCustomerOnestopCertificates((prev) =>
-              prev.filter((certificate) => getCustomerOnestopCertificateKey(certificate) !== selectedCertificateKey)
-            );
-            setCustomerOnestopSelectedCertificate(null);
-            setCustomerOnestopPassword("");
-            setCustomerOnestopNotice(
-              `이미 등록된 고객이라 목록에서 제외했습니다: ${existingCustomer.corpName || existingCustomer.customerName}`
-            );
-            setCustomerOnestopStep("source");
-            return;
-          }
-          setCustomerOnestopDraft(result.draft);
-          setCustomerOnestopNotice(result.message);
-          setCustomerOnestopStep("confirm");
+          setCustomerOnestopFilter(reviewResult.failedCount > 0 ? "issues" : "all");
+          setCustomerOnestopNotice(
+            reviewResult.failedCount > 0
+              ? `확인 필요 ${reviewResult.failedCount}건이 있습니다. 비밀번호를 수정한 뒤 다시 확인하세요.`
+              : `선택한 인증서 ${reviewResult.resolvedCount}건을 확인했습니다. 선택 고객 등록을 실행하세요.`
+          );
         } catch (error) {
           setCustomerOnestopError(getCustomerOnestopErrorMessage(error, "고객 기본값을 읽지 못했습니다."));
         }
@@ -972,8 +1466,8 @@ export function CustomersTab(props: CustomersTabProps) {
   };
 
   const executeCustomerOnestopRegistration = () => {
-    if (!customerOnestopSelectedCertificate) {
-      setCustomerOnestopError("먼저 발행 가능 공동인증서를 선택하세요.");
+    if (!customerOnestopCanExecute) {
+      setCustomerOnestopError(customerOnestopPrimaryActionTitle || "등록할 수 있는 행이 없습니다.");
       return;
     }
 
@@ -982,13 +1476,51 @@ export function CustomersTab(props: CustomersTabProps) {
       async () => {
         try {
           setCustomerOnestopError("");
-          const result = await props.onExecuteCustomerCertificateOnestop({
-            certificate: customerOnestopSelectedCertificate,
-            draft: customerOnestopDraft,
-            certificatePassword: customerOnestopPassword
+          const targets = customerOnestopRows.filter((row) => row.selected && row.status === "ready" && row.draft);
+          const items: CustomerOnestopBatchResult["items"] = [];
+          for (const row of targets) {
+            try {
+              const result = await props.onExecuteCustomerCertificateOnestop({
+                certificate: row.certificate,
+                draft: row.draft!,
+                certificatePassword: row.certificatePassword
+              });
+              items.push({
+                rowIndex: row.rowIndex,
+                label: getCustomerOnestopRowLabel(row),
+                status: "success",
+                message: "등록을 완료했습니다.",
+                result
+              });
+              patchCustomerOnestopRows([row.rowIndex], (current) => ({
+                ...current,
+                status: "registered",
+                statusMessage: "등록 완료",
+                result
+              }));
+            } catch (error) {
+              const message = getCustomerOnestopErrorMessage(error, "고객 등록에 실패했습니다.");
+              items.push({
+                rowIndex: row.rowIndex,
+                label: getCustomerOnestopRowLabel(row),
+                status: "failed",
+                message
+              });
+              patchCustomerOnestopRows([row.rowIndex], (current) => ({
+                ...current,
+                status: "failed",
+                statusMessage: message,
+                result: null
+              }));
+            }
+          }
+          setCustomerOnestopResult({
+            total: targets.length,
+            completed: items.filter((item) => item.status === "success").length,
+            failed: items.filter((item) => item.status === "failed").length,
+            items
           });
-          setCustomerOnestopResult(result);
-          setCustomerOnestopNotice("등록 실행 결과를 확인하세요. 실패한 단계만 같은 화면에서 다시 시도할 수 있습니다.");
+          setCustomerOnestopNotice("등록 실행 결과를 확인하세요.");
           setCustomerOnestopStep("result");
         } catch (error) {
           setCustomerOnestopError(getCustomerOnestopErrorMessage(error, "고객 원스톱 등록에 실패했습니다."));
@@ -998,14 +1530,12 @@ export function CustomersTab(props: CustomersTabProps) {
     );
   };
 
-  const updateCustomerOnestopDraft = <K extends keyof CustomerCertificateOnestopDraft>(
-    key: K,
-    value: CustomerCertificateOnestopDraft[K]
-  ) => {
-    setCustomerOnestopDraft((prev) => ({
-      ...prev,
-      [key]: value
-    }));
+  const runCustomerOnestopPrimaryAction = () => {
+    if (customerOnestopCanExecute) {
+      executeCustomerOnestopRegistration();
+      return;
+    }
+    reviewSelectedCustomerOnestopRows();
   };
 
   const focusCustomer = (customer: Customer) => {
@@ -2615,66 +3145,7 @@ export function CustomersTab(props: CustomersTabProps) {
     );
   };
 
-  const renderCustomerOnestopCertificateList = () => {
-    if (customerOnestopCertificates.length === 0) {
-      return (
-        <EmptyState
-          className="context-empty-state customer-onestop-empty"
-          title="인증서 없음"
-          body="인증서 폴더나 p12/pfx 파일을 선택하세요."
-        />
-      );
-    }
-
-    if (customerOnestopCertificateFilter.availableCertificates.length === 0) {
-      const hiddenSummary = formatCustomerOnestopHiddenCertificateSummary(customerOnestopCertificateFilter);
-      return (
-        <EmptyState
-          className="context-empty-state customer-onestop-empty"
-          title="표시할 인증서 없음"
-          body={hiddenSummary || "만료되었거나 이미 등록된 고객의 인증서는 제외했습니다."}
-        />
-      );
-    }
-
-    if (customerOnestopCertificateFilter.visibleCertificates.length === 0) {
-      return (
-        <EmptyState
-          className="context-empty-state customer-onestop-empty"
-          title="검색 결과 없음"
-          body="인증서명, 발급기관, 만료일로 다시 검색하세요."
-        />
-      );
-    }
-
-    return (
-      <div className="customer-onestop-certificate-list">
-        {customerOnestopCertificateFilter.visibleCertificates.map((certificate) => {
-          const selected =
-            customerOnestopSelectedCertificate &&
-            getCustomerOnestopCertificateKey(customerOnestopSelectedCertificate) ===
-              getCustomerOnestopCertificateKey(certificate);
-          return (
-            <button
-              type="button"
-              key={getCustomerOnestopCertificateKey(certificate)}
-              className={selected ? "customer-onestop-certificate is-selected" : "customer-onestop-certificate"}
-              onClick={() => selectCustomerOnestopCertificate(certificate)}
-            >
-              <Icon name="cert" className="customer-onestop-certificate-icon" />
-              <span>
-                <strong>{certificate.cn || "이름 없는 인증서"}</strong>
-                <small>{certificate.usageToName || "용도 미상"} · {certificate.issuerToName || "발급기관 미상"}</small>
-                <small>만료 {formatCustomerOnestopCertificateExpireDate(certificate.todate ?? certificate.detailValidateTo)}</small>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const renderCustomerOnestopSourceStep = () => {
+  const renderCustomerOnestopReviewWorkspace = () => {
     const directoryInputProps = {
       type: "file",
       multiple: true,
@@ -2682,61 +3153,324 @@ export function CustomersTab(props: CustomersTabProps) {
       webkitdirectory: "",
       onChange: handleCustomerOnestopUploadInputChange
     } as React.InputHTMLAttributes<HTMLInputElement> & { directory: string; webkitdirectory: string };
+    const selectedActionSummary =
+      customerOnestopCertificateSearchQuery.trim() !== "" || customerOnestopFilter !== "all"
+        ? `선택 ${customerOnestopSelectedCount}건 · 현재 보기 ${customerOnestopVisibleSelectedCount}건`
+        : `선택 ${customerOnestopSelectedCount}건`;
+    const selectedActions = customerOnestopSelectedCount > 0 ? (
+      <div className="initial-onboarding-selected-actionbar">
+        <div className="initial-onboarding-selected-actionbar-head">
+          <strong>{selectedActionSummary}</strong>
+          <span>선택한 고객에만 적용됩니다.</span>
+        </div>
+        <div className="initial-registration-candidate-toolbar">
+          <label className="initial-registration-shared-password">
+            <span>공통 비밀번호</span>
+            <PasswordField
+              visible={customerOnestopBulkPasswordVisible}
+              onVisibleChange={setCustomerOnestopBulkPasswordVisible}
+              value={customerOnestopBulkPassword}
+              disabled={props.busyKey !== null}
+              onChange={(event) => setCustomerOnestopBulkPassword(event.target.value)}
+              placeholder="빈 비밀번호 행에 공통 적용"
+              revealLabel="공통 비밀번호 보기"
+              hideLabel="공통 비밀번호 숨기기"
+            />
+          </label>
+          <Button
+            type="button"
+            size="sm"
+            className="initial-registration-review-button"
+            disabled={props.busyKey !== null || (!customerOnestopCanReview && !customerOnestopCanExecute)}
+            title={customerOnestopPrimaryActionTitle}
+            onClick={runCustomerOnestopPrimaryAction}
+          >
+            {customerOnestopPrimaryActionLabel}
+          </Button>
+        </div>
+        <div className="initial-onboarding-review-actions">
+          <button
+            type="button"
+            className="btn-secondary initial-onboarding-review-clear-password"
+            disabled={!canClearCustomerOnestopVisibleSelectedPasswords}
+            title={
+              canClearCustomerOnestopVisibleSelectedPasswords
+                ? "선택한 행의 개별 비밀번호를 비웁니다."
+                : "개별 비밀번호가 입력된 행을 선택하세요."
+            }
+            onClick={clearCustomerOnestopVisibleSelectedPasswords}
+          >
+            <Eraser aria-hidden="true" />
+            <span>비밀번호 지우기</span>
+          </button>
+          <button
+            type="button"
+            className="btn-secondary initial-onboarding-review-delete"
+            disabled={props.busyKey !== null || customerOnestopSelectedCount === 0}
+            onClick={deleteSelectedCustomerOnestopRows}
+          >
+            선택 삭제
+          </button>
+        </div>
+      </div>
+    ) : null;
 
     return (
       <section className="customer-detail-section customer-onestop-section">
         <div className="customer-detail-section-head">
           <div>
-            <h3>전자세금용 공동인증서 선택</h3>
-            <p>NPKI 인증서 폴더나 p12/pfx 파일을 직접 선택합니다.</p>
+            <h3>선택 고객 확인</h3>
+            <p>
+              {customerOnestopRows.length > 0
+                ? `등록 대상 ${customerOnestopRows.length}건 · 선택 ${customerOnestopSelectedCount}건`
+                : "공동인증서를 읽거나 파일/폴더를 추가하세요."}
+            </p>
           </div>
         </div>
-        <div className="customer-onestop-source-actions">
-          <button
+        <input
+          ref={customerOnestopFileInputRef}
+          className="customer-onestop-file-input"
+          type="file"
+          multiple
+          accept=".der,.key,.p12,.pfx"
+          aria-label="인증서 파일 선택"
+          onChange={handleCustomerOnestopUploadInputChange}
+        />
+        <input
+          {...directoryInputProps}
+          ref={customerOnestopFolderInputRef}
+          className="customer-onestop-file-input"
+          aria-label="인증서 폴더 선택"
+        />
+        <div className="customer-onestop-source-actions" aria-label="공동인증서 추가 방법">
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
+            disabled={props.busyKey !== null}
+            title={
+              props.customerRenewalAssistantOnline
+                ? "표준 NPKI 저장소에서 공동인증서를 읽습니다."
+                : "AT 헬퍼 연결 후 공동인증서를 읽을 수 있습니다."
+            }
+            onClick={readCustomerOnestopCertificates}
+          >
+            공동인증서 읽기
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={props.busyKey !== null}
             onClick={() => customerOnestopFileInputRef.current?.click()}
-            disabled={props.busyKey !== null}
           >
-            <Icon name="cert" />
-            파일 선택
-          </button>
-          <button
+            파일 추가
+          </Button>
+          <Button
             type="button"
-            onClick={() => customerOnestopFolderInputRef.current?.click()}
+            variant="outline"
+            size="sm"
             disabled={props.busyKey !== null}
+            onClick={() => customerOnestopFolderInputRef.current?.click()}
           >
-            <Icon name="dashboard" />
-            폴더 선택
-          </button>
-          <input
-            ref={customerOnestopFileInputRef}
-            className="customer-onestop-file-input"
-            type="file"
-            multiple
-            accept=".der,.key,.p12,.pfx"
-            aria-label="인증서 파일 선택"
-            onChange={handleCustomerOnestopUploadInputChange}
-          />
-          <input
-            {...directoryInputProps}
-            ref={customerOnestopFolderInputRef}
-            className="customer-onestop-file-input"
-            aria-label="인증서 폴더 선택"
-          />
+            폴더 추가
+          </Button>
         </div>
-        {customerOnestopCertificateFilter.availableCertificates.length > 0 ? (
-          <SearchField
-            className="customer-onestop-certificate-search"
-            iconClassName="customer-onestop-certificate-search-icon"
-            inputClassName="customer-onestop-certificate-search-input"
-            aria-label="인증서 검색"
-            placeholder="인증서명, 발급기관, 만료일 검색"
-            value={customerOnestopCertificateSearchQuery}
-            onChange={(event) => setCustomerOnestopCertificateSearchQuery(event.target.value)}
+        <div className="initial-onboarding-review-viewbar customer-onestop-review-viewbar">
+          <label className="initial-onboarding-review-search">
+            <Search aria-hidden="true" />
+            <input
+              type="search"
+              value={customerOnestopCertificateSearchQuery}
+              disabled={props.busyKey !== null}
+              aria-label="선택 고객 검색"
+              placeholder="상호명, 인증서명, 사업자번호 검색"
+              onChange={(event) => setCustomerOnestopCertificateSearchQuery(event.target.value)}
+            />
+            {customerOnestopCertificateSearchQuery.trim() !== "" ? (
+              <button
+                type="button"
+                aria-label="검색어 지우기"
+                disabled={props.busyKey !== null}
+                onClick={() => setCustomerOnestopCertificateSearchQuery("")}
+              >
+                <X aria-hidden="true" />
+              </button>
+            ) : null}
+          </label>
+          <div className="initial-onboarding-review-filter" role="group" aria-label="등록 대상 보기 필터">
+            <button
+              type="button"
+              className={customerOnestopFilter === "all" ? "is-active" : undefined}
+              disabled={props.busyKey !== null}
+              aria-pressed={customerOnestopFilter === "all"}
+              onClick={() => setCustomerOnestopFilter("all")}
+            >
+              전체 {customerOnestopRows.length}
+            </button>
+            <button
+              type="button"
+              className={customerOnestopFilter === "issues" ? "is-active" : undefined}
+              disabled={props.busyKey !== null || customerOnestopIssueCount === 0}
+              aria-pressed={customerOnestopFilter === "issues"}
+              onClick={() => setCustomerOnestopFilter("issues")}
+            >
+              확인 필요 {customerOnestopIssueCount}
+            </button>
+            <button
+              type="button"
+              className={customerOnestopFilter === "password" ? "is-active" : undefined}
+              disabled={props.busyKey !== null || customerOnestopPasswordCount === 0}
+              aria-pressed={customerOnestopFilter === "password"}
+              onClick={() => setCustomerOnestopFilter("password")}
+            >
+              비밀번호 {customerOnestopPasswordCount}
+            </button>
+          </div>
+        </div>
+        {selectedActions}
+        {customerOnestopRows.length > 0 ? (
+          <div
+            ref={customerOnestopTableRef}
+            className={[
+              "initial-registration-candidate-table-shell",
+              "initial-onboarding-review-table-wrap",
+              "customer-onestop-review-table-wrap",
+              customerOnestopDragSelection ? "is-drag-selecting" : ""
+            ].filter(Boolean).join(" ")}
+            tabIndex={-1}
+            aria-label="고객 추가 대상 표"
+            onKeyDown={handleCustomerOnestopTableKeyDown}
+            onPaste={handleCustomerOnestopTablePaste}
+          >
+            <table className="initial-onboarding-review-table customer-onestop-review-table">
+              <thead>
+                <tr>
+                  <th>
+                    <input
+                      ref={customerOnestopSelectAllInputRef}
+                      className="initial-onboarding-review-check initial-onboarding-review-check-all"
+                      type="checkbox"
+                      checked={allCustomerOnestopVisibleRowsSelected}
+                      disabled={props.busyKey !== null || customerOnestopVisibleRows.length === 0}
+                      aria-label={allCustomerOnestopVisibleRowsSelected ? "현재 보기 등록 대상 전체 해제" : "현재 보기 등록 대상 전체 선택"}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => {
+                        if (customerOnestopVisibleRowIndexes.length > 0) {
+                          updateCustomerOnestopRowsSelection(
+                            customerOnestopVisibleRowIndexes,
+                            !allCustomerOnestopVisibleRowsSelected
+                          );
+                        }
+                      }}
+                    />
+                  </th>
+                  <th>상호명</th>
+                  <th>개별 비밀번호</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customerOnestopVisibleRows.length === 0 ? (
+                  <tr className="initial-onboarding-review-empty-row">
+                    <td colSpan={4}>
+                      <span className="initial-onboarding-review-empty">검색 결과가 없습니다.</span>
+                    </td>
+                  </tr>
+                ) : customerOnestopVisibleRows.map((row) => {
+                  const rowSelected = row.selected === true;
+                  const statusClassName = getCustomerOnestopRowStatusClass(row);
+                  const hasReviewIssues = rowSelected && (row.status === "needs_fix" || row.status === "failed");
+                  const rowStatusLabel = getCustomerOnestopRowStatusLabel(row);
+                  const rowLabel = getCustomerOnestopRowLabel(row);
+                  return (
+                    <tr
+                      key={`${row.rowIndex}:${getCustomerOnestopCertificateKey(row.certificate)}`}
+                      className={[
+                        rowSelected ? "is-selected" : "",
+                        hasReviewIssues ? "has-review-issues" : "",
+                        statusClassName
+                      ].filter(Boolean).join(" ") || undefined}
+                      aria-selected={rowSelected}
+                      onMouseDown={(event) => {
+                        beginCustomerOnestopRowMouseSelection(row, rowSelected, event);
+                      }}
+                      onMouseEnter={() => {
+                        extendCustomerOnestopRowMouseSelection(row);
+                      }}
+                      onMouseUp={() => {
+                        setCustomerOnestopDragSelection(null);
+                      }}
+                      onClick={(event) => {
+                        if (props.busyKey !== null || isCustomerOnestopRowInteractiveTarget(event.target)) {
+                          return;
+                        }
+                        if (customerOnestopRowMouseSelectionHandledRef.current) {
+                          customerOnestopRowMouseSelectionHandledRef.current = false;
+                          return;
+                        }
+                        applyCustomerOnestopRowSelection(row, !rowSelected, event);
+                      }}
+                    >
+                      <td>
+                        <input
+                          className="initial-onboarding-review-check"
+                          type="checkbox"
+                          checked={rowSelected}
+                          disabled={props.busyKey !== null}
+                          aria-label={`${rowLabel} 등록 대상 선택`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            applyCustomerOnestopRowSelection(row, event.currentTarget.checked, event);
+                          }}
+                          onChange={() => undefined}
+                        />
+                      </td>
+                      <td>
+                        <span className="initial-onboarding-review-readonly">
+                          {rowLabel}
+                        </span>
+                      </td>
+                      <td>
+                        <input
+                          className={[
+                            "initial-onboarding-review-password",
+                            row.status === "needs_fix" && isCustomerOnestopPasswordIssue(row.statusMessage) ? "has-error" : ""
+                          ].filter(Boolean).join(" ")}
+                          type="password"
+                          value={row.certificatePassword}
+                          disabled={props.busyKey !== null || !rowSelected}
+                          aria-invalid={row.status === "needs_fix" || undefined}
+                          title={row.statusMessage || undefined}
+                          onClick={(event) => event.stopPropagation()}
+                          onPaste={(event) => handleCustomerOnestopPasswordPaste(event, row)}
+                          onChange={(event) => applyPasswordFromCustomerOnestopCell(row, event.target.value)}
+                          placeholder="공통 비밀번호 사용"
+                        />
+                      </td>
+                      <td>
+                        {rowSelected ? (
+                          <span className={`initial-onboarding-row-status ${statusClassName}`}>
+                            {rowStatusLabel}
+                          </span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            className="context-empty-state customer-onestop-empty"
+            title="등록 후보가 없습니다."
+            body="공동인증서를 읽거나 파일/폴더를 추가하세요."
           />
-        ) : null}
-        {renderCustomerOnestopCertificateList()}
-        {customerOnestopUploadSummary ? (
+        )}
+        {customerOnestopUploadSummary &&
+        (customerOnestopUploadSummary.warnings.length > 0 ||
+          customerOnestopUploadSummary.rejectedFiles.length > 0) ? (
           <div className="customer-onestop-upload-summary">
             {customerOnestopUploadSummary.warnings.slice(0, 3).map((warning) => (
               <p key={warning}>{warning}</p>
@@ -2750,152 +3484,47 @@ export function CustomersTab(props: CustomersTabProps) {
     );
   };
 
-  const renderCustomerOnestopPasswordStep = () => (
-    <section className="customer-detail-section customer-onestop-section">
-      <div className="customer-detail-section-head">
-        <div>
-          <h3>비밀번호</h3>
-          <p>{customerOnestopSelectedCertificate?.cn || "선택한 인증서"} 확인에만 사용합니다.</p>
-        </div>
-      </div>
-      <label className="customer-onestop-password">
-        공동인증서 비밀번호
-        <input
-          type="password"
-          autoComplete="off"
-          value={customerOnestopPassword}
-          onChange={(event) => setCustomerOnestopPassword(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              confirmCustomerOnestopPassword();
-            }
-          }}
-        />
-      </label>
-      <div className="customer-form-actions">
-        <button type="button" className="btn-secondary" onClick={() => setCustomerOnestopStep("source")}>
-          이전
-        </button>
-        <button type="button" onClick={confirmCustomerOnestopPassword} disabled={props.busyKey !== null || customerOnestopPassword.trim() === ""}>
-          고객 정보 확인
-        </button>
-      </div>
-    </section>
-  );
-
-  const renderCustomerOnestopConfirmStep = () => (
-    <section className="customer-detail-section customer-onestop-section">
-      <div className="customer-detail-section-head">
-        <div>
-          <h3>고객 정보 확인</h3>
-          <p>
-            {customerOnestopExistingCustomer
-              ? `이미 등록된 사업자번호입니다: ${customerOnestopExistingCustomer.corpName || customerOnestopExistingCustomer.customerName}`
-              : customerOnestopMissingFieldLabels.length > 0
-                ? `남은 항목: ${customerOnestopMissingFieldLabels.join(", ")}`
-                : "확인 후 한 번에 실행합니다."}
-          </p>
-        </div>
-      </div>
-      <div className="customer-onestop-form-grid">
-        <label>
-          대표자명
-          <input value={customerOnestopDraft.customerName} onChange={(event) => updateCustomerOnestopDraft("customerName", event.target.value)} />
-        </label>
-        <label>
-          사업자번호
-          <input value={customerOnestopDraft.businessNumber} onChange={(event) => updateCustomerOnestopDraft("businessNumber", event.target.value)} />
-        </label>
-        <label>
-          세금계산서 상호
-          <input value={customerOnestopDraft.corpName} onChange={(event) => updateCustomerOnestopDraft("corpName", event.target.value)} />
-        </label>
-        <label className="wide">
-          주소
-          <input value={customerOnestopDraft.addr} onChange={(event) => updateCustomerOnestopDraft("addr", event.target.value)} />
-        </label>
-        <label>
-          업태
-          <input value={customerOnestopDraft.bizType} onChange={(event) => updateCustomerOnestopDraft("bizType", event.target.value)} />
-        </label>
-        <label>
-          업종
-          <input value={customerOnestopDraft.bizClass} onChange={(event) => updateCustomerOnestopDraft("bizClass", event.target.value)} />
-        </label>
-        <label>
-          고객 연락처
-          <input value={customerOnestopDraft.renewalContactMobile} onChange={(event) => updateCustomerOnestopDraft("renewalContactMobile", event.target.value)} />
-        </label>
-        <label className="wide">
-          메모
-          <textarea rows={3} value={customerOnestopDraft.memo} onChange={(event) => updateCustomerOnestopDraft("memo", event.target.value)} />
-        </label>
-      </div>
-      <div className="customer-create-progress-list" aria-label="고객 정보 입력 상태">
-        {customerOnestopRequiredFieldChecks.map((field) => (
-          <StatusBadge
-            key={field.label}
-            tone={field.done ? "success" : "muted"}
-            icon={false}
-            className={field.done ? "customer-create-progress-chip is-complete" : "customer-create-progress-chip"}
-          >
-            {field.label}
-          </StatusBadge>
-        ))}
-      </div>
-      <div className="customer-form-actions">
-        <button type="button" className="btn-secondary" onClick={() => setCustomerOnestopStep("password")}>
-          이전
-        </button>
-        <button type="button" onClick={executeCustomerOnestopRegistration} disabled={!customerOnestopCanExecute}>
-          등록 실행
-        </button>
-      </div>
-    </section>
-  );
-
   const renderCustomerOnestopResultStep = () => (
     <section className="customer-detail-section customer-onestop-section">
       <div className="customer-detail-section-head">
         <div>
           <h3>등록 결과</h3>
-          <p>{customerOnestopResult?.customer.corpName || customerOnestopResult?.customer.customerName || "결과를 확인하세요."}</p>
+          <p>
+            {customerOnestopResult
+              ? `완료 ${customerOnestopResult.completed}건 · 실패 ${customerOnestopResult.failed}건`
+              : "결과를 확인하세요."}
+          </p>
         </div>
       </div>
       {customerOnestopResult ? (
         <div className="customer-onestop-result-list">
-          {customerOnestopResult.steps.map((step) => (
-            <article key={step.key} className={`customer-onestop-result ${step.status}`}>
-              <span className={getToneBadgeClass(step.status === "success" ? "success" : step.status === "failed" ? "danger" : "default")}>
-                {step.status === "success" ? "완료" : step.status === "failed" ? "실패" : "보류"}
+          {customerOnestopResult.items.map((item) => (
+            <article key={`${item.rowIndex}:${item.status}`} className={`customer-onestop-result ${item.status}`}>
+              <span className={getToneBadgeClass(item.status === "success" ? "success" : "danger")}>
+                {item.status === "success" ? "완료" : "실패"}
               </span>
               <div>
-                <strong>{step.label}</strong>
-                <p>{step.message}</p>
+                <strong>{item.label}</strong>
+                <p>{item.message}</p>
               </div>
             </article>
           ))}
         </div>
       ) : null}
       <div className="customer-form-actions">
+        <button type="button" className="btn-secondary" onClick={() => setCustomerOnestopStep("source")}>
+          목록으로
+        </button>
         <button type="button" className="btn-secondary" onClick={closeDetailPanel}>
           닫기
         </button>
-        {customerOnestopResult?.canRetryPopbillJoin || customerOnestopResult?.canRetryCertificateRegistration ? (
-          <button type="button" onClick={executeCustomerOnestopRegistration} disabled={props.busyKey !== null}>
-            실패 단계 재시도
-          </button>
-        ) : null}
       </div>
     </section>
   );
 
   const renderCustomerOnestopActiveStep = () => {
-    if (customerOnestopStep === "password") return renderCustomerOnestopPasswordStep();
-    if (customerOnestopStep === "confirm") return renderCustomerOnestopConfirmStep();
     if (customerOnestopStep === "result") return renderCustomerOnestopResultStep();
-    return renderCustomerOnestopSourceStep();
+    return renderCustomerOnestopReviewWorkspace();
   };
 
   const renderCreatePanel = () => (
@@ -2907,8 +3536,8 @@ export function CustomersTab(props: CustomersTabProps) {
           <p>전자세금용 공동인증서로 고객 정보를 확인하고 인증서를 연결합니다.</p>
         </div>
         <div className="customer-detail-panel-head-actions">
-          <span className={customerOnestopRequiredCompletedCount === customerOnestopRequiredFieldChecks.length ? getToneBadgeClass("success") : getToneBadgeClass("warn")}>
-            필수 {customerOnestopRequiredCompletedCount}/{customerOnestopRequiredFieldChecks.length}
+          <span className={customerOnestopSelectedCount > 0 ? getToneBadgeClass("success") : getToneBadgeClass("warn")}>
+            선택 {customerOnestopSelectedCount}/{customerOnestopRows.length}
           </span>
           <button type="button" className="btn-secondary" onClick={closeDetailPanel}>
             닫기

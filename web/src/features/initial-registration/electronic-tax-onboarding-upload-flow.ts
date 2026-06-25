@@ -4,7 +4,10 @@ import type {
   CustomerOnboardingTemplateWorkbookInput,
   CustomerOnboardingWorkbookInput
 } from "./customer-onboarding-workbook";
-import type { CustomerOnboardingResolutionResult } from "./electronic-tax-onboarding-resolver";
+import type {
+  CustomerOnboardingPasswordFailureEntry,
+  CustomerOnboardingResolutionResult
+} from "./electronic-tax-onboarding-resolver";
 import { isIssueCapableCustomerCertificateKind } from "../renewal/customerRenewalCertificateUtils";
 
 export type ElectronicTaxOnboardingSessionState = {
@@ -34,10 +37,7 @@ export type ElectronicTaxOnboardingUploadFlowResult = {
   workbook: CustomerOnboardingWorkbookInput | null;
   preview: CustomerOnboardingPreviewResponse | null;
   sessionState: ElectronicTaxOnboardingSessionState;
-  passwordFailureEntries: Array<{
-    key: string;
-    label: string;
-  }>;
+  passwordFailureEntries: CustomerOnboardingPasswordFailureEntry[];
   notice: string;
   error: string;
 };

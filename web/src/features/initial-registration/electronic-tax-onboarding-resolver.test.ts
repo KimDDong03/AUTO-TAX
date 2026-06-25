@@ -373,7 +373,7 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook skips certificates expiring
   assert.match(result.errors[0] ?? "", /만료된 발행 가능 공동인증서/);
 });
 
-test("resolveElectronicTaxOnboardingTemplateWorkbook accepts manually completed upload-session certificates", async () => {
+test("resolveElectronicTaxOnboardingTemplateWorkbook blocks upload-session certificates until NPKI preparation succeeds", async () => {
   let preflightCalled = false;
 
   const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
@@ -414,25 +414,13 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook accepts manually completed 
   });
 
   assert.equal(preflightCalled, false);
-  assert.equal(result.resolvedCertificateCount, 1);
-  assert.equal(result.skippedCertificateCount, 0);
-  assert.deepEqual(result.errors, []);
-  assert.deepEqual(result.workbook.customers[0], {
-    rowIndex: 2,
-    customerName: "김부연",
-    businessNumber: "1234567890",
-    corpName: "김부연 태양광",
-    addr: "전라남도 나주시 빛가람로 1",
-    bizType: "전기업",
-    bizClass: "태양광",
-    renewalContactMobile: "010-1111-2222",
-    memo: ""
-  });
-  assert.equal(result.workbook.plants[0]?.matchAddress, "전라남도 나주시 빛가람로 1");
-  assert.equal(result.workbook.certificates[0]?.certificatePassword, "shared-secret");
+  assert.equal(result.resolvedCertificateCount, 0);
+  assert.equal(result.skippedCertificateCount, 1);
+  assert.equal(result.workbook.customers.length, 0);
+  assert.match(result.errors[0] ?? "", /NPKI 저장소에 반영할 수 없습니다/);
 });
 
-test("resolveElectronicTaxOnboardingTemplateWorkbook asks for manual business info for upload-session certificates", async () => {
+test("resolveElectronicTaxOnboardingTemplateWorkbook does not ask for manual business info before upload-session NPKI preparation", async () => {
   const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
     templateWorkbook: createTemplateWorkbook({
       plants: [
@@ -461,7 +449,8 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook asks for manual business in
 
   assert.equal(result.resolvedCertificateCount, 0);
   assert.equal(result.skippedCertificateCount, 1);
-  assert.match(result.errors[0] ?? "", /이 인증서는 자동조회로 사업자번호를 읽을 수 없습니다/);
+  assert.match(result.errors[0] ?? "", /NPKI 저장소에 반영할 수 없습니다/);
+  assert.doesNotMatch(result.errors[0] ?? "", /자동조회로 사업자번호를 읽을 수 없습니다/);
   assert.doesNotMatch(result.errors[0] ?? "", /추가 HDD 경로/);
 });
 
@@ -625,6 +614,75 @@ test("resolveElectronicTaxOnboardingTemplateWorkbook prepares upload-session cer
   assert.deepEqual(result.errors, []);
   assert.equal(result.workbook.certificates[0]?.certificateIndex, "21");
   assert.equal(result.workbook.customers[0]?.businessNumber, "1234567890");
+});
+
+test("resolveElectronicTaxOnboardingTemplateWorkbook stops before business lookup when upload-session password preparation fails", async () => {
+  let businessInfoBatchCalled = false;
+  let preflightCalled = false;
+
+  const result = await resolveElectronicTaxOnboardingTemplateWorkbook({
+    templateWorkbook: createTemplateWorkbook({
+      plants: [
+        {
+          rowIndex: 2,
+          certificateIndex: "upload-1",
+          certificateName: "김부연()001168820231011111001399",
+          plantName: "김부연 발전소",
+          certificatePassword: "wrong-password"
+        },
+        {
+          rowIndex: 3,
+          certificateIndex: "12",
+          certificateName: "한빛태양광",
+          plantName: "한빛 발전소",
+          certificatePassword: ""
+        }
+      ]
+    }),
+    loadAvailableCertificates: async () => [
+      createCertificate({
+        index: "upload-1",
+        cn: "김부연()001168820231011111001399",
+        serial: "UPLOAD-SERIAL-001",
+        userDN: "CN=김부연()001168820231011111001399",
+        supportsPreflight: false,
+        listSource: "upload-session"
+      } as Partial<RenewalAgentCertificate>),
+      createCertificate({
+        index: "12",
+        cn: "한빛태양광",
+        serial: "SERIAL-012",
+        userDN: "USER-DN-012"
+      })
+    ],
+    resolveSharedPassword: async () => "shared-secret",
+    prepareCertificatesForPreflight: async (requests) => {
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0]?.certificatePassword, "wrong-password");
+      return [
+        {
+          preparedCertificate: null,
+          error: "p12/pfx 인증서 비밀번호가 올바르지 않습니다."
+        }
+      ];
+    },
+    requestBusinessInfoLookupBatch: async () => {
+      businessInfoBatchCalled = true;
+      throw new Error("business lookup should wait until every upload-session certificate is prepared");
+    },
+    requestPreflight: async () => {
+      preflightCalled = true;
+      throw new Error("preflight should wait until every upload-session certificate is prepared");
+    }
+  });
+
+  assert.equal(businessInfoBatchCalled, false);
+  assert.equal(preflightCalled, false);
+  assert.equal(result.resolvedCertificateCount, 0);
+  assert.equal(result.skippedCertificateCount, 1);
+  assert.equal(result.passwordFailureEntries.length, 1);
+  assert.equal(result.passwordFailureEntries[0]?.failedPassword, "wrong-password");
+  assert.match(result.errors[0] ?? "", /p12\/pfx 인증서 비밀번호가 올바르지 않습니다/);
 });
 
 test("resolveElectronicTaxOnboardingTemplateWorkbook includes SignGate preflight detail in skipped row errors", async () => {

@@ -197,8 +197,10 @@ Progress display rules:
 Initial registration workflow:
 
 - Keep the active customer-registration step as one work area: shared password, primary action, target table, and manual certificate source.
+- Reuse this same compact source pattern for certificate-driven customer add in customer management: one visible source row with `공동인증서 읽기`, `파일 추가`, and `폴더 추가`, followed by the same selected-row password and review table behavior.
 - Treat the customer-selection check as the last password-entry surface. After targets are checked, the primary action should read as one initial-registration execution that runs customer reflection and certificate registration in sequence.
 - Hide the shared password field while customer reflection or certificate registration is running; keep progress visible in the active work panel instead of leaving the target table as the main state.
+- After customer reflection and certificate registration are both complete, show a single next-step action that moves to the first mail sync step so operators can clearly see the registration work is finished.
 - Do not repeat the same certificate count across header copy, status cards, notices, and table headings.
 - Use the right-side progress list for overall step position; avoid rendering a second full stepper inside the work panel.
 - Show progress cards only while an operation is running or needs active failure feedback.
@@ -257,15 +259,24 @@ Editable review grids:
 - Keep checkbox columns narrow and centered.
 - Keep internal scrollbars visible but thin, with low-contrast gray tracks and thumbs.
 
-Initial registration review tables:
+Initial registration and customer-add review tables:
 
 - Keep the candidate checklist as one table-first workspace: shared password, primary check/action button, table, and collapsed missing-certificate add action.
+- Reuse this same checklist pattern for certificate-driven customer add. The customer-add screen should not introduce a separate radio-card certificate picker when it is performing the same selection, password, and verification job.
 - Show only the fields the operator needs at selection time: target checkbox, company name, per-row password, and row status.
 - Put whole-table selection in the target-column header checkbox. Do not add separate whole-table select/clear buttons above the table.
 - Keep destructive selected-row deletion outside the table header, aligned to the candidate title/count row, and disable it when nothing is selected.
 - Do not reintroduce separate password-exception panels or status cards for row-level errors.
-- Put correction controls in the affected row: wrong password stays in the password cell, and missing business/address information opens a compact inline correction row below the affected customer.
-- Use row status labels to communicate flow state: unchecked, ready, needs correction, manual input required, blocked, or excluded.
+- Put correction controls in the affected row: wrong password stays in the password cell as a compact error state, changed failed passwords stay as a compact recheck state, and missing business/address information opens a compact inline correction row below the affected customer.
+- Keep table controls in three clear rows: title/count, search plus filter chips, then selected-row actions only when at least one row is selected.
+- Provide compact `전체`, `확인 필요`, and `비밀번호` filter chips beside the search row so large registrations can be reduced to only problem rows or only password rows.
+- Provide inline search across the row width, not squeezed inside the action button group. Search should match customer/certificate-identifying text, narrow only the visible rows, and never mutate the saved selection.
+- Hide selected-row action buttons and shared password input when no rows are selected; showing disabled controls by default makes the review state feel noisy.
+- For password failures, reuse the main top action row for selected-row password application when customers share a corrected password. Do not add a separate password panel, and do not mark those rows ready until the operator runs the check action again.
+- Support spreadsheet-style row selection: dragging rows keeps only the active drag range applied, typing one password in a selected row applies it to the selected visible rows, pasting multiple lines fills visible rows in table order, and `Delete` clears selected-row passwords.
+- Provide a visible selected-row password clear action near the table actions so the keyboard shortcut is never the only way to remove entered passwords.
+- Keep the global review area summary-first. Show issue counts as chips, collapse raw global messages by default, and never print every row-level error below the table.
+- Use row status labels to communicate actionable flow state only: unchecked selected rows, ready, needs correction, manual input required, or blocked. Do not show `excluded`/unselected labels on every unselected row.
 - Keep execution disabled until selected rows with blocking issues have been corrected and checked again.
 
 ## Customer-Facing Terminology
