@@ -197,6 +197,8 @@ Progress display rules:
 Initial registration workflow:
 
 - Keep the active customer-registration step as one work area: shared password, primary action, target table, and manual certificate source.
+- Treat the customer-selection check as the last password-entry surface. After targets are checked, the primary action should read as one initial-registration execution that runs customer reflection and certificate registration in sequence.
+- Hide the shared password field while customer reflection or certificate registration is running; keep progress visible in the active work panel instead of leaving the target table as the main state.
 - Do not repeat the same certificate count across header copy, status cards, notices, and table headings.
 - Use the right-side progress list for overall step position; avoid rendering a second full stepper inside the work panel.
 - Show progress cards only while an operation is running or needs active failure feedback.
@@ -254,6 +256,17 @@ Editable review grids:
 - Use a subtle row tint plus a narrow left selection line instead of a heavy full-row highlight.
 - Keep checkbox columns narrow and centered.
 - Keep internal scrollbars visible but thin, with low-contrast gray tracks and thumbs.
+
+Initial registration review tables:
+
+- Keep the candidate checklist as one table-first workspace: shared password, primary check/action button, table, and collapsed missing-certificate add action.
+- Show only the fields the operator needs at selection time: target checkbox, company name, per-row password, and row status.
+- Put whole-table selection in the target-column header checkbox. Do not add separate whole-table select/clear buttons above the table.
+- Keep destructive selected-row deletion outside the table header, aligned to the candidate title/count row, and disable it when nothing is selected.
+- Do not reintroduce separate password-exception panels or status cards for row-level errors.
+- Put correction controls in the affected row: wrong password stays in the password cell, and missing business/address information opens a compact inline correction row below the affected customer.
+- Use row status labels to communicate flow state: unchecked, ready, needs correction, manual input required, blocked, or excluded.
+- Keep execution disabled until selected rows with blocking issues have been corrected and checked again.
 
 ## Customer-Facing Terminology
 

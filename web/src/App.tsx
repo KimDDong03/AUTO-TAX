@@ -218,6 +218,8 @@ type TopnavTaskNotification = {
 
 const LAZY_CHUNK_RELOAD_KEY = "auto-tax.lazy-chunk-reloaded";
 const ONBOARDING_CERTIFICATE_REGISTRATION_BATCH_SIZE = 5;
+const ONBOARDING_INITIAL_REGISTRATION_JOIN_WAIT_ATTEMPTS = 30;
+const ONBOARDING_INITIAL_REGISTRATION_JOIN_WAIT_MS = 1000;
 
 function chunkItems<T>(items: T[], chunkSize: number): T[][] {
   const size = Math.max(1, chunkSize);
@@ -695,7 +697,8 @@ function OnboardingCertificateAutoRunner({
 
     if (
       busyKey === "customer-onboarding-commit" ||
-      busyKey === "customer-onboarding-cert-registration"
+      busyKey === "customer-onboarding-cert-registration" ||
+      busyKey === "customer-onboarding-initial-registration"
     ) {
       return;
     }
@@ -4396,7 +4399,6 @@ export function App() {
     });
     setCustomerOnboardingWorkbook(null);
     setCustomerOnboardingPreview(null);
-    setCustomerOnboardingPreflightPasswordFailureEntries([]);
     setCustomerOnboardingAttemptedCertificateBusinessNumbers([]);
     setCustomerOnboardingSessionState((prev) => ({
       ...prev,
@@ -7776,13 +7778,16 @@ export function App() {
     window.open(result, "_blank", "noopener,noreferrer");
   };
 
-  const proceedOnboardingCertificateRegistration = async () => {
-    const pendingCustomers = [...pendingOnboardingCertificateRegistrationTargets];
+  const proceedOnboardingCertificateRegistration = async (options?: {
+    pendingCustomers?: Customer[];
+    pendingCertificateCustomers?: Customer[];
+  }) => {
+    const pendingCustomers = [...(options?.pendingCustomers ?? pendingOnboardingCertificateRegistrationTargets)];
     if (pendingCustomers.length === 0) {
       throw new Error("발행 가능 인증서 등록이 필요한 고객이 없습니다.");
     }
     setCustomerOnboardingCertificateRegistrationProgress(null);
-    const skippedBeforeJoinCount = onboardingPendingCertificateCustomers.filter(
+    const skippedBeforeJoinCount = (options?.pendingCertificateCustomers ?? onboardingPendingCertificateCustomers).filter(
       (customer) => customer.popbillState !== "joined"
     ).length;
 
@@ -7820,16 +7825,131 @@ export function App() {
       })
     );
 
-    void load()
-      .then((latestPayload) => {
-        syncCustomerOnboardingCertificateDone(latestPayload);
-      })
-      .catch((error) => {
-        setCustomerOnboardingNotice((previous) => {
-          const refreshWarning = `상태 새로고침 실패: ${getElectronicTaxRegistrationErrorMessage(error, "새로고침 실패")}`;
-          return previous ? `${previous}\n\n${refreshWarning}` : refreshWarning;
-        });
+    try {
+      const latestPayload = await load();
+      syncCustomerOnboardingCertificateDone(latestPayload);
+    } catch (error) {
+      setCustomerOnboardingNotice((previous) => {
+        const refreshWarning = `상태 새로고침 실패: ${getElectronicTaxRegistrationErrorMessage(error, "새로고침 실패")}`;
+        return previous ? `${previous}\n\n${refreshWarning}` : refreshWarning;
       });
+    }
+  };
+
+  const proceedOnboardingInitialRegistration = async () => {
+    if (!customerOnboardingWorkbook) {
+      throw new Error("먼저 공동인증서를 읽고 등록 대상을 확인하세요.");
+    }
+
+    const getLatestInitialRegistrationState = async () => {
+      const latestPayload = await load();
+      const rawTargetBusinessNumbers =
+        customerOnboardingSessionState.targetBusinessNumbers.length > 0
+          ? customerOnboardingSessionState.targetBusinessNumbers
+          : getOnboardingElectronicTaxBusinessNumbers(customerOnboardingWorkbook);
+      const targetBusinessNumbers = filterOnboardingTargetBusinessNumbersToExistingCustomers(
+        latestPayload.customers,
+        rawTargetBusinessNumbers
+      );
+      const joinProgress = buildInitialRegistrationJoinProgress(latestPayload.customers, targetBusinessNumbers);
+      const pendingCertificateCustomers = getOnboardingPendingCertificateCustomers(
+        customerOnboardingWorkbook,
+        latestPayload.customers,
+        targetBusinessNumbers,
+        {
+          customerCertificates: latestPayload.customerCertificates,
+          localCertificates: customerRenewalAssistantAllCertificates
+        }
+      );
+      const registrationTargets = pendingCertificateCustomers.filter(
+        (customer) => customer.popbillState === "joined" && !customer.popbillCertRegistered
+      );
+      const pendingJoinCount = pendingCertificateCustomers.filter((customer) => customer.popbillState === "pending").length;
+      const failedJoinCount = pendingCertificateCustomers.filter((customer) => customer.popbillState === "failed").length;
+      const registrationDone = areOnboardingCustomersJoined(latestPayload.customers, targetBusinessNumbers);
+      const certificateDone = registrationDone && pendingCertificateCustomers.length === 0;
+
+      setCustomerOnboardingSessionState((prev) => ({
+        ...prev,
+        templateDownloaded: true,
+        previewReady: true,
+        commitDone: registrationDone,
+        certificateDone,
+        targetBusinessNumbers
+      }));
+      if (joinProgress) {
+        setCustomerOnboardingJoinProgress(joinProgress);
+      }
+
+      return {
+        latestPayload,
+        targetBusinessNumbers,
+        joinProgress,
+        pendingCertificateCustomers,
+        registrationTargets,
+        pendingJoinCount,
+        failedJoinCount,
+        registrationDone,
+        certificateDone
+      };
+    };
+
+    if (!customerOnboardingSessionState.commitDone) {
+      if (!customerOnboardingPreview) {
+        throw new Error("먼저 선택 고객 확인을 완료하세요.");
+      }
+
+      const importableCount = customerOnboardingPreview.createCount + customerOnboardingPreview.updateCount;
+      if (importableCount === 0) {
+        throw new Error("가져올 수 있는 고객이 없습니다.");
+      }
+
+      await commitCustomerOnboardingWorkbook();
+    }
+
+    let latestState = await getLatestInitialRegistrationState();
+    for (
+      let attempt = 0;
+      !latestState.registrationDone &&
+      latestState.failedJoinCount === 0 &&
+      attempt < ONBOARDING_INITIAL_REGISTRATION_JOIN_WAIT_ATTEMPTS;
+      attempt += 1
+    ) {
+      setCustomerOnboardingNotice(
+        latestState.joinProgress
+          ? `발행 연동 준비 중 ${latestState.joinProgress.completed}/${latestState.joinProgress.total}건`
+          : `발행 연동 처리 대기 ${latestState.pendingJoinCount}건`
+      );
+      await api("/api/customer-onboarding/follow-up/run", {
+        method: "POST",
+        body: JSON.stringify({ limit: 5 })
+      }).catch(() => undefined);
+      await new Promise((resolve) => window.setTimeout(resolve, ONBOARDING_INITIAL_REGISTRATION_JOIN_WAIT_MS));
+      latestState = await getLatestInitialRegistrationState();
+    }
+
+    if (!latestState.registrationDone || latestState.pendingJoinCount > 0 || latestState.failedJoinCount > 0) {
+      setCustomerOnboardingNotice(
+        latestState.failedJoinCount > 0
+          ? `발행 연동 확인이 필요한 고객 ${latestState.failedJoinCount}건이 있습니다. 고객 관리에서 확인 후 다시 실행하세요.`
+          : latestState.joinProgress
+            ? `발행 연동 준비 중 ${latestState.joinProgress.completed}/${latestState.joinProgress.total}건`
+            : `발행 연동 처리 대기 ${latestState.pendingJoinCount}건`
+      );
+      return;
+    }
+
+    if (latestState.registrationTargets.length === 0) {
+      setCustomerOnboardingCertificateRegistrationProgress(null);
+      setCustomerOnboardingNotice("고객 반영과 공동인증서 등록이 완료되었습니다.");
+      syncCustomerOnboardingCertificateDone(latestState.latestPayload);
+      return;
+    }
+
+    await proceedOnboardingCertificateRegistration({
+      pendingCustomers: latestState.registrationTargets,
+      pendingCertificateCustomers: latestState.pendingCertificateCustomers
+    });
   };
   const refreshSingleCustomerCertificateStatus = async (customerId: number) =>
     await api<CustomerSaveResponse>(`/api/customers/${customerId}/popbill/cert-status`, { method: "POST" });
@@ -7853,7 +7973,9 @@ export function App() {
     certificatePendingJoinCount: pendingOnboardingPopbillJoinCustomers.length,
     certificateFailedJoinCount: failedOnboardingPopbillJoinCustomers.length,
     certificateRetryCount: onboardingCertificateRetryCount,
-    certificateRegistrationRunning: busyKey === "customer-onboarding-cert-registration",
+    certificateRegistrationRunning:
+      busyKey === "customer-onboarding-cert-registration" ||
+      busyKey === "customer-onboarding-initial-registration",
     templateDownloaded: customerOnboardingSessionState.templateDownloaded,
     previewReady: customerOnboardingSessionState.previewReady,
     commitDone: onboardingCustomerRegistrationSubmitted,
@@ -7892,19 +8014,6 @@ export function App() {
   const onboardingCertificateAutoTargetCount = pendingOnboardingCertificateRegistrationTargets.length;
   const onboardingPendingPopbillJoinCount = pendingOnboardingPopbillJoinCustomers.length;
   const onboardingFailedPopbillJoinCount = failedOnboardingPopbillJoinCustomers.length;
-  const onboardingCertificatePrimaryActionLabel = !onboardingCustomerRegistrationReady
-    ? "고객 등록 후 가능"
-    : onboardingCertificateAutoTargetCount > 0
-      ? onboardingCertificateRetryCount > 0 && busyKey !== "customer-onboarding-cert-registration"
-        ? "공동인증서 다시 확인"
-        : "공동인증서 등록"
-      : onboardingPendingPopbillJoinCount > 0
-        ? "고객 반영 확인 중"
-        : onboardingFailedPopbillJoinCount > 0
-          ? "고객 반영 확인 필요"
-          : onboardingCertificateReady
-            ? "공동인증서 등록 완료"
-            : "반영 대상 없음";
   const onboardingCertificateActionDisabled =
     busyKey !== null ||
     !onboardingCustomerRegistrationReady ||
@@ -7920,20 +8029,6 @@ export function App() {
         : onboardingCertificateAutoTargetCount === 0
           ? "연결할 공동인증서가 없습니다."
           : undefined;
-  const proceedOnboardingCertificateFollowUpAction = () => {
-    if (onboardingCertificateAutoTargetCount > 0) {
-      void runAction(
-        "customer-onboarding-cert-registration",
-        proceedOnboardingCertificateRegistration,
-        { reload: false }
-      );
-      return;
-    }
-
-    if (onboardingCertificateReady) {
-      setRequestedOnboardingStepId("first-sync");
-    }
-  };
   const openUnmatchedIssuanceMessages = () => {
     setRequestedIssuanceFilter("unmatched");
     setActiveTab("issuance");
@@ -8205,11 +8300,11 @@ export function App() {
         : onboardingRegistrationStage === "download" || onboardingRegistrationStage === "upload"
           ? "대상 선택/확인"
           : onboardingRegistrationStage === "commit"
-            ? "고객 반영"
+            ? "초기 등록 실행"
           : onboardingRegistrationStage === "certificate"
             ? onboardingPendingPopbillJoinCount > 0
               ? "고객 반영 확인 중"
-              : "공동인증서 등록"
+              : "초기 등록 실행"
           : onboardingRegistrationFlow.needsUploadRetry
             ? "재확인"
             : "선택 확인",
@@ -8246,7 +8341,6 @@ export function App() {
           certificatePendingJoinCount={onboardingPendingPopbillJoinCount}
           certificateFailedJoinCount={onboardingFailedPopbillJoinCount}
           certificateRetryCount={onboardingCertificateRetryCount}
-          certificatePrimaryActionLabel={onboardingCertificatePrimaryActionLabel}
           certificateActionDisabled={onboardingCertificateActionDisabled}
           certificateActionTitle={onboardingCertificateActionTitle}
           registrationStage={onboardingRegistrationStage}
@@ -8265,8 +8359,7 @@ export function App() {
           updateCustomerOnboardingChecklistRowsSelection={updateCustomerOnboardingChecklistRowsSelection}
           setCustomerOnboardingChecklistSelection={setCustomerOnboardingChecklistSelection}
           deleteSelectedCustomerOnboardingChecklistRows={deleteSelectedCustomerOnboardingChecklistRows}
-          commitCustomerOnboardingWorkbook={commitCustomerOnboardingWorkbook}
-          proceedOnboardingCertificateFollowUp={proceedOnboardingCertificateFollowUpAction}
+          proceedOnboardingInitialRegistration={proceedOnboardingInitialRegistration}
           setQuickRegisterForm={setQuickRegisterForm}
           selectQuickRegisterMessage={selectQuickRegisterMessage}
           submitQuickRegister={submitQuickRegister}

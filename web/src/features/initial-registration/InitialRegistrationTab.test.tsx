@@ -4,6 +4,7 @@ import {
   buildInitialRegistrationReviewMessages,
   getInitialRegistrationFlowState
 } from "./InitialRegistrationTab";
+import { buildInitialRegistrationCandidateReviewState } from "./initial-registration-review-model";
 
 const baseInput = {
   helperReady: true,
@@ -50,6 +51,16 @@ test("initial registration keeps certificate step locked while customer join is 
   assert.equal(flow.stepItems[2]?.status, "current");
   assert.equal(flow.stepItems[2]?.description, "가입 대기 2건");
   assert.equal(flow.stepItems[3]?.status, "locked");
+});
+
+test("initial registration groups customer commit and certificate registration as one execution step", () => {
+  const flow = getInitialRegistrationFlowState(baseInput);
+
+  assert.equal(flow.stage, "commit");
+  assert.equal(flow.headline, "지금 할 일 · 초기 등록 실행");
+  assert.equal(flow.description, "반영/등록 2건");
+  assert.equal(flow.primaryActionLabel, "초기 등록 실행");
+  assert.equal(flow.stepItems[2]?.title, "초기 등록 실행");
 });
 
 test("initial registration opens certificate step after customers are joined", () => {
@@ -194,4 +205,91 @@ test("initial registration review messages include preview warnings", () => {
   assert.deepEqual(messages, [
     "유학현: 사업장 주소가 없어 고객 등록 후 고객 관리에서 보완하세요."
   ]);
+});
+
+test("initial registration candidate review marks password failures on the matching row", () => {
+  const review = buildInitialRegistrationCandidateReviewState({
+    rows: [
+      {
+        rowIndex: 1,
+        certificateIndex: "10",
+        certificateName: "김수용발전소",
+        certificateKindLabel: "전자세금용",
+        usageName: "",
+        issuerName: "",
+        expireDate: "",
+        certificatePassword: "",
+        plantName: "김수용발전소",
+        selected: true
+      }
+    ],
+    preview: null,
+    error: "",
+    passwordFailureEntries: [
+      {
+        businessNumber: "index:10",
+        customerName: "김수용발전소",
+        corpName: "사전조회 비밀번호 오류",
+        value: ""
+      }
+    ]
+  });
+
+  const row = review.byRowIndex.get(1);
+  assert.equal(review.blockingCount, 1);
+  assert.equal(row?.status, "needs_fix");
+  assert.equal(row?.issues[0]?.code, "password_invalid");
+  assert.equal(row?.issues[0]?.needsPassword, true);
+});
+
+test("initial registration candidate review requires manual info for missing address warnings", () => {
+  const review = buildInitialRegistrationCandidateReviewState({
+    rows: [
+      {
+        rowIndex: 4,
+        certificateIndex: "22",
+        certificateName: "유학현",
+        certificateKindLabel: "전자세금용",
+        usageName: "",
+        issuerName: "",
+        expireDate: "",
+        certificatePassword: "",
+        businessNumber: "1234567890",
+        plantName: "유학현",
+        corpName: "유학현",
+        selected: true
+      }
+    ],
+    preview: {
+      previewId: "preview-1",
+      totalCustomers: 1,
+      createCount: 1,
+      updateCount: 0,
+      blockedCount: 0,
+      totalPlants: 0,
+      totalCertificates: 1,
+      fileErrors: [],
+      rows: [
+        {
+          rowIndex: 4,
+          customerName: "유학현",
+          businessNumber: "1234567890",
+          corpName: "유학현",
+          plantCount: 0,
+          certificateCount: 1,
+          status: "create",
+          errors: [],
+          warnings: ["사업장 주소가 없어 고객 등록 후 고객 관리에서 보완하세요."],
+          canImport: true
+        }
+      ]
+    },
+    error: ""
+  });
+
+  const row = review.byRowIndex.get(4);
+  assert.equal(review.blockingCount, 1);
+  assert.equal(row?.status, "needs_fix");
+  assert.equal(row?.issues[0]?.code, "address_missing");
+  assert.equal(row?.issues[0]?.needsManualInfo, true);
 });

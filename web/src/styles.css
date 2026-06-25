@@ -2285,6 +2285,12 @@ textarea {
   width: auto;
 }
 
+.initial-onboarding-review-table th:nth-child(4),
+.initial-onboarding-review-table td:nth-child(4) {
+  width: 96px;
+  text-align: left;
+}
+
 .initial-onboarding-review-table tr:not(.is-selected) td {
   color: #64748b;
 }
@@ -2362,6 +2368,126 @@ textarea {
   border-color: transparent;
   background: transparent;
   cursor: not-allowed;
+}
+
+.initial-onboarding-review-table input.initial-onboarding-review-password.has-error {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.initial-onboarding-row-status {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid #dbe3ee;
+  border-radius: 3px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.initial-onboarding-row-status.status-ready {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.initial-onboarding-row-status.status-needs_fix,
+.initial-onboarding-row-status.status-manual_required {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.initial-onboarding-row-status.status-blocked {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.initial-onboarding-row-status.status-excluded {
+  color: #94a3b8;
+}
+
+.initial-onboarding-review-table tbody tr.has-review-issues td {
+  border-bottom-color: #fde68a;
+}
+
+.initial-onboarding-review-detail-row td {
+  height: auto;
+  padding: 0 10px 10px 54px;
+  background: #fffbeb;
+  cursor: default;
+}
+
+.initial-onboarding-review-detail {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid #f59e0b;
+  background: #fffdf5;
+}
+
+.initial-onboarding-review-issue-list {
+  display: grid;
+  gap: 6px;
+}
+
+.initial-onboarding-review-issue {
+  display: grid;
+  gap: 2px;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.initial-onboarding-review-issue strong {
+  color: #78350f;
+  font-weight: 800;
+}
+
+.initial-onboarding-review-issue span,
+.initial-onboarding-review-detail-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.initial-onboarding-manual-grid {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(140px, 1fr) minmax(120px, 0.8fr);
+  gap: 8px;
+}
+
+.initial-onboarding-manual-grid label {
+  display: grid;
+  gap: 4px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.initial-onboarding-manual-grid input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #dbe3ee;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.initial-onboarding-manual-grid-wide {
+  grid-column: 1 / -1;
 }
 
 .initial-registration-review-issues {
@@ -35869,6 +35995,27 @@ b {
   border-color: transparent !important;
   background: transparent !important;
   color: #94a3b8 !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-table input.initial-onboarding-review-password.has-error {
+  border-color: #fecaca !important;
+  background: #fef2f2 !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-table .initial-onboarding-manual-grid input,
+.app-shell-topnav .initial-onboarding-review-table .initial-onboarding-manual-grid input:not(:hover):not(:focus):not(:focus-visible) {
+  height: 30px !important;
+  border: 1px solid #dbe3ee !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+  user-select: text !important;
+}
+
+.app-shell-topnav .initial-onboarding-review-table .initial-onboarding-manual-grid input:focus,
+.app-shell-topnav .initial-onboarding-review-table .initial-onboarding-manual-grid input:focus-visible {
+  border-color: #2563eb !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12) !important;
 }
 
 .app-shell-topnav .content-settings .initial-registration-candidate-table-shell .initial-onboarding-review-table tbody input.initial-onboarding-review-password:not(:hover):not(:focus):not(:focus-visible) {

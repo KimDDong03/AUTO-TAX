@@ -11,6 +11,10 @@ import type {
   CustomerOnboardingTemplateWorkbookInput,
   CustomerOnboardingWorkbookInput
 } from "./customer-onboarding-workbook";
+import {
+  getInitialRegistrationCertificateLabel,
+  getInitialRegistrationCertificateOverrideKey
+} from "./initial-registration-review-model";
 
 export type CustomerOnboardingResolutionResult = {
   workbook: CustomerOnboardingWorkbookInput;
@@ -519,25 +523,6 @@ function classifyOnboardingPreflightImportDecision(
   };
 }
 
-function getCustomerOnboardingTemplateCertificateLabel(row: {
-  certificateIndex: string;
-  certificateName: string;
-}) {
-  return row.certificateName.trim() || (row.certificateIndex.trim() ? `인증서 #${row.certificateIndex.trim()}` : "인증서");
-}
-
-function getCustomerOnboardingTemplateCertificateOverrideKey(row: {
-  certificateIndex: string;
-  certificateName: string;
-}) {
-  const normalizedIndex = row.certificateIndex.trim();
-  if (normalizedIndex) {
-    return `index:${normalizedIndex}`;
-  }
-
-  return `name:${normalizeRenewalCertificateKey(row.certificateName)}`;
-}
-
 function findMatchingRenewalCertificateFromList(
   certificates: RenewalAgentCertificate[],
   selection: {
@@ -743,11 +728,11 @@ export async function resolveElectronicTaxOnboardingTemplateWorkbook(
   const electronicTaxSelections: ElectronicTaxSelection[] = [];
 
   for (const plantGroup of plantCertificateGroups) {
-    const certificateLabel = getCustomerOnboardingTemplateCertificateLabel({
+    const certificateLabel = getInitialRegistrationCertificateLabel({
       certificateIndex: plantGroup.certificateIndex,
       certificateName: plantGroup.certificateName
     });
-    const certificateOverrideKey = getCustomerOnboardingTemplateCertificateOverrideKey({
+    const certificateOverrideKey = getInitialRegistrationCertificateOverrideKey({
       certificateIndex: plantGroup.certificateIndex,
       certificateName: plantGroup.certificateName
     });
